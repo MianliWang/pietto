@@ -17,7 +17,15 @@ __all__: tuple[str, ...] = ()
 ALIAS = "s0"
 OPERATORS = {"==": "=", "!=": "<>", "<": "<", "<=": "<=", ">": ">", ">=": ">="}
 LOGICAL = {"and": "AND", "or": "OR"}
-FUNCTIONS = {"count": "COUNT", "min": "MIN", "max": "MAX"}
+# Each admitted aggregate by its Pietto name, with the SQL function it calls.
+FUNCTIONS = {
+    "count": "COUNT",
+    "count_distinct": "COUNT",
+    "min": "MIN",
+    "max": "MAX",
+    "avg": "AVG",
+    "sum": "SUM",
+}
 MAX_INT = 2**63 - 1
 
 
@@ -77,10 +85,13 @@ class SQLiteIsNull:
 
 @dataclass(frozen=True, slots=True)
 class SQLiteAggregate:
-    """`COUNT(*)`, `COUNT(x)`, `MIN(x)` or `MAX(x)`."""
+    """`COUNT(*)`, `COUNT(x)`, `COUNT(DISTINCT x [COLLATE BINARY])`, `MIN(x)`,
+    `MAX(x)`, `AVG(CAST(x AS REAL))` or `SUM(x)`; `function` is the Pietto
+    name, a key of FUNCTIONS."""
 
     function: str
     argument: SQLiteColumn | None
+    collate: bool
     subject: object
 
 
@@ -132,6 +143,7 @@ class SQLiteSelect:
     results: tuple[SQLiteResult, ...]
     where: SQLiteExpression | None
     group_by: tuple[SQLiteKey, ...]
+    having: SQLiteExpression | None
     order_by: tuple[SQLiteKey, ...]
     limit: SQLiteLimit | None
     subject: object
@@ -155,6 +167,7 @@ def size(ast: SQLiteSelect) -> tuple[int, int]:
     roots = [
         *(r.value for r in ast.results),
         *(() if ast.where is None else (ast.where,)),
+        *(() if ast.having is None else (ast.having,)),
         *(k.value for k in (*ast.group_by, *ast.order_by)),
     ]
     nodes = 2 + len(ast.results) + len(ast.group_by) + len(ast.order_by)
@@ -251,11 +264,21 @@ def render(ast: SQLiteSelect) -> tuple[bytes, tuple[Token, ...]]:
             text = " IS NOT NULL" if node.negated else " IS NULL"
             emit(text, "syntax", "operator", node.subject)
         elif type(node) is SQLiteAggregate:
-            emit(node.function + "(", "syntax", "function", node.subject)
+            function = node.function
+            emit(FUNCTIONS[function] + "(", "syntax", "function", node.subject)
             if node.argument is None:
                 emit("*", "syntax", "star", node.subject)
             else:
+                if function == "count_distinct":
+                    emit("DISTINCT ", "syntax", "distinct", node.subject)
+                elif function == "avg":
+                    # The language casts an Int to the target's binary64 first.
+                    emit("CAST(", "syntax", "cast", node.subject)
                 value(node.argument)
+                if node.collate:
+                    emit(" COLLATE BINARY", "syntax", "collate", node.subject)
+                if function == "avg":
+                    emit(" AS REAL)", "syntax", "cast", node.subject)
             emit(")", "syntax", "close", node.subject)
         else:
             raise TypeError(type(node).__name__)
@@ -291,6 +314,9 @@ def render(ast: SQLiteSelect) -> tuple[bytes, tuple[Token, ...]]:
         emit(" WHERE ", "syntax", "clause", ast.subject)
         value(ast.where)
     keys("GROUP BY", ast.group_by)
+    if ast.having is not None:
+        emit(" HAVING ", "syntax", "clause", ast.subject)
+        value(ast.having)
     keys("ORDER BY", ast.order_by)
     if ast.limit is not None:
         emit(" LIMIT ", "syntax", "clause", ast.limit.subject)
@@ -320,6 +346,8 @@ def ast_rules_hold(
         type(k.descending) is not bool for k in ast.order_by
     ):
         return False
+    if ast.having is not None and not ast.group_by:
+        return False  # SQLite runs a HAVING with no GROUP BY; Pietto has none
     if ast.limit is not None and not (
         type(ast.limit) is SQLiteLimit
         and type(ast.limit.value) is int
@@ -334,10 +362,24 @@ def ast_rules_hold(
             return node.number in text_parameters
         return type(node) is SQLiteLiteral and type(node.value) is str
 
+    # HAVING reads only GROUP BY keys and aggregates, never an output alias or
+    # a column outside the keys, which SQLite would read from any row, and no
+    # NOT or null test, which `check` refuses there.
+    grouped = {k.value.field for k in ast.group_by if type(k.value) is SQLiteColumn}
+    having: list[object] = [] if ast.having is None else [ast.having]
+    while having:
+        node = having.pop()
+        if type(node) is SQLiteColumn and node.field not in grouped:
+            return False
+        if type(node) in (SQLiteNot, SQLiteIsNull):
+            return False
+        if type(node) is not SQLiteAggregate:
+            having.extend(_children(node))
     numbers: list[int] = []
     pending: list[Any] = [
         *(r.value for r in ast.results),
         *(() if ast.where is None else (ast.where,)),
+        *(() if ast.having is None else (ast.having,)),
         *(k.value for k in keys),
     ]
     pending.reverse()
@@ -364,8 +406,11 @@ def ast_rules_hold(
             if type(node.negated) is not bool:
                 return False
         elif kind is SQLiteAggregate:
-            if node.function not in FUNCTIONS.values() or (
-                node.argument is None and node.function != "COUNT"
+            if (
+                node.function not in FUNCTIONS
+                or (node.argument is None and node.function != "count")
+                or node.collate
+                is not (node.function == "count_distinct" and text(node.argument))
             ):
                 return False
         elif kind is not SQLiteNot:

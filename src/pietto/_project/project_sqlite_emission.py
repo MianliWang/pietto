@@ -114,7 +114,22 @@ _SHAPES = (
     (("relation_input", "row_filter"), ("final_projection",)),
     (("relation_input", "group_aggregate"), ("final_projection",)),
     (("relation_input", "row_filter"), ("group_aggregate",), ("final_projection",)),
+    (("relation_input", "group_aggregate"), ("result_filter",), ("final_projection",)),
+    (
+        ("relation_input", "row_filter"),
+        ("group_aggregate",),
+        ("result_filter",),
+        ("final_projection",),
+    ),
 )
+# The field types each aggregate reads (rule 10); `count` reads any.
+_ARGUMENTS = {
+    "count_distinct": {"Int", "Text", "Bool"},
+    "min": {"Int", "Float"},
+    "max": {"Int", "Float"},
+    "avg": {"Int"},
+    "sum": {"Int"},
+}
 _RESULTS = ((), ("relation_ordering",), ("limit",), ("relation_ordering", "limit"))
 _FOLD = str.maketrans(
     "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"
@@ -177,6 +192,11 @@ _SUGGESTIONS = {
     ),
     "physical_storage_or_domain_mismatch": (
         "use the SQLite storage and domain of the field's logical type"
+    ),
+    "sum_int_aggregate_range_proof_missing": (
+        "declare an int_range on one side of zero, or keep this sum in"
+        " check/plan: SQLite can fail a sum over values of both signs whose"
+        " result fits"
     ),
 }
 
@@ -340,6 +360,15 @@ class _View:
             id(None)
         }
 
+    def filter(self, role: str) -> Any:
+        """The predicate of the `where` or of the `having`, else None."""
+        found = [
+            f
+            for f in self.plan.filters
+            if getattr(getattr(f.site, "role", None), "value", None) == role
+        ]
+        return self.expression(found[0].predicate) if len(found) == 1 else None
+
     def end(self, ref: Any) -> Any:
         """The source port, group key or aggregate that `ref` carries, else None."""
         seen: set[int] = set()
@@ -379,6 +408,13 @@ class _View:
         kind = type(node)
         if kind is expressions.ProjectSQLReference:
             return self.direct(node) is not None
+        if kind is aggregation.ProjectSQLResultReference:
+            # A `having` or composed output read of a group key or aggregate;
+            # rules 10 and 11 own which aggregates and outputs.
+            return type(self.end(node.port)) in (
+                aggregation.ProjectSQLGroupKey,
+                aggregation.ProjectSQLAggregate,
+            )
         if kind in _LITERALS:
             return literal_text(node.expression.value) is not None
         if kind is expressions.ProjectSQLComparison:
@@ -416,8 +452,8 @@ class _View:
         return found if id(found) in self.selected else None
 
     def roots(self) -> list[Any]:
-        """Each plan value the statement renders, in rendering order: the
-        results, the filter, then each `group by` and `order by` key."""
+        """Each plan value the statement renders: the results, the `where` and
+        `having` filters, then each `group by` and `order by` key."""
         plan = self.plan
         found: list[Any] = []
         for export in plan.exports:
@@ -442,6 +478,8 @@ class _View:
             node, level = pending.pop()
             nodes += 1
             depth = max(depth, level)
+            if type(node) is aggregation.ProjectSQLResultReference:
+                node = self.end(node.port)  # rendered as the key or aggregate
             if type(node) is aggregation.ProjectSQLAggregate:
                 children: tuple[Any, ...] = node.arguments[:1]
             else:
@@ -451,8 +489,7 @@ class _View:
 
 
 class _Rules:
-    """Rules 1-34: at most one blocker per rule, at its first failing site.
-    Rule 35 has no subject while `sum` is refused by rule 10."""
+    """Rules 1-35: at most one blocker per rule, at its first failing site."""
 
     def __init__(self, checked: Any, contract: SQLiteContract, policy: Any) -> None:
         self.found: dict[int, Blocker] = {}
@@ -497,6 +534,7 @@ class _Rules:
         self.evidence()
         for source in self.ordered:
             self.source(source)
+        self.sums()
 
     def fail(
         self,
@@ -543,7 +581,7 @@ class _Rules:
             and len(plan.sources) == 1
             and len(plan.input_uses) == 1
             and operators in _SHAPES
-            and len(plan.filters) == ("row_filter" in flat)
+            and len(plan.filters) == ("row_filter" in flat) + ("result_filter" in flat)
             and len(plan.aggregations) == ("group_aggregate" in flat)
             and results in _RESULTS
             and len(plan.orders) == ("relation_ordering" in results)
@@ -557,7 +595,6 @@ class _Rules:
                     clause
                     for clause in (
                         definition.let_clause,
-                        definition.satisfying_clause,
                         definition.qualify_clause,
                         definition.distinct_clause,
                         *definition.join_clauses,
@@ -618,8 +655,6 @@ class _Rules:
     def values(self) -> None:
         view, sites = self.view, []
         for node in self.plan.expressions:
-            if type(node) is aggregation.ProjectSQLResultReference:
-                continue  # a group key or aggregate; rules 10 and 11 own which
             if type(node.site) in (
                 expressions.ProjectSQLExpressionSite,
                 aggregation.ProjectSQLAggregateSite,
@@ -650,7 +685,7 @@ class _Rules:
                 and (
                     function == "count"
                     or {_type_name(view.ports[f]) for f in fields if f is not None}
-                    <= {"Int", "Float"}
+                    <= _ARGUMENTS[str(function)]
                 )
                 and id(aggregate) in whole
             ):
@@ -894,6 +929,36 @@ class _Rules:
                 if expected is not None and json.loads(premise.value) != expected:
                     self.fail(34, "PIE-B1005", "field_domain_premise_mismatch", *place)
 
+    def sums(self) -> None:
+        """Rule 35: a `sum` reads an `Int` field whose `int_range` lies on one
+        side of zero, so SQLite fails exactly where the exact sum leaves
+        signed 64 bits, and never on a partial sum alone."""
+        if len(self.plan.sources) != 1:
+            return  # rule 6
+        view, sites = self.view, []
+        (source,) = self.plan.sources
+        entries = [s for s in self.contract.sources if s.owner is source.source.owner]
+        fields = {} if len(entries) != 1 else {f.ordinal: f for f in entries[0].fields}
+        for aggregate in self.plan.aggregates:
+            arguments = aggregate.arguments
+            field = None
+            if _function(aggregate) == "sum" and len(arguments) == 1:
+                field = view.direct(view.expression(arguments[0]))
+            if field not in fields:
+                continue
+            representation = fields[field].representation
+            domain = representation["domain"]
+            if (
+                _type_name(view.ports[field]) == "Int"
+                and _fits("Int", representation)  # rule 33 holds
+                and int(domain["min"]) < 0 < int(domain["max"])
+            ):
+                call = getattr(aggregate.source, "call", None)
+                sites.append(
+                    (aggregate.ref, self.statement if call is None else call.span)
+                )
+        self.first(35, "PIE-B1004", "sum_int_aggregate_range_proof_missing", sites)
+
 
 def _entry(artifact_contract: SQLiteContract, plan: Any) -> Any:
     (source,) = plan.sources
@@ -907,19 +972,31 @@ def _expected_ast(plan: Any, contract: SQLiteContract) -> SQLiteSelect:
     view, entry = _View(plan), _entry(contract, plan)
     numbers: dict[int, int] = {}
 
-    def aggregate(found: Any) -> SQLiteAggregate:
-        argument = None
+    def aggregate(found: Any, subject: Any) -> SQLiteAggregate:
+        function, argument = str(_function(found)), None
+        assert function in FUNCTIONS
         if found.arguments:
             read = view.expression(found.arguments[0])
             field = view.direct(read)
             assert field is not None
             argument = SQLiteColumn(field, read.ref)
-        return SQLiteAggregate(FUNCTIONS[str(_function(found))], argument, found.ref)
+        collate = function == "count_distinct" and text(argument)
+        return SQLiteAggregate(function, argument, collate, subject)
 
     def value(node: Any) -> Any:
         kind = type(node)
         if kind is aggregation.ProjectSQLAggregate:
-            return aggregate(node)
+            return aggregate(node, node.ref)
+        if kind is aggregation.ProjectSQLResultReference:
+            # A `having` read of a selected key or aggregate, written as that
+            # key or aggregate, never as its output alias.
+            found = view.end(node.port)
+            if type(found) is aggregation.ProjectSQLAggregate:
+                return aggregate(found, node.ref)
+            assert type(found) is aggregation.ProjectSQLGroupKey
+            field = view.field(found.input)
+            assert field is not None
+            return SQLiteColumn(field, node.ref)
         if kind is aggregation.ProjectSQLGroupKey:
             field = view.field(node.input)
             assert field is not None
@@ -969,11 +1046,14 @@ def _expected_ast(plan: Any, contract: SQLiteContract) -> SQLiteSelect:
         results.append(
             SQLiteResult(value(node), export.identity.name, subject, export.ref)
         )
-    where = value(view.expression(plan.filters[0].predicate)) if plan.filters else None
+    where = view.filter("where")
+    where = None if where is None else value(where)
     group_by = []
     for key in plan.group_keys:
         column = value(key)
         group_by.append(SQLiteKey(column, text(column), None, key.ref))
+    having = view.filter("satisfying")
+    having = None if having is None else value(having)
     order_by = []
     for item in plan.order_items:
         found = view.key(item)
@@ -995,6 +1075,7 @@ def _expected_ast(plan: Any, contract: SQLiteContract) -> SQLiteSelect:
         tuple(results),
         where,
         tuple(group_by),
+        having,
         tuple(order_by),
         limit,
         plan.scope,
@@ -1031,6 +1112,7 @@ def _parameters(ast: SQLiteSelect) -> list[SQLiteParameter]:
     pending: list[Any] = [
         *(r.value for r in ast.results),
         *(() if ast.where is None else (ast.where,)),
+        *(() if ast.having is None else (ast.having,)),
     ]
     pending.reverse()
     while pending:
@@ -1108,12 +1190,15 @@ def _columns(artifact: SQLiteArtifact) -> list[dict[str, Any]]:
                 projection = view.projections[export.ref]
                 correspondence["input_port"] = _ref(projection.input_port)
         elif type(value) is SQLiteAggregate:
-            if value.function == "COUNT":
+            assert tag is not None
+            if value.function in ("count", "count_distinct"):
                 storage, domain = "sqlite_integer", _int_range(0, MAX_INT)
-            else:
+            elif value.function in ("min", "max"):
                 assert value.argument is not None
                 read = fields[value.argument.field].representation
                 storage, domain = read["storage"]["kind"], read["domain"]
+            else:  # avg is a Float and sum an Int over the widest domain
+                storage, domain = STORAGES[tag], _domain(tag)
             representation = {
                 "storage": {"kind": storage},
                 "nullable": nullable,

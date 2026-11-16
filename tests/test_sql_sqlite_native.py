@@ -279,7 +279,51 @@ _ALIASED_SCHEMA = (
     "CREATE TABLE `t``x y` (`i``d` INTEGER NOT NULL, `N space` INTEGER, "
     '`\u00e9"q` TEXT, `select` INTEGER, `n` REAL) STRICT'
 )
+
+
+def _n_rows(*pairs: tuple[int | None, int | None]) -> tuple[tuple[object, ...], ...]:
+    """Rows of `t` that set only `id`, from 1, and each `(n, b)` pair."""
+
+    return tuple((i, n, None, b, None) for i, (n, b) in enumerate(pairs, 1))
+
+
+# The T2 fixtures (S10): `avg` over values that cancel, and one-sided `sum`
+# values at and past the signed 64-bit bounds; the two `sum-mixed` tables
+# break the non-negative `int_range` their contract declares on purpose.
+_T2_FIXTURES: dict[str, tuple[str, str, tuple[tuple[object, ...], ...]]] = {
+    "cancel": (
+        "t",
+        _SCHEMA,
+        _n_rows((1, 0), (2**53, 0), (-(2**53), 0), (2**53, 1), (1, 1), (1, 1)),
+    ),
+    "sum-up": (
+        "t",
+        _SCHEMA,
+        _n_rows(
+            (INT_MAX - 7, 1), (3, 1), (4, 1), (None, 1), (0, 0), (5, 0), (None, None)
+        ),
+    ),
+    "sum-down": (
+        "t",
+        _SCHEMA,
+        _n_rows((INT_MIN + 7, 1), (-3, 1), (-4, 1), (None, 1), (0, 0)),
+    ),
+    "sum-over": ("t", _SCHEMA, _n_rows((INT_MAX, 1), (1, 1))),
+    "sum-under": ("t", _SCHEMA, _n_rows((INT_MIN, 1), (-1, 1))),
+    "sum-mixed": ("t", _SCHEMA, _n_rows((INT_MAX, 1), (1, 1), (-1, 1))),
+    "sum-mixed-reversed": ("t", _SCHEMA, _n_rows((-1, 1), (1, 1), (INT_MAX, 1))),
+}
+# The `int_range` of `n` that a project contract declares for a fixture.
+_N_RANGES = {
+    "sum-up": (0, INT_MAX),
+    "sum-over": (0, INT_MAX),
+    "sum-mixed": (0, INT_MAX),
+    "sum-mixed-reversed": (0, INT_MAX),
+    "sum-down": (INT_MIN, 0),
+    "sum-under": (INT_MIN, 0),
+}
 _FIXTURES: dict[str, tuple[str, str, tuple[tuple[object, ...], ...]]] = {
+    **_T2_FIXTURES,
     "rows": ("t", _SCHEMA, _ROWS),
     "bool-pairs": ("t", _PAIR_SCHEMA, _PAIRS),
     "nocase": ("t", _SCHEMA.replace("`s` TEXT", "`s` TEXT COLLATE NOCASE"), _ROWS),
@@ -944,7 +988,185 @@ def _python_cells() -> tuple[_Cell, ...]:
 
 
 _LAW_CELLS = _MATRIX + _oracle_cells() + _python_cells()
-_CELLS = _LAW_CELLS + _PREMISES
+
+
+def _values(fixture: str, field: str, b: object) -> list[object]:
+    """`field` of each row of `fixture` in the `group by b` group `b`."""
+
+    _table, _schema, rows = _FIXTURES[fixture]
+    at, key = tuple(_TYPES).index(field), tuple(_TYPES).index("b")
+    return [row[at] for row in rows if row[key] == b]
+
+
+def _avg(values: Sequence[object]) -> float | None:
+    """`avg` of an Int field: compensated summation divided by the count,
+    which SQLite's `AVG(CAST(x AS REAL))` equalled in every S05 case. Plain
+    left-to-right summation is no oracle: it differs in the last bits, or more
+    when values cancel (the lead's `avg` ruling under PL.47)."""
+
+    present = [float(value) for value in values if isinstance(value, int)]
+    return math.fsum(present) / len(present) if present else None
+
+
+# The T2 forms (PL.47, S10), each cell run as a single file and as a project
+# module. They stay out of `_LAW_CELLS`, whose PostgreSQL replay
+# `postgres_replay_v1.json` binds, until R1 replays them. Each comparisons
+# cell writes HAVING's six comparisons of one type with `and` and `or`; an
+# output named like a column (`n`, `x`) or `TRUE` would change the result if
+# HAVING read an output alias or a Bool literal as a name.
+_T2_CELLS: tuple[_Cell, ...] = (
+    _Cell(
+        "t2-count-distinct-every-type",
+        _q(
+            _b(
+                "select",
+                *(f"d{f} = count_distinct({f})" for f in ("id", "n", "s", "b")),
+            )
+        ),
+        ("did", "dn", "ds", "db"),
+        ((9, 5, 7, 2),),
+        False,
+    ),
+    _Cell(
+        "t2-count-distinct-grouped-ordered",
+        _q(
+            _b("group by", "b"),
+            _b("select", "b", "ds = count_distinct(s)"),
+            _b("order by", "ds desc", "b"),
+        ),
+        ("b", "ds"),
+        ((1, 3), (0, 2), (None, 2)),
+        True,
+    ),
+    _Cell(
+        "t2-avg-int-grouped",
+        _q(_b("group by", "b"), _b("select", "b", "a = avg(n)", "e = avg(id)")),
+        ("b", "a", "e"),
+        tuple(
+            (b, _avg(_values("rows", "n", b)), _avg(_values("rows", "id", b)))
+            for b in (1, 0, None)
+        ),
+        False,
+    ),
+    _Cell(
+        "t2-avg-int-cancelling",
+        _q(_b("group by", "b"), _b("select", "b", "a = avg(n)")),
+        ("b", "a"),
+        tuple((b, _avg(_values("cancel", "n", b))) for b in (0, 1)),
+        False,
+        "cancel",
+    ),
+    _Cell(
+        "t2-empty-input",
+        _q(
+            "where id > 100",
+            _b("select", "a = avg(n)", "d = count_distinct(s)", "c = count()"),
+        ),
+        ("a", "d", "c"),
+        ((None, 0, 0),),
+        False,
+    ),
+    _Cell(
+        "t2-all-null-input",
+        _q("where n is None", _b("select", "a = avg(n)", "d = count_distinct(n)")),
+        ("a", "d"),
+        ((None, 0),),
+        False,
+    ),
+    _Cell(
+        "t2-having-outputs-named-like-columns",
+        _q(
+            _b("group by", "s"),
+            _b("select", "s", "n = count()", "x = max(id)"),
+            "having n > 1 or x == 9",
+        ),
+        ("s", "n", "x"),
+        (("\u4e2d", 2, 7), ("", 1, 9)),
+        False,
+    ),
+    _Cell(
+        "t2-having-int-comparisons",
+        _q(
+            _b("group by", "b"),
+            _b("select", "b", "c = count()"),
+            "having c == 4 or c != 3 and c < 4 or c <= 2 and c > 1 and c >= 2",
+        ),
+        ("b", "c"),
+        ((1, 4), (None, 2)),
+        False,
+    ),
+    _Cell(
+        "t2-having-float-comparisons",
+        _q(
+            _b("group by", "b"),
+            _b("select", "b", "hi = max(x)"),
+            "having hi == 2.5 or hi != 2.5 and hi > 1.0 and hi < 100.0"
+            " or hi <= 0.0 and hi >= 0.0",
+        ),
+        ("b", "hi"),
+        ((1, 2.5), (None, 0.0)),
+        False,
+    ),
+    _Cell(
+        "t2-having-text-comparisons",
+        _q(
+            _b("group by", "s"),
+            _b("select", "s", "c = count()"),
+            'having s == "a" or s != "A" and s < "b"'
+            ' or s <= "" and s > "x" and s >= ""',
+        ),
+        ("s", "c"),
+        (("a", 1), ("", 1)),
+        False,
+    ),
+    _Cell(
+        "t2-having-bool-comparisons",
+        _q(
+            _b("group by", "b"),
+            _b("select", "b", "c = count()"),
+            "having b == True or b != True and b < True"
+            " or b <= False and b > False and b >= False",
+        ),
+        ("b", "c"),
+        ((1, 4), (0, 3)),
+        False,
+    ),
+    _Cell(
+        "t2-having-bool-literal-beside-an-output-named-true",
+        _q(
+            _b("group by", "b"), _b("select", "b", "TRUE = count()"), "having b == True"
+        ),
+        ("b", "TRUE"),
+        ((1, 4),),
+        False,
+    ),
+    _Cell(
+        "t2-having-avg-and-count-distinct",
+        _q(
+            _b("group by", "b"),
+            _b("select", "b", "a = avg(id)", "d = count_distinct(s)"),
+            "having a > 5.4 or d == 3",
+        ),
+        ("b", "a", "d"),
+        ((1, 4.5, 3), (None, 5.5, 2)),
+        False,
+    ),
+    _Cell(
+        "t2-having-where-order-limit",
+        _q(
+            "where x is not None",
+            _b("group by", "b"),
+            _b("select", "b", "c = count()"),
+            "having c > 1",
+            _b("order by", "c desc"),
+            "limit 1",
+        ),
+        ("b", "c"),
+        ((1, 4),),
+        True,
+    ),
+)
+_CELLS = _LAW_CELLS + _PREMISES + _T2_CELLS
 
 # Query parameters of each type with their arguments; -0.0 keeps its sign.
 _PARAMETERS = (("n", 7), ("s", "a"), ("b", True), ("x", -0.0))
@@ -1110,14 +1332,83 @@ _ALIASED_CELLS = (
     ),
 )
 
-# Project cells (PL.47): each single-file law cell's program as a project
-# module, with the same oracle, and the parameter cells. Project SQL writes
+# Project-only T2 cells (PL.47): `sum` of an Int over a one-sided
+# `int_range`, at the bounds, in HAVING and ORDER BY and over no rows, and
+# HAVING with a query parameter of each type.
+_PROJECT_T2_CELLS = (
+    _Cell(
+        "project-t2-sum-up-to-the-bound",
+        _q(_b("group by", "b"), _b("select", "b", "s = sum(n)", "c = count(n)")),
+        ("b", "s", "c"),
+        ((1, INT_MAX, 3), (0, 5, 2), (None, None, 0)),
+        False,
+        "sum-up",
+        arguments=(),
+    ),
+    _Cell(
+        "project-t2-sum-down-to-the-bound",
+        _q(_b("group by", "b"), _b("select", "b", "s = sum(n)")),
+        ("b", "s"),
+        ((1, INT_MIN), (0, 0)),
+        False,
+        "sum-down",
+        arguments=(),
+    ),
+    _Cell(
+        "project-t2-sum-having-order",
+        _q(
+            _b("group by", "b"),
+            _b("select", "b", "s = sum(n)"),
+            "having s > 0",
+            _b("order by", "s desc"),
+        ),
+        ("b", "s"),
+        ((1, INT_MAX), (0, 5)),
+        True,
+        "sum-up",
+        arguments=(),
+    ),
+    _Cell(
+        "project-t2-sum-empty-input",
+        _q("where id > 100", _b("select", "s = sum(n)")),
+        ("s",),
+        ((None,),),
+        False,
+        "sum-up",
+        arguments=(),
+    ),
+    _Cell(
+        "project-t2-having-parameters",
+        _q(
+            _b("group by", "s", "b"),
+            _b("select", "s", "b", "c = count()", "hi = max(x)"),
+            "having c >= i and s != w and hi > f or b == k",
+            parameters="(i: Int, w: Text, f: Float, k: Bool)",
+        ),
+        ("s", "b", "c", "hi"),
+        (
+            ("A", 0, 1, 1e300),
+            (None, 0, 1, None),
+            ("\u4e2d", 1, 2, 2.5),
+            ("", 0, 1, 1.0),
+        ),
+        False,
+        arguments=(2, "a", 0.0, False),
+    ),
+)
+
+# Project cells (PL.47): each single-file law and T2 cell's program as a
+# project module, with the same oracle, and the parameter cells. Project SQL writes
 # `COLLATE BINARY` where single files assume it, so each of these that reads
 # `s` runs again on the `nocase` fixture with the same oracle; the `Bool` and
 # `REAL` premise controls keep their meaning, as the contract assumes them.
 _PROJECT_LAW_CELLS = (
-    *(replace(cell, name=f"project-{cell.name}", arguments=()) for cell in _LAW_CELLS),
+    *(
+        replace(cell, name=f"project-{cell.name}", arguments=())
+        for cell in (*_LAW_CELLS, *_T2_CELLS)
+    ),
     *_parameter_cells(),
+    *_PROJECT_T2_CELLS,
 )
 _PROJECT_CELLS = (
     *_PROJECT_LAW_CELLS,
@@ -1171,6 +1462,10 @@ def _project_source(fixture: str) -> dict[str, Any]:
         (column, _COLUMN_TYPES[column], column != "id") for column in columns
     )
     entry = project_files.source_entry("t", fields)
+    if fixture in _N_RANGES:
+        low, high = _N_RANGES[fixture]
+        domain = entry["fields"][1]["representation"]["domain"]
+        domain.update(min=str(low), max=str(high))
     if fixture.startswith("aliased"):
         entry["relation"]["name"] = _ALIASED_TABLE
         for field, column in zip(entry["fields"], _ALIASED_COLUMNS, strict=True):
@@ -1312,6 +1607,50 @@ def test_each_project_cell_matches_its_prewritten_oracle(
         [cell.program, cell.fixture, sql, repr(parameters), repr(record.rows)],
     )
     _judge(cell, sql, record, parameters)
+
+
+_OVERFLOW = ("OperationalError", 1, "SQLITE_ERROR", "integer overflow")
+
+
+@pytest.mark.parametrize(
+    ("fixture", "expected"),
+    [
+        ("sum-over", _OVERFLOW),
+        ("sum-under", _OVERFLOW),
+        ("sum-mixed", _OVERFLOW),
+        ("sum-mixed-reversed", ("rows", repr(((INT_MAX,),)))),
+    ],
+)
+def test_a_one_sided_sum_fails_exactly_outside_signed_64_bits(
+    fixture: str,
+    expected: tuple[object, ...],
+    native: _Native,
+    project_emit: Callable[[_Cell], adapter.SQLiteArtifact],
+) -> None:
+    """Rule 35's `sum` cells (PL.47): over one sign SQLite fails exactly
+    when the result leaves signed 64 bits, where PostgreSQL's exact sum
+    raises SQLSTATE 22003. The `sum-mixed` premise controls break the declared
+    non-negative range: the exact sum fits in both scan orders, yet SQLite
+    fails in one and not in the other, so a mixed range stays refused."""
+
+    program = _q(_b("select", "s = sum(n)"))
+    cell = _Cell(
+        f"project-t2-{fixture}", program, ("s",), (), False, fixture, arguments=()
+    )
+    sql = project_emit(cell).sql.decode("utf-8")
+    if not native.qualified:
+        return
+    try:
+        observed: tuple[object, ...] = ("rows", repr(_run(fixture, sql).rows))
+    except sqlite3.Error as error:
+        observed = (
+            type(error).__name__,
+            error.sqlite_errorcode,
+            error.sqlite_errorname,
+            str(error),
+        )
+    native.observe("sum_order", [program, fixture, sql, list(observed)])
+    assert observed == expected
 
 
 _GOLDEN = {
@@ -1832,18 +2171,34 @@ def test_each_single_where_oracle_agrees_with_python() -> None:
         assert Counter(cell.rows) == Counter(expected), cell.name
 
 
-_SECTION = re.compile(r"\n(FROM|WHERE|GROUP BY|ORDER BY|LIMIT)\b")
+_SECTION = re.compile(r"\n(FROM|WHERE|GROUP BY|HAVING|ORDER BY|LIMIT)\b")
 _TEXT_LITERAL = re.compile(r"'(?:[^']|'')*'")
-_AGGREGATE = re.compile(r"\b(COUNT|MIN|MAX)\((\*|`t`\.`(\w+)`)\)")
+_AGGREGATE = re.compile(
+    r"\b(COUNT|MIN|MAX|AVG)\((DISTINCT |CAST\()?(\*|`t`\.`(\w+)`)(?: AS REAL\))?\)"
+)
 _COLUMN = re.compile(r"`t`\.`(\w+)`")
 _FLOAT = re.compile(r"(?<![\w.`])\d+(?:\.\d+(?:e[+-]\d+)?|e[+-]\d+)(?![\w.`])")
 _INT = re.compile(r"(?<![\w.`])\d+(?![\w.`])")
-_OPERAND = r"`t`\.`\w+`|'\?'|TRUE|FALSE|\d+(?:\.\d+)?(?:e[+-]\d+)?"
+# `@<type>` stands for an aggregate of that result type.
+_OPERAND = r"`t`\.`\w+`|@\w+|'\?'|TRUE|FALSE|\d+(?:\.\d+)?(?:e[+-]\d+)?"
 _COMPARISON = re.compile(rf"({_OPERAND}) (<>|<=|>=|=|<|>) ({_OPERAND})")
 _NULL_TEST = re.compile(r"(`t`\.`\w+`) (IS NOT NULL|IS NULL)")
 
 
+def _aggregate_form(match: re.Match[str]) -> tuple[str, str]:
+    """An aggregate's form, its name and argument type, and its result type."""
+
+    function, prefix, _argument, column = match.groups()
+    name = "count_distinct" if prefix == "DISTINCT " else function.lower()
+    assert (name == "avg") is (prefix == "CAST("), match[0]
+    argument = _COLUMN_TYPES[column] if column else "*"
+    result = {"count": "Int", "count_distinct": "Int", "avg": "Float"}.get(name)
+    return f"{name} {argument}", result or argument
+
+
 def _operand_type(operand: str) -> str:
+    if operand.startswith("@"):
+        return operand[1:]
     column = _COLUMN.fullmatch(operand)
     if column is not None:
         return _COLUMN_TYPES[column[1]]
@@ -1863,26 +2218,39 @@ def _forms(sql: str) -> set[str]:
     forms = {"limit"} if "LIMIT" in clauses else set()
     for clause, text in clauses.items():
         name = clause.lower()
-        for function, _argument, column in _AGGREGATE.findall(text):
-            forms.add(f"{function.lower()} {_COLUMN_TYPES[column] if column else '*'}")
-            if clause == "ORDER BY":
-                forms.add("order by aggregate")
+        for match in _AGGREGATE.finditer(text):
+            forms.add(_aggregate_form(match)[0])
+            if clause in ("ORDER BY", "HAVING"):
+                forms.add(f"{name} aggregate")
         for column in _COLUMN.findall(_AGGREGATE.sub("", text)):
             forms.add(f"{name} {_COLUMN_TYPES[column]}")
         if clause == "ORDER BY":
             for column, direction in _ORDER_KEY.findall(text):
                 forms.add(f"order by {_COLUMN_TYPES[column]} {direction}")
-        if clause not in ("SELECT", "WHERE"):
+        if clause not in ("SELECT", "WHERE", "HAVING"):
             continue
         for literal, pattern in (("Float", _FLOAT), ("Int", _INT)):
-            if pattern.search(_FLOAT.sub("", text) if literal == "Int" else text):
+            if clause != "HAVING" and pattern.search(
+                _FLOAT.sub("", text) if literal == "Int" else text
+            ):
                 forms.add(f"literal {literal}")
         if "'?'" in text:
             forms.add("literal Text")
         if re.search(r"\b(TRUE|FALSE)\b", text):
             forms.add("literal Bool")
-        for left, comparison, right in _COMPARISON.findall(text):
+        typed = _AGGREGATE.sub(lambda match: "@" + _aggregate_form(match)[1], text)
+        for left, comparison, right in _COMPARISON.findall(typed):
             kinds = {_operand_type(left), _operand_type(right)}
+            if (
+                name == "having"
+                and kinds == {"Bool", "Int"}
+                and {left, right}
+                & {
+                    "0",
+                    "1",
+                }
+            ):
+                kinds = {"Bool"}  # HAVING writes a Bool literal as 1 or 0
             assert len(kinds) == 1, sql
             forms.add(f"{name} {kinds.pop()} {comparison}")
         for operand, test in _NULL_TEST.findall(text):
@@ -1915,7 +2283,19 @@ _REQUIRED_FORMS = {
         for function in sqlite_relations._EXTREMA.values()
         for kind in sorted(sqlite_relations._EXTREMA_TYPES)
     ),
+    *(f"count_distinct {kind}" for kind in sorted(sqlite_relations._DISTINCT_TYPES)),
+    "avg Int",
     "order by aggregate",
+    "having aggregate",
+    *(
+        f"having {kind} {test}"
+        for kind in _KINDS
+        for test in sqlite_relations._COMPARISONS.values()
+    ),
+    *(
+        f"having Bool {connective}"
+        for connective in sqlite_relations._CONNECTIVES.values()
+    ),
     "limit",
     *(f"literal {kind}" for kind in _KINDS),
     *(
@@ -1971,6 +2351,9 @@ def _project_forms(artifact: adapter.SQLiteArtifact) -> set[str]:
     def kind(node: object) -> str:
         if isinstance(node, _PREDICATES):
             return "Bool"
+        if type(node) is adapter_sql.SQLiteAggregate:
+            results = {"count": "Int", "count_distinct": "Int", "avg": "Float"}
+            return results.get(node.function) or kind(node.argument)
         if type(node) is adapter_sql.SQLiteColumn:
             return _COLUMN_TYPES[ast.columns[node.field]]
         if type(node) is adapter_sql.SQLiteParameter:
@@ -1981,7 +2364,11 @@ def _project_forms(artifact: adapter.SQLiteArtifact) -> set[str]:
     def walk(node: object, clause: str) -> None:
         if type(node) is adapter_sql.SQLiteAggregate:
             argument = "*" if node.argument is None else kind(node.argument)
-            forms.add(f"{node.function.lower()} {argument}")
+            text = node.function == "count_distinct" and argument == "Text"
+            assert node.collate is text, node
+            forms.add(f"{node.function} {argument}")
+            if clause == "having":
+                forms.add("having aggregate")
             return
         if type(node) is adapter_sql.SQLiteLiteral:
             forms.add(f"literal {kind(node)}")
@@ -2011,6 +2398,8 @@ def _project_forms(artifact: adapter.SQLiteArtifact) -> set[str]:
         walk(result.value, "select")
     if ast.where is not None:
         walk(ast.where, "where")
+    if ast.having is not None:
+        walk(ast.having, "having")
     for clause, keys in (("group by", ast.group_by), ("order by", ast.order_by)):
         for key in keys:
             walk(key.value, clause)
@@ -2027,7 +2416,8 @@ def _project_forms(artifact: adapter.SQLiteArtifact) -> set[str]:
 
 # The adapter's own vocabulary (PL.47): its value types, operators,
 # connectives, aggregate functions and key directions, and a query parameter
-# of each type in `select` and `where`, each per clause and type.
+# of each type in `select`, `where` and `having`, each per clause and type;
+# HAVING has no `not` or null test, which `check` refuses there (PIE-S2327).
 _PROJECT_FORMS = {
     *(
         f"{clause} {kind}"
@@ -2036,18 +2426,24 @@ _PROJECT_FORMS = {
     ),
     *(
         f"{clause} parameter {kind}"
-        for clause in ("select", "where")
+        for clause in ("select", "where", "having")
         for kind in adapter.TYPES
     ),
     *(f"count {kind}" for kind in ("*", *adapter.TYPES)),
-    # Rule 10 admits min and max of an Int or Float field.
+    # Rule 10 admits each other aggregate over the field types it reads.
     *(
         f"{function} {kind}"
-        for function in adapter_sql.FUNCTIONS
-        if function != "count"
-        for kind in ("Int", "Float")
+        for function, kinds in adapter._ARGUMENTS.items()
+        for kind in sorted(kinds)
     ),
     "order by aggregate",
+    "having aggregate",
+    *(
+        f"having {kind} {test}"
+        for kind in adapter.TYPES
+        for test in adapter_sql.OPERATORS.values()
+    ),
+    *(f"having Bool {connective}" for connective in adapter_sql.LOGICAL.values()),
     "limit",
     *(f"literal {kind}" for kind in adapter.TYPES),
     *(
@@ -2072,7 +2468,7 @@ _PROJECT_FORMS = {
 def test_every_emitted_form_has_a_native_cell(
     project_emit: Callable[[_Cell], adapter.SQLiteArtifact],
 ) -> None:
-    assert _missing_forms(_LAW_CELLS) == set()
+    assert _missing_forms((*_LAW_CELLS, *_T2_CELLS)) == set()
     artifacts = (project_emit(cell) for cell in _PROJECT_LAW_CELLS)
     assert _PROJECT_FORMS - set().union(*map(_project_forms, artifacts)) == set()
     for cell in _ALIASED_CELLS:

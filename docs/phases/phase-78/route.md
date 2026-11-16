@@ -671,8 +671,8 @@ user-local CPython 3.12.13 on Linux x86-64 (glibc 2.43):
 - **`avg` rounding.** SQLite's `AVG(CAST(x AS REAL))` uses compensated
   summation. S05 found this within the existing rules, which leave the
   summation of a binary64 average to the target, and recommended that the lead
-  decide it and inform the owner, as for the NULL order; the lead's ruling is
-  pending (specification open items).
+  decide it and inform the owner, as for the NULL order; the lead ruled it
+  within those rules (the specification's differences table).
 
 ### B2 decisions adopted
 

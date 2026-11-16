@@ -112,11 +112,6 @@ def test_json_cli_matches_the_structural_v1_golden(
             f"{NO}window yet",
         ),
         (
-            "query q:\n    from users\n    group by:\n        active\n"
-            "    select:\n        active\n        n = count()\n    having n > 1\n",
-            f"{NO}having yet",
-        ),
-        (
             "query q:\n    from users\n    select:\n        id > 1\n",
             "SQLite single-file SQL needs a name for each output",
         ),
@@ -213,12 +208,12 @@ def test_json_cli_matches_the_structural_v1_golden(
             f"{NO}aggregate sum yet",
         ),
         (
-            "query q:\n    from users\n    select:\n        n = count_distinct(name)\n",
-            f"{NO}aggregate count_distinct yet",
+            "query q:\n    from users\n    select:\n        n = count_distinct(score)\n",
+            "SQLite aggregate count_distinct supports only Int, Text and Bool fields",
         ),
         (
-            "query q:\n    from users\n    select:\n        a = avg(id)\n",
-            f"{NO}aggregate avg yet",
+            "query q:\n    from users\n    select:\n        a = avg(score)\n",
+            "SQLite aggregate avg supports only Int fields",
         ),
         (
             "query q:\n    from users\n    select:\n        id\n"
@@ -286,6 +281,46 @@ def test_each_comparison_and_none_test_emits_its_own_operator() -> None:
             "    `users`.`active` = TRUE AS `yes`\n"
             "FROM `users`\n"
             "WHERE (`users`.`score` IS NULL) AND (`users`.`name` <> 'x')",
+        )
+    ]
+
+
+def test_having_count_distinct_and_avg_emit_their_sql() -> None:
+    """PL.47's single-file T2 forms: HAVING writes each selected aggregate and
+    GROUP BY key itself, never an output alias, and a Bool literal there as 1
+    or 0, which no output named TRUE or FALSE can shadow."""
+
+    script_ir = _compile(
+        HEADER + "query q:\n    from users\n    where score is not None\n"
+        "    group by:\n        active\n        name\n"
+        "    select:\n        active\n        name\n        id = count()\n"
+        "        d = count_distinct(id)\n        TRUE = avg(id)\n"
+        '    having id > 1 and active == True or name != "x" and TRUE < 2.5\n'
+        "    order by:\n        d desc\n        TRUE\n"
+    )
+
+    result = emit_sqlite_sql(script_ir)
+
+    assert result.diagnostics == ()
+    assert [(item.name, item.sql) for item in result.artifacts] == [
+        (
+            "q",
+            "SELECT\n"
+            "    `users`.`active` AS `active`,\n"
+            "    `users`.`name` AS `name`,\n"
+            "    COUNT(*) AS `id`,\n"
+            "    COUNT(DISTINCT `users`.`id`) AS `d`,\n"
+            "    AVG(CAST(`users`.`id` AS REAL)) AS `TRUE`\n"
+            "FROM `users`\n"
+            "WHERE `users`.`score` IS NOT NULL\n"
+            "GROUP BY\n"
+            "    `users`.`active`,\n"
+            "    `users`.`name`\n"
+            "HAVING ((COUNT(*) > 1) AND (`users`.`active` = 1))"
+            " OR ((`users`.`name` <> 'x') AND (AVG(CAST(`users`.`id` AS REAL)) < 2.5))\n"
+            "ORDER BY\n"
+            "    COUNT(DISTINCT `users`.`id`) DESC NULLS FIRST,\n"
+            "    AVG(CAST(`users`.`id` AS REAL)) ASC NULLS LAST",
         )
     ]
 

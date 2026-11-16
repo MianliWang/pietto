@@ -614,15 +614,24 @@ first column give every rule.
 `pietto emit-sql FILE --dialect sqlite` writes SQLite SQL for one file, as
 text or as [CLI JSON v1](spec/cli-json-v1.md) with `"dialect": "sqlite"`. It
 covers a flat subset: a table or query that reads one `sqlite.table` source
-directly, with `where`, `select`, `order by`, `limit`, `group by` and the
-aggregates `count`, `min` and `max`, over `Int`, `Text`, `Bool` and `Float`
-fields, with no arithmetic. Its expressions are fields, literals, a
-comparison (`==`, `!=`, `<`, `<=`, `>`, `>=`) of two values of one type,
-`and`, `or`, `not`, `is None` and `is not None`; `min` and `max` take an
-`Int` or `Float` field, as `check` refuses one of a `Text` or `Bool` field
-on every target ([Aggregates](#aggregates-and-grouping)). A GROUP BY or
-ORDER BY key is a field, and in a relation with an aggregate an ORDER BY key
-is a selected GROUP BY key or aggregate. A sign before a number, as in `+5`,
+directly, with `where`, `select`, `order by`, `limit`, `group by`, `having`
+and the aggregates `count`, `count_distinct`, `min`, `max` and `avg`, over
+`Int`, `Text`, `Bool` and `Float` fields, with no arithmetic. Its expressions
+are fields, literals, a comparison (`==`, `!=`, `<`, `<=`, `>`, `>=`) of two
+values of one type, `and`, `or`, `not`, `is None` and `is not None`;
+`count_distinct` takes an `Int`, `Text` or `Bool` field, `avg` an `Int`
+field, and `min` and `max` an `Int` or `Float` field, as `check` refuses one
+of a `Text` or `Bool` field on every target
+([Aggregates](#aggregates-and-grouping)). A GROUP BY or ORDER BY key is a
+field, and in a relation with an aggregate an ORDER BY key is a selected
+GROUP BY key or aggregate. A `having` condition reads selected GROUP BY keys
+and aggregates by their output names, as `check` requires; the SQL writes
+each key and aggregate itself, never its output name, and writes a `Bool`
+literal there as `1` or `0`. Elsewhere it writes `TRUE` or `FALSE`, which
+SQLite reads as a column of that name, in any letter case, when the table has
+one, and in WHERE also as an output so named: a relation with an output named
+`true` or `false` and a `Bool` literal in its `where` filters by that output,
+not by the literal, and returns wrong rows. A sign before a number, as in `+5`,
 `-5` or `-0.0`, is a unary `+` or `-` operator, so it is arithmetic too.
 `sqlite.table("users")` names one bare table; a string with a dot, which
 would name a schema or an attached database, fails `check` with PIE-S2306 at
@@ -634,7 +643,8 @@ text, and a bare name in WHERE, GROUP BY or ORDER BY can name an output.
 Every other form fails `emit-sql` with PIE-B1000, `SQLite SQL emission is not
 implemented for RelationIR: <name>. <reason>`, in the existing backend order:
 among them arithmetic, a comparison of an `Int` with a `Float`, `in` and range
-comparisons, `having`, a table or query that reads another, `Decimal`, `Date`,
+comparisons, `sum` and every aggregate not named above, `count_distinct` and
+`avg` of a `Float` field, a table or query that reads another, `Decimal`, `Date`,
 `Timestamp`, `UUID` and nested values, JOINs, windows, function calls such as
 the `LIKE`-style text functions, and every table and query of a file that
 declares a top-level constant, which `--set` needs. A project's SQLite SQL
@@ -653,9 +663,11 @@ runs on:
   value.
 - Every `REAL` value is finite. SQLite stores a NaN as NULL but keeps an
   infinity, which is not a Pietto value.
+- No table a source names has a column named `true` or `false`, in any
+  letter case, whether a field declares it or not.
 
-Under these premises the SQL means what the rules of this page say, with
-these SQLite facts:
+Under these premises, and outside the `where` case above, the SQL means what
+the rules of this page say, with these SQLite facts:
 
 - **Int.** The whole signed 64-bit range is kept, compares and is a `min` or
   `max` exactly, both extremes included. Arithmetic is refused: SQLite turns
@@ -680,10 +692,19 @@ these SQLite facts:
   default that PostgreSQL documents, which the PostgreSQL emitter's SQL keeps
   by writing no NULLS clause. Tied rows have no promised relative order, and
   `limit 0` keeps no rows.
-- **Aggregates.** `count` gives an integer, 0 over no rows. `min` and `max`
-  keep their argument's type and give NULL over no rows or over only NULL
-  values. A `group by` over no rows gives no rows, and NULL keys form one
-  group.
+- **Aggregates.** `count` gives an integer, 0 over no rows, and
+  `count_distinct` the number of distinct non-NULL values as the rules of
+  `Text` above compare them, 0 over no rows. `min` and `max` keep their
+  argument's type and give NULL over no rows or over only NULL values. A
+  `group by` over no rows gives no rows, and NULL keys form one group.
+- **Average.** `avg` of an `Int` is written `AVG(CAST(x AS REAL))`, so the
+  values are cast to binary64 before they are averaged, as on PostgreSQL and
+  MySQL; it gives a `Float`, NULL over no rows or over only NULL values.
+  SQLite sums the values with compensated summation, so the result may differ
+  from PostgreSQL's and MySQL's average of the same values in its last bits,
+  or by more when large values cancel: SQLite gives 1/3 for 1, 2^53 and
+  -2^53, where summation from left to right gives 0. The language leaves the
+  summation of a binary64 average to the target.
 
 These rules hold on one measured SQLite library, which its version, source id
 and compile options identify together. A version number alone is not that
@@ -697,11 +718,23 @@ and `compile_sql` and `compile_all_sql` with `dialect="sqlite"` write SQLite
 SQL for a table or query of an explicit-module project that reads one
 `sqlite.table` source ([SQLite project mode](spec/sqlite-project-v1.md),
 alpha). The forms are those of single files, `where`, `select`, `group by`,
-`order by`, `limit`, `count`, `min` and `max` over `Int`, `Text`, `Bool` and
-`Float` fields, with query header parameters of those four types too. The
-emission contract gives the table as the `relation` `{"namespace": "main",
-"name": NAME}`, where NAME is the `sqlite.table` string exactly, and each
-field's storage ([emission contract values](project-package.md#emission-contract-values));
+`having`, `order by`, `limit`, `count`, `count_distinct`, `min`, `max` and
+`avg` over `Int`, `Text`, `Bool` and `Float` fields, with query header
+parameters of those four types too, read in `select`, `where` and `having`.
+A project also has `sum` of an `Int` field whose contract `int_range` lies on
+one side of zero, with a `min` of 0 or more or a `max` of 0 or less, written
+`SUM(x)`. SQLite fails a sum as soon as a partial sum leaves signed 64 bits,
+whatever the result: over values of both signs it may fail where the exact
+sum fits, and whether it fails depends on the order it reads the rows in,
+which an index can change. Over values of one sign every partial sum lies
+between zero and the result, so the statement fails with SQLite's
+`integer overflow` exactly where PostgreSQL's exact sum raises SQLSTATE
+22003, and never returns a wrong value; a mixed-sign range is BLOCKED with
+PIE-B1004 `sum_int_aggregate_range_proof_missing`. The `int_range` of an
+`avg`'s field is the range evidence of [Aggregates](#aggregates-and-grouping).
+The emission contract gives the table as the `relation` `{"namespace":
+"main", "name": NAME}`, where NAME is the `sqlite.table` string exactly,
+and each field's storage ([emission contract values](project-package.md#emission-contract-values));
 every other form, and a contract that does not fit, is BLOCKED with the
 details of the specification's
 [compile refusals](spec/sqlite-project-v1.md#compile-refusals).
@@ -711,10 +744,11 @@ field as `` `s0`.`<column>` ``, quotes every name in backticks, writes each
 parameter read as `?N`, numbered from 1 by its first read, and ends every
 ascending key with `NULLS LAST` and every descending key with `NULLS FIRST`,
 as single files do. Unlike single files, it writes a `Bool` literal as `1`
-or `0`, since SQLite reads `TRUE` and `FALSE` as a column or result alias of
-that name when one exists. It keeps the single-file premises above except the
-collation: project SQL writes `COLLATE BINARY` at each `Text` comparison,
-`group by` key and `order by` key, so a `COLLATE NOCASE` column still compares
+or `0` everywhere, not only in `having`, since SQLite reads `TRUE` and
+`FALSE` as a column or result alias of that name when one exists. It keeps
+the single-file premises above except the collation: project SQL writes
+`COLLATE BINARY` at each `Text` comparison, `group by` key, `order by` key
+and `count_distinct` argument, so a `COLLATE NOCASE` column still compares
 by its bytes, and the contract's `Text` collation `BINARY` names that
 comparison, not the column's. `compile_query(dialect="sqlite")` keeps
 PIE-R1002.

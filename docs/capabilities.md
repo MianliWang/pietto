@@ -124,14 +124,15 @@ refused alike for every target.
 | A `sqlite.table("name")` source that names one bare table | yes | [SQLite single files](language.md#sqlite-single-files) |
 | A `sqlite.table` string with a dot, or an empty string | check PIE-S2306 at the string | [SQLite single files](language.md#sqlite-single-files) |
 | `where`, `select`, `order by`, `limit` over `Int`, `Text`, `Bool` and `Float` fields, with fields, unsigned literals, `==`, `!=`, `<`, `<=`, `>` and `>=` between two values of one type, `and`, `or`, `not`, `is None` and `is not None` | yes; every ascending key ends with `NULLS LAST` and every descending key with `NULLS FIRST` | [SQLite single files](language.md#sqlite-single-files) |
-| `group by` fields, `count`, and `min` and `max` of an `Int` or `Float` field | yes | [SQLite single files](language.md#sqlite-single-files) |
+| `group by` fields, `count`, `count_distinct` of an `Int`, `Text` or `Bool` field, `min` and `max` of an `Int` or `Float` field, and `avg` of an `Int` field | yes; `avg` is `AVG(CAST(x AS REAL))`, whose last bits, or more when values cancel, may differ from PostgreSQL's and MySQL's | [SQLite single files](language.md#sqlite-single-files) |
+| `having` over selected `group by` keys and aggregates | yes; HAVING writes each key and aggregate, never an output name, and a `Bool` literal as `1` or `0` | [SQLite single files](language.md#sqlite-single-files) |
 | `min`, `max` of a `Text` or `Bool` field | check PIE-S2314 | [Aggregates](language.md#aggregates-and-grouping) |
 | Arithmetic, and a sign before a number (`-5`, `+0.0`) | refused PIE-B1000 | [SQLite single files](language.md#sqlite-single-files) |
 | An `Int` literal above 9223372036854775807 | check PIE-S2364 | [Expressions](language.md#expressions) |
 | A comparison of an `Int` with a `Float` | refused PIE-B1000 | [SQLite single files](language.md#sqlite-single-files) |
 | `in`, range comparisons, conditional expressions, casts, function calls (the `LIKE`-style text functions included), `any(...)` reads, a `None` literal that `check` accepts outside `is None` and `is not None` (such as `n = None` in `select`) | refused PIE-B1000 | [SQLite single files](language.md#sqlite-single-files) |
 | `== None`, `!= None` | check PIE-S2105 | [Expressions](language.md#expressions) |
-| `having`; `sum`, `avg` and every aggregate other than `count`, `min` and `max` | refused PIE-B1000 | [SQLite single files](language.md#sqlite-single-files) |
+| `sum`; `count_distinct` and `avg` of a `Float` field; every aggregate other than `count`, `count_distinct`, `min`, `max` and `avg` | refused PIE-B1000 | [SQLite single files](language.md#sqlite-single-files) |
 | A table or query that reads another; JOINs; windows and `qualify` | refused PIE-B1000 | [SQLite single files](language.md#sqlite-single-files) |
 | A read of a `Decimal`, `Date`, `Timestamp` or `UUID` field | refused PIE-B1000 | [SQLite single files](language.md#sqlite-single-files) |
 | Every table and query of a file that declares a top-level constant | refused PIE-B1000 | [SQLite single files](language.md#sqlite-single-files) |
@@ -139,7 +140,10 @@ refused alike for every target.
 - **Projects.** `emit-sql --project ... --dialect sqlite`, `compile_sql` and
   `compile_all_sql` write SQLite SQL for a statement that reads one
   `sqlite.table` source, in the forms that the table above admits, with query
-  header parameters and `COLLATE BINARY` at each `Text` comparison and key
+  header parameters, `COLLATE BINARY` at each `Text` comparison, key and
+  `count_distinct` argument, and `sum` of an `Int` field whose contract
+  `int_range` lies on one side of zero; a mixed-sign range is PIE-B1004
+  `sum_int_aggregate_range_proof_missing`
   ([SQLite projects](language.md#sqlite-projects), alpha). PostgreSQL, MySQL
   and DuckDB emission refuse such a source with PIE-B1001
   `source_family_mismatch`, and `compile_query(dialect="sqlite")` keeps

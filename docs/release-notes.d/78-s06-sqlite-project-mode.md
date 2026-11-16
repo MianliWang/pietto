@@ -42,6 +42,7 @@ unchanged. These outputs change, for programs refused before as well:
 | PIE-B1001 | PostgreSQL, MySQL or DuckDB emission of a statement that reads a project `sqlite.table` source | the `check` refusal above | `source_family_mismatch` beside PIE-B1006 `negative_original_target_evidence`, as for a `duckdb.arrow` source on PostgreSQL and MySQL and a `postgres.table` source on DuckDB, where it is DuckDB's rule 19 |
 | usage | `emit-sql --project ... --dialect sqlite` | a usage error naming `{postgres,mysql,duckdb}` | emits; the usage text names `{postgres,mysql,duckdb,sqlite}` |
 | PIE-B1000 | a single-file `having`, `count_distinct` of an `Int`, `Text` or `Bool` field, or `avg` of an `Int` field | refused | emits |
+| PIE-B1000 | a single-file `count_distinct` of a `Decimal`, `Date`, `Timestamp` or `UUID` field or `avg` of a `Decimal` field, or a `having` beside another refused form, other than a JOIN, a read of another table or query, a `qualify` or a named window | the reason `SQLite single-file SQL has no aggregate count_distinct yet`, `... no aggregate avg yet` or `... no having yet` | the existing reason of the field's type or of the other form |
 
 New refusals of `emit-sql --project ... --dialect sqlite` (a usage error
 before): PIE-B1003 with the details `target_release_not_reviewed`,

@@ -31,10 +31,11 @@ project's `check` accepts a `sqlite.table` source and PostgreSQL, MySQL and
 DuckDB emission refuse it as [compile refusals](#compile-refusals) states.
 S08 added the adapter and the T1 forms, so `emit-sql --project --dialect
 sqlite`, `compile_sql` and `compile_all_sql` emit them. S09 added their native
-qualification under CPython 3.13.13 and 3.12.13. S10 adds the T2 aggregates
-in both modes, R1 the PostgreSQL replay, S11 the [execution](#execution)
-section and its route, S12 that route's qualification, and S16 closes the
-tier. Each slice edits the rows it lands.
+qualification under CPython 3.13.13 and 3.12.13. S10 added the T2
+aggregates in both modes with their native cells. R1 adds the PostgreSQL
+replay, S11 the [execution](#execution) section and its route, S12 that
+route's qualification, and S16 closes the tier. Each slice edits the rows it
+lands.
 Until S11, `compile_query(dialect="sqlite")` reports `PIE-R1002` and Pietto
 opens no SQLite file. No published release carries a form until the owner approves
 one: `0.2.1` and earlier refuse a project `sqlite.table` with `PIE-S2306`
@@ -54,12 +55,12 @@ one: `0.2.1` and earlier refuse a project `sqlite.table` with `PIE-S2306`
 | Literal policy | `preserve` only. |
 | Entry points | `pietto check --project`; `pietto emit-sql --project ... --dialect sqlite`, with or without `--all`; `compile_sql` and `compile_all_sql` with `dialect="sqlite"`. `compile_query` and `execute` wait for S11. |
 
-The aggregates of the table are the T2 forms that S10 lands; until S10 they
-are refused with `sqlite_aggregate_not_admitted`, and an aggregated relation
-admits `count`, `min` and `max` only, as SQLite single files do today.
-`having`, also a T2 form, is refused until S10 by rule 5,
-`sqlite_relation_shape_not_admitted`, at the `having`. S10 edits this
-paragraph when it opens them.
+`having`, `count_distinct`, `avg` and `sum` are the T2 forms that S10
+landed. A `having` reads selected `group by` keys and aggregates by their
+output names, literals and parameters, as `check` requires: it refuses a
+field read (`PIE-S2325`), a direct aggregate call (`PIE-S2308`), `not` and
+null tests (`PIE-S2327`) there, and a `having` without `group by`
+(`PIE-S2323`).
 
 Not in this tier: `Decimal`, `Date`, `Timestamp`, `UUID`, `Bytes`, `Json`,
 enum and nested fields; `--literal-policy bind-safe`; arithmetic, `Float`
@@ -73,12 +74,19 @@ databases is made.
 
 ## Single files
 
-S10 also opens three forms in `pietto emit-sql FILE --dialect sqlite`, by the
+S10 also opened three forms in `pietto emit-sql FILE --dialect sqlite`, by the
 [SQLite single-file rules](../language.md#sqlite-single-files), which S10
-edits: `having`, with the expressions of the table above over `group by` keys
-and aggregates; `count_distinct` of an `Int`, `Text` or `Bool` field; and
-`avg` of an `Int` field, written `AVG(CAST(x AS REAL))`. Single-file SQL keeps
-B1's premises, the `BINARY` collation among them, and writes no `COLLATE`. A
+edited: `having`, with the expressions of the table above over `group by` keys
+and aggregates; `count_distinct` of an `Int`, `Text` or `Bool` field, written
+`COUNT(DISTINCT x)`; and `avg` of an `Int` field, written
+`AVG(CAST(x AS REAL))`. A single-file `HAVING` writes each key and aggregate
+itself, as project SQL does, and a `Bool` literal as `1` or `0`, since SQLite
+reads `TRUE` and `FALSE` as a column or output of that name when one exists.
+Elsewhere single files keep B1's `TRUE` and `FALSE`: the single-file rules
+add the premise that no source table has a column so named and state that a
+`where` beside an output so named returns wrong rows, a B1 defect that S10
+leaves unchanged. Single-file SQL keeps B1's premises, the `BINARY`
+collation among them, and writes no `COLLATE`. A
 file has no contract and no `int_range`, so `sum` of an `Int` stays refused
 with its `PIE-B1000` reason, unchanged. The new single-file refusals keep the
 existing `PIE-B1000` text, `SQLite SQL emission is not implemented for
@@ -212,10 +220,15 @@ artifact verifier, and consumes `ProjectSQLPlan`).
 - Each ascending key ends with `ASC NULLS LAST` and each descending one with
   `DESC NULLS FIRST`, the NULL place that the PostgreSQL emitter keeps
   (D78.02).
-- `count()` is `COUNT(*)`, `count(x)` is `COUNT(x)`, `min` and `max` are
-  `MIN(x)` and `MAX(x)`, `avg(x)` is `AVG(CAST(x AS REAL))`, by the language's
-  rule that an `Int` is cast to the target's binary64 before it is averaged,
-  and `sum(x)` is `SUM(x)`.
+- `count()` is `COUNT(*)`, `count(x)` is `COUNT(x)`, `count_distinct(x)` is
+  `COUNT(DISTINCT x)`, `min` and `max` are `MIN(x)` and `MAX(x)`, `avg(x)` is
+  `AVG(CAST(x AS REAL))`, by the language's rule that an `Int` is cast to the
+  target's binary64 before it is averaged, and `sum(x)` is `SUM(x)`.
+- `HAVING` follows `GROUP BY` and holds only a `group by` key's column, an
+  aggregate, a literal, a parameter, comparisons, `AND` and `OR`; a key or
+  aggregate read by its output name is written as that key or aggregate,
+  never as the name, which SQLite would read there as the output or as a
+  column of that name.
 - A `Bool` literal is written `1` or `0`: SQLite reads `TRUE` and `FALSE` as
   a column or result alias of that name when one exists, and the table may
   have columns that the contract does not name. Other literals are written
@@ -224,7 +237,8 @@ artifact verifier, and consumes `ProjectSQLPlan`).
   holds NUL is refused (rule 9). No literal is a `GROUP BY` or `ORDER BY`
   key, where SQLite reads a number as a result position.
 - Each parameter has one number, from 1 in the order of its first read in the
-  SQL, and each read is written `?N` with it.
+  SQL (`SELECT`, then `WHERE`, then `HAVING`), and each read is written `?N`
+  with it.
 - The artifact's `target` is the contract target. A SQL AST or a document
   that breaks any rule above is BLOCKED with `PIE-B1008` (rules 36 and 38 of
   [compile refusals](#compile-refusals)).
@@ -247,7 +261,8 @@ Each column has its export's logical type and nullability. A column that
 reads a source field, selected directly or as a `group by` key, has that
 field's contract `representation`; a `count` has the storage `sqlite_integer`
 and the `int_range` 0 to 9223372036854775807; a `min` or `max` has its
-field's storage and domain; and any other value has its type's storage kind
+field's storage and domain; a `count_distinct` is a `count`; and any other
+value, an `avg` or a `sum` among them, has its type's storage kind
 and the widest domain of its type (an `int_range` of signed 64 bits,
 `bool01`, `finite_float`, or `text` with `max_characters` null), except that
 an `Int` literal's range is its value and a `Text` literal's
@@ -278,7 +293,7 @@ about it.
 | `Bool` | A `STRICT` `INTEGER` column stores 2 and -1 | Emission assumes 0 and 1 (`bool01`, `row_domain_matches`); execution checks each value |
 | NaN and infinities | A bound NaN becomes NULL; a `REAL` column stores ±Infinity | Execution refuses a NaN or infinite `Float` parameter before it binds and checks each stored value; emission assumes finite values (`finite_float`) |
 | NUL in `Text` | A `TEXT` value may hold NUL, and `length` counts only up to it; invalid UTF-8 is stored too, and no SQL form detects it | No form reads `length`; a `Text` literal with NUL is refused (rule 9); execution refuses a stored NUL and decodes each `Text` value in Python |
-| `avg` rounding | `AVG(CAST(x AS REAL))` equalled compensated summation (`math.fsum`) divided by the count in 400 of 400 random cases, whatever the scan order, and plain left-to-right summation in 221; under cancellation it differs by more than the last bit (`[1, 2^53, -2^53]` gives 1/3 where plain summation gives 0). PostgreSQL's plain summation is *inferred*, not measured | The language leaves the summation of a binary64 average to the target, so the result may differ from PostgreSQL and MySQL in the last bits, or more under cancellation (*derived*; see [open items](#open-items)). Qualification compares with `fsum` divided by the count, or uses data whose sum does not depend on the order |
+| `avg` rounding | `AVG(CAST(x AS REAL))` equalled compensated summation (`math.fsum`) divided by the count in 400 of 400 random cases, whatever the scan order, and plain left-to-right summation in 221; under cancellation it differs by more than the last bit (`[1, 2^53, -2^53]` gives 1/3 where plain summation gives 0). PostgreSQL's plain summation is *inferred*, not measured | The lead's ruling, stated to the owner as inform under PL.47: within the existing rules, which leave the summation of a binary64 average to the target, so the result may differ from PostgreSQL and MySQL in the last bits, or more under cancellation, and this page and the language guide say so. The native cells compare with `fsum` divided by the count, never with plain summation; R1 passes its `avg` entries only on data whose sum does not depend on the order and records a cancelling case as an observed difference. A claim of bitwise equality with PostgreSQL, or SQL that imitates plain summation, would need the owner |
 | `HAVING` and bare columns | `HAVING` runs without `GROUP BY` and may read an output alias or a column that is not grouped, and a `SELECT` of an aggregated query may read a column that is not grouped (PostgreSQL refusing these is *inferred*) | The SQL writes only aggregates, qualified `group by` keys, literals and parameters there, and the projection rule refuses other fields (rule 11) |
 | Quoted names | A double-quoted name that names no column reads as text (a B1 Q0 cell; see the route's [B2 handoff](../phases/phase-78/route.md#b2-handoff)) | Backtick quoting |
 | `LIKE` | `LIKE` folds ASCII case; the build has no ICU | Not opened |
@@ -480,8 +495,6 @@ integration, one page at a time, in the route's single-writer order.
 | Item | Owner | Latest point |
 | --- | --- | --- |
 | This page's *derived* rows, stated as inform: the `main` namespace, the `sqlite_` and dot refusals and `sqlite_table_name_mismatch`; the `relation_rows` scan; the storage kinds and domain spellings (`UTF-8`, `BINARY`); the premise values and `premise_not_admitted_on_target`; the limits `columns` 2,000, `parameters` 32,766 and the depth 500; the SQL rules (`s0`, backticks, `?N`); the closed order of compile refusals with its new details and suggestions; the two new single-file reasons | The lead | Before this page binds, at the latest before S08 seals |
-| The `avg(Int)` rounding row: S05 found it within the existing rules (the target sums a binary64 average) and recommended that the lead decide and inform the owner, as for the NULL order; the owner is asked only if a claim of bitwise equality with PostgreSQL or SQL that imitates plain summation is wanted | The lead | Before S10 seals; this page and S10's `language.md` text follow the ruling |
-| Rules 5–14 follow the plan's structure as S08 and S10 find it: a slice may move a site or split a condition between these rules, editing this page in the same commit, but adds no detail or text outside these tables | S08, S10 | Before each seals |
 | Whether the value check of S11 also checks each `Text` value's `max_characters`, which the domain states and Q6b's list does not name | S11 | Before S11 seals |
 | The release-note fragment `78-s06-sqlite-project-mode.md` describes tier 1a as its batch delivers it; S07 to S10 edit their lines there and add no second 1a fragment; S11 writes its own fragment for 1b | Each slice; the batch audit | Before each slice seals; the 1a batch audit compares the fragment with this page |
 | Whether `sqlite.table` changes the built-in catalog (D76.12): it adds no grammar and no catalog entry, so no extension sync is expected | S07 | Before the 1a batch push |

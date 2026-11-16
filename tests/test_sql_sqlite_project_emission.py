@@ -18,6 +18,7 @@ import _pietto_sql_sqlite as sqlite
 from _pietto_sql_duckdb import FIELDS, HEADER, PROJECTION, contract, source_entry, write
 from pietto._project import project_sql_emission_cli as emission_cli
 from pietto._project import project_sqlite_emission as adapter
+from pietto._project import project_sqlite_sql as adapter_sql
 from pietto.compiler import compile_sql
 
 # Each target's release, its storage kind of each logical type (DuckDB keeps
@@ -422,9 +423,8 @@ def test_contract_refusals(
     ("body", "expected"),
     [
         (
-            "query result:\n    from orders\n    group by:\n        note\n"
-            "    select:\n        note\n        c = count()\n    having c > 1\n",
-            [("PIE-B1003", "sqlite_relation_shape_not_admitted", 17)],
+            "query result:\n    from orders\n    select distinct:\n        note\n",
+            [("PIE-B1003", "sqlite_relation_shape_not_admitted", 12)],
         ),
         (
             "query result:\n    from orders\n    where amount + 1 > 3\n"
@@ -444,6 +444,7 @@ def test_contract_refusals(
                 ("PIE-B1003", "sqlite_expression_not_admitted", 16),
                 ("PIE-B1003", "sqlite_aggregate_not_admitted", 16),
                 ("PIE-B1003", "sqlite_projection_not_admitted", 16),
+                ("PIE-B1004", "sum_int_aggregate_range_proof_missing", 17),
             ],
         ),
         (
@@ -457,8 +458,8 @@ def test_contract_refusals(
         ),
         (
             "query result:\n    from orders\n    group by:\n        note\n"
-            "    select:\n        note\n        a = avg(amount)\n"
-            "        d = count_distinct(note)\n",
+            "    select:\n        note\n        a = avg(price)\n"
+            "        d = count_distinct(price)\n        s = sum(price)\n",
             [("PIE-B1003", "sqlite_aggregate_not_admitted", 16)],
         ),
     ],
@@ -472,6 +473,167 @@ def test_statement_refusals_at_their_first_site(
         (b["code"], b["subject"]["detail"], b["location"]["line"])
         for b in document["blockers"]
     ] == expected
+
+
+HAVING = """query result(v: Int, t: Text):
+    from orders
+    where amount > v
+    group by:
+        note
+        ok
+    select:
+        note
+        ok
+        amount = count()
+        d = count_distinct(note)
+        a = avg(amount)
+        s = sum(id)
+    having amount > v and ok == True or note < t and a > 1.5 and s >= 0
+    order by:
+        d desc
+        a
+    limit 3
+"""
+# HAVING writes each key and aggregate itself, never the output alias
+# `amount`, which also names a column; `id`'s int_range lies above zero.
+HAVING_SQL = (
+    "SELECT `s0`.`note` AS `note`, `s0`.`ok` AS `ok`, COUNT(*) AS `amount`,"
+    " COUNT(DISTINCT `s0`.`note` COLLATE BINARY) AS `d`,"
+    " AVG(CAST(`s0`.`amount` AS REAL)) AS `a`, SUM(`s0`.`id`) AS `s`"
+    " FROM `main`.`orders` AS `s0` WHERE `s0`.`amount` > ?1"
+    " GROUP BY `s0`.`note` COLLATE BINARY, `s0`.`ok`"
+    " HAVING ((COUNT(*) > ?1) AND (`s0`.`ok` = 1))"
+    " OR (((`s0`.`note` COLLATE BINARY < ?2)"
+    " AND (AVG(CAST(`s0`.`amount` AS REAL)) > 1.5)) AND (SUM(`s0`.`id`) >= 0))"
+    " ORDER BY COUNT(DISTINCT `s0`.`note` COLLATE BINARY) DESC NULLS FIRST,"
+    " AVG(CAST(`s0`.`amount` AS REAL)) ASC NULLS LAST LIMIT 3"
+)
+
+
+def _ranged(low: str, high: str) -> dict[str, Any]:
+    """The contract with `id`'s int_range from `low` to `high`."""
+    document = sqlite.contract()
+    domain = document["sources"][0]["fields"][0]["representation"]["domain"]
+    domain.update(min=low, max=high)
+    return document
+
+
+def test_tier2_aggregates_and_having_emit_their_sql(tmp_path: Path) -> None:
+    status, document = emit(tmp_path, HAVING, _ranged("0", str(2**63 - 1)))
+    assert (status, document["format"], document["sql"]) == (
+        "VERIFIED",
+        "pietto.sql-emission.v2",
+        HAVING_SQL,
+    )
+    ranges = document["ranges"]
+    assert [r["start"] for r in ranges] == [0] + [r["end"] for r in ranges[:-1]]
+    assert ranges[-1]["end"] == len(HAVING_SQL.encode("utf-8"))
+    # A HAVING parameter is numbered by its first read, after the WHERE's.
+    assert [
+        (u["owner"]["parameter"], u["server_index"], u["physical_type"])
+        for u in document["parameter_uses"]
+    ] == [(0, 1, "sqlite_integer"), (0, 1, "sqlite_integer"), (1, 2, "sqlite_text")]
+    columns = {c["label"]: c for c in document["columns"]}
+    counted = {"kind": "int_range", "min": "0", "max": str(2**63 - 1)}
+    full = {"kind": "int_range", "min": str(-(2**63)), "max": str(2**63 - 1)}
+    real = {"kind": "finite_float", "format": "binary64"}
+    assert [
+        (
+            label,
+            columns[label]["logical_type"]["name"],
+            columns[label]["representation"],
+            columns[label]["correspondence"]["aggregate"]["kind"],
+        )
+        for label in ("amount", "d", "a", "s")
+    ] == [
+        (
+            "amount",
+            "Int",
+            {
+                "storage": {"kind": "sqlite_integer"},
+                "nullable": False,
+                "domain": counted,
+            },
+            "aggregate",
+        ),
+        (
+            "d",
+            "Int",
+            {
+                "storage": {"kind": "sqlite_integer"},
+                "nullable": False,
+                "domain": counted,
+            },
+            "aggregate",
+        ),
+        (
+            "a",
+            "Float",
+            {"storage": {"kind": "sqlite_real"}, "nullable": True, "domain": real},
+            "aggregate",
+        ),
+        (
+            "s",
+            "Int",
+            {"storage": {"kind": "sqlite_integer"}, "nullable": True, "domain": full},
+            "aggregate",
+        ),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("low", "high", "admitted"),
+    [
+        ("0", str(2**63 - 1), True),
+        ("5", "9", True),
+        (str(-(2**63)), "0", True),
+        ("-7", "-1", True),
+        ("-1", "1", False),
+        (str(-(2**63)), str(2**63 - 1), False),
+    ],
+)
+def test_sum_needs_an_int_range_on_one_side_of_zero(
+    tmp_path: Path, low: str, high: str, admitted: bool
+) -> None:
+    """SQLite fails a sum once a partial sum leaves signed 64 bits, so a sum
+    over values of both signs may fail where the exact sum fits; over one
+    sign every partial sum lies between zero and the result."""
+    body = "query result:\n    from orders\n    group by:\n        ok\n"
+    body += "    select:\n        ok\n        s = sum(id)\n        n = count()\n"
+    status, document = emit(tmp_path, body, _ranged(low, high))
+    if admitted:
+        assert (status, document["sql"]) == (
+            "VERIFIED",
+            "SELECT `s0`.`ok` AS `ok`, SUM(`s0`.`id`) AS `s`, COUNT(*) AS `n`"
+            " FROM `main`.`orders` AS `s0` GROUP BY `s0`.`ok`",
+        )
+        return
+    assert status == "BLOCKED"
+    (blocker,) = document["blockers"]
+    assert (blocker["code"], blocker["subject"]["detail"]) == (
+        "PIE-B1004",
+        "sum_int_aggregate_range_proof_missing",
+    )
+    assert blocker["location"]["line"] == 16
+    assert blocker["suggestion"] == (
+        "declare an int_range on one side of zero, or keep this sum in"
+        " check/plan: SQLite can fail a sum over values of both signs whose"
+        " result fits"
+    )
+
+
+def test_a_sum_over_an_unfitting_field_has_no_range_rule(tmp_path: Path) -> None:
+    """Rule 35 reads only a field that passes rule 33; a `Float` sum is rule 10."""
+    document = _ranged("-1", "1")
+    document["sources"][0]["fields"][0]["representation"]["storage"] = {
+        "kind": "sqlite_real"
+    }
+    body = "query result:\n    from orders\n    select:\n        s = sum(id)\n"
+    status, refused = emit(tmp_path, body, document)
+    assert (status, details(refused)) == (
+        "BLOCKED",
+        [("PIE-B1002", "physical_storage_or_domain_mismatch")],
+    )
 
 
 def test_field_and_parameter_types_outside_the_tier(tmp_path: Path) -> None:
@@ -562,3 +724,36 @@ def test_the_verifier_refuses_a_changed_artifact(tmp_path: Path) -> None:
             emission_cli.serialize_emission(dataclasses.replace(outcome, artifact=item))
         )
         assert details(document) == [("PIE-B1008", "artifact_correspondence")]
+    # The AST's own rules keep a HAVING to GROUP BY keys and aggregates, with
+    # COLLATE BINARY at a Text comparison and a count_distinct of a Text.
+    labels = tuple(result.label for result in ast.results)
+
+    def holds(having: object, **change: object) -> bool:
+        changed = dataclasses.replace(ast, having=having, **change)
+        return adapter_sql.ast_rules_hold(changed, labels, frozenset({2}), frozenset())
+
+    key, one = ast.group_by[0].value, adapter_sql.SQLiteLiteral(1, None)
+    assert type(key) is adapter_sql.SQLiteColumn
+    count = adapter_sql.SQLiteAggregate("count", None, False, None)
+    distinct = adapter_sql.SQLiteAggregate("count_distinct", key, True, None)
+    assert holds(adapter_sql.SQLiteComparison(">", distinct, one, False, None))
+    text = adapter_sql.SQLiteComparison(
+        "=", key, adapter_sql.SQLiteLiteral("a", None), True, None
+    )
+    assert holds(text)
+    assert not holds(dataclasses.replace(text, collate=False))
+    assert not holds(adapter_sql.SQLiteNot(text, None))
+    assert not holds(adapter_sql.SQLiteIsNull(key, False, None))
+    assert not holds(
+        adapter_sql.SQLiteComparison(
+            ">", dataclasses.replace(distinct, collate=False), one, False, None
+        )
+    )
+    assert not holds(
+        adapter_sql.SQLiteComparison(
+            ">", adapter_sql.SQLiteColumn(0, None), one, False, None
+        )
+    )
+    assert not holds(
+        adapter_sql.SQLiteComparison(">", count, one, False, None), group_by=()
+    )
