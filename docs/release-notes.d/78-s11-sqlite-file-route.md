@@ -5,7 +5,8 @@ explicit-module project that reads one `sqlite.table` source, and
 `execute(query, route="sqlite_file", access=SQLiteFileInput(path),
 premise=None)` runs it once, in process and read-only, over one SQLite file
 that your program names. It needs `pietto[arrow]` and no database driver,
-and runs only on Linux x86-64 with the measured SQLite `3.53.1` build. See
+and runs only on Linux x86-64 with the measured SQLite `3.53.1` build,
+where it is qualified under CPython 3.13.13 and 3.12.13. See
 [SQLite file route](../execution.md#sqlite-file-route) and
 [SQLite project mode](../spec/sqlite-project-v1.md#execution).
 
@@ -16,15 +17,21 @@ and runs only on Linux x86-64 with the measured SQLite `3.53.1` build. See
   reads, the statement's functions and the fixed checks.
 - In one read transaction, before the statement runs, the attempt checks
   that the file is UTF-8, that the source is one `STRICT` table with exactly
-  the contract's name and column types, that `PRAGMA integrity_check` of the
-  table is `ok`, that it holds at most 1,048,576 rows, and that every value
-  lies in its field's domain: no NULL in a non-null field, an `Int` within
-  its `int_range`, a `Bool` of 0 or 1, a finite `Float`, and `Text` that is
-  valid UTF-8 without NUL and within `max_characters`. The file is a
-  non-empty regular file that, with its `-wal` file, holds at most 256 MiB;
+  the contract's name and column types, with no index on an expression or
+  with a `WHERE` clause and no virtual generated column, which the
+  integrity check would compute without the authorizer or the deadline,
+  and no stored generated column either, refused with them to keep the
+  rule simple, that `PRAGMA integrity_check` of the table is `ok`, that it
+  holds at most 1,048,576 rows, and that every value lies in its field's
+  domain: no NULL in a non-null field, an `Int` within its `int_range`, a
+  `Bool` of 0 or 1, a
+  finite `Float`, and `Text` that is valid UTF-8 without NUL and within
+  `max_characters`. The file is a
+  non-empty regular file that, with its `-wal` file, holds at most 128 MiB;
   its `-wal`, `-journal` and `-shm` files, where present, are regular files,
   the `-shm` file with no other link; and the whole attempt runs within
-  `limits.seconds`.
+  `limits.seconds`. The cap is 128 MiB because the check of a 253 MiB
+  file of randomly keyed indexes outran the default 20 seconds.
 - The whole result is read, the transaction committed and the file closed
   before the first batch, which carries the compiled Arrow schema.
 - An error that SQLite raises is named by its extended result code
@@ -69,3 +76,9 @@ Known limitations:
   open is not detected.
 - While an attempt waits for a lock that your writer holds, `cancel()`
   takes effect only at the attempt's deadline.
+- When a sort, a grouping or `count_distinct` outgrows its memory, SQLite
+  writes temporary files to its temporary directory (`SQLITE_TMPDIR`,
+  `TMPDIR`, a system one such as `/var/tmp`, or else the working
+  directory), each deleted as it is opened.
+- On the read-only connection `PRAGMA integrity_check` checks no `CHECK`
+  constraint; the route never relies on one.

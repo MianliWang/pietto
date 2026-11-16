@@ -39,9 +39,11 @@ from pietto.execution._errors import failure, request_failure
 
 __all__: tuple[str, ...] = ()
 
-# PL.47: a file of at most 256 MiB with its -wal file, at most 1,048,576 rows
-# per source table.
-MAX_FILE_BYTES = 256 * 1024 * 1024
+# PL.47: at most 1,048,576 rows per source table, and a file of at most
+# 128 MiB with its -wal file: S12 measured the check of a 253 MiB file of
+# randomly keyed indexes past the 20 s deadline, so the cap went down from
+# 256 MiB and the deadline stayed.
+MAX_FILE_BYTES = 128 * 1024 * 1024
 MAX_SOURCE_ROWS = 1_048_576
 # Virtual machine steps between two deadline and cancel checks.
 PROGRESS_STEPS = 10_000
@@ -57,10 +59,12 @@ DECLARED = {
 # The functions the compiled statement and the value check call.
 CALLS = frozenset({*(name.lower() for name in FUNCTIONS.values()), "typeof", "abs"})
 # The PRAGMA statements of the source check: whether each names the source.
+# `index_xinfo` names one of the source's indexes instead.
 PRAGMAS = {
     "schema_version": False,
     "encoding": False,
     "table_list": True,
+    "index_list": True,
     "table_xinfo": True,
     "integrity_check": True,
 }
@@ -333,6 +337,7 @@ class SQLiteAttempt:
         self._gate = threading.RLock()
         self._connection: Any = None
         self._checking = True
+        self._indexes: tuple[str, ...] = ()
         self._batches: Any = None
         self._started: Any = None
         self._closed = self._finalizing = False
@@ -381,8 +386,9 @@ class SQLiteAttempt:
         """Defence 3: allow or SQLITE_DENY, never SQLITE_IGNORE. Reads of the
         source's columns, and of no column (``count(*)``, whose database is
         None unqualified); the statement's and the check's functions; the
-        source check's PRAGMA statements until the statement runs; the read
-        transaction's own BEGIN, COMMIT and ROLLBACK."""
+        source check's PRAGMA statements, ``index_xinfo`` only of the
+        source's indexes, until the statement runs; the read transaction's
+        own BEGIN, COMMIT and ROLLBACK."""
         import sqlite3
 
         name = self.facts.name
@@ -401,10 +407,10 @@ class SQLiteAttempt:
         elif action == sqlite3.SQLITE_FUNCTION:
             allowed = first is None and second in CALLS
         elif action == sqlite3.SQLITE_PRAGMA:
-            allowed = (
-                self._checking
-                and first in PRAGMAS
-                and second == (name if PRAGMAS[first] else None)
+            allowed = self._checking and (
+                second in self._indexes
+                if first == "index_xinfo"
+                else first in PRAGMAS and second == (name if PRAGMAS[first] else None)
             )
         elif action == sqlite3.SQLITE_TRANSACTION:
             allowed = first in ("BEGIN", "COMMIT", "ROLLBACK")
@@ -457,7 +463,8 @@ class SQLiteAttempt:
     def _check(self, connection):
         """Defences 4 and 5, the row limit of 8 and the value check of Q6b
         (i), in the read transaction; the integrity check runs before any
-        row of the source is read."""
+        row of the source is read, and only once no expression of the file
+        is left for it to run."""
         name, fields = self.facts.name, self.facts.fields
         table = quoted(name)
         if connection.execute("PRAGMA encoding").fetchall() != [("UTF-8",)]:
@@ -470,15 +477,27 @@ class SQLiteAttempt:
             1,
         ):
             raise ex.ExecutionError("SQLITE_SOURCE_OBJECT")
-        declared = {
-            row[1]: (row[2], row[6])
-            for row in connection.execute(f"PRAGMA table_xinfo({table})")
-        }
+        # The integrity check computes an index's expression keys and WHERE
+        # clause and a generated column's value: the file's own code, which
+        # the authorizer never sees and one step can run past the deadline.
+        indexes = connection.execute(f"PRAGMA index_list({table})").fetchall()
+        self._indexes = tuple(row[1] for row in indexes)
+        if any(row[4] for row in indexes) or any(
+            key[1] == -2
+            for index in self._indexes
+            for key in connection.execute(
+                f"PRAGMA index_xinfo({quoted(index)})"
+            ).fetchall()
+        ):
+            raise ex.ExecutionError("SQLITE_SOURCE_OBJECT")
+        columns = connection.execute(f"PRAGMA table_xinfo({table})").fetchall()
+        declared = {row[1]: row[2] for row in columns}
+        if any(row[6] != 0 for row in columns):
+            raise ex.ExecutionError("SQLITE_SOURCE_COLUMNS")
         for field in fields:
-            kind, hidden = declared.get(field.column, (None, None))
+            kind = declared.get(field.column)
             if not (
-                hidden == 0
-                and type(kind) is str
+                type(kind) is str
                 and kind.isascii()
                 and kind.upper() in DECLARED[field.tag]
             ):

@@ -235,7 +235,7 @@ in place of D78.02's premise, which single files keep, and one PostgreSQL
 replay joins its in-process qualification. The tier also opens read-only
 execution of a caller's SQLite file of `STRICT` tables on the one qualified
 SQLite build, on Linux x86-64 with CPython 3.12.13 and 3.13.13: eleven
-defences, at most 256 MiB, 1,048,576 rows per source table and a run's
+defences, at most 128 MiB, 1,048,576 rows per source table and a run's
 default 20 seconds, and before each run a bounded check of the file's values
 and integrity that refuses text holding NUL. SQLite B2 integrates after
 batch 2, and

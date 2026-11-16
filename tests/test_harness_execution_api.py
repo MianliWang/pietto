@@ -32,6 +32,7 @@ import _pietto_execution_duckdb_native_check as duckdb_native_check
 import _pietto_execution_joint_acceptance as joint
 import _pietto_execution_joint_acceptance_check as joint_check
 import _pietto_execution_rows_probe as rows_probe
+import _pietto_sql_sqlite as sqlite_files
 
 ROOT = Path(__file__).resolve().parents[1]
 DUCKDB_ORACLE = (
@@ -3356,3 +3357,60 @@ def test_native_law_reader_refuses_damaged_actual_records(damage):
         ]
     with pytest.raises(check.Rejected, match="NESTED_LAWS"):
         check.check_nested_laws(report)
+
+
+def test_the_sqlite_route_judge_accepts_its_result_and_refuses_each_fabricated_shape():
+    """The judge of the `sqlite_file` route's native cells (lesson 72-4)
+    reads only the columns and records it is given: the honest result
+    passes, in order and as a bag, and every fabricated fail-open shape
+    fails, a value of another Python type or zero sign that Python's `==`
+    would let through included."""
+    columns = [("id", "int64", False), ("note", "string", True), ("ok", "bool", False)]
+    rows = [(1, "a", True), (2, None, False), (2, None, False), (3, "-0.0", True)]
+    records = [dict(zip(("id", "note", "ok"), row, strict=True)) for row in rows]
+    sqlite_files.judge(columns, records, columns, rows)
+    sqlite_files.judge(columns, records[::-1], columns, rows, ordered=False)
+    floats = [("x", "double", False)]
+    sqlite_files.judge(floats, [{"x": -0.0}, {"x": 1.0}], floats, [(-0.0,), (1.0,)])
+
+    def replaced(index, **change):
+        return [r | change if i == index else r for i, r in enumerate(records)]
+
+    fabricated = [
+        ("no records", columns, []),
+        ("a missing row", columns, records[:-1]),
+        ("an extra row", columns, [*records, records[0]]),
+        ("a lost duplicate", columns, [*records[:2], records[3], records[0]]),
+        ("rows out of order", columns, [records[1], records[0], *records[2:]]),
+        ("an int for a bool", columns, replaced(0, ok=1)),
+        ("a bool for an int", columns, replaced(0, id=True)),
+        ("a float for an int", columns, replaced(0, id=1.0)),
+        ("bytes for a string", columns, replaced(0, note=b"a")),
+        ("a string for NULL", columns, replaced(1, note="None")),
+        ("NULL for a value", columns, replaced(0, note=None)),
+        ("another column name", [("ID", "int64", False), *columns[1:]], records),
+        ("another column type", [("id", "double", False), *columns[1:]], records),
+        ("another nullability", [("id", "int64", True), *columns[1:]], records),
+        ("columns as a tuple", tuple(columns), records),
+        ("records as a tuple", columns, tuple(records)),
+        ("a record of tuples", columns, [tuple(r.values()) for r in records]),
+        ("keys out of order", columns, [dict(reversed(r.items())) for r in records]),
+        ("an extra key", columns, replaced(0, extra=1)),
+    ]
+    for name, fabricated_columns, fabricated_records in fabricated:
+        # As a bag, only the order may change.
+        for ordered in (True, False)[: 1 if name == "rows out of order" else 2]:
+            with pytest.raises(AssertionError):
+                sqlite_files.judge(
+                    fabricated_columns,
+                    fabricated_records,
+                    columns,
+                    rows,
+                    ordered=ordered,
+                )
+                pytest.fail(f"accepted: {name}, ordered={ordered}")
+    for value in (0.0, -0, 1):
+        with pytest.raises(AssertionError):
+            sqlite_files.judge(
+                floats, [{"x": value}, {"x": 1.0}], floats, [(-0.0,), (1.0,)]
+            )

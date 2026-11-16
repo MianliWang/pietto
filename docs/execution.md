@@ -87,7 +87,7 @@ Linux-only (see [Known limitations](#known-limitations)).
 | `mysql_rows` | MySQL 8.4.12; `mysql-connector-python==26.10.0`; `pyarrow==26.0.1` (the published `0.1.10` selects `26.0.0`) | One TCP host, `MySQLAccess`, `MySQLDeploymentPremise`, and caller-supplied CA with certificate and server-identity verification. | Linux x86-64, CPython 3.13.13 with 26.0.0; the new pin passed the maintenance runs listed above. | Windows native execution; another MySQL release, connector version or provider profile. |
 | `postgres_adbc` | PostgreSQL 18.6; `adbc-driver-postgresql==1.13.0`; `adbc-driver-manager==1.13.0`; `pyarrow==26.0.1` (the published `0.1.10` selects `26.0.0`) | PostgreSQL TCP access, deployment premise, SCRAM profile with the same two TLS profiles as `postgres_rows`, and the selected driver closure. | Linux x86-64, CPython 3.13.13 with 26.0.0; the new pin passed the maintenance runs listed above. | Windows native execution; another ADBC/libpq closure, PostgreSQL release, TLS profile or platform. |
 | `duckdb_arrow` | DuckDB `2.0.0` in process; `duckdb==2.0.0`; `pyarrow==26.0.1` | A query compiled with `--dialect duckdb` from one `duckdb.arrow` source, `DuckDBArrowInput(name, table)` and `premise=None`. | Linux x86-64, CPython 3.13.13 and 3.12.13 with the locked closure: the in-process native matrices of Phase79 S06 for B1 and T06 for B2, every unit accepted on its first attempt on 2026-11-14 (D79.07) and 2026-11-16 (PL.47); and the `arrow-ready` cell of natural CI on CPython 3.12 and 3.13. | Any form beyond the [DuckDB Arrow route](spec/duckdb-arrow-route-v1.md); another DuckDB release, Windows, macOS and platforms other than Linux x86-64 with glibc 2.28 or later. |
-| `sqlite_file` | SQLite `3.53.1` with the measured source id and compile options, in process through the standard library's `sqlite3`; `pyarrow==26.0.1` | A query compiled with `--dialect sqlite` from one `sqlite.table` source, `SQLiteFileInput(path)` naming a file of `STRICT` tables and `premise=None`. | Linux x86-64; the native qualification of the route is S12's ([SQLite project mode](spec/sqlite-project-v1.md#execution)). | Any other SQLite build or platform, which `execute()` refuses; the library's memory safety on a malformed file; any form beyond [SQLite project mode](spec/sqlite-project-v1.md). |
+| `sqlite_file` | SQLite `3.53.1` with the measured source id and compile options, in process through the standard library's `sqlite3`; `pyarrow==26.0.1` | A query compiled with `--dialect sqlite` from one `sqlite.table` source, `SQLiteFileInput(path)` naming a file of `STRICT` tables and `premise=None`. | Linux x86-64 under CPython 3.13.13 and 3.12.13, qualified by the route's native cells ([SQLite project mode](spec/sqlite-project-v1.md#qualification)). | Any other SQLite build or platform, which `execute()` refuses; the library's memory safety on a malformed file; any form beyond [SQLite project mode](spec/sqlite-project-v1.md). |
 
 The qualified profile is the integration host with the lock's exact artifacts.
 Installing an extra selects no route, grants no execution, opens no source and
@@ -1480,7 +1480,7 @@ states every rule; in short:
 - **Input.** `access=SQLiteFileInput(path)` and `premise=None`;
   `SQLiteFileInput` does no I/O and cannot be copied or pickled.
   `isolation` is `"stable"`. A `Text` parameter cannot hold NUL.
-- **The file.** A non-empty regular file of at most 256 MiB with its `-wal`
+- **The file.** A non-empty regular file of at most 128 MiB with its `-wal`
   file, whose `-wal`, `-journal` and `-shm` files, where present, are
   regular files, the `-shm` file with no other link, opened read-only
   through its percent-encoded `file:` URI with `mode=ro`, in defensive
@@ -1489,13 +1489,14 @@ states every rule; in short:
   and checks the attempt needs.
 - **The source.** In one read transaction, before the statement: a UTF-8
   file; one `STRICT` table of `main` with exactly the contract's name and
-  columns of the types its fields read; `PRAGMA integrity_check` of the table
-  `ok`; at most 1,048,576 rows; and every value in its field's domain: no
-  NULL in a non-null field, an `Int` within its `int_range`, a `Bool` of 0
-  or 1, a finite `Float`, and `Text` that is valid UTF-8 without NUL and
-  within `max_characters`. A failed check is `PIE-R2007` (`SQLITE_*`
-  details) or, for the limits, `PIE-R3004`; a missing or irregular file is
-  `PIE-R2004`.
+  columns of the types its fields read, no generated column and no index on
+  an expression or with a `WHERE` clause; `PRAGMA integrity_check` of the
+  table `ok`; at most 1,048,576 rows; and every value in its field's
+  domain: no NULL in a non-null field, an `Int` within its `int_range`, a
+  `Bool` of 0 or 1, a finite `Float`, and `Text` that is valid UTF-8
+  without NUL and within `max_characters`. A failed check is `PIE-R2007`
+  (`SQLITE_*` details) or, for the limits, `PIE-R3004`; a missing or
+  irregular file is `PIE-R2004`.
 - **Failures.** An error that SQLite raises is `PIE-R2004` before the first
   read and `PIE-R3003` after it, with the detail `SQLITE_ERRORCODE_<n>` of
   its extended result code, or `SQLITE_INTEGER_OVERFLOW` for a `sum` past
@@ -1512,7 +1513,9 @@ states every rule; in short:
   them, and rebuilds an existing `-shm` file in place when no other
   connection has the file open; in a directory that cannot be written, a
   WAL file whose `-wal` and `-shm` files are missing cannot be read
-  (`PIE-R2004`). Pietto writes nothing else.
+  (`PIE-R2004`). When a sort, a grouping or `count_distinct` outgrows its
+  memory, SQLite writes temporary files to its temporary directory, each
+  deleted as it is opened. Pietto writes nothing else.
 - **Elsewhere.** `export_bundle` refuses a SQLite query (`PIE-R1004`), and
   `save`, `save_recoverable`, `recover`, `relay_live` and the job store do
   not take the route (`PIE-R1003`).

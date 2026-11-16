@@ -34,8 +34,9 @@ sqlite`, `compile_sql` and `compile_all_sql` emit them. S09 added their native
 qualification under CPython 3.13.13 and 3.12.13. S10 added the T2
 aggregates in both modes with their native cells. S11 added
 `compile_query(dialect="sqlite")` and the `sqlite_file` route of
-[execution](#execution). R1 adds the PostgreSQL replay, S12 the route's
-qualification, and S16 closes the tier. Each slice edits the rows it lands.
+[execution](#execution). S12 added the route's native qualification and,
+by its timing, the file cap of 128 MiB. R1 adds the PostgreSQL replay, and
+S16 closes the tier. Each slice edits the rows it lands.
 No published release carries a form until the owner approves
 one: `0.2.1` and earlier refuse a project `sqlite.table` with `PIE-S2306`
 `Unknown source connector: sqlite.table`.
@@ -464,8 +465,14 @@ Entering the handle, or the first `next()`, runs these steps within
    deletes the `-wal` file beside a 0-byte one, it opens each of the three
    files itself, where a FIFO would block it beyond the deadline, and it
    truncates an `-shm` file in place); the file and its `-wal` file hold at
-   most 256 MiB together (`PIE-R3004` `SQLITE_FILE_LIMIT`; a `-wal` file can
-   be far larger than its database).
+   most 128 MiB together (`PIE-R3004` `SQLITE_FILE_LIMIT`; a `-wal` file can
+   be far larger than its database). PL.47 set 256 MiB unless the checks
+   and the query could not finish within 20 seconds there; S12 measured,
+   with a cold cache under both interpreters, the check of a 253 MiB file
+   whose 13 indexes were keyed at random run past that deadline, and
+   10.9 s at 117 MiB, so the cap is 128 MiB and the deadline stays. No
+   size bounds the time of the file's own expressions, which step 4
+   refuses before the integrity check would run them.
 3. Defences 1 to 3 and 7: one connection opens
    `Path.resolve().as_uri() + "?mode=ro"`, which percent-encodes `?`, `#`,
    `%`, `=` and `&` in the name, so a name cannot add URI parameters, never
@@ -484,22 +491,36 @@ Entering the handle, or the first `next()`, runs these steps within
    named exactly as the contract's `relation.name`, of type `table` and
    `STRICT` (`PIE-R2007` `SQLITE_SOURCE_OBJECT`: a missing table, a view, a
    virtual or shadow table, a table that is not `STRICT`, or another letter
-   case); `PRAGMA table_xinfo` declares each contract column with exactly its
-   name, not hidden and not generated, as `INT` or `INTEGER` for an `Int` or
-   `Bool` field, `REAL` for a `Float` and `TEXT` for a `Text`, never `ANY`
-   or `BLOB` (`PIE-R2007` `SQLITE_SOURCE_COLUMNS`); `PRAGMA
+   case); `PRAGMA index_list` and `PRAGMA index_xinfo` show no index of the
+   table with a `WHERE` clause or a key that is an expression (`PIE-R2007`
+   `SQLITE_SOURCE_OBJECT`); `PRAGMA table_xinfo` shows no generated column,
+   stored or virtual, in the table and declares each contract column with
+   exactly its name, as `INT` or `INTEGER` for an `Int` or `Bool` field,
+   `REAL` for a `Float` and `TEXT` for a `Text`, never `ANY` or `BLOB`
+   (`PIE-R2007` `SQLITE_SOURCE_COLUMNS`). The integrity check would compute
+   each index expression, partial-index `WHERE` clause and virtual
+   generated column of the table for every row, without the authorizer and
+   within single steps that the progress handler does not split: S12's
+   review saw a 12 KiB file's index expression of `hex`, `zeroblob` and
+   `replace` run 94.5 s under the 20 s deadline. A stored generated column,
+   which the check does not compute, is refused with them so that the rule
+   stays simple and fails closed. Then `PRAGMA
    integrity_check` of the table and its indexes reports `ok` before any of
    its rows is read (`PIE-R2007` `SQLITE_SOURCE_INTEGRITY`; it finds an
    index that disagrees with its table, which `quick_check` misses and
-   which makes a query return wrong rows); the table holds at most 1,048,576
+   which makes a query return wrong rows, and a `STRICT` type or `NOT NULL`
+   violation that a tampered file holds; on this read-only connection it
+   checks no `CHECK` constraint, which the route never relies on); the
+   table holds at most 1,048,576
    rows (`PIE-R3004` `SQLITE_SOURCE_LIMIT`); and every row holds each
    contract field's domain (`PIE-R2007` `SQLITE_SOURCE_VALUES`): one scan
    checks the storage class by `typeof`, NULL only in a nullable field, an
    `Int` within its `int_range`, a `Bool` of 0 or 1 and a finite `Float`,
    and each `Text` value's bytes are decoded in Python, since no SQL form
    finds invalid UTF-8, and must be UTF-8 without NUL and of at most
-   `max_characters` characters. A broken view elsewhere in the file leaves
-   these checks working.
+   `max_characters` characters. A broken view, or an expression index or
+   generated column of another table, elsewhere in the file leaves these
+   checks working.
 5. The compiled statement runs once with the parameters at `?1`, `?2`, ...;
    its whole result is read, `COMMIT` ends the transaction and the
    connection closes, so no lock is held while batches are delivered.
@@ -513,8 +534,10 @@ The authorizer answers allow or `SQLITE_DENY`, never `SQLITE_IGNORE`, which
 would read a column as NULL. It allows reads of the source's contract
 columns in `main`; reads of no column (`count(*)`, `rowid`), whose database
 is `main` or, unqualified, None; `SELECT`; the functions `count`, `min`,
-`max`, `avg`, `sum`, `typeof` and `abs`; the five PRAGMA statements of step
-3 and 4, with no argument or the source's name, until the statement runs;
+`max`, `avg`, `sum`, `typeof` and `abs`; the PRAGMA statements of steps 3
+and 4, with no argument, the source's name or, for `index_xinfo`, the name
+of an index that `index_list` listed for the source, until the statement
+runs;
 and the transaction's `BEGIN`, `COMMIT` and `ROLLBACK`. Everything else is
 denied, `ATTACH`, writes and any access through a view or trigger included.
 
@@ -550,7 +573,12 @@ WAL file SQLite writes the `-shm` file, its shared index, on every read: it
 creates the `-wal` and `-shm` files when they are missing and leaves them,
 and when no other connection has the file open it truncates and rebuilds
 an existing `-shm` file (step 2 refuses one with another link, which would
-be rewritten too). Pietto creates and writes no other file and starts no
+be rewritten too). When a sort, a grouping or `count_distinct` outgrows
+its memory, SQLite writes temporary files to the first directory it can
+write of these: a temporary directory set for the whole process, where one
+is, `SQLITE_TMPDIR`, `TMPDIR`, `/var/tmp`, `/usr/tmp`, `/tmp` and the
+working directory; each is deleted as it is opened (S12 saw them under
+`/var/tmp`). Pietto creates and writes no other file and starts no
 thread.
 
 Known limits. The types and sizes of the file and of the files beside it
@@ -576,8 +604,17 @@ conditions and the method of D78.10 and D78.11, on one PostgreSQL slot; its
 `avg` entries pass on data whose sum does not depend on the order, and a
 cancelling case is recorded as an observed difference, not a failure. The
 route's [qualification rules](../phases/phase-78/route.md#b2-qualification-and-replay)
-hold the rest. Hosted CI asserts the refusal of the native classes and runs
-the byte and golden tests everywhere.
+hold the rest. The route's native cells in
+`tests/test_execution_api_sqlite_file.py` open test-owned files under the
+same SQLite class, judge each result by its types as well as its values,
+and give each defence and value check a cell that breaks it, on a file
+where a file can, with control cells that show the harm behind several;
+S12 ran them under CPython 3.13.13 and 3.12.13. They need the `arrow`
+extra: without PyArrow they skip with the counted line
+`PIETTO_NOT_RUN sqlite-native ARROW`, and Gate 2 qualifies them in a run of
+their file with the extra and no skip. Hosted CI asserts the
+refusal of the native classes and runs the byte and golden tests
+everywhere.
 
 ## Usability
 

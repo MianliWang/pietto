@@ -380,6 +380,37 @@ skips before the cell starts.
 [Validation runner acceptance](spec/validation-runner-acceptance-v1.md) row 9
 states where the premise holds.
 
+`tests/test_execution_api_sqlite_file.py` qualifies the
+[SQLite file route](execution.md#sqlite-file-route) under the same class,
+with the platform as one more part of the identity (`SQLITE_PLATFORM` when
+it is not Linux x86-64). Its native cells run the route over files that
+each test builds under pytest's base temporary directory, malformed and
+hostile ones included, and need the `arrow` extra, which is an installation
+premise and not the build's: the authoritative validator's pytest
+environment, like every CI job's, installs no extra, and
+`tests/test_ci_results_governance.py` requires it to be Arrow-free. Without
+PyArrow, `qualified` and `report` skip these cells with the counted line
+`PIETTO_NOT_RUN sqlite-native ARROW`, while another build or platform still
+fails `qualified`. Under
+`hosted-refusal` the `native` fixture asserts the route's own refusal
+(`PIE-R2002` `SQLITE_BUILD`, before any file opens) and skips the
+cell, which has nothing else to run. Each defence and value check has a
+cell that breaks it, on a file where a file can, and the session's cell
+checks that the attempt installs its own authorizer before `BEGIN`.
+Control cells show the harm behind several: an index that returns a row
+its table lacks, a planted type or NULL, an index expression that the
+integrity check runs past the authorizer and between two deadline checks,
+`immutable=1` reading old rows, a writer during the attempt. The
+judge in `tests/_pietto_sql_sqlite.py` compares each result's column
+names, types and nullability and each value's Python type and zero sign,
+which Python's `==` would let through, and
+`tests/test_harness_execution_api.py` requires it on every runner to accept
+the honest result and refuse every fabricated shape. Gate 2 qualifies the
+route's cells in an arrow-ready run: on the integration host it runs
+`tests/test_execution_api_sqlite_file.py` once more with
+`--pietto-sqlite-class=qualified` in an environment with the `arrow` extra
+on the measured build, and accepts that run only with no skipped test.
+
 `tests/fixtures/sqlite/postgres_replay_v1.json` keeps the PostgreSQL byte
 replay (D78.08): the rows that one campaign on the pinned PostgreSQL 18.6
 image returned for the PostgreSQL bytes of every law cell and golden

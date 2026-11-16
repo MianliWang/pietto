@@ -28,7 +28,7 @@ import os
 import re
 import sqlite3
 from collections import Counter
-from collections.abc import Callable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from contextlib import closing
 from dataclasses import dataclass, replace
 from decimal import Decimal
@@ -39,6 +39,11 @@ import pytest
 
 import _pietto_ir_bag_null_oracle as oracle
 import _pietto_sql_sqlite as project_files
+from _pietto_sql_sqlite import SQLITE_CLASS_VARIABLE, SQLITE_CLASSES
+from _pietto_sql_sqlite import observe as _observe
+from _pietto_sql_sqlite import qualified as _qualified
+from _pietto_sql_sqlite import refusal as _refusal
+from _pietto_sql_sqlite import sqlite_class as _sqlite_class
 from pietto._project import project_sql_emission_cli as emission_cli
 from pietto._project import project_sqlite_emission as adapter
 from pietto._project import project_sqlite_sql as adapter_sql
@@ -56,58 +61,9 @@ SQL_GOLDEN = REPO_ROOT / "tests/fixtures/golden/emit_sqlite_single_file.sql"
 # One PASS run of PostgreSQL 18.6 over the PostgreSQL bytes of every law cell
 # and golden statement (D78.08); the file states its source and regeneration.
 POSTGRES_REPLAY = REPO_ROOT / "tests/fixtures/sqlite/postgres_replay_v1.json"
-SQLITE_CLASS_VARIABLE = "PIETTO_SQLITE_CLASS"
-SQLITE_CLASSES = ("hosted-refusal", "qualified", "report")
 INT_MIN = -9_223_372_036_854_775_808
 INT_MAX = 9_223_372_036_854_775_807
 _RecordProperty = Callable[[str, object], None]
-
-
-def _observe(connection: sqlite3.Connection) -> _Build:
-    release, source_id = connection.execute(
-        "SELECT sqlite_version(), sqlite_source_id()"
-    ).fetchone()
-    options = connection.execute("PRAGMA compile_options").fetchall()
-    return _Build(release, source_id, tuple(row[0] for row in options))
-
-
-def _refusal(observed: _Build) -> str | None:
-    """The first part of the identity that differs, or None when it is the
-    measured build."""
-
-    if observed.release != QUALIFIED_SQLITE_BUILD.release:
-        return "SQLITE_BUILD_RELEASE"
-    if observed.source_id != QUALIFIED_SQLITE_BUILD.source_id:
-        return "SQLITE_BUILD_SOURCE"
-    if observed.compile_options != QUALIFIED_SQLITE_BUILD.compile_options:
-        return "SQLITE_BUILD_OPTIONS"
-    return None
-
-
-def _sqlite_class(environ: Mapping[str, str], option: str | None) -> str:
-    """The declared class; with none, hosted CI keeps the refusal and any
-    other run reports. A class never qualifies a build."""
-
-    declared = environ.get(SQLITE_CLASS_VARIABLE)
-    if option is not None and declared is not None and declared != option:
-        raise ValueError("PIETTO_SQLITE_CLASS_CONFLICT")
-    value = option if option is not None else declared
-    if value is None:
-        return "hosted-refusal" if environ.get("GITHUB_ACTIONS") == "true" else "report"
-    if value not in SQLITE_CLASSES:
-        raise ValueError("PIETTO_SQLITE_CLASS_UNKNOWN")
-    return value
-
-
-def _qualified(observed: _Build, declared: str) -> bool:
-    refusal = _refusal(observed)
-    if refusal is None:
-        return True
-    if declared == "hosted-refusal":
-        return False
-    if declared == "qualified":
-        pytest.fail(f"PIETTO_SQLITE_REQUIRED {refusal}", pytrace=False)
-    pytest.skip(f"PIETTO_NOT_RUN sqlite-native {refusal}")
 
 
 @pytest.fixture(scope="module")

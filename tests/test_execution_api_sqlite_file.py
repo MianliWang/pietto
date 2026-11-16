@@ -1,20 +1,26 @@
 """The `sqlite_file` execution route: its request checks, the defences of
 its read-only open of the caller's file, the source check in the attempt's
 read transaction, and the attempt's lifecycle (docs/spec/sqlite-project-v1.md,
-"Execution"; PL.47). Cells that open a file run only on Linux x86-64 with
-the measured SQLite build and need PyArrow (lesson 80-2); the request checks
-run everywhere."""
+"Execution"; PL.47). Native cells open test-owned files on Linux x86-64 with
+the measured SQLite build, under the SQLite class of the `native` fixture
+(lesson 80-2), and need PyArrow; each control cell shows the harm that its
+defence prevents, and a result is judged by its types as well as its values.
+The request checks run everywhere."""
 
 from __future__ import annotations
 
 import copy
 import dataclasses
+import importlib.util
+import math
 import os
 import pickle
 import platform
 import sqlite3
 import sys
 import threading
+import time
+from collections.abc import Sequence
 from contextlib import closing
 from pathlib import Path
 from typing import Any
@@ -61,30 +67,27 @@ GROUPED = """query result(v: Int, t: Text):
         ok
 """
 SUM = "query result:\n    from orders\n    select:\n        s = sum(id)\n"
+FLOAT = "query f(x: Float):\n    from orders\n    where price > x\n    select:\n        id\n"
 MAX = 2**63 - 1
-
-
-def _measured() -> bool:
-    if sys.platform != "linux" or platform.machine() != "x86_64":
-        return False
-    with closing(sqlite3.connect(":memory:")) as connection:
-        release, source = connection.execute(
-            "SELECT sqlite_version(), sqlite_source_id()"
-        ).fetchone()
-        options = tuple(row[0] for row in connection.execute("PRAGMA compile_options"))
-    build = QUALIFIED_SQLITE_BUILD
-    return (release, source, options) == (
-        build.release,
-        build.source_id,
-        build.compile_options,
-    )
-
-
-NATIVE = pytest.mark.skipif(
-    not _measured(),
-    reason="the sqlite_file route opens files only on Linux x86-64 with the"
-    " measured SQLite build",
+# The result columns of FILTERED and GROUPED: name, Arrow type, nullable.
+COLUMNS = (
+    ("id", "int64", False),
+    ("note", "string", True),
+    ("ok", "bool", False),
+    ("price", "double", False),
 )
+GROUPED_COLUMNS = (
+    ("ok", "bool", False),
+    ("n", "int64", False),
+    ("d", "int64", False),
+    ("a", "double", True),
+    ("s", "int64", True),
+    ("low", "double", True),
+)
+FIRST = (1, "a", True, 1.5)
+GROUPS = [(False, 1, 0, 7.0, 2, 2.5), (True, 2, 2, 7.0, 4, -1.0)]
+# Applied to each native cell: see the `native` fixture.
+NATIVE = pytest.mark.usefixtures("native")
 
 
 def _pyarrow() -> Any:
@@ -173,6 +176,52 @@ def _table(pa: Any, handle: Any) -> Any:
     with handle as result:
         batches = [pa.record_batch(batch) for batch in result]
     return pa.Table.from_batches(batches, schema=pa.schema(handle))
+
+
+def _judged(
+    handle: Any,
+    rows: Sequence[tuple[object, ...]],
+    columns: tuple[tuple[str, str, bool], ...] = COLUMNS,
+    *,
+    ordered: bool = True,
+) -> None:
+    """Deliver the whole result and judge it against rows written before the
+    run."""
+    table = _table(_pyarrow(), handle)
+    files.judge(*files.result_facts(table), columns, rows, ordered=ordered)
+
+
+@pytest.fixture(scope="module")
+def native(
+    request: pytest.FixtureRequest,
+    filtered_query: execution.CompiledQuery,
+    tmp_path_factory: pytest.TempPathFactory,
+) -> None:
+    """The SQLite class of a native cell (docs/development.md, "SQLite target
+    validation"): the cell runs on the measured build on Linux x86-64.
+    Elsewhere `qualified` fails it and `report` skips it with a counted
+    `PIETTO_NOT_RUN sqlite-native` line, while `hosted-refusal` asserts the
+    route's own refusal before any file opens and skips the cell, which has
+    nothing else to run. PyArrow is an installation premise, not the
+    build's: without it `qualified` and `report` skip the cell with the
+    counted line `PIETTO_NOT_RUN sqlite-native ARROW`, and Gate 2's
+    arrow-ready run of this file qualifies the cells with no skip."""
+    declared = files.sqlite_class(
+        os.environ, request.config.getoption("--pietto-sqlite-class")
+    )
+    with closing(sqlite3.connect(":memory:")) as connection:
+        category = files.refusal(files.observe(connection))
+    if sys.platform != "linux" or platform.machine() != "x86_64":
+        category = "SQLITE_PLATFORM"
+    if files.decide(category, declared):
+        if declared != "hosted-refusal" and importlib.util.find_spec("pyarrow") is None:
+            pytest.skip("PIETTO_NOT_RUN sqlite-native ARROW")
+        return
+    missing = tmp_path_factory.mktemp("refused") / "absent.db"
+    good = {"access": execution.SQLiteFileInput(missing), "parameters": ARGUMENTS}
+    assert _refusal(filtered_query, **good) == ("PIE-R2002", "SQLITE_BUILD")
+    assert not missing.exists()
+    pytest.skip(f"the sqlite_file route refuses here: {category}")
 
 
 def test_the_input_is_a_frozen_value_that_refuses_pickle_and_copy(
@@ -301,6 +350,15 @@ def test_request_checks_refuse_in_order_before_any_file_opens(
     assert _refusal(query, **relative) == ("PIE-R1002", "EXECUTION_ACCESS")
 
 
+def test_a_float_parameter_is_finite_before_any_file_opens(tmp_path: Path) -> None:
+    query = _compiled(tmp_path / "p", FLOAT)
+    access = execution.SQLiteFileInput(tmp_path / "absent.db")
+    for value in (math.nan, math.inf, -math.inf, 1, True, None):
+        refused = _refusal(query, access=access, parameters={"x": value})
+        assert refused == ("PIE-R1006", "BINDING_PARAMETER:0:Float"), value
+    assert not (tmp_path / "absent.db").exists()
+
+
 def test_a_forged_template_or_another_code_identity_is_refused(
     filtered_query: execution.CompiledQuery,
 ) -> None:
@@ -400,6 +458,7 @@ def test_the_authorizer_allows_only_the_source_reads_and_the_checks(
         (function, None, "count", None, None),
         (function, None, "typeof", None, None),
         (pragma, "schema_version", None, None, None),
+        (pragma, "index_list", "orders", None, None),
         (pragma, "integrity_check", "orders", None, None),
         (sqlite3.SQLITE_TRANSACTION, "BEGIN", None, None, None),
         (sqlite3.SQLITE_TRANSACTION, "ROLLBACK", None, None, None),
@@ -415,6 +474,7 @@ def test_the_authorizer_allows_only_the_source_reads_and_the_checks(
         (function, None, "sqlite_version", None, None),
         (pragma, "integrity_check", None, None, None),
         (pragma, "table_list", "other", None, None),
+        (pragma, "index_xinfo", "orders", None, None),
         (pragma, "writable_schema", "1", None, None),
         (sqlite3.SQLITE_ATTACH, "x.db", None, None, None),
         (sqlite3.SQLITE_INSERT, "orders", None, "main", None),
@@ -422,9 +482,14 @@ def test_the_authorizer_allows_only_the_source_reads_and_the_checks(
     ]
     assert [attempt._authorize(*c) for c in allowed] == [ok] * len(allowed)
     assert [attempt._authorize(*c) for c in denied] == [deny] * len(denied)
+    # `index_xinfo` reads only an index that `index_list` listed for the source.
+    attempt._indexes = ("orders_id",)
+    assert attempt._authorize(pragma, "index_xinfo", "orders_id", None, None) == ok
+    assert attempt._authorize(pragma, "index_xinfo", "other_id", None, None) == deny
     # Once the statement runs, no PRAGMA is allowed.
     attempt._checking = False
     assert attempt._authorize(pragma, "encoding", None, None, None) == deny
+    assert attempt._authorize(pragma, "index_xinfo", "orders_id", None, None) == deny
 
 
 def test_the_result_binding_checks_each_value_before_pyarrow() -> None:
@@ -479,8 +544,7 @@ def test_a_filtered_query_returns_its_rows_and_leaves_the_file_unchanged(
         ]
     )
     assert pa.schema(handle) == expected and handle.outcome.end == "NOT_STARTED"
-    table = _table(pa, handle)
-    assert table.to_pylist() == [{"id": 1, "note": "a", "ok": True, "price": 1.5}]
+    _judged(handle, [FIRST])
     outcome = handle.outcome
     assert (outcome.end, outcome.transaction, outcome.cleanup, outcome.rows) == (
         "COMPLETE",
@@ -489,13 +553,12 @@ def test_a_filtered_query_returns_its_rows_and_leaves_the_file_unchanged(
         1,
     )
     assert outcome.primary is None and outcome.cleanup_failures == ()
-    word = _handle(filtered_query, path, parameters={"low": 0, "word": None})
-    assert _table(pa, word).num_rows == 0
+    _judged(_handle(filtered_query, path, parameters={"low": 0, "word": None}), [])
     # A relative path names the file of the working directory at execute().
     monkeypatch.chdir(tmp_path)
     relative = _handle(filtered_query, "orders.db")
     monkeypatch.chdir(tmp_path.parent)
-    assert _table(pa, relative).num_rows == 1
+    _judged(relative, [FIRST])
     assert path.read_bytes() == before
     assert sorted(p.name for p in tmp_path.iterdir()) == ["orders.db"]
 
@@ -504,7 +567,7 @@ def test_a_filtered_query_returns_its_rows_and_leaves_the_file_unchanged(
 def test_the_aggregates_run_in_one_snapshot_of_a_wal_file(tmp_path: Path) -> None:
     """A WAL file whose -wal holds the rows: the size counts it, and SQLite
     leaves the -wal and -shm files beside it, as the effects table states."""
-    pa = _pyarrow()
+    _pyarrow()
     query = _compiled(tmp_path / "p", GROUPED, _contract(id=(0, MAX)))
     path = tmp_path / "orders.db"
     writer = sqlite3.connect(path)
@@ -518,11 +581,7 @@ def test_the_aggregates_run_in_one_snapshot_of_a_wal_file(tmp_path: Path) -> Non
         wal = Path(str(path) + "-wal").stat().st_size
         assert wal > main
         arguments = {"v": 4, "t": "x"}
-        table = _table(pa, _handle(query, path, parameters=arguments))
-        assert table.to_pylist() == [
-            {"ok": False, "n": 1, "d": 0, "a": 7.0, "s": 2, "low": 2.5},
-            {"ok": True, "n": 2, "d": 2, "a": 7.0, "s": 4, "low": -1.0},
-        ]
+        _judged(_handle(query, path, parameters=arguments), GROUPS, GROUPED_COLUMNS)
         refused = _handle(query, path, parameters=arguments)
         limit = main + wal - 1
         with pytest.MonkeyPatch.context() as patch:
@@ -534,7 +593,7 @@ def test_the_aggregates_run_in_one_snapshot_of_a_wal_file(tmp_path: Path) -> Non
     # The last writer checkpointed and removed its -wal and -shm files; a
     # read-only reader of a WAL file creates them again and leaves them.
     assert sorted(p.name for p in tmp_path.iterdir()) == ["orders.db", "p"]
-    assert _table(pa, _handle(query, path, parameters=arguments)).num_rows == 2
+    _judged(_handle(query, path, parameters=arguments), GROUPS, GROUPED_COLUMNS)
     assert sorted(p.name for p in tmp_path.iterdir()) == [
         "orders.db",
         "orders.db-shm",
@@ -549,14 +608,14 @@ def test_a_symbolic_link_resolves_before_a_parent_step(
 ) -> None:
     """`sub/link/../orders.db` names the file that the operating system and
     sqlite3.connect open, beside the link's target, not `sub/orders.db`."""
-    pa = _pyarrow()
+    _pyarrow()
     (tmp_path / "elsewhere" / "deep").mkdir(parents=True)
     (tmp_path / "sub").mkdir()
     (tmp_path / "sub" / "link").symlink_to(tmp_path / "elsewhere" / "deep")
     _database(tmp_path / "elsewhere" / "orders.db")
     _database(tmp_path / "sub" / "orders.db", _row(id=2))
     named = tmp_path / "sub" / "link" / ".." / "orders.db"
-    assert _table(pa, _handle(filtered_query, named)).column("id").to_pylist() == [1]
+    _judged(_handle(filtered_query, named), [FIRST])
 
 
 @NATIVE
@@ -673,8 +732,56 @@ def _invalid_utf8(path: Path) -> None:
         connection.commit()
 
 
+def _planted(schema: str, rows: tuple[tuple[object, ...], ...]) -> Any:
+    """A file whose rows were written under `schema` and whose table is then
+    declared as SCHEMA, as a tampered file can be: SQLite does not check the
+    stored rows against the new declaration."""
+
+    def setup(path: Path) -> None:
+        _database(path, rows, schema)
+        with closing(sqlite3.connect(path)) as connection:
+            connection.execute("PRAGMA writable_schema = ON")
+            connection.execute(
+                "UPDATE sqlite_schema SET sql = ? WHERE name = 'orders'", (SCHEMA,)
+            )
+            connection.commit()
+
+    return setup
+
+
+def _cut(size: int) -> Any:
+    """The file of ROWS (two pages of 4,096 bytes) cut to its first `size`
+    bytes."""
+
+    def setup(path: Path) -> None:
+        _database(path)
+        path.write_bytes(path.read_bytes()[:size])
+
+    return setup
+
+
+def _then(*statements: str, rows: tuple[tuple[object, ...], ...] = ROWS) -> Any:
+    """A file of `rows` under SCHEMA, then `statements`."""
+
+    def setup(path: Path) -> None:
+        _database(path, rows)
+        with closing(sqlite3.connect(path)) as connection:
+            for statement in statements:
+                connection.execute(statement)
+            connection.commit()
+
+    return setup
+
+
 def _swap(column: str, declared: str) -> str:
     return SCHEMA.replace(column, declared, 1)
+
+
+def _generated(kind: str) -> str:
+    """SCHEMA with a sixth column computed from `note`."""
+    return SCHEMA.replace(
+        ") STRICT", f", shout TEXT GENERATED ALWAYS AS (upper(note)){kind}) STRICT"
+    )
 
 
 def _row(**change: object) -> tuple[tuple[object, ...], ...]:
@@ -684,10 +791,22 @@ def _row(**change: object) -> tuple[tuple[object, ...], ...]:
 
 
 R2004, R2007, R3004 = "PIE-R2004", "PIE-R2007", "PIE-R3004"
+INTEGRITY = (R2007, "SQLITE_SOURCE_INTEGRITY")
+# SCHEMA without STRICT, so `amount` stores text; SCHEMA with `amount` nullable.
+TYPED = SCHEMA.removesuffix(" STRICT")
+NULLABLE = _swap("amount INTEGER NOT NULL", "amount INTEGER")
 DEFENCES: dict[str, tuple[Any, tuple[str, str]]] = {
     "missing": (lambda p: None, (R2004, "SQLITE_FILE_TYPE")),
     "directory": (lambda p: p.mkdir(), (R2004, "SQLITE_FILE_TYPE")),
     "fifo": (lambda p: os.mkfifo(p), (R2004, "SQLITE_FILE_TYPE")),
+    # SQLite would open /dev/null as an empty database.
+    "link to /dev/null": (
+        lambda p: p.symlink_to(os.devnull),
+        (R2004, "SQLITE_FILE_TYPE"),
+    ),
+    # SQLITE_CORRUPT (11) at the first read.
+    "header cut short": (_cut(100), (R2004, "SQLITE_ERRORCODE_11")),
+    "pages cut off": (_cut(4096), (R2004, "SQLITE_ERRORCODE_11")),
     "not a database": (
         lambda p: p.write_bytes(b"not a database" * 512),
         (R2004, "SQLITE_ERRORCODE_26"),
@@ -745,7 +864,26 @@ DEFENCES: dict[str, tuple[Any, tuple[str, str]]] = {
         lambda p: _database(p, (), _swap("price", "Price")),
         (R2007, "SQLITE_SOURCE_COLUMNS"),
     ),
+    # The integrity check would compute each of these expressions of the file.
+    "expression index": (
+        _then("CREATE INDEX orders_lower ON orders(amount, lower(note))"),
+        (R2007, "SQLITE_SOURCE_OBJECT"),
+    ),
+    "partial index": (
+        _then("CREATE INDEX orders_some ON orders(amount) WHERE ok = 1"),
+        (R2007, "SQLITE_SOURCE_OBJECT"),
+    ),
+    "generated column beside": (
+        lambda p: _database(p, ROWS, _generated("")),
+        (R2007, "SQLITE_SOURCE_COLUMNS"),
+    ),
+    "stored generated column beside": (
+        lambda p: _database(p, ROWS, _generated(" STORED")),
+        (R2007, "SQLITE_SOURCE_COLUMNS"),
+    ),
     "index fault": (_index_fault, (R2007, "SQLITE_SOURCE_INTEGRITY")),
+    "planted STRICT type error": (_planted(TYPED, _row(amount="x")), INTEGRITY),
+    "planted NOT NULL error": (_planted(NULLABLE, _row(amount=None)), INTEGRITY),
     "bool 2": (lambda p: _database(p, _row(ok=2)), (R2007, "SQLITE_SOURCE_VALUES")),
     "null in a non-null field": (
         lambda p: _database(
@@ -839,6 +977,259 @@ def test_a_companion_file_that_sqlite_would_block_on_or_rewrite_is_refused(
 
 
 @NATIVE
+def test_a_setting_that_does_not_read_back_is_refused(
+    filtered_query: execution.CompiledQuery,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Defence 2 reads each setting back: a library that ignored the
+    request for defensive mode leaves the session unopened."""
+    _pyarrow()
+    path = _database(tmp_path / "orders.db")
+
+    class Ignoring(sqlite3.Connection):
+        def setconfig(self, op: int, enable: bool = True, /) -> bool:
+            if op == sqlite3.SQLITE_DBCONFIG_DEFENSIVE:
+                return False
+            return super().setconfig(op, enable)
+
+    real = sqlite3.connect
+    handle = _handle(filtered_query, path)
+    monkeypatch.setattr(
+        sqlite3, "connect", lambda *a, **k: real(*a, factory=Ignoring, **k)
+    )
+    failed = _failed(handle)
+    assert (failed.failure.code, failed.failure.detail) == (
+        "PIE-R2006",
+        "SQLITE_SESSION_CONTEXT",
+    )
+    assert failed.outcome is not None and failed.outcome.cleanup == "CLOSED"
+
+
+# A fault planted in the file, the read that shows its harm without the route,
+# and that read's rows.
+PLANTED = {
+    # The index holds `amount` under the name of `id`: a row that the table
+    # does not hold, which `quick_check` misses.
+    "index fault": (
+        _index_fault,
+        "SELECT id, amount FROM orders WHERE id = 5",
+        [(5, 5)],
+    ),
+    "planted STRICT type error": (
+        _planted(TYPED, _row(amount="x")),
+        "SELECT typeof(amount) FROM orders WHERE id = 1",
+        [("text",)],
+    ),
+    "planted NOT NULL error": (
+        _planted(NULLABLE, _row(amount=None)),
+        "SELECT amount FROM orders WHERE id = 1",
+        [(None,)],
+    ),
+}
+
+
+@NATIVE
+@pytest.mark.parametrize("case", PLANTED, ids=list(PLANTED))
+def test_a_planted_fault_misleads_a_read_that_the_route_refuses(
+    case: str, filtered_query: execution.CompiledQuery, tmp_path: Path
+) -> None:
+    _pyarrow()
+    setup, read, rows = PLANTED[case]
+    path = tmp_path / "orders.db"
+    setup(path)
+    with closing(sqlite3.connect(path.as_uri() + "?mode=ro", uri=True)) as raw:
+        assert raw.execute(read).fetchall() == rows
+        quick = raw.execute("PRAGMA quick_check(orders)").fetchall()
+    assert (quick == [("ok",)]) is (case == "index fault")
+    failure = _failed(_handle(filtered_query, path)).failure
+    assert (failure.code, failure.detail) == INTEGRITY
+
+
+@NATIVE
+def test_a_violated_check_constraint_is_no_premise(
+    filtered_query: execution.CompiledQuery, tmp_path: Path
+) -> None:
+    """Row 1 breaks a CHECK planted in the file. A writable connection's
+    integrity check reports it; the read-only one checks no CHECK, so the
+    route reads the row, whose values hold the contract's domains."""
+    _pyarrow()
+    path = _database(tmp_path / "orders.db")
+    with closing(sqlite3.connect(path)) as connection:
+        connection.execute("PRAGMA writable_schema = ON")
+        connection.execute(
+            "UPDATE sqlite_schema SET sql = ? WHERE name = 'orders'",
+            (SCHEMA.replace(") STRICT", ", CHECK (amount > 6)) STRICT"),),
+        )
+        connection.commit()
+    with closing(sqlite3.connect(path)) as writable:
+        assert writable.execute("PRAGMA integrity_check(orders)").fetchall() == [
+            ("CHECK constraint failed in orders",)
+        ]
+    with closing(sqlite3.connect(path.as_uri() + "?mode=ro", uri=True)) as read_only:
+        assert read_only.execute("PRAGMA integrity_check(orders)").fetchall() == [
+            ("ok",)
+        ]
+    _judged(_handle(filtered_query, path), [FIRST])
+
+
+# Files whose source is sound beside schema the route never reads.
+SOUND = {
+    # Project SQL compares with COLLATE BINARY: "A" is not "a".
+    "NOCASE column": lambda p: _database(
+        p,
+        (*ROWS, (4, 8, "A", 0, 0.5)),
+        _swap("note TEXT", "note TEXT COLLATE NOCASE"),
+    ),
+    "unique and NOCASE indexes": _then(
+        "CREATE UNIQUE INDEX orders_id ON orders(id)",
+        "CREATE INDEX orders_note ON orders(note COLLATE NOCASE, amount DESC)",
+    ),
+    "trigger": _then(
+        "CREATE TABLE seen (id INTEGER)",
+        "CREATE TRIGGER orders_seen AFTER INSERT ON orders"
+        " BEGIN INSERT INTO seen VALUES (new.id); END",
+    ),
+    "broken view elsewhere": _then(
+        "CREATE TABLE gone (a INTEGER)",
+        "CREATE VIEW broken AS SELECT a FROM gone",
+        "DROP TABLE gone",
+    ),
+    # Only the source's own indexes and columns are refused.
+    "expressions elsewhere": _then(
+        "CREATE TABLE other (a TEXT, b TEXT GENERATED ALWAYS AS (upper(a)))",
+        "CREATE INDEX other_lower ON other(lower(a)) WHERE a > 'a'",
+    ),
+}
+
+
+@NATIVE
+@pytest.mark.parametrize("case", SOUND, ids=list(SOUND))
+def test_a_sound_source_runs_beside_schema_the_route_never_reads(
+    case: str, filtered_query: execution.CompiledQuery, tmp_path: Path
+) -> None:
+    _pyarrow()
+    path = tmp_path / "orders.db"
+    SOUND[case](path)
+    _judged(_handle(filtered_query, path), [FIRST])
+
+
+@NATIVE
+def test_the_integrity_check_would_run_an_index_expression_past_the_defences(
+    filtered_query: execution.CompiledQuery, tmp_path: Path
+) -> None:
+    """An index planted over `note` with an expression of `hex`, `zeroblob`
+    and `replace`, none of which the authorizer allows. On a read-only
+    connection that denies every function, `PRAGMA integrity_check` computes
+    the expression for each row without asking the authorizer, in fewer
+    steps than the route lets pass between two deadline checks; the route
+    refuses the index first, within a one-second deadline."""
+    _pyarrow()
+    heavy = "length(replace(hex(zeroblob(4000000)), '0', 'ab'))"
+    path = tmp_path / "orders.db"
+    _then("CREATE INDEX orders_note ON orders(note)")(path)
+    with closing(sqlite3.connect(path)) as connection:
+        connection.execute("PRAGMA writable_schema = ON")
+        connection.execute(
+            "UPDATE sqlite_schema SET sql = ? WHERE name = 'orders_note'",
+            (f"CREATE INDEX orders_note ON orders({heavy})",),
+        )
+        connection.commit()
+    asked: list[object] = []
+    steps = [0]
+
+    def deny(action: int, *arguments: object) -> int:
+        if action != sqlite3.SQLITE_FUNCTION:
+            return sqlite3.SQLITE_OK
+        asked.append(arguments)
+        return sqlite3.SQLITE_DENY
+
+    def step() -> int:
+        steps[0] += 1
+        return 0
+
+    with closing(sqlite3.connect(path.as_uri() + "?mode=ro", uri=True)) as raw:
+        raw.set_authorizer(deny)
+        raw.set_progress_handler(step, 1)
+        report = raw.execute("PRAGMA integrity_check(orders)").fetchall()
+    assert report == [(f"row {i} missing from index orders_note",) for i in (1, 2, 3)]
+    assert asked == [] and steps[0] < route.PROGRESS_STEPS
+    started = time.monotonic()
+    limits = execution.ExecutionLimits(seconds=1)
+    failure = _failed(_handle(filtered_query, path, limits=limits)).failure
+    assert (failure.code, failure.detail) == (R2007, "SQLITE_SOURCE_OBJECT")
+    assert time.monotonic() - started < 1
+
+
+@NATIVE
+def test_immutable_would_read_old_rows_where_the_route_reads_the_last_commit(
+    filtered_query: execution.CompiledQuery, tmp_path: Path
+) -> None:
+    """Defence 1 never opens with `immutable=1`: on a WAL file whose last
+    commit is still in the -wal file, such a reader keeps the old rows."""
+    _pyarrow()
+    path = _database(tmp_path / "orders.db", ROWS, SCHEMA, "PRAGMA journal_mode = WAL")
+    writer = sqlite3.connect(path)
+    try:
+        writer.execute("PRAGMA wal_autocheckpoint = 0")
+        writer.execute("INSERT INTO orders VALUES (4, 8, 'a', 0, 0.5)")
+        writer.commit()
+        stale = path.as_uri() + "?mode=ro&immutable=1"
+        with closing(sqlite3.connect(stale, uri=True)) as old:
+            assert old.execute("SELECT count(*) FROM orders").fetchone() == (3,)
+        rows = [FIRST, (4, "a", False, 0.5)]
+        _judged(_handle(filtered_query, path), rows, ordered=False)
+    finally:
+        writer.close()
+
+
+@NATIVE
+@pytest.mark.parametrize("mode", ["delete", "wal"])
+def test_a_writer_during_the_attempt_changes_nothing_it_reads(
+    mode: str,
+    filtered_query: execution.CompiledQuery,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Defence 7: after the integrity check and before any row is read, a
+    writer replaces the source with a table the checks refuse. In
+    rollback-journal mode the attempt's read lock fails its commit; in WAL
+    mode it commits, and the attempt keeps its snapshot of schema and data,
+    which the next attempt no longer sees."""
+    _pyarrow()
+    path = _database(
+        tmp_path / "orders.db", ROWS, SCHEMA, f"PRAGMA journal_mode = {mode}"
+    )
+    handle = _handle(filtered_query, path)
+    real = route.SQLiteAttempt._checkpoint
+    writes: list[object] = []
+
+    def checkpoint(attempt: Any) -> None:
+        if attempt.session_id is not None and not writes:
+            with closing(sqlite3.connect(path, timeout=0)) as writer:
+                try:
+                    writer.execute("DROP TABLE orders")
+                    writer.execute(TYPED)
+                    writer.execute("INSERT INTO orders VALUES (1, 'x', 'a', 2, 'y')")
+                    writer.commit()
+                    writes.append("COMMIT")
+                except sqlite3.OperationalError as error:
+                    writes.append(error.sqlite_errorcode)
+        real(attempt)
+
+    monkeypatch.setattr(route.SQLiteAttempt, "_checkpoint", checkpoint)
+    _judged(handle, [FIRST])
+    monkeypatch.undo()
+    if mode == "delete":
+        assert writes == [sqlite3.SQLITE_BUSY]
+        _judged(_handle(filtered_query, path), [FIRST])
+    else:
+        assert writes == ["COMMIT"]
+        failure = _failed(_handle(filtered_query, path)).failure
+        assert (failure.code, failure.detail) == (R2007, "SQLITE_SOURCE_OBJECT")
+
+
+@NATIVE
 @pytest.mark.parametrize(
     ("limit", "detail"),
     [
@@ -877,6 +1268,7 @@ def test_the_session_is_hardened_and_checks_before_it_reads(
     _pyarrow()
     path = _database(tmp_path / "o?mode=rwc&immutable=1#x.db")
     seen: list[Any] = []
+    installed: list[Any] = []
     options = (
         sqlite3.SQLITE_DBCONFIG_DEFENSIVE,
         sqlite3.SQLITE_DBCONFIG_TRUSTED_SCHEMA,
@@ -887,6 +1279,11 @@ def test_the_session_is_hardened_and_checks_before_it_reads(
         def close(self) -> None:
             seen.append(tuple(self.getconfig(o) for o in options))
             super().close()
+
+        def set_authorizer(self, authorizer_callback: Any) -> None:
+            seen.append("set_authorizer")
+            installed.append(authorizer_callback)
+            super().set_authorizer(authorizer_callback)
 
     real = sqlite3.connect
 
@@ -917,10 +1314,12 @@ def test_the_session_is_hardened_and_checks_before_it_reads(
         "PRAGMA mmap_size",
         "PRAGMA query_only",
         "PRAGMA busy_timeout = ",
+        "set_authorizer",
         "BEGIN",
         "PRAGMA schema_version",
         "PRAGMA encoding",
         "PRAGMA table_list(`orders`)",
+        "PRAGMA index_list(`orders`)",
         "PRAGMA table_xinfo(`orders`)",
         "PRAGMA integrity_check(`orders`)",
         "SELECT count(*) FROM `main`.`orders`",
@@ -934,6 +1333,8 @@ def test_the_session_is_hardened_and_checks_before_it_reads(
         assert type(statement) is str and statement.startswith(prefix), statement
     timeout = int(str(statements[6]).removeprefix("PRAGMA busy_timeout = "))
     assert 0 < timeout <= 20_001
+    # Defence 3 is the attempt's own authorizer, installed once.
+    assert installed == [handle._owner._authorize]
     # The name's `?` and `#` are percent-encoded: no file `o` was opened or made.
     assert sorted(p.name for p in tmp_path.iterdir()) == [path.name]
 

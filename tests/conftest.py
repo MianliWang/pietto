@@ -13,7 +13,11 @@ of their own and inherit their file's estimate.
 It also registers ``--pietto-storage-class``, the explicit storage environment
 class that ``tests/_pietto_execution_jobs_probe.py`` resolves and applies, and
 ``--pietto-sqlite-class``, the explicit class of the in-process SQLite
-qualification that ``tests/test_sql_sqlite_native.py`` resolves and applies.
+qualification that ``tests/_pietto_sql_sqlite.py`` resolves and
+``tests/test_sql_sqlite_native.py`` and ``tests/test_execution_api_sqlite_file.py``
+apply. The class decides only the build and the platform; the route's cells
+skip with a counted ``PIETTO_NOT_RUN sqlite-native ARROW`` line where PyArrow
+is missing, as in this Arrow-free environment.
 """
 
 from __future__ import annotations

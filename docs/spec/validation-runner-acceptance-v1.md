@@ -189,7 +189,7 @@ because rows 0 and 0b are not satisfied.
 | 6 | Golden audit | Locked environment, the compiler and fixture input closure | Satisfied | Not verified; not planned | — |
 | 7 | Package, Arrow and installed consumers | The build backend and the locked dependency wheels, the pinned pyarrow included, from the package index or, on a runner without network, from an offline cache or wheelhouse | Satisfied | Not planned | — |
 | 8 | Steps that need GitHub credentials or network | Authorized GitHub credentials and network access | Satisfied | Not satisfied: holds no credentials (R10); compute nodes have no network (observed 2026-10-09T03:29Z) | — |
-| 9 | SQLite native qualification of single-file and project SQL | Linux; the interpreter that runs pytest links the exact SQLite build of D78.03, release `3.53.1` with its source id and compile options together; in process on `:memory:`, with no storage, Docker or network premise | Satisfied: CPython 3.13.13 and 3.12.13 link that build (observed under 3.13.13 on 2026-11-10 by Phase78 Q0 and the S03 cells, and under both on 2026-11-16 by B2 S05 and the S09 cells) | Not observed | — |
+| 9 | SQLite native qualification of single-file and project SQL and of the `sqlite_file` route | Linux, and for the route x86-64; the interpreter that runs pytest links the exact SQLite build of D78.03, release `3.53.1` with its source id and compile options together; in process on `:memory:` or on test-owned files under pytest's base temporary directory, with no storage, Docker or network premise | Satisfied: CPython 3.13.13 and 3.12.13 link that build (observed under 3.13.13 on 2026-11-10 by Phase78 Q0 and the S03 cells, and under both on 2026-11-16 by B2 S05, the S09 cells and the route's S12 cells) | Not observed | — |
 | 10 | DuckDB in-process native qualification | Linux x86-64 with glibc 2.28 or later; CPython 3.13.13 or 3.12.13 with the locked `[arrow,execute-duckdb]` closure, `duckdb` `2.0.0` and `pyarrow` `26.0.1` from the hashed allowlist; in process, with no storage, Docker, engine lock or network premise | Satisfied: CPython 3.13.13 and 3.12.13 with the installed wheel and that closure (observed 2026-11-14 by the Phase79 S06 units) | Not observed | — |
 
 The observed storage profile decides row 3; a declared storage environment
@@ -217,9 +217,14 @@ refusal under `hosted-refusal` (the hosted CI default), a counted
 elsewhere) or a `PIETTO_SQLITE_REQUIRED <category>` failure under `qualified`.
 The authoritative validator declares the `qualified` SQLite class for its
 pytest gate, so a Gate 2 validation never passes on a runner that does not
-satisfy row 9 and never counts its native cells as skips;
-[Development](../development.md#sqlite-target-validation) owns the class and
-its declaration.
+satisfy row 9 and never counts a native cell as a skip for the build or the
+platform. The `arrow` extra that the `sqlite_file` route's cells also need is
+an installation premise, not row 9's: in the validator's Arrow-free pytest
+environment they skip with the counted line
+`PIETTO_NOT_RUN sqlite-native ARROW`, and Gate 2's arrow-ready run of their
+file, declared `qualified` in an environment with the extra, qualifies them
+with no skip; [Development](../development.md#sqlite-target-validation) owns
+the class, its declaration and that run.
 
 The observed installation decides row 10: each unit records its interpreter
 and the installed `duckdb` and `pyarrow` distributions with their files
