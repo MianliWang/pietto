@@ -151,16 +151,19 @@ on MySQL only after a passing two-database run (D74.09), and the capability
 page and the release notes list what MySQL refuses. Project `sum(Int)`
 (J12, D76.10) is an approved exception with the target Phase77, which
 opened it only in the S01 and S03 forms. Its other forms stay refused, and
-each release lists them under J12 (3) as not yet met, until a MySQL
-catch-up phase after Phase80 opens them form by form, extending S01's
-guarded SUM, each with its own two-database qualification (D77.76). That
-phase also takes C04's E4, MySQL `Float` `+`, `-`, `*` and sign on fields,
-as a candidate experiment that opens a form only where its finite results
-match and its overflow fails on both databases (D77.78). It also takes
-MySQL R2's first page that ends `FAILED` without a public reason, which it
-measures on a real MySQL before it extends D77.80's precheck (PL.40, D19).
-The catch-up phase has no row in the table above yet; its Gate 1 sets its
-number, its place among the phases and its version line.
+each release lists them under J12 (3) as not yet met, until the MySQL
+catch-up work package MC opens them form by form, extending S01's guarded
+SUM, each with its own two-database qualification (D77.76). MC also takes
+C04's E4, MySQL `Float` `+`, `-`, `*` and sign on fields, opening a form
+only where its finite results match and its overflow fails on both
+databases (D77.78), and MySQL R2's first page that ends `FAILED` without a
+public reason, which it measures on a real MySQL before it extends D77.80's
+precheck (PL.40, D19). MC is the catch-up phase that those rows name, a
+work package with no phase number (MC.01); it comes before Phase81 and
+ships in `0.2.2`. Its Gate 1 is recorded (MC.01–MC.17) and MC is active:
+all eight `sum(Int)` families G1–G8 (MC.02), E4's narrow cell with a
+guarded `*` (MC.04, MC.05), D19 and PL.49's two items, on its own ledger
+(MC.07); see the [MC route](mysql-catchup/route.md).
 `stddev` of an `Int` (J12, D76.10) is one with no target phase (D77.34), and
 MySQL nested results (D71.05) one with the target of the separate later
 nested work package (D77.32). The MySQL `UUID` header parameter stays
@@ -379,10 +382,11 @@ CI scheduler fix for module fixtures built in several shards (F3), under the
 [CI workload governance](architecture/ci-workload-governance-v1.md)
 (PL.40, D14; PL.49). The pass leaves three items to later owners (PL.49):
 the naming exception of `tests/_pietto_mysql_native_prepared.py` waits
-until the MySQL catch-up phase and the nested work package refreeze the
-qualification packages that name it; the surviving mutants of Phase77 S12's
-allowlisted guards in `src/pietto/_project` go with the repeated MySQL cell
-derivation to the MySQL catch-up phase; and those in the pure reader go to
+until a line refreezes the qualification packages that name it, the nested
+work package or a later one, since MC refreezes none of them (MC.13); the
+surviving mutants of Phase77 S12's allowlisted guards in
+`src/pietto/_project` go with the repeated MySQL cell derivation to the
+MySQL catch-up work package MC (MC.01); and those in the pure reader go to
 the pure verifier fidelity repair (PL.20, D77.54), which continues as its
 own maintenance work beside the phases. Phase81 takes the import time of
 `pietto.execution` (PL.40, D15). Each completion audit records the Gate 2
@@ -414,7 +418,7 @@ before its owner's Gate 1 takes it.
 | Conversions other than `Float(value)` and `Text(value)` of an `Int` | their later owner; unscheduled |
 | The header rule and its tokens in the grammar | Phase76 retained them under the `migrate` and per-line PIE-P1000 byte-compatibility fallback; removal belongs to the Phase82 freeze (D76.12) |
 | SQL-to-Pietto conversion | the tentative candidate 105 below |
-| The other MySQL project `sum(Int)` forms; MySQL `Float` arithmetic and sign on fields (C04 E4) | the MySQL catch-up phase after Phase80, form by form with its own qualification (D77.76, D77.78; see [MySQL cadence](#mysql-cadence)) |
+| The other MySQL project `sum(Int)` forms; MySQL `Float` arithmetic and sign on fields (C04 E4) | the MySQL catch-up work package MC before Phase81, form by form with its own qualification, and E4's wider positions the owner's later plan (D77.76, D77.78, MC.01, MC.04; see [MySQL cadence](#mysql-cadence) and the [MC route](mysql-catchup/route.md)) |
 | `verify_project_sql_plan` runs without a memo, 4 to 29 times per case | `_project/project_sql_plan_verification.py` and its emission callers, in Phase81 (PL.40, D15); a memo needs the owner ([Phase77 S26](phases/phase-77/route.md#s26-closure-record)) |
 
 ## Phase82 freeze ledger
