@@ -1,4 +1,8 @@
-# Phase79 route — B1 limited DuckDB path, Gate 1 approved, Gate 0 bound
+# Phase79 route — B1 limited DuckDB path and the B2 second slice
+
+The sections up to the initiation-gate checklist are B1's route and record.
+B2, Phase79's second slice, has its own route in [B2](#b2--the-second-slice)
+at the end.
 
 Phase79 owns the Phase 79 row of the [roadmap](../../roadmap.md#future-roadmap-v6):
 DuckDB deep adaptation, with the limited local analysis path that `0.2.0`
@@ -742,3 +746,326 @@ Failed candidates, probes and runs stay in the ledger.
 | 28 | Readiness and exact deferred owners | Ready: Gate 0 is bound to `ab972f36`; S00's remaining cells come before S01. Every deferral is in the table above with its owner and latest point. |
 | 29 | Slice route | S00–S08 as above, with their write sets, checks, dependencies and non-goals. |
 | 30 | Repair and stop conditions | `C240/F720/D8200/S8` plus half of PK (D79.08, D79.09, PL.09), the midpoint, the unfreeze conditions and the stops above. Each publication is authorized on its own, and failures are preserved. |
+
+## B2 — the second slice
+
+On 2026-11-15 the owner answered the lead's DuckDB B2 Gate 1 sheet with
+every recommended option (PL.47). B2 is Phase79's second vertical, beside
+the other lines, and does not by itself complete Phase79. PL.47 revises
+PL.40's D4 A, under which B2 had no target, and the DuckDB half of PL.40's
+D6 A, whose remark on the word "yet" moves to B2; for B2 it revises D79.04's
+capture limits and the specification's `memory_limit` of 16 times the
+capture limit. The sheet is a working record outside Git. B2 takes over the
+rows of B1's deferrals that name aggregation, ORDER BY, LIMIT and more
+parameters; the other rows stand.
+
+### B2 Gate 0 and live authority
+
+Gate 0 binds `main` at `8cb9d9de53e7ebf78a592ac85be206023c0f4dde` (tree
+`b2ad91b2b9065680a121c5a19146c1e339c4b5ce`), the post-release documentation
+commit of `0.2.1`, which holds PL.47 (PL.02, PL.47). On 2026-11-16 at
+00:06Z it was `origin/main`, the repository was clean with no Git operation
+in progress, and its natural exact-head CI `43767179471`, push/main
+attempt 1, had passed 21 of 21 jobs, from 22:04:19Z to 22:21:37Z on
+2026-11-15. Its health was read through the owner's read-only token
+(PL.07): the 15 `ci-health-*` artifacts match their API digests and sizes,
+the workflow report verifies with that head's `scripts/ci_workloads.py`, and
+it says INSUFFICIENT_EVIDENCE with a WATCH screen and no comparable history.
+Its alerts are the structural `FEWER_UNITS_THAN_WORKERS` of the plan- and
+emission-portability partitions, `LONG_INDIVISIBLE_NODE`, and shard
+imbalance at WATCH, each on both Pythons. Health is advisory, and B2 takes
+no action on it. B2's code lanes replay onto the head that publishes
+`0.2.1`'s batch 2 (see [B2 lanes](#b2-lanes-integration-and-single-writers)),
+and that replay rebinds the branch, tree, CI and health.
+
+The previous completion audit is Phase79's own
+[B1 audit](completion-audit.md#phase79-b2-handoff). B2 consumes its handoff:
+a Gate 1 first; the adapter with its closed order of 33 compile rules, which
+B2 extends; the session settings and capture policy; the storage kinds;
+S06's native matrix with its Pietto-owned oracle; and sqlglot as a test
+oracle, deferred to the first slice beyond projection and filter. B2 is that
+slice and does not introduce it: a new test pin needs the owner (PL.10), and
+Python expectations are more direct. The applicable
+[engineering lessons](../../references/engineering-lessons.md):
+
+| Lesson | What it means for B2 |
+| --- | --- |
+| 72-4, 74-1 and 77-4 | A verdict reads saved outputs and has a self-test against fabricated ones; a failed cell is first a question about its judge; the real launch command runs before a freeze. |
+| 73-7 | T02, T03 and T04 extend the same rule class and SQL AST, so they share one lane. |
+| 74-2, 75-1 and 80-4 | Start from the head that will publish, carry the base delta at a replay, and give each hot file one writer at a time. |
+| 75-3 | B2's pytest cells skip on every CI job; skips are counted beside passes. |
+| 77-1 and 77-2 | Each opened form states and tests its behaviour on every route, and each family's refusal tests hold a statement refused for an unrelated reason. |
+| 80-3 | A value is admitted before the target sees it: a `Text` literal with NUL is refused at compile time, and literals are typed explicitly. |
+
+Before Gate 0, PL.47 allowed one offline probe outside the repository, T00
+(2026-11-15, 21:22Z to 21:28Z): each process alone at the lowest priority,
+with no network, against `duckdb` `2.0.0`, `pyarrow` `26.0.1` and CPython
+3.13.13, with B1's session settings and a `memory_limit` of 1 GiB. Its
+results set the specification's derived rules only and are not
+qualification evidence. Its raw outputs are owner-held working records
+outside Git; the [specification](../../spec/duckdb-arrow-route-v1.md#b2-pin-facts-t00)
+states what B2 takes from them.
+
+### B2 outcome
+
+Tier 1 (PL.47): in an explicit-module project, one query over one
+`duckdb.arrow` source with grouped `count`, `sum`, `min` and `max`,
+`having`, `order by` and `limit`, comparisons of fields with literals and
+parameters joined by `and`, `or` and `not`, `is None` tests, and several
+parameters. `emit-sql --project --dialect duckdb` compiles it and
+`execute(route="duckdb_arrow")` runs it, within capture limits of 1,048,576
+rows and 256 MiB of the selected columns and a `memory_limit` fixed at
+1 GiB. The specification's [B2 section](../../spec/duckdb-arrow-route-v1.md#b2-pending)
+binds the exact forms, SQL, refusals and limits.
+
+Success does not include new syntax, a new PIE code, a change to PostgreSQL
+or MySQL SQL bytes, contracts or diagnostics, single-file `--dialect duckdb`,
+or a claim of parity across databases. Tier 2 waits for B2's midpoint:
+several sources and JOINs with a multi-input execute API, `Date`,
+`Timestamp` and `Decimal`, and computed columns. Windows, set operations,
+`distinct`, relation lets and derived sources, `UUID`, nested values, other
+aggregates, bundles, saved results, relay, jobs, R2 and other DuckDB
+releases are not B2's (see [B2 deferrals](#b2-deferrals)).
+
+### B2 decisions adopted
+
+| ID | Rule | Source |
+| --- | --- | --- |
+| PL.47, DuckDB part | **Scope and limits.** Tier 1 above, entering the `0.2.x` release that follows its Gate 2, `0.2.2` at the earliest, each release approved on its own. Capture limits of 1,048,576 rows and 256 MiB of the selected columns; `memory_limit` 1 GiB. Refusal texts are rewritten with the forms B2 opens, new refusal classes take new details under existing codes, and "yet" leaves the DuckDB texts; the owner sees the new texts before they bind. Phase79's ledger, about `C60/F190/D5,050/S4` for tier 1, under PL.15. | Owner, 2026-11-15 |
+| PL.47, lead | **NULL placement and framework.** The SQL writes NULLS clauses that place NULL as the PostgreSQL emitter does, as D78.02 did for SQLite. B2 keeps B1's qualification framework and the CI topology. | Lead, stated in PL.47 |
+| PL.50, DuckDB part | **Refusal texts.** The owner agreed to the texts of the specification's [B2 compile refusals](../../spec/duckdb-arrow-route-v1.md#b2-compile-refusals) as written: the suggestions of rules 5 and 7–10 rewritten, rules 7a, 7b, 8a and 8b new under `PIE-B1003`, and no "yet". T02 binds exactly these texts. | Owner, 2026-11-16 |
+| T01 choices | **Specification derivations** (IMPLEMENTATION_FREEDOM; the lead states them to the owner as inform with the refusal texts). By the sheet's rules for conditional items on T00's observations: a `Float` group key is admitted, since `-0.0` and `0.0` form one group; `sum` and `avg` of a `Float` stay refused, since an overflow gives an infinity; `avg(Int)` stays refused, since PL.47's tier does not list it; a `Text` literal holding NUL is refused at compile time. Also: `Text` byte order through a read-back of `default_collation` with no `COLLATE` in the SQL; qualified names in GROUP BY, HAVING and ORDER BY; comparisons only of a read with a literal or a parameter, with no bare `Bool` test; a unary `-` on a number literal admitted as a signed literal, since an explicit-module project has no constants (PIE-S2392); the literal and parameter spellings; no cap on the number of group keys; the release-note fragment from T02. | The sheet's appendix A; T00 |
+| AD78.03 | Unchanged: the independent adapter. B2 extracts no layer shared with SQLite B2; a merger waits until both exist and their duplication is measured. | Q10 of the sheet |
+| Kept | D79.02, D79.03, D79.05, D79.07, D79.10, D79.13–D79.15, AD79.01, and PL.40's D5 A and D15 A are unchanged. D79.06 gains one read-back row, `default_collation`, and no setting. | PL.47 |
+
+### B2 slices
+
+Slice ids take T, after B1's S00–S08; each slice is one commit. Budgets are
+`C/F/D/S` planning allocations inside the Phase79 ledger, not separate caps.
+
+| Slice | Content | Write set | Checks | Depends on | Budget |
+| --- | --- | --- | --- | --- | --- |
+| T00 | The offline probe before Gate 0 (PL.47) | None in the repository | Not evidence | PL.47 | 0/0/200/0 (used D26) |
+| T01 | Specification: the B2 section of the DuckDB route specification (admission, SQL, compile refusals with the rewritten and new texts, capture and session, usability, T00 facts); this route section | `docs/spec/duckdb-arrow-route-v1.md`; this file | Docs tests; the owner sees the refusal texts before T02 binds them | T00; Gate 0 | 3/8/150/0 |
+| T02 | Grouping, aggregates and `having`: rules 5, 7, 7a, 7b and 8 (for `having`), the SQL AST nodes, rendering, `ast_rules_hold` and the artifact verifier, the checked `sum`, the refusal texts in code, the release-note fragment, and the specification rows it lands | `src/pietto/_project/project_duckdb_emission.py`, `project_duckdb_sql.py`, `project_duckdb_contract.py` if needed; `tests/test_sql_duckdb_emission.py`, `tests/_pietto_sql_duckdb.py`; the new `docs/release-notes.d/79-t02-duckdb-grouping.md`; the specification. A plan module (`project_sql_plan_target_assessment.py`, `project_sql_plan_pure_boundary.py`), `tests/test_sql_compile_api.py` and `tests/test_plan_target_profiles.py` only if needed, each as a single writer (below) | Focused tests; Ruff; `pyright` on `src` and on `pyrightconfig.tests.json`; PostgreSQL and MySQL goldens unchanged; the firewall on the integrated tree | T01; batch 2's head | 15/45/800/1 |
+| T03 | `order by` and `limit`: rule 8a, NULLS clauses, qualified names | As T02; its lines of the fragment | As T02 | T02 | 10/30/550/1 |
+| T04 | Predicates, literals and parameters: rules 8, 8b and 9, the literal spellings, several parameters of four types and their binding in `execute()` | As T02, plus `src/pietto/execution/_duckdb.py` (binding) and `tests/test_execution_api_duckdb_arrow.py` | As T02 | T03 | 12/35/600/1 |
+| T05 | Capture and session: the limits, the selected-column measure and check order, `memory_limit` 1 GiB with `max_memory`, the `default_collation` read-back | `src/pietto/execution/_duckdb.py`; `tests/test_execution_api_duckdb_arrow.py`; the specification | Focused tests | T01; integrates after T04 | 3/10/250/0 |
+| T06 | Qualification v6 (below) | `tests/_pietto_execution_duckdb_native_{cases,oracle,probe,check}.py`, `tests/test_harness_execution_api.py`, `docs/development.md`; the frozen preregistration and runs outside Git | U0–U3 once each; an independent integrity audit | T02–T05 integrated; the midpoint | 8/30/1,100/0 |
+| T07 | CI: package smoke's arrow-ready install check gains a grouped aggregate, an `order by` with `limit`, and a literal and multi-parameter filter, as S07 `471e4915` did; `ci.yml` is unchanged | `scripts/package_smoke.py`; its sentence in `docs/development.md` | Package smoke; a depth-one validation | T06 | 0/5/200/0 |
+| T08 | Closeout: the shared pages, the freeze-ledger DuckDB row, B2's acquisition review, and the audit with the three acceptance layers (below) and the handoff: opened families, forms kept refused and why, the tier-2 decision, the Phase82 ledger row and reminder 8 | `README.md`, `docs/capabilities.md`, `docs/spec/diagnostics.md`, `docs/execution.md`, `docs/language.md`, `docs/project-package.md`, `docs/roadmap.md`, `docs/status.md`, the specification's construction state and open items, the fragment, a new B2 audit under `docs/phases/phase-79/` | Docs tests; each capability row recorded by running `check --project` and `emit-sql --project --dialect duckdb`; the Gate 2 duration | T06, T07 | 5/20/400/1 |
+| Integration, Gate 2 and the batch audit's share | | | | | 2/5/300/0 |
+| Replay reserve | | | | | 0/0/500/0 |
+| Total | | | | | 58/188/5,050/4 |
+
+The order is Gate 0, T00 and T01, then T02, T03 and T04 in one lane and T05
+in a parallel lane that integrates after T04, the midpoint, T06, T07, T08,
+Gate 2 and the batch audit. Each slice is reviewed independently before it
+is delivered; a review with only low findings counts as clean and is fixed
+in the same commit (D77.51). Each of T02–T05 moves the rows it lands from
+the specification's B2 section into the sections above it, and T08 checks
+that nothing is left there.
+
+### B2 lanes, integration and single writers
+
+- **Batch 2 first.** `0.2.1`'s batch 2 (M11–M16) integrates first, published
+  with the interop relief as one batch (PL.53). B2's chain, this route and
+  T01 included, is then replayed onto the head that publishes batch 2,
+  carrying the base delta (74-2, 75-1), and T06 runs on the replayed tree.
+  That batch meets B2 only in `ci/workloads.toml` and
+  `tests/test_ci_workload_placement.py`, which B2 does not edit, and in
+  `README.md`, `docs/development.md`, `docs/roadmap.md`, `docs/status.md`
+  and `docs/decisions.md`, which T06, T07 and T08 edit after it; decision
+  rows are only appended.
+- **SQLite B2** runs in parallel on its own ledger. Shared files have one
+  writer at a time, in this order: the plan modules
+  `project_sql_plan_target_assessment.py` and
+  `project_sql_plan_pure_boundary.py` are changed by SQLite B2's S07 first,
+  and by DuckDB T02 after it only if T02 must; the shared documentation
+  pages (`docs/language.md`, `docs/capabilities.md`,
+  `docs/project-package.md`, `docs/execution.md`, `docs/spec/diagnostics.md`
+  and `docs/roadmap.md`) are edited at integration by SQLite B2's S16 first
+  and DuckDB T08 after it; `tests/test_harness_execution_api.py` and
+  `docs/development.md` (SQLite S12, DuckDB T06), and
+  `tests/test_sql_compile_api.py` (SQLite S08, DuckDB T02 if needed) and
+  `tests/test_plan_target_profiles.py` (DuckDB T02 if needed), have
+  one writer at a time in the order the lead sets. B2 changes no dispatch in
+  `cli.py` or `execution/_query.py` and no firewall.
+- **MySQL catch-up and the pure repair** change the same plan modules; B2
+  writes them only when the lead schedules it, and never
+  `project_sql_plan_verification.py`, whose memo stays Phase81's (PL.40's
+  D15 A).
+- **Phase81's diagnostic review** holds `docs/spec/diagnostics.md` in its
+  own window (its slice S07). T01 does not edit that page: B2's details live
+  in the specification until T08 writes them into the `PIE-B1003` row,
+  outside that window, when the lead schedules it. The MySQL half of PL.40's
+  D6 A stays with that review.
+- **`execution/_duckdb.py`** has two B2 writers, T04 and T05; T05
+  integrates after T04.
+- Lanes share PL.01's cap on concurrent work items and PL.17's pytest start
+  condition (a one-minute load below 24 and MemAvailable above 8 GiB), and
+  Gate 2 comes first. A lane writes only under its own name (75-4) and runs
+  the repository-wide owners on its own tree (Phase72 lesson 2).
+- **Publication.** B2 publishes as one batch under PL.52's standing push
+  authorization, on D77.06's conditions: one commit per slice, one
+  authoritative validation, one fast-forward push and natural CI on the
+  batch head. Each release is approved on its own (PL.47).
+
+### B2 qualification
+
+v6 evolves S06's four helpers in place (PL.47, lead). B1's cells stay as
+regression cells, and each B2 family adds its own: grouping and aggregates,
+with the `sum` boundaries, an empty input, NULL keys and the two admitted
+outcomes when an out-of-range group is filtered or cut; `having`; order and
+limit, with NULL placement, `Text` byte order, the two zeros and tie classes;
+predicates and parameters, with three-valued logic and literal extremes;
+labels that collide with capture names; the capture and memory bounds; every
+other entry point's refusal (77-1); and one statement refused for an
+unrelated reason, whose blocker list equals `main`'s (77-2). The oracle is
+Pietto's own Python, written before the run. The judge compares bags
+without `order by`, sequences of tie classes with it, and sub-multisets at a
+`limit` boundary, and a self-test feeds it fabricated outputs. U0–U3 run
+once each, and an independent integrity audit reads the verdict. Each family
+gets at most three freezes, and a real counterexample keeps its form
+refused.
+
+B2's pytest cells skip on every CI job, none of which installs
+`execute-duckdb`, so the acceptance record lists the integration host's
+passes beside CI's skips (75-3); CI's DuckDB evidence is package smoke's
+real queries (T07). `docs/development.md` is a VR2 acceptance rule path, so
+the batch that carries T06 runs its whole Gate 2 on the integration host.
+Gate 2 reruns the golden and package checks; B2 changes no grammar.
+
+Acceptance has three layers, which T08's audit records:
+
+- **Observable.** Each capability row is recorded by running
+  `check --project` and `emit-sql --project --dialect duckdb`, and the
+  specification, the fragment and `diagnostics.md` state each opened and
+  each refused form.
+- **Existing.** Emission tests live in `tests/test_sql_duckdb_emission.py`
+  and execution tests in `tests/test_execution_api_duckdb_arrow.py`; the
+  PostgreSQL and MySQL goldens and the firewall are unchanged.
+- **Connected.** `compile_query` builds a live query only from a VERIFIED
+  document; `execute()` runs real DuckDB; v6's U2 and U3 run on the
+  installed wheel; natural CI's arrow-ready unit runs B2's representative
+  queries through package smoke, and the pytest cells' CI skips are
+  recorded as they are.
+
+### B2 invalidation
+
+- A candidate binds its base. When the base moves (batch 2, SQLite B2,
+  MySQL catch-up, the pure repair, Phase81), the slice replays onto the new
+  head; its focused checks and review bind the old tree and run again on the
+  new one, and a Gate 2 binds only the tree it validated.
+- S06's preregistration v5 binds the specification by its sha256, and its
+  checker already refuses `main`'s page (the
+  [B1 audit](completion-audit.md#accepted-scope)); T01 changes the page
+  again, so any new run needs v6, which binds the specification as T05
+  leaves it. An edit to the specification after v6 is frozen voids that freeze for
+  every run not yet started. It does not void an accepted run, which carries
+  to a later tree only under D77.50.
+- T00's results are not evidence. v6 observes every cell again, and a form
+  whose cell fails stays refused, whatever T00 saw.
+- A refusal text that the owner changes at the preview changes in the
+  specification before T02 binds it in code; a text bound in code without
+  that preview goes back to the specification's text.
+- A failed candidate, check or run is kept and never rerun under its id; a
+  repair is a child.
+
+### B2 budget, midpoint and stops
+
+B2 runs on Phase79's ledger (PL.47), whose cumulative ceiling is
+`C240/F720/D8200/S8` plus half of PK, raised by PL.15 when a dimension
+reaches 80% of it. Tier 1 plans about `C60/F190/D5,050/S4`, the D500 replay
+reserve included. D counts one per diagnostic command (D76.17).
+
+**Midpoint (T02–T05 integrated, before T06 runs).** The lead records spend
+and replays, rule two on the integrated tree, unchanged PostgreSQL and MySQL
+goldens and firewall, the new tests for T08's acquisition review, and the
+newest head's CI health, where the closeout can read them (80-5), and reports
+to the owner, who decides tier 2 and its multi-input execute API.
+
+**Unfreeze conditions.** Each of these needs the owner: a form beyond PL.47's
+tier 1; a new PIE code, or a text other than the one the owner saw before it
+bound; a change to PostgreSQL or MySQL bytes or contracts; a compiled-record
+or `VERSIONS` change; a public value beyond `DuckDBArrowInput`, or a change
+to the meaning of `ExecutionLimits`; a runtime sqlglot dependency; a
+`duckdb` release other than `2.0.0` or a platform beyond PL.05 (PL.40's D5 A
+stands); any Docker use; a change to `ci.yml`'s topology; an
+extension-repository push; a ledger change beyond PL.15's.
+
+**Stops.** B1's stops hold: any cap, an unproved package or input identity,
+a hardening item that cannot be proven on the pin, a trust regression, a
+failed native cell (first a question about its judge), a needed change of
+product law, and an upstream change that a replay cannot carry without
+changing meaning. Failed candidates, probes and runs stay in the ledger.
+
+### B2 risks
+
+1. **Moving base and shared files.** `0.2.1`'s batch 2, SQLite B2, MySQL
+   catch-up and the pure repair change neighbouring files while B2 runs, and
+   all share PL.01's cap. Mitigations: batch 2 first and one replay after
+   it, one writer per shared file, the D500 reserve, and D77.50 carry-over
+   or a rerun of a few minutes.
+2. **A DuckDB primitive that differs from Pietto's law** in a cell T00 did
+   not see. Mitigations: the form stays refused; `threads` stays 1; v6 holds
+   physical variants and label collisions.
+3. **Qualification defects consume the budget**, as S06 spent well beyond
+   its plan on five preregistration versions. Mitigations: reuse v5,
+   the real launch before a freeze, at most three freezes per family.
+
+Lesser: one `execute()` may hold about 1.4 GiB at its peak on the measured
+host (T00), so small machines fail sooner with PIE-R3003; rewritten
+suggestions break scripts that match the old texts, which the alpha contract
+allows and the fragment states.
+
+### B2 deferrals
+
+| Item | Owner | Precondition | Latest point |
+| --- | --- | --- | --- |
+| Tier 2: several sources and JOINs with a multi-input execute API (D79.03), `Date`, `Timestamp` and `Decimal`, computed columns | The owner, on the lead's midpoint report | T02–T05 integrated and the midpoint record written | B2's midpoint |
+| The checked `sum` of a `Float` | The lead, since PL.47's tier 1 names `sum` and the sheet's conditional rule leaves `Float` to the lead's reading of the evidence | Qualification cells of its own showing that the checked form fails exactly on overflow and otherwise equals the oracle | B2's midpoint, or the Phase82 freeze by its ledger row |
+| `avg` of an `Int` or a `Float` | The owner, on the lead's proposal with its own qualification cells, since PL.47's tier 1 does not list `avg` | Cells showing that the result meets Pietto's `Float` result contract | B2's midpoint, or the Phase82 freeze by its ledger row |
+| A `Text` literal holding NUL | The lead | Qualification cells showing that DuckDB and the result reading keep NUL from a literal (T00 saw only the parser keep it) | The Phase82 freeze |
+| Windows, set operations, `distinct`, relation lets and derived sources, `UUID`, nested values, other aggregates | Later Phase79 Gate 1s | A Gate 1 of its own | The Phase82 freeze lists each one no Gate 1 takes as unsupported |
+| Bundles (after the forged compiled `median` decision), saved results, jobs, relay and R2 | Later Gate 1s | For bundles, the forged compiled `median` decision; for each, a Gate 1 of its own | The Phase82 freeze |
+| Reminder 8's JOIN facts | Tier 2, if it opens JOINs | The owner opening JOINs at the midpoint | The first slice that admits a JOIN |
+| Platforms beyond Linux x86-64 | The owner, only by changing PL.40's D5 A | That change | The Phase82 freeze's support matrix |
+| A CI pytest job with `execute-duckdb` | The owner (D79.07, the VR2 rule paths) | A change to `ci.yml`'s topology, which B2 does not make; until then package smoke carries CI's DuckDB evidence (T07) | The Phase82 freeze's support matrix, which states CI's DuckDB evidence |
+| Generative differential and fuzz assurance for DuckDB | Phase81 | Phase81's Gate 1 | Phase81 |
+| `verify_project_sql_plan`'s memo | Phase81 (PL.40's D15 A) | Phase81's Gate 1 | The roadmap's deferred subjects |
+
+### B2 initiation-gate checklist
+
+| # | Field | Phase79 B2 answer |
+| ---: | --- | --- |
+| 1 | Live authority | Gate 0 is bound to `8cb9d9de` with natural CI `43767179471` (21 of 21) and its health (INSUFFICIENT_EVIDENCE, WATCH); the replay onto batch 2's head rebinds them. The previous audit is the B1 audit and its B2 handoff. |
+| 2 | User/product outcome | Tier 1 above; success excludes the listed non-outcomes and tier 2. |
+| 3 | Semantic reference model | The existing laws: bags, order with unpromised ties, the static `limit`, `Float` values (two zeros, merged rows, literals as binary64), aggregates with a checked `Int` sum, NULL; NULL placed as the PostgreSQL emitter places it (PL.47). No DuckDB law is added. |
+| 4 | Identity model | Kept apart: the source declaration occurrence; the key, equal to `relation.name` and the input name (D76.06); field ordinals; parameter occurrences, each read its own use under its parameter's one placeholder (76-2); aggregate leaf occurrences; group keys; target family and release; each attempt's capture. Forbidden: a winner among same-name sources or columns, labels as occurrence identity, a label capturing a capture column `c<k>`, case folding. |
+| 5 | Construction states | A document is VERIFIED or BLOCKED, and a live query comes only from VERIFIED. PLANNED (the specification's B2 section), IMPLEMENTED, QUALIFIED, GATE2 and PUBLISHED stay distinct. The capture is decided before the session. |
+| 6 | Proof posture | Observed, not evidence: T00. Observed: B1's pin facts. Derived: the specification's B2 rules. Verified later: v6. Unknown: cells T00 did not see (such as a backslash in a `Text` literal, or CPython 3.12); a form that cannot be proven stays refused. |
+| 7 | Layer ownership | Semantics and IR are unchanged and dialect-neutral; `ProjectSQLPlan` assesses the target; the adapter lowers, renders and verifies, literal typing and name references included; `_duckdb.py` owns capture, session and binding; the result readers are unchanged. |
+| 8 | Dependency direction | Compiler, adapter, private execution, result binding. The adapter re-decides no semantics; the PostgreSQL/MySQL pipeline never imports it (the firewall). |
+| 9 | Versioning and migration | The specification stays alpha. The contract target is unchanged. `VERSIONS` and compiled records are expected unchanged; a change stops for the owner. B1's statements keep their bytes. Bundles still refuse DuckDB, so nothing migrates. |
+| 10 | Target requirements versus provider capabilities | Target evidence, such as the checked `sum`, comes from T00's observation and v6's cells; the installed driver shows only availability; the capability page stays a hand-kept snapshot. |
+| 11 | Interchange | In: the bounded owned Arrow copy, with B1's four types. Out: `ResultBatch` and the emission JSON. Several inputs are tier 2's. |
+| 12 | Execution | `execute(route="duckdb_arrow")` only; every other entry point keeps its refusal. |
+| 13 | Resource lifecycle | As B1: one `:memory:` connection per attempt, unregistered and closed at its end; only the limits and `memory_limit` change. |
+| 14 | Security and trust | D79.06's hardening and lock are unchanged, with one more read-back row; no NUL enters SQL text; no file, network, extension, credential or caller setting; package identity unchanged; no new digest. |
+| 15 | Algorithms and data structures | Structural matching of the plan in the adapter; grouping and sorting in the Pietto oracle. No planner or registry. |
+| 16 | Complexity posture | Capture is O(rows × selected columns) within 1,048,576 rows and 256 MiB; the engine is bounded by a 1 GiB `memory_limit` with no spill, and fails beyond it; the 32,768-node limit is unchanged. |
+| 17 | Invalidation | [B2 invalidation](#b2-invalidation); a pin change invalidates every DuckDB contract through its target. |
+| 18 | Cache | None. |
+| 19 | Concurrency | `threads` 1; attempts share nothing; order comes only from `order by`. |
+| 20 | Diagnostics | The closed order gains rules 7a, 7b, 8a and 8b; existing codes only; rewritten suggestions without "yet", seen by the owner before they bind; rule two; PostgreSQL and MySQL diagnostics unchanged. |
+| 21 | Inspection | `check`, `compile` and `explain` stay non-executing; no DuckDB catalog is inspected. |
+| 22 | UX | No new syntax; the specification's B2 usability row; `pietto fmt` unchanged; each refusal's suggestion names what is admitted. |
+| 23 | Conformance | The specification, the capability page, README, `diagnostics.md` and `execution.md`; v6; PostgreSQL and MySQL goldens checked independently; the firewall. |
+| 24 | Differential and fuzz assurance | The Pietto oracle, input-permutation invariance and repeated runs; no PostgreSQL differential; generative work is Phase81's. |
+| 25 | Packaging | No new dependency; the `execute-duckdb` extra is unchanged; package smoke gains queries; no grammar or generated change, and no extension sync. |
+| 26 | Support matrix | Unchanged: Linux x86-64 with glibc 2.28 or later, CPython 3.12 and 3.13, `duckdb` `2.0.0`, `pyarrow` `26.0.1`; PL.40's D5 A stands. |
+| 27 | Release, deprecation and EOL | `0.2.2` at the earliest, each release approved on its own; one fragment from T02; nothing is deprecated; a failed head is kept and repaired by a child. |
+| 28 | Readiness and exact deferred owners | Ready: Gate 0 is bound, T00 is done, T01 is written and its refusal texts are agreed (PL.50); T02 starts on batch 2's published head. Deferrals are in [B2 deferrals](#b2-deferrals). |
+| 29 | Slice route | T00–T08 above, with write sets, checks, dependencies and non-goals. |
+| 30 | Repair and stop conditions | Phase79's ledger with PL.15, at most three freezes per family, and the unfreeze conditions and stops above; failures are preserved. |
