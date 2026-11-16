@@ -5002,7 +5002,8 @@ def test_a_mysql_window_argument_literal_beside_a_cell_is_an_integer_or_null(
     native in-cell observation whose ROW_NUMBER() becomes NTILE with a record
     and token argument that closes the call, then comments out the rest of
     the statement or limits the window's body, is refused at its cell; the
-    arguments 1 and NULL pass."""
+    argument 1 passes. NULL, which no bucket is (the emitter writes a
+    positive integer), passes the cell and is refused by the re-rendering."""
     import _pietto_sql_emission_pure_boundary as pure
 
     source = LPAD_NOW_PAIRS["s12_context"]
@@ -5031,7 +5032,9 @@ def test_a_mysql_window_argument_literal_beside_a_cell_is_an_integer_or_null(
 
         return pure.parse_emission_observation(_retokened(forged, edit))
 
-    assert ntile("1").status is ntile("NULL").status is pure.Status.OK
+    assert ntile("1").status is pure.Status.OK
+    null = ntile("NULL")
+    assert (null.status, null.detail) == (pure.Status.INVALID_RELATION, "rendering")
     refused = ntile(argument)
     assert (refused.status, refused.detail) == (
         pure.Status.INVALID_RELATION,

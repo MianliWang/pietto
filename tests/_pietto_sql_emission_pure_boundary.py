@@ -2565,14 +2565,6 @@ _TARGET_CHECKED_BINARY64 = "target_checked_binary64_overflow"
 _TARGET_CHECKED_DECIMAL = "target_checked_decimal_overflow"
 # The sample and population variances and deviations.
 _SPREAD_FUNCTIONS = frozenset({"stddev", "variance", "pvariance", "pstdev"})
-# Phase77 S05: their MySQL spellings, uncast and without SQRT, only in the
-# cell _mysql_spread_cell derives, as emission's MYSQL_SPREAD_SPELLING.
-_MYSQL_SPREAD_SPELLING = {
-    "stddev": "STDDEV_SAMP",
-    "variance": "VAR_SAMP",
-    "pvariance": "VAR_POP",
-    "pstdev": "STDDEV_POP",
-}
 # The document kinds that may stand in that cell; any other kind leaves it.
 _SPREAD_CELL_KINDS = frozenset(
     {
@@ -4136,30 +4128,7 @@ class _Check:
         mysql_s03 = _mysql_s03(doc) if family == "mysql" else frozenset()
         for ref in doc.all("aggregate_value_column"):
             column = doc[ref]
-            expected = {
-                "count": "COUNT",
-                "count_distinct": "COUNT",
-                "sum": "SUM",
-                "min": "MIN",
-                "max": "MAX",
-                "avg": "AVG",
-                "string_agg": "string_agg",
-                "stddev": "VAR_SAMP",
-                "variance": "VAR_SAMP",
-                "pvariance": "VAR_POP",
-                "pstdev": "VAR_POP",
-                "median": "PERCENTILE_CONT",
-                "quantile": "PERCENTILE_CONT",
-                "filtered_count": "COUNT",
-                "filtered_sum": "SUM",
-                "count_distinct_tuple": "COUNT",
-                "group_any": "COUNT",
-                "group_all": "COUNT",
-                "first": "ARRAY_AGG" if family == "postgres" else "MAX",
-                "last": "ARRAY_AGG" if family == "postgres" else "MAX",
-            }.get(column["function"])
-            if family == "mysql" and column["function"] in _SPREAD_FUNCTIONS:
-                expected = _MYSQL_SPREAD_SPELLING[column["function"]]
+            expected = _AGGREGATE_SPELLING[family].get(column["function"])
             _require(
                 expected is not None and column["spelling"] == expected,
                 "aggregate spelling",
@@ -4822,6 +4791,8 @@ class _Check:
         _Requirements(self, units).run()
         if self.family == "mysql":
             _MysqlCellSql(tokens).run()
+        # Last, so every document an earlier check refuses keeps its detail.
+        _Render(self.doc).run()
 
 
 class _Tokens:
@@ -7826,6 +7797,2581 @@ class _Requirements:
             self.add("inner_result_boundary", fields["boundaries"][0], "R21", naming)
         for column in fields["columns"]:
             self.add("result_terminal_column", doc[column]["output"], "R03", naming)
+
+
+# -- re-rendering: the SQL is the rendering of the records -------------------
+#
+# Every token, offset, SQL byte and expression range must be what the emitter
+# writes for these records, and every record field that steers which tokens
+# are written is closed here to the pipeline's image (semantic checks, stage
+# construction, AST assembly and emitter; D77.54 keeps the closure here, never
+# in _Check). It reads only records, so it never imports the emitter. Any
+# difference is the one `rendering` rejection; the subcheck stays private on
+# _Mismatch.check. The tables below and the template data beside them are
+# pure's own copy of the pipeline (PL.60): the emitter never reads them, so
+# a change to a rendered shape or the pipeline's range updates both.
+
+# A fixed scalar call template is a tuple of steps: (role, text) writes one
+# syntax token, an int i renders operand i, so its arity is max(i) + 1 (0 for
+# none). A variadic call is (opening, separator) around every operand,
+# closed by ")".
+_OPEN, _SEP, _CLOSE = "scalar_call_open", "scalar_call_separator", "scalar_call_close"
+_INDEX_OPEN, _INDEX_CLOSE = (
+    "scalar_call_index_cast_open",
+    "scalar_call_index_cast_close",
+)
+_NEST_OPEN, _NEST_CLOSE = "scalar_call_nested_open", "scalar_call_nested_close"
+
+
+def _field_templates(family, opening, closing):
+    return {
+        (family, name, None): (
+            (_OPEN, opening.format(name.upper())),
+            0,
+            (_CLOSE, closing),
+        )
+        for name in ("year", "month", "day", "hour", "minute")
+    }
+
+
+# By (family, function, shape): `round` by its arity or result tag,
+# `date_trunc` by its result tag.
+_SCALAR_CALL_TEMPLATES = {
+    ("postgres", "now", None): (
+        (_OPEN, "(statement_timestamp() AT TIME ZONE 'UTC'"),
+        (_CLOSE, ")"),
+    ),
+    ("postgres", "round", "2"): (
+        (_OPEN, "round("),
+        0,
+        (_SEP, ", CAST("),
+        1,
+        (_CLOSE, " AS pg_catalog.int4))"),
+    ),
+    ("postgres", "round", "Decimal"): ((_OPEN, "round("), 0, (_CLOSE, ")")),
+    ("postgres", "round", "Float"): (
+        (_OPEN, "(CASE WHEN abs(("),
+        0,
+        (_SEP, ") - trunc("),
+        0,
+        (_SEP, ") ) >= 0.5 THEN trunc("),
+        0,
+        (_SEP, " ) + (CASE WHEN "),
+        0,
+        (_SEP, " < 0 THEN -1.0 ELSE 1.0 END) ELSE trunc("),
+        0,
+        (_CLOSE, " ) END)"),
+    ),
+    ("postgres", "lpad", None): (
+        (_OPEN, "(CASE WHEN length("),
+        0,
+        (_SEP, ") >= "),
+        1,
+        (_SEP, " THEN "),
+        0,
+        (_SEP, " ELSE lpad("),
+        0,
+        (_SEP, ", CAST("),
+        1,
+        (_SEP, " AS pg_catalog.int4), "),
+        2,
+        (_CLOSE, ") END)"),
+    ),
+    ("postgres", "add_months", None): (
+        (_OPEN, "CAST(("),
+        0,
+        (_SEP, " + make_interval(months => CAST("),
+        1,
+        (_CLOSE, " AS pg_catalog.int4))) AS date)"),
+    ),
+    ("postgres", "date_trunc", "Date"): (
+        (_OPEN, "CAST(date_trunc("),
+        0,
+        (_SEP, ", CAST("),
+        1,
+        (_CLOSE, " AS timestamp))"),
+        (_CLOSE, " AS date)"),
+    ),
+    ("postgres", "date_trunc", "Timestamp"): (
+        (_OPEN, "date_trunc("),
+        0,
+        (_SEP, ", "),
+        1,
+        (_CLOSE, ")"),
+    ),
+    ("postgres", "substr", None): (
+        (_OPEN, "substring("),
+        0,
+        (_SEP, " FROM "),
+        (_INDEX_OPEN, "CAST("),
+        1,
+        (_INDEX_CLOSE, " AS pg_catalog.int4)"),
+        (_SEP, " FOR "),
+        (_INDEX_OPEN, "CAST("),
+        2,
+        (_INDEX_CLOSE, " AS pg_catalog.int4)"),
+        (_CLOSE, ")"),
+    ),
+    ("postgres", "len", None): (
+        (_OPEN, "CAST(length("),
+        0,
+        (_CLOSE, ") AS pg_catalog.int8)"),
+    ),
+    ("postgres", "date_of", None): ((_OPEN, "CAST("), 0, (_CLOSE, " AS date)")),
+    ("postgres", "same_value", None): (
+        (_OPEN, "("),
+        0,
+        (_SEP, " IS NOT DISTINCT FROM "),
+        1,
+        (_CLOSE, ")"),
+    ),
+    ("postgres", "contains", None): (
+        (_OPEN, "(strpos("),
+        0,
+        (_SEP, ", "),
+        1,
+        (_CLOSE, ") > 0)"),
+    ),
+    ("postgres", "starts_with", None): (
+        (_OPEN, "(left("),
+        0,
+        (_SEP, ", "),
+        (_NEST_OPEN, "length("),
+        1,
+        (_NEST_CLOSE, ")"),
+        ("scalar_call_operator", " ) = "),
+        1,
+        (_CLOSE, ")"),
+    ),
+    ("postgres", "ends_with", None): (
+        (_OPEN, "(right("),
+        0,
+        (_SEP, ", "),
+        (_NEST_OPEN, "length("),
+        1,
+        (_NEST_CLOSE, ")"),
+        ("scalar_call_operator", " ) = "),
+        1,
+        (_CLOSE, ")"),
+    ),
+    ("postgres", "sign", None): (
+        (_OPEN, "CAST(sign("),
+        0,
+        (_CLOSE, ") AS pg_catalog.int8)"),
+    ),
+    **_field_templates("postgres", "CAST(EXTRACT({} FROM ", ") AS pg_catalog.int8)"),
+    ("mysql", "now", None): ((_OPEN, "UTC_TIMESTAMP(6"), (_CLOSE, ")")),
+    # MySQL LPAD() cuts a longer text too; its width takes no int4 cast.
+    ("mysql", "lpad", None): (
+        (_OPEN, "CASE WHEN CHAR_LENGTH("),
+        0,
+        (_SEP, ") >= "),
+        1,
+        (_SEP, " THEN "),
+        0,
+        (_SEP, " ELSE LPAD("),
+        0,
+        (_SEP, ", "),
+        1,
+        (_SEP, ", "),
+        2,
+        (_CLOSE, ") END"),
+    ),
+    ("mysql", "substr", None): (
+        (_OPEN, "SUBSTRING("),
+        0,
+        (_SEP, ", "),
+        1,
+        (_SEP, ", "),
+        2,
+        (_CLOSE, ")"),
+    ),
+    ("mysql", "len", None): ((_OPEN, "CAST(CHAR_LENGTH("), 0, (_CLOSE, ") AS SIGNED)")),
+    ("mysql", "date_of", None): ((_OPEN, "DATE("), 0, (_CLOSE, ")")),
+    # Also a JOIN `on` null-safe cell, Float included (8795c02c).
+    ("mysql", "same_value", None): ((_OPEN, "("), 0, (_SEP, " <=> "), 1, (_CLOSE, ")")),
+    ("mysql", "contains", None): (
+        (_OPEN, "(INSTR("),
+        0,
+        (_SEP, ", "),
+        1,
+        (_CLOSE, ") > 0)"),
+    ),
+    ("mysql", "starts_with", None): (
+        (_OPEN, "(LEFT("),
+        0,
+        (_SEP, ", "),
+        (_NEST_OPEN, "CHAR_LENGTH("),
+        1,
+        (_NEST_CLOSE, ")"),
+        ("scalar_call_operator", " ) = "),
+        1,
+        (_CLOSE, ")"),
+    ),
+    ("mysql", "ends_with", None): (
+        (_OPEN, "(RIGHT("),
+        0,
+        (_SEP, ", "),
+        (_NEST_OPEN, "CHAR_LENGTH("),
+        1,
+        (_NEST_CLOSE, ")"),
+        ("scalar_call_operator", " ) = "),
+        1,
+        (_CLOSE, ")"),
+    ),
+    ("mysql", "sign", None): ((_OPEN, "CAST(SIGN("), 0, (_CLOSE, ") AS SIGNED)")),
+    **_field_templates("mysql", "CAST({}(", ") AS SIGNED)"),
+}
+_SCALAR_CALL_VARIADIC = {
+    "postgres": {
+        "lower": ("lower(", ", "),
+        "upper": ("upper(", ", "),
+        "trim": ("trim(", ", "),
+        "replace": ("replace(", ", "),
+        "abs": ("abs(", ", "),
+        "nullif": ("NULLIF(", ", "),
+        "coalesce": ("COALESCE(", ", "),
+        # PostgreSQL concat() skips NULL; `||` is NULL when any argument is.
+        "concat": ("(", " || "),
+    },
+    "mysql": {
+        "lower": ("LOWER(", ", "),
+        "upper": ("UPPER(", ", "),
+        "trim": ("TRIM(", ", "),
+        "replace": ("REPLACE(", ", "),
+        "abs": ("ABS(", ", "),
+        "nullif": ("NULLIF(", ", "),
+        "coalesce": ("COALESCE(", ", "),
+    },
+}
+# The semantic catalog's arity of each variadic-spelled call; coalesce and
+# concat take two or more (builtin_signature, _coalesce_value_type).
+_CALL_ARITY = {
+    **dict.fromkeys(("lower", "upper", "trim", "abs"), 1),
+    "nullif": 2,
+    "replace": 3,
+}
+_CAST_TAG = {"int_to_float": "Float", "int_to_text": "Text"}
+# Each aggregate function's emitted name by target: _Check's "aggregate
+# spelling" and the re-rendering read this one table. MySQL spells a
+# variance or deviation as its own primitive, uncast and without SQRT (S05),
+# and a `first` or `last` as MAX over its ranked derived table (S13).
+_AGGREGATE_SPELLING = {
+    "postgres": {
+        "count": "COUNT",
+        "count_distinct": "COUNT",
+        "sum": "SUM",
+        "min": "MIN",
+        "max": "MAX",
+        "avg": "AVG",
+        "string_agg": "string_agg",
+        "stddev": "VAR_SAMP",
+        "variance": "VAR_SAMP",
+        "pvariance": "VAR_POP",
+        "pstdev": "VAR_POP",
+        "median": "PERCENTILE_CONT",
+        "quantile": "PERCENTILE_CONT",
+        "filtered_count": "COUNT",
+        "filtered_sum": "SUM",
+        "count_distinct_tuple": "COUNT",
+        "group_any": "COUNT",
+        "group_all": "COUNT",
+        "first": "ARRAY_AGG",
+        "last": "ARRAY_AGG",
+    }
+}
+_AGGREGATE_SPELLING["mysql"] = {
+    **_AGGREGATE_SPELLING["postgres"],
+    "stddev": "STDDEV_SAMP",
+    "variance": "VAR_SAMP",
+    "pvariance": "VAR_POP",
+    "pstdev": "STDDEV_POP",
+    "first": "MAX",
+    "last": "MAX",
+}
+
+_SCOPE = PlanRef(schema.SCOPE_KIND, 0)
+_VALUE_REFS = frozenset({"sql_stage_reference", "sql_any_reference"})
+_REALIZED = frozenset(
+    {
+        "sql_stage_reference",
+        "sql_any_reference",
+        "sql_operation",
+        "sql_block_read",
+        "sql_any_read",
+        "sql_captured_reference",
+    }
+)
+_NARROW_PG_INTS = ("pg_int2", "pg_int4")
+_FILTERED = frozenset({"filtered_count", "filtered_sum", "group_all", "group_any"})
+_GROUP_TEST = frozenset({"group_all", "group_any"})
+_ORDERED_VALUE = frozenset({"first", "last"})
+_ORDERED = frozenset({"string_agg", *_ORDERED_VALUE})
+_QUANTILE = frozenset({"median", "quantile"})
+# A PostgreSQL deviation is the SQRT of its variance.
+_ROOT = frozenset({"pstdev", "stddev"})
+_I32_MAX = (1 << 31) - 1
+# project_sql_emission_windows.STRUCTURAL_COUNT_INTERVAL: PostgreSQL's
+# structural parameters are int4, MySQL's signed64.
+_COUNT_INTERVAL = {
+    ("postgres", "offset"): (0, _I32_MAX),
+    ("postgres", "bucket"): (1, _I32_MAX),
+    ("postgres", "position"): (1, _I32_MAX),
+    ("mysql", "offset"): (0, _I64_MAX),
+    ("mysql", "bucket"): (1, _I64_MAX),
+    ("mysql", "position"): (1, _I64_MAX),
+}
+# windows.ARITY and resolved_arguments: every role tuple a window function
+# carries; an aggregate over a window reaches pure on PostgreSQL only.
+_NAVIGATION = (("value",), ("value", "offset"), ("value", "offset", "default"))
+_WINDOW_SIGNATURES = {
+    **dict.fromkeys(
+        ("row_number", "rank", "dense_rank", "percent_rank", "cume_dist"), ((),)
+    ),
+    "ntile": (("bucket",),),
+    "lag": _NAVIGATION,
+    "lead": _NAVIGATION,
+    "first_value": (("value",),),
+    "last_value": (("value",),),
+    "nth_value": (("value", "position"),),
+}
+_WINDOW_AGGREGATE_SIGNATURES = {
+    **dict.fromkeys(("sum", "avg", "min", "max"), (("value",),)),
+    "count": ((), ("value",)),
+}
+# windows.FRAME_INSENSITIVE and window_semantics' frame policy: a ranking,
+# distribution or navigation window never has a frame; every other window has
+# one (an omitted frame is materialized as RANGE ... CURRENT ROW).
+_FRAME_INSENSITIVE = frozenset(
+    {
+        "row_number",
+        "rank",
+        "dense_rank",
+        "percent_rank",
+        "cume_dist",
+        "ntile",
+        "lag",
+        "lead",
+    }
+)
+# window_semantics._WINDOW_FRAME_BOUND_CATEGORY_ORDER (compiled_specification).
+_FRAME_BOUND_ORDER = (
+    "unbounded_preceding",
+    "offset_preceding",
+    "current_row",
+    "offset_following",
+    "unbounded_following",
+)
+# windows.FRAME_UNIT_TARGETS, EXCLUSION_TARGETS and MYSQL_WINDOW_LIMIT.
+_MYSQL_FRAME_UNITS = frozenset({"rows", "range"})
+_MYSQL_WINDOW_LIMIT = 127
+# project_sql_emission_aggregation: DISTINCT only in the two distinct counts,
+# a row count only for count. MySQL renders no string_agg or quantile and a
+# `first` or `last` only ranked; _Check admits its group tests, conditional
+# count and tuple count (S10, S11) on PostgreSQL only, so they fail closed.
+_DISTINCT_AGGREGATES = frozenset({"count_distinct", "count_distinct_tuple"})
+_MYSQL_AGGREGATES = frozenset(_AGGREGATE_SPELLING["mysql"]) - {
+    "string_agg",
+    "median",
+    "quantile",
+    "count_distinct_tuple",
+    *_ORDERED_VALUE,
+    *_FILTERED - {"filtered_sum"},
+}
+# project_sql_emission_ast's body construction (project_compiled_lowering and
+# the compiled verifier's ROW_PREDICATE alike): one block kind per generated
+# SELECT, and each kind writes only its own column kinds.
+_FILTER_KINDS = frozenset({"where", "satisfying", "qualify"})
+_BODY_COLUMNS = {
+    "let": frozenset({"row_carry_column", "row_value_column"}),
+    **dict.fromkeys(_FILTER_KINDS, frozenset({"row_carry_column"})),
+    "window": frozenset({"row_carry_column", "window_column"}),
+    "aggregate": AGGREGATE_COLUMNS,
+    "projection": frozenset(
+        {
+            "row_carry_column",
+            "row_value_column",
+            "aggregate_projection_column",
+            "window_projection_column",
+        }
+    ),
+}
+# project_sql_emission_ast: a let, filter or window body carries one column
+# per input port, in port order, before its own columns.
+_CARRYING = frozenset({"let", "window", *_FILTER_KINDS})
+# pure's "operation arity": the operands each operation kind writes.
+_OPERATION_ARITY = {
+    **dict.fromkeys(("sign", "null_test", "not", "cast"), 1),
+    **dict.fromkeys(("between", "conditional"), 3),
+    **dict.fromkeys(("comparison", "logical", "arithmetic"), 2),
+}
+# The aggregate branches that read the delimiter slot themselves.
+_DELIMITED = frozenset({"filtered_sum", *_ORDERED, *_QUANTILE})
+# MySQL's guarded SUM of an Int (S02, S03), between reads of its argument.
+_MYSQL_SUM_GUARD = tuple(
+    (role, schema.SYNTAX[role])
+    for role in (
+        "aggregate_guard_open",
+        "aggregate_guard_high",
+        "aggregate_guard_low",
+        "aggregate_guard_close",
+    )
+)
+
+
+def _canonical_integer(text, low, high) -> bool:
+    """A canonical decimal integer token inside [low, high] (low >= 0)."""
+    return (
+        type(text) is str
+        and text.isascii()
+        and text.isdigit()
+        and str(int(text)) == text
+        and low <= int(text) <= high
+    )
+
+
+class _Mismatch(_Reject):
+    """The records do not render to the observed SQL; ``check`` names the
+    private subcheck, the public detail is always `rendering`."""
+
+    def __init__(self, check: str) -> None:
+        super().__init__(Status.INVALID_RELATION, "rendering")
+        self.check = check
+
+
+class _Render:
+    """Records-only re-rendering of one checked observation, compared token by
+    token, as verification's take() streams: the first difference stops it, so
+    the work is bounded by the document's own event count.
+
+    Closure, in the order the reviews found each step. Free text the emitter
+    copies (window literals, LIMIT, parameter indexes, Decimal parameters,
+    frame offsets) is canonical and inside the emitter's interval; aggregate
+    spellings and casts are derived from the function, never copied.
+    Signatures, frame policy and bound order, GROUPS and offset RANGE orders
+    and named windows follow window_semantics and windows.build_stage. Each
+    row body is one block kind with only that kind's columns, a WHERE exactly
+    on a filter kind, a GROUP BY stage exactly on an aggregate (its columns
+    are its keys then its values) and a window stage exactly on a window; a
+    container the SQL writes has the contents the pipeline gives it. SQL
+    resolves names, so every identity is compared by the name written: each
+    `scope.column` names a column of a relation visible there, that relation
+    exposes distinct names (MySQL casefolded) and identities, the identity is
+    the one the record reads, anchored to the SQL position that writes it, and
+    the alias written is that of the relation whose record lists the read.
+    Lists the pipeline fixes (JOIN inputs and columns, set operands, result
+    bodies) read their relation's columns by position. A chain read (a stage,
+    result or JOIN use, a chained JOIN's left input) reads the body realized
+    just before its reader in one definition, at its place in the chain, a
+    result use only a projection; every other read, and the statement, reads
+    a definition's last unit; every unit is written once and every CTE is
+    read. A projection's hidden columns are the distinct keys an ORDER without
+    DISTINCT reads, carried last in the order its items first read them, and
+    an item reads an export only as an aggregate composition or, under
+    DISTINCT, a bare value; a filter's kind is the stage it filters; and a
+    call's arity, a cast, an anchor's carrier, a block read's kind and inputs
+    and PostgreSQL's $n are the ones the pipeline writes."""
+
+    def __init__(self, doc: _Doc) -> None:
+        self.doc = doc
+        artifact = doc[Ref(*schema.ROOT)]
+        self.family = doc[artifact["request"]]["family"]
+        self.quote = schema.QUOTES[self.family]
+        self.tokens = 0
+        self.ranges: list[tuple[str, Any, int, int]] = []
+        self.offset = 0
+        # alias -> {column name: identity} of the relations in scope
+        self.visible: dict[str, dict[str, Any]] = {}
+        # the outermost row body's scan alias, which a capture writes
+        self.reader: str | None = None
+        self.depth = 0  # inline bodies open around the SQL being written
+        self.owned: dict[str, Any] = {}  # JOIN input alias -> its reads, inside ON
+        self.any_scopes: dict[Any, str] = {}  # ANY target use -> its alias
+        self.ctes: dict[str, Ref] = {}  # CTE name -> unit, as the WITH defines them
+        self.before: Ref | None = None  # unit written just before the outer one
+        self.chained: list[Ref] = []  # units chain reads read
+        self.published: set[Ref] = set()  # units every other read reads
+        self.rendered: list[Ref] = []  # units written, in order
+        self.numbered: dict[Any, Any] = {}  # parameter slot -> its server index
+        rendered = doc[artifact["rendered"]]
+        self.events = [doc[ref] for ref in rendered["events"]]
+        self.overlays = [doc[ref] for ref in rendered["expression_ranges"]]
+        self.sql = rendered["sql"].encode("utf-8")
+        self.query = artifact["ast"]
+
+    def run(self) -> None:
+        if self.query.kind == "sql_select":
+            self.select_query(self.query)
+        else:
+            self.row_query(self.query)
+        if len(self.events) != self.tokens or self.offset != len(self.sql):
+            raise _Mismatch("token count")
+        if self.family == "postgres" and sorted(self.numbered.values()) != list(
+            range(1, len(self.numbered) + 1)
+        ):
+            raise _Mismatch("parameter index")
+        # Ranges stay optional one by one (the observation contract); each
+        # present one is a range the rendering encloses, in rendering order,
+        # none twice.
+        expected = iter(self.ranges)
+        for event in self.overlays:
+            got = (event["role"], event["subject"], event["start"], event["end"])
+            if event["kind"] != "expression_range" or got not in expected:
+                raise _Mismatch("range")
+
+    # -- writer -----------------------------------------------------------
+    def emit(self, text, kind, role, subject) -> None:
+        if type(text) is not str:
+            raise _Mismatch("token text")
+        if self.tokens >= len(self.events):
+            raise _Mismatch("token count")
+        chunk = text.encode("utf-8")
+        event = self.events[self.tokens]
+        end = self.offset + len(chunk)
+        if (
+            (event["kind"], event["role"], event["subject"]) != (kind, role, subject)
+            or (event["start"], event["end"]) != (self.offset, end)
+            or self.sql[self.offset : end] != chunk
+        ):
+            raise _Mismatch("token")
+        self.tokens += 1
+        self.offset = end
+
+    def ident(self, name, role, subject) -> None:
+        if type(name) is not str:
+            raise _Mismatch("identifier")
+        q = self.quote
+        self.emit(q + name.replace(q, q * 2) + q, "identifier", role, subject)
+
+    def syntax(self, text, role, subject) -> None:
+        self.emit(text, "syntax", role, subject)
+
+    def enclose(self, role, subject, start) -> None:
+        self.ranges.append((role, subject, start, self.offset))
+
+    def __getitem__(self, ref):
+        return self.doc[ref]
+
+    def name(self, symbol):
+        return self[symbol]["name"]
+
+    # -- name resolution (SQL resolves by name, so identity is by name) ----
+    def enter(self, scopes):
+        """Make FROM aliases visible (an enclosing query level stays visible):
+        none may repeat or shadow a visible one. Returns the outer scope."""
+        outer = self.visible
+        inner = {**outer, **{alias: dict(columns) for alias, columns in scopes}}
+        if len(inner) != len(outer) + len(scopes):
+            raise _Mismatch("alias scope")
+        self.visible = inner
+        return outer
+
+    def owner(self, owned, scope, read) -> None:
+        """The alias written for a read names the one relation whose record
+        lists that read (visible relations can expose the same identities)."""
+        if [alias for alias, reads in owned.items() if read in reads] != [scope]:
+            raise _Mismatch("read relation")
+
+    def resolve(self, scope, read) -> None:
+        """A written `scope.column` names a column of a visible relation, and
+        the column the record reads: a unit's column by the read's terminal,
+        a source's column by the read's field."""
+        columns = self.visible.get(scope, {})
+        if read["name"] not in columns:
+            raise _Mismatch("column reference")
+        key, identity = columns[read["name"]]
+        if read[key] != identity:
+            raise _Mismatch("column identity")
+
+    def exposed(self, columns):
+        # (name, identity) pairs; a relation's column names are distinct as
+        # the target resolves them, and so are its identities (an identity
+        # names one position).
+        fold = self.family != "postgres"
+        names = {name.casefold() if fold else name for name, _ in columns}
+        if len(names) != len(columns):
+            raise _Mismatch("relation column names")
+        if len({identity for _, identity in columns}) != len(columns):
+            raise _Mismatch("relation column identities")
+        return tuple(columns)
+
+    def columns_of(self, producer):
+        """The columns a FROM relation exposes, (name, identity): a source's
+        fields by field, an inline body's labels by their exports, a named
+        unit's CTE header names by their bindings (anchored: cte_columns)."""
+        p = self[producer]
+        if producer.kind == "bound_source":
+            return self.exposed(
+                [(self[f]["column"], ("field", f)) for f in p["fields"]]
+            )
+        if self.inline(producer):
+            return self.exposed(
+                [
+                    (self[c]["label"], ("terminal", self[c]["export"]))
+                    for c in p["columns"]
+                ]
+            )
+        return self.exposed(
+            [(self.name(s), ("terminal", self[s]["binding"])) for s in p["cte_columns"]]
+        )
+
+    def cte_name(self, name):
+        # A WITH defines each name once.
+        if name in self.ctes:
+            raise _Mismatch("cte names")
+        return name
+
+    def cte_reference(self, unit):
+        # A name used in FROM is a CTE defined before (a non-recursive WITH);
+        # a unit without a symbol has no name to use.
+        symbol = self[unit]["symbol"]
+        if symbol is None or self.ctes.get(self.name(symbol)) != unit:
+            raise _Mismatch("cte reference")
+        return self.name(symbol)
+
+    def take(self, reader, unit, chain) -> None:
+        """Record one read of a unit, anchored to the unit the pipeline reads:
+        a chain read reads the body realized just before its reader (the
+        unit written just before it; an inline reader's next inner body) in
+        the same definition (a JOIN has none); every other read reads a
+        definition's last unit (by_definition)."""
+        if chain:
+            if self.inline(unit) is not self.inline(reader) or (
+                not self.inline(unit) and unit != self.before
+            ):
+                raise _Mismatch("chain reads")
+            if "join_body" not in (reader.kind, unit.kind) and (
+                self[reader]["definition"] != self[unit]["definition"]
+            ):
+                raise _Mismatch("chain reads")
+            self.chained.append(unit)
+            return
+        if unit.kind not in ("row_result_body", "set_body", "sql_cte") and not (
+            unit.kind == "row_body" and self[unit]["block_kind"] == "projection"
+        ):
+            raise _Mismatch("published reads")
+        self.published.add(unit)
+
+    def all_read(self, ctes) -> None:
+        # The pipeline writes a CTE only for a unit a later unit reads.
+        if any(u not in self.chained and u not in self.published for u in ctes):
+            raise _Mismatch("cte unread")
+
+    # -- shared predicates ------------------------------------------------
+    def block(self, unit):
+        u = self[unit]
+        if unit.kind == "row_body":
+            return u["block"]
+        if unit.kind == "row_result_body":
+            return u["boundaries"][0]
+        if unit.kind == "set_body":
+            return u["body"]
+        if unit.kind == "join_body":
+            return u["join"]
+        raise _Mismatch("unit kind")
+
+    def inline(self, unit) -> bool:
+        return (
+            unit.kind in ("row_body", "row_result_body")
+            and self[unit]["symbol"] is None
+            and not self[unit]["final"]
+        )
+
+    def realization(self, value):
+        """tag, storage kind, scale of one value (constants from their anchor)."""
+        if value.kind in _REALIZED:
+            r = self[self[value]["realization"]]
+            return r["tag"], r["storage"].get("kind"), r["storage"].get("scale")
+        if value.kind == "sql_null":
+            return self[value]["tag"], "typed_null", None
+        while value.kind == "sql_unary":
+            value = self[value]["operand"]
+        if value.kind == "sql_anchor":
+            return self[value]["tag"], self[value]["physical_type"], None
+        raise _Mismatch("value kind")
+
+    # -- values -----------------------------------------------------------
+    def constant(self, value) -> None:
+        nodes = []
+        while value.kind == "sql_unary":
+            nodes.append(value)
+            value = self[value]["operand"]
+        if value.kind == "sql_null":
+            if nodes:
+                raise _Mismatch("unary over null")
+            leaf = self[value]
+            self.emit("NULL", "literal", leaf["tag"], leaf["site"])
+            return
+        if value.kind != "sql_anchor":
+            raise _Mismatch("value kind")
+        nodes.append(value)
+        opened = []
+        for node in nodes:
+            opened.append((node, self.offset))
+            if node.kind == "sql_unary":
+                op = self[node]["operator"]
+                if op not in ("+", "-"):
+                    raise _Mismatch("unary operator")
+                self.syntax("(" + op, "unary_open", self[node]["original"])
+            else:
+                self.syntax("CAST(", "anchor_open", self[node]["original"])
+        anchor = self[value]
+        leaf_ref = anchor["operand"]
+        leaf = self[leaf_ref]
+        if leaf_ref.kind == "sql_literal":
+            fixed = leaf["value"]
+            if fixed.tag != anchor["tag"]:
+                raise _Mismatch("anchor tag")
+            self.emit(
+                schema.literal_token(fixed.tag, fixed.value, self.family),
+                "literal",
+                fixed.tag,
+                leaf["site"],
+            )
+        elif leaf_ref.kind == "sql_parameter":
+            use = self[leaf["use"]]
+            index = use["server_index"]
+            if type(index) is not int or index < 1:
+                raise _Mismatch("parameter index")
+            # parameters.allocate_uses: on PostgreSQL one $n per slot, the
+            # slots numbered from 1 (run() checks there is no gap).
+            if self.family == "postgres" and (
+                self.numbered.setdefault(use["slot"], index) != index
+            ):
+                raise _Mismatch("parameter index")
+            self.emit(
+                "$" + str(index) if self.family == "postgres" else "?",
+                "parameter",
+                anchor["tag"],
+                leaf["site"],
+            )
+        else:
+            raise _Mismatch("anchor leaf")
+        for node, start in reversed(opened):
+            subject = self[node]["original"]
+            if node.kind == "sql_unary":
+                self.syntax(")", "unary_close", subject)
+                self.enclose("unary", subject, start)
+            else:
+                # parameters.build_value: the family's own carrier of the tag.
+                physical = self[node]["physical_type"]
+                if physical != schema.PHYSICAL[self.family].get(anchor["tag"]):
+                    raise _Mismatch("anchor physical type")
+                self.syntax(schema.ANCHOR_SUFFIX[physical], "anchor_close", subject)
+                self.enclose("anchor", subject, start)
+
+    def block_column(self, target, column):
+        t = self[target]
+        producer = t["producer"]
+        if t["source"] is not None:
+            fields = [
+                self[f]
+                for f in self[producer]["fields"]
+                if self[f]["ordinal"] == column
+            ]
+            return None if len(fields) != 1 else fields[0]["column"]
+        p = self[producer]
+        if p["symbol"] is None and not p["final"]:
+            if not 0 <= column < len(p["columns"]):
+                return None
+            return self[p["columns"][column]]["label"]
+        if not 0 <= column < len(p["cte_columns"]) or len(p["columns"]) != len(
+            p["cte_columns"]
+        ):
+            return None
+        return self.name(p["cte_columns"][column])
+
+    def unit_select(self, unit) -> None:
+        self.rendered.append(unit)
+        if unit.kind == "join_body":
+            self.join_select(unit)
+        elif unit.kind == "row_result_body":
+            self.result_select(unit)
+        elif unit.kind == "set_body":
+            self.set_select(unit)
+        elif unit.kind == "row_body":
+            self.row_select(unit)
+        else:
+            raise _Mismatch("unit kind")
+
+    def inline_select(self, producer, outer) -> None:
+        """An inline body in parentheses: it sees the enclosing query level,
+        not the FROM it stands in."""
+        block = self.block(producer)
+        self.syntax("(", "inline_open", block)
+        inner, self.visible = self.visible, outer
+        self.depth += 1
+        self.unit_select(producer)
+        self.depth -= 1
+        self.visible = inner
+        self.syntax(")", "inline_close", block)
+
+    def block_read(self, value, alias) -> None:
+        v = self[value]
+        kind = v["kind"]
+        # rows and the compiled lowering: an ANY read is an EXISTS with its
+        # predicate, and only an IN reads an operand.
+        if (value.kind == "sql_any_read" and kind != "exists") or (
+            kind not in ("in", "not_in") and v["operands"]
+        ):
+            raise _Mismatch("block read kind")
+        if kind in ("in", "not_in"):
+            self.block_membership(value, alias)
+            return
+        start = self.offset
+        reference = v["original"]
+        target = v["target"]
+        t = self[target]
+        producer = t["producer"]
+        if producer.kind != "bound_source":
+            self.take(None, producer, False)
+        scope = self.name(t["symbol"])
+        outer = self.enter([(scope, self.columns_of(producer))])
+        if kind == "scalar":
+            column = (
+                None if v["column"] is None else self.block_column(target, v["column"])
+            )
+            if column is None:
+                raise _Mismatch("scalar read column")
+            self.syntax("(", "scalar_open", reference)
+            self.syntax("SELECT ", "scalar_select", reference)
+            self.ident(scope, "scalar_scope", t["use"])
+            self.syntax(".", "scalar_column_qualifier", reference)
+            self.ident(column, "scalar_column", reference)
+        elif kind == "exists":
+            self.syntax("EXISTS (", "exists_open", reference)
+            self.syntax("SELECT ", "exists_select", reference)
+            self.emit("1", "literal", "exists_sentinel", reference)
+        else:
+            raise _Mismatch("block read kind")
+        self.syntax(" FROM ", f"{kind}_from", reference)
+        if t["source"] is not None:
+            relation = t["source"]
+            source = self[producer]
+            self.ident(source["namespace"], f"{kind}_namespace", relation)
+            self.syntax(".", f"{kind}_qualifier", relation)
+            self.ident(source["name"], f"{kind}_relation", relation)
+        elif self.inline(producer):
+            self.inline_select(producer, outer)
+        else:
+            self.ident(
+                self.cte_reference(producer), f"{kind}_reference", self.block(producer)
+            )
+        self.syntax(" AS ", f"{kind}_alias", t["use"])
+        self.ident(scope, f"{kind}_scope", t["use"])
+        if value.kind == "sql_any_read":
+            self.syntax(" WHERE ", "exists_where", reference)
+            saved = self.any_scopes
+            self.any_scopes = {**saved, t["use"]: scope}
+            self.scalar(v["predicate"], alias)
+            self.any_scopes = saved
+        self.syntax(")", f"{kind}_close", reference)
+        self.enclose(kind, reference, start)
+        self.visible = outer
+
+    def block_membership(self, value, alias) -> None:
+        v = self[value]
+        start = self.offset
+        reference = v["original"]
+        target = v["target"]
+        t = self[target]
+        producer = t["producer"]
+        p = self[producer]
+        width = len(p["fields"]) if t["source"] is not None else len(p["columns"])
+        column = self.block_column(target, 0) if width == 1 else None
+        if column is None or len(v["operands"]) != 1:
+            raise _Mismatch("membership read")
+        if producer.kind != "bound_source":
+            self.take(None, producer, False)
+        self.syntax("(", "in_open", reference)
+        self.scalar(v["operands"][0], alias)
+        scope = self.name(t["symbol"])
+        outer = self.enter([(scope, self.columns_of(producer))])
+        negated = v["kind"] == "not_in"
+        self.syntax(" NOT IN (" if negated else " IN (", "in_operator", reference)
+        self.syntax("SELECT ", "in_select", reference)
+        self.ident(scope, "in_column_scope", t["use"])
+        self.syntax(".", "in_column_qualifier", t["use"])
+        if t["source"] is not None:
+            relation = t["source"]
+            self.ident(column, "in_source_column", relation)
+            self.syntax(" FROM ", "in_from", reference)
+            self.ident(p["namespace"], "in_namespace", relation)
+            self.syntax(".", "in_qualifier", relation)
+            self.ident(p["name"], "in_relation", relation)
+        elif self.inline(producer):
+            terminal = self[self[p["columns"][0]]["column"]]["terminal"]
+            self.ident(column, "in_column", terminal)
+            self.syntax(" FROM ", "in_from", reference)
+            self.inline_select(producer, outer)
+        else:
+            self.ident(column, "in_column", self[p["cte_columns"][0]]["binding"])
+            self.syntax(" FROM ", "in_from", reference)
+            self.ident(
+                self.cte_reference(producer), "in_reference", self.block(producer)
+            )
+        self.syntax(" AS ", "in_alias", t["use"])
+        self.ident(scope, "in_scope", t["use"])
+        self.syntax("))", "in_close", reference)
+        self.enclose("relation_membership", reference, start)
+        self.visible = outer
+
+    def int8_widened(self, value) -> bool:
+        v = self[value]
+        r = self[v["realization"]]
+        return (
+            self.family == "postgres"
+            and (
+                v["kind"] in ("sign", "arithmetic")
+                or v["kind"] == "scalar_call"
+                and v["operator"] == "abs"
+            )
+            and r["tag"] == "Int"
+            and dict(r["storage"]) == {"kind": "pg_int8"}
+            and bool(v["operands"])
+            and all(self.realization(o)[1] in _NARROW_PG_INTS for o in v["operands"])
+        )
+
+    def operand(self, value, position, alias) -> None:
+        v = self[value]
+        operands = v["operands"]
+        if position >= len(operands):
+            raise _Mismatch("operand arity")
+        reference = v["original"]
+        if (
+            v["kind"] == "arithmetic"
+            and self[v["realization"]]["tag"] == "Int"
+            and operands[position].kind == "sql_null"
+        ):
+            start = self.offset
+            self.syntax("CAST(", "null_cast_open", reference)
+            self.scalar(operands[position], alias)
+            self.syntax(
+                schema.ANCHOR_SUFFIX[schema.PHYSICAL[self.family]["Int"]],
+                "null_cast_close",
+                reference,
+            )
+            self.enclose("null_cast", reference, start)
+            return
+        if position or not self.int8_widened(value):
+            self.scalar(operands[position], alias)
+            return
+        start = self.offset
+        self.syntax("CAST(", "int8_widen_open", reference)
+        self.scalar(operands[0], alias)
+        self.syntax(" AS pg_catalog.int8)", "int8_widen_close", reference)
+        self.enclose("int8_widen", reference, start)
+
+    def scalar(self, value, alias) -> None:
+        start = self.offset
+        kind = value.kind
+        if kind in ("sql_block_read", "sql_any_read"):
+            self.block_read(value, alias)
+            return
+        v = self[value]
+        if kind == "sql_captured_reference":
+            reference = v["original"]
+            column = self[v["column"]]
+            scope = self.name(v["scope"])
+            # A capture sits in a capturing let's inline body and writes the
+            # scan alias of the row body that reads the let (_inline_target).
+            if not self.depth:
+                raise _Mismatch("capture placement")
+            if scope != self.reader:
+                raise _Mismatch("read relation")
+            self.resolve(scope, column)
+            self.ident(scope, "capture_scope", v["capture"])
+            self.syntax(".", "capture_qualifier", reference)
+            self.ident(column["name"], "capture_column", column["terminal"])
+            self.enclose("capture", reference, start)
+            return
+        if kind in _VALUE_REFS:
+            reference = v["original"]
+            scope = alias if v["scope"] is None else self.name(v["scope"])
+            column = self[v["column"]]
+            if kind == "sql_any_reference":
+                if self.any_scopes.get(v["use"]) != scope:
+                    raise _Mismatch("read relation")
+            elif v["scope"] is not None:
+                # Only a JOIN input's reads carry an alias (AST assembly).
+                self.owner(self.owned, scope, v["column"])
+            self.resolve(scope, column)
+            self.ident(scope, "value_scope", v["port"])
+            self.syntax(".", "value_qualifier", reference)
+            self.ident(column["name"], "value_column", column["terminal"])
+            self.enclose("reference", reference, start)
+            return
+        if kind != "sql_operation":
+            self.constant(value)
+            return
+        self.operation(value, alias, start)
+
+    def operation(self, value, alias, start) -> None:
+        v = self[value]
+        family = self.family
+        reference = v["original"]
+        op_kind, operator, operands = v["kind"], v["operator"], v["operands"]
+        realization = self[v["realization"]]
+        tag = realization["tag"]
+        if operator not in schema.OPERATORS.get(op_kind, ()):
+            raise _Mismatch("operator")
+        # Every operand the record lists is written.
+        if len(operands) != _OPERATION_ARITY.get(op_kind, len(operands)):
+            raise _Mismatch("operation arity")
+        syntax = self.syntax
+
+        def sub(i):
+            if i >= len(operands):
+                raise _Mismatch("operand arity")
+            self.scalar(operands[i], alias)
+
+        if op_kind == "sign":
+            syntax("(" + operator, "unary_open", reference)
+            self.operand(value, 0, alias)
+            syntax(")", "unary_close", reference)
+            self.enclose("unary", reference, start)
+            return
+        if op_kind == "not":
+            syntax("(NOT ", "not_open", reference)
+            sub(0)
+            syntax(")", "not_close", reference)
+            self.enclose("not", reference, start)
+            return
+        if op_kind == "null_test":
+            syntax("(", "is_null_open", reference)
+            sub(0)
+            negated = operator == "is not null"
+            syntax(" IS NOT NULL" if negated else " IS NULL", "is_null_test", reference)
+            syntax(")", "is_null_close", reference)
+            self.enclose("is_null", reference, start)
+            return
+        if op_kind == "between":
+            syntax("(", "between_open", reference)
+            sub(0)
+            syntax(" BETWEEN ", "between_operator", reference)
+            sub(1)
+            syntax(" AND ", "between_separator", reference)
+            sub(2)
+            syntax(")", "between_close", reference)
+            self.enclose("between", reference, start)
+            return
+        if op_kind == "scalar_call":
+            self.call(value, alias, start)
+            return
+        if op_kind == "conditional":
+            syntax("(CASE WHEN ", "conditional_open", reference)
+            sub(1)
+            syntax(" THEN ", "conditional_then", reference)
+            sub(0)
+            syntax(" ELSE ", "conditional_else", reference)
+            sub(2)
+            syntax(" END)", "conditional_close", reference)
+            self.enclose("conditional", reference, start)
+            return
+        if op_kind == "membership":
+            negated = operator == "not_in"
+            if len(operands) == 1:
+                syntax("TRUE" if negated else "FALSE", "membership_constant", reference)
+            else:
+                syntax("(", "membership_open", reference)
+                sub(0)
+                text = " NOT IN (" if negated else " IN ("
+                syntax(text, "membership_operator", reference)
+                for position in range(1, len(operands)):
+                    if position > 1:
+                        syntax(", ", "membership_separator", reference)
+                    sub(position)
+                syntax("))", "membership_close", reference)
+            self.enclose("membership", reference, start)
+            return
+        if op_kind == "cast":
+            # rows.resolved_cast_realization: an Int to Float, or to Text on
+            # PostgreSQL.
+            if _CAST_TAG[operator] != tag or (tag == "Text" and family != "postgres"):
+                raise _Mismatch("cast")
+            physical = (
+                "pg_catalog.float8"
+                if tag == "Float" and family == "postgres"
+                else "DOUBLE"
+                if tag == "Float"
+                else "pg_catalog.text"
+            )
+            syntax("(CAST(" if tag == "Text" else "CAST(", "cast_open", reference)
+            sub(0)
+            syntax(
+                " AS " + physical + ') COLLATE "C")'
+                if tag == "Text"
+                else " AS " + physical + ")",
+                "cast_close",
+                reference,
+            )
+            self.enclose("cast", reference, start)
+            return
+        if op_kind == "comparison" and operator in ("like", "not like"):
+            syntax("(", "comparison_open", reference)
+            sub(0)
+            syntax(
+                schema.COMPARISON_SPELLING[operator], "comparison_operator", reference
+            )
+            sub(1)
+            syntax(" ESCAPE '!'", "comparison_escape", reference)
+            syntax(")", "comparison_close", reference)
+            self.enclose("comparison", reference, start)
+            return
+        if (
+            op_kind == "arithmetic"
+            and operator == "%"
+            and tag == "Float"
+            and family == "postgres"
+        ):
+            # A MySQL Float `%` is the plain `(l % r)` (S15).
+            remainder = schema.FLOAT_REMAINDER_TOKENS
+            syntax(remainder[0], "float_remainder_open", reference)
+            sub(0)
+            syntax(remainder[1], "float_remainder_between", reference)
+            sub(1)
+            syntax(remainder[2], "float_remainder_close", reference)
+            self.enclose("binary", reference, start)
+            return
+        if op_kind == "comparison":
+            token = schema.COMPARISON_SPELLING[operator]
+        elif (
+            op_kind == "arithmetic"
+            and operator == "/"
+            and dict(realization["storage"]) == {"kind": "my_bigint"}
+        ):
+            # R08: MySQL's `/` of integers is DECIMAL; DIV truncates.
+            token = " DIV "
+        else:
+            token = " " + (operator.upper() if op_kind == "logical" else operator) + " "
+        if (
+            family == "postgres"
+            and op_kind == "arithmetic"
+            and tag == "Decimal"
+            and (
+                operator in ("+", "-")
+                and len({self.realization(o)[2] for o in operands}) > 1
+                or {self.realization(o)[0] for o in operands} == {"Decimal", "Int"}
+            )
+        ):
+            storage = realization["storage"]
+            precision, scale = storage.get("precision"), storage.get("scale")
+            # rows: a Decimal result is numeric(p, s), 1 <= p <= 65, s <= min(p, 30).
+            if (
+                operator not in ("+", "-", "*")
+                or type(precision) is not int
+                or type(scale) is not int
+                or not 1 <= precision <= 65
+                or not 0 <= scale <= min(precision, 30)
+            ):
+                raise _Mismatch("decimal arithmetic")
+            syntax("CAST((", "decimal_arithmetic_open", reference)
+            self.operand(value, 0, alias)
+            syntax(token, "arithmetic_operator", reference)
+            self.operand(value, 1, alias)
+            syntax(
+                f") AS pg_catalog.numeric({precision}, {scale}))",
+                "decimal_arithmetic_close",
+                reference,
+            )
+            self.enclose("binary", reference, start)
+            return
+        roles = {
+            "arithmetic": (
+                "binary_open",
+                "arithmetic_operator",
+                "binary_close",
+                "binary",
+            ),
+            "logical": ("binary_open", "logical_operator", "binary_close", "binary"),
+            "comparison": (
+                "comparison_open",
+                "comparison_operator",
+                "comparison_close",
+                "comparison",
+            ),
+        }
+        if op_kind not in roles or len(operands) != 2:
+            raise _Mismatch("binary operation")
+        opening, middle, closing, role = roles[op_kind]
+        syntax("(", opening, reference)
+        self.operand(value, 0, alias)
+        syntax(token, middle, reference)
+        self.operand(value, 1, alias)
+        syntax(")", closing, reference)
+        self.enclose(role, reference, start)
+
+    def call(self, value, alias, start) -> None:
+        v = self[value]
+        reference = v["original"]
+        name, operands = v["operator"], v["operands"]
+        tag = self[v["realization"]]["tag"]
+        shape = (
+            ("2" if len(operands) == 2 else tag)
+            if name == "round"
+            else tag
+            if name == "date_trunc"
+            else None
+        )
+        steps = _SCALAR_CALL_TEMPLATES.get((self.family, name, shape))
+        if steps is not None:
+            slots = [step for step in steps if type(step) is int]
+            if len(operands) != (max(slots) + 1 if slots else 0):
+                raise _Mismatch("call arity")
+            for step in steps:
+                if type(step) is int:
+                    self.scalar(operands[step], alias)
+                else:
+                    self.syntax(step[1], step[0], reference)
+        else:
+            variadic = _SCALAR_CALL_VARIADIC[self.family].get(name)
+            if variadic is None:
+                raise _Mismatch("scalar call")
+            if not (
+                len(operands) == _CALL_ARITY[name]
+                if name in _CALL_ARITY
+                else len(operands) >= 2
+            ):
+                raise _Mismatch("call arity")
+            opening, separator = variadic
+            self.syntax(opening, "scalar_call_open", reference)
+            for position in range(len(operands)):
+                if position:
+                    self.syntax(separator, "scalar_call_separator", reference)
+                self.operand(value, position, alias)
+            self.syntax(")", "scalar_call_close", reference)
+        self.enclose("scalar_call", reference, start)
+
+    # -- aggregate and window ---------------------------------------------
+    def aggregate_value(self, ref, alias) -> None:
+        c = self[ref]
+        reference = c["aggregate"]
+        function = c["function"]
+        family = self.family
+        start = self.offset
+
+        def o(text, role):
+            self.syntax(text, role, reference)
+
+        # Derived, never copied: _Check checks the record's spelling and
+        # casts against the same derivation.
+        spelling = _AGGREGATE_SPELLING[family].get(function)
+        if (
+            spelling is None
+            or c["distinct"] is not (function in _DISTINCT_AGGREGATES)
+            or (c["argument"] is None and function != "count")
+            or (family == "mysql" and function not in _MYSQL_AGGREGATES)
+        ):
+            raise _Mismatch("aggregate signature")
+        # A slot the function's rendering never writes stays empty.
+        if (
+            c["delimiter"] is not None
+            and function not in _DELIMITED
+            or c["order_by"]
+            and function not in (*_ORDERED, *_FILTERED, *_QUANTILE)
+        ):
+            raise _Mismatch("aggregate extra inputs")
+        if c["extra_arguments"] and function != "count_distinct_tuple":
+            raise _Mismatch("aggregate extra arguments")
+        argument = (
+            None
+            if c["argument"] is None
+            else _value_realization(self.doc, c["argument"])
+        )
+        argument_tag = None if argument is None else argument.get("tag")
+        result = self[self[c["column"]]["realization"]]
+        argument_cast, result_cast = _aggregate_casts(family, function, argument_tag)
+        decimal = _decimal_sum_cast(family, function, argument, result)
+        if decimal is not None:
+            argument_cast, result_cast = None, decimal
+        if (
+            family == "mysql"
+            and function in ("sum", "filtered_sum")
+            and (function == "filtered_sum" or argument_tag == "Int")
+        ):
+            # S02, S03: the guarded SUM of an Int; a conditional one is
+            # COALESCE(the guarded SUM of CASE WHEN test THEN x END, 0).
+            test = c["delimiter"]
+            filtered = function == "filtered_sum"
+            if (
+                c["order_by"]
+                or argument_cast is not None
+                or result_cast is not None
+                or (test is None) is filtered
+            ):
+                raise _Mismatch("guarded sum")
+            if filtered:
+                o("COALESCE(", "aggregate_zero_open")
+            for position, (role, text) in enumerate(_MYSQL_SUM_GUARD):
+                if position and filtered:
+                    o("CASE WHEN ", "aggregate_filter_open")
+                    self.scalar(test, alias)
+                    o(" THEN ", "aggregate_filter_then")
+                    self.scalar(c["argument"], alias)
+                    o(" END", "aggregate_filter_close")
+                elif position:
+                    self.scalar(c["argument"], alias)
+                o(text, role)
+            if filtered:
+                o(", 0)", "aggregate_zero_close")
+            self.enclose("aggregate", reference, start)
+            return
+        root = family == "postgres" and function in _ROOT
+        if function in _GROUP_TEST:
+            o("(", "aggregate_test_open")
+        if root:
+            o("SQRT(", "aggregate_root_open")
+        if function == "filtered_sum":
+            o("COALESCE(", "aggregate_zero_open")
+        if function in _ORDERED_VALUE:
+            o("(", "aggregate_element_open")
+        if result_cast is not None:
+            o("CAST(", "aggregate_result_cast_open")
+        o(spelling + "(", "aggregate_open")
+        if function in _FILTERED:
+            test = c["delimiter"] if function == "filtered_sum" else c["argument"]
+            if c["distinct"] or c["order_by"] or test is None:
+                raise _Mismatch("conditional aggregate")
+            o("CASE WHEN ", "aggregate_filter_open")
+            self.scalar(test, alias)
+            o(" THEN ", "aggregate_filter_then")
+            if function == "group_all":
+                o("NULL ELSE 1", "aggregate_filter_else")
+            elif function != "filtered_sum":
+                o("1", "aggregate_filter_one")
+            else:
+                if argument_cast is None:
+                    raise _Mismatch("conditional sum")
+                o("CAST(", "aggregate_argument_cast_open")
+                self.scalar(c["argument"], alias)
+                o(" AS " + argument_cast + ")", "aggregate_argument_cast_close")
+            o(" END", "aggregate_filter_close")
+        elif c["argument"] is None:
+            o("*", "aggregate_row_count")
+        elif function in _ORDERED:
+            if (
+                c["distinct"]
+                or argument_cast is not None
+                or (c["delimiter"] is None) is (function == "string_agg")
+                or not c["order_by"]
+            ):
+                raise _Mismatch("ordered aggregate")
+            self.scalar(c["argument"], alias)
+            if c["delimiter"] is not None:
+                o(", ", "aggregate_separator")
+                self.scalar(c["delimiter"], alias)
+            o(" ORDER BY ", "aggregate_order")
+            self.aggregate_order(c, alias, "aggregate_order_separator")
+        elif function == "count_distinct_tuple":
+            members = (c["argument"], *c["extra_arguments"])
+            if not c["distinct"] or len(members) < 2:
+                raise _Mismatch("count_distinct_tuple")
+            o("DISTINCT ", "aggregate_distinct")
+            o("CASE WHEN ", "aggregate_tuple_open")
+            for position, member in enumerate(members):
+                self.scalar(member, alias)
+                last = position == len(members) - 1
+                o(
+                    " IS NOT NULL THEN ROW(" if last else " IS NOT NULL AND ",
+                    "aggregate_tuple_then" if last else "aggregate_tuple_and",
+                )
+            for position, member in enumerate(members):
+                if position:
+                    o(", ", "aggregate_separator")
+                self.scalar(member, alias)
+            o(") END", "aggregate_tuple_close")
+        elif function in _QUANTILE:
+            fraction = c["delimiter"]
+            # rendering's "unrenderable quantile": only `quantile` has a fraction.
+            if (
+                argument_cast is None
+                or c["order_by"]
+                or (fraction is None) is not (function == "median")
+            ):
+                raise _Mismatch("quantile")
+            if fraction is None:
+                o("0.5", "aggregate_fraction")
+            else:
+                self.scalar(fraction, alias)
+                # aggregates.quantile_fraction_diagnostic: a Float literal 0.0-1.0.
+                leaf = (
+                    self[fraction]["operand"] if fraction.kind == "sql_anchor" else None
+                )
+                if (
+                    leaf is None
+                    or leaf.kind != "sql_literal"
+                    or self[leaf]["value"].tag != "Float"
+                    or not 0.0 <= self[leaf]["value"].value <= 1.0
+                    or math.copysign(1.0, self[leaf]["value"].value) < 0
+                ):
+                    raise _Mismatch("quantile fraction")
+            o(") WITHIN GROUP (ORDER BY ", "aggregate_within")
+            o("CAST(", "aggregate_argument_cast_open")
+            self.scalar(c["argument"], alias)
+            o(" AS " + argument_cast + ")", "aggregate_argument_cast_close")
+        else:
+            if c["distinct"]:
+                o("DISTINCT ", "aggregate_distinct")
+            if argument_cast is not None:
+                o("CAST(", "aggregate_argument_cast_open")
+            self.scalar(c["argument"], alias)
+            if argument_cast is not None:
+                o(" AS " + argument_cast + ")", "aggregate_argument_cast_close")
+        o(")", "aggregate_close")
+        if result_cast is not None:
+            o(" AS " + result_cast + ")", "aggregate_result_cast_close")
+        if root:
+            o(")", "aggregate_root_close")
+        if function == "filtered_sum":
+            o(", 0)", "aggregate_zero_close")
+        if function in _GROUP_TEST:
+            o(" > 0)" if function == "group_any" else " = 0)", "aggregate_test_close")
+        if function in _ORDERED_VALUE:
+            o(")[1]", "aggregate_element_close")
+        self.enclose("aggregate", reference, start)
+
+    def aggregate_order(self, c, alias, separator, subject=None) -> None:
+        """An ordered aggregate's internal order: `last` is the first element
+        of the reversed order, so each direction is written flipped."""
+        subject = c["aggregate"] if subject is None else subject
+        for position, item in enumerate(c["order_by"]):
+            if position:
+                self.syntax(", ", separator, subject)
+            self.scalar(self[item]["value"], alias)
+            direction = self[item]["direction"]
+            if direction not in ("asc", "desc"):
+                raise _Mismatch("aggregate direction")
+            if c["function"] == "last":
+                text = " DESC" if direction == "asc" else " ASC"
+                self.syntax(text, "aggregate_order_reversed_direction", subject)
+            else:
+                text = " ASC" if direction == "asc" else " DESC"
+                self.syntax(text, "aggregate_order_direction", subject)
+
+    def ranked_layout(self, stage):
+        """aggregation.ranked_layout: the derived table's read columns, keys
+        first, each once by name, and each `first` or `last`'s ROW_NUMBER
+        name `r<ordinal>`, lengthened by `_` past every read name that is not
+        ASCII, then while it is an ASCII read name without case."""
+        listed: dict[str, Any] = {}
+        for key in stage["keys"]:
+            read = self[self[key]["read"]]
+            listed.setdefault(read["name"], read)
+        ordered = [
+            value
+            for value in stage["values"]
+            if self[value]["function"] in _ORDERED_VALUE
+        ]
+        for value in ordered:
+            argument = self[value]["argument"]
+            if argument is None or argument.kind != "sql_stage_reference":
+                raise _Mismatch("ranked aggregate")
+            read = self[self[argument]["column"]]
+            listed.setdefault(read["name"], read)
+        folded = {name.casefold() for name in listed if name.isascii()}
+        longest = max((len(name) for name in listed if not name.isascii()), default=0)
+        ranks = {}
+        for value in ordered:
+            name = "r" + str(self[value]["ordinal"])
+            name += "_" * max(0, longest + 1 - len(name))
+            while name.casefold() in folded:
+                name += "_"
+            ranks[value] = name
+        return listed, ranks
+
+    def ranked_value(self, ref, alias, rank) -> None:
+        """A MySQL `first` or `last` (S13): MAX(CASE WHEN <rank> = 1 THEN x END)
+        over its ranked derived table."""
+        c = self[ref]
+        reference = c["aggregate"]
+        start = self.offset
+        if (
+            c["distinct"]
+            or c["delimiter"] is not None
+            or c["extra_arguments"]
+            or not c["order_by"]
+        ):
+            raise _Mismatch("ranked aggregate")
+        self.syntax(
+            _AGGREGATE_SPELLING["mysql"][c["function"]] + "(",
+            "aggregate_open",
+            reference,
+        )
+        self.syntax("CASE WHEN ", "aggregate_rank_open", reference)
+        self.ident(alias, "rank_scope", reference)
+        self.syntax(".", "aggregate_rank_qualifier", reference)
+        self.ident(rank, "rank_column", reference)
+        self.syntax(" = 1 THEN ", "aggregate_rank_then", reference)
+        self.scalar(c["argument"], alias)
+        self.syntax(" END", "aggregate_rank_close", reference)
+        self.syntax(")", "aggregate_close", reference)
+        self.enclose("aggregate", reference, start)
+
+    def ranked_rows(self, unit, alias, inputs, listed, ranks, outer) -> None:
+        """MySQL's ranked derived table (S13): the columns the aggregation
+        reads, then one ROW_NUMBER per `first` or `last` over its group's rows
+        in its own order, over the body's own scan."""
+        stage = self[self[unit]["aggregation"]]
+        reference = stage["aggregation"]
+        derived, self.visible = self.visible, {**outer, alias: dict(inputs)}
+        self.syntax("(SELECT ", "rank_open", reference)
+        for position, read in enumerate(listed.values()):
+            if position:
+                self.syntax(", ", "rank_separator", reference)
+            self.resolve(alias, read)
+            self.ident(alias, "rank_carry_scope", reference)
+            self.syntax(".", "rank_carry_qualifier", reference)
+            self.ident(read["name"], "rank_carry_column", read["terminal"])
+        for value, name in ranks.items():
+            c = self[value]
+            subject = c["aggregate"]
+            self.syntax(", ", "rank_separator", subject)
+            self.syntax("ROW_NUMBER() OVER (", "aggregate_rank_window", subject)
+            if stage["keys"]:
+                self.syntax("PARTITION BY ", "aggregate_rank_partition", subject)
+                for position, key in enumerate(stage["keys"]):
+                    read = self[self[key]["read"]]
+                    if position:
+                        self.syntax(", ", "aggregate_rank_separator", subject)
+                    self.resolve(alias, read)
+                    self.ident(alias, "rank_partition_scope", subject)
+                    self.syntax(".", "aggregate_rank_partition_qualifier", subject)
+                    self.ident(read["name"], "rank_partition_column", read["terminal"])
+                self.syntax(" ", "aggregate_rank_spec_separator", subject)
+            self.syntax("ORDER BY ", "aggregate_rank_order", subject)
+            self.aggregate_order(c, alias, "aggregate_rank_separator", subject)
+            self.syntax(") AS ", "aggregate_rank_alias", subject)
+            self.ident(name, "rank_label", subject)
+        self.scan_from(unit, alias, outer)
+        self.syntax(") AS ", "rank_close", reference)
+        self.ident(alias, "rank_scope", reference)
+        self.visible = derived
+
+    def frame_bound(self, bound):
+        kind, text = bound[0], bound[1]
+        if kind in schema.FRAME_BOUNDS:
+            if text != schema.FRAME_BOUNDS[kind]:
+                raise _Mismatch("frame bound text")
+            return text
+        if kind in schema.FRAME_OFFSETS:
+            number, _, word = text.partition(" ")
+            if word != schema.FRAME_OFFSETS[kind] or not _canonical_integer(
+                number, 0, _I64_MAX
+            ):
+                raise _Mismatch("frame offset text")
+            return text
+        raise _Mismatch("frame bound kind")
+
+    def window_specification(self, spec_ref, reference, alias) -> None:
+        s = self[spec_ref]
+
+        def o(text, role):
+            self.syntax(text, role, reference)
+
+        if s["frame"] is not None:
+            frame = self[s["frame"]]
+            if self.family == "mysql" and (
+                frame["unit"] not in _MYSQL_FRAME_UNITS
+                or frame["exclusion"] not in (None, "no_others")
+            ):
+                raise _Mismatch("frame family")
+            # windows.offset_range_problem: an offset RANGE has one ORDER key.
+            if (
+                frame["unit"] == "range"
+                and any(
+                    b[0] in schema.FRAME_OFFSETS for b in (frame["start"], frame["end"])
+                )
+                and len(s["orders"]) != 1
+            ):
+                raise _Mismatch("range key count")
+            # window_semantics._structural_frame_failures.
+            start, end = frame["start"][0], frame["end"][0]
+            if start not in _FRAME_BOUND_ORDER or end not in _FRAME_BOUND_ORDER:
+                raise _Mismatch("frame bound kind")
+            if (
+                start == "unbounded_following"
+                or end == "unbounded_preceding"
+                or _FRAME_BOUND_ORDER.index(start) > _FRAME_BOUND_ORDER.index(end)
+            ):
+                raise _Mismatch("frame bound order")
+            # GROUPS_FRAME_REQUIRES_ORDER.
+            if frame["unit"] == "groups" and not s["orders"]:
+                raise _Mismatch("groups order")
+        if s["partitions"]:
+            o("PARTITION BY ", "window_partition")
+            for position, partition in enumerate(s["partitions"]):
+                read = self[self[partition]["read"]]
+                if position:
+                    o(", ", "window_partition_separator")
+                self.resolve(alias, read)
+                self.ident(alias, "window_partition_scope", read["terminal"])
+                o(".", "window_partition_qualifier")
+                self.ident(read["name"], "window_partition_column", read["terminal"])
+        if s["orders"]:
+            if s["partitions"]:
+                o(" ", "window_spec_separator")
+            o("ORDER BY ", "window_order")
+            for index, item_ref in enumerate(s["orders"]):
+                item = self[item_ref]
+                read = self[item["read"]]
+                if item["position"] != index:
+                    raise _Mismatch("window order position")
+                if index:
+                    o(", ", "window_order_separator")
+                self.resolve(alias, read)
+                self.ident(alias, "window_order_scope", read["terminal"])
+                o(".", "window_order_qualifier")
+                self.ident(read["name"], "window_order_column", read["terminal"])
+                if item["direction"] not in ("asc", "desc"):
+                    raise _Mismatch("window direction")
+                o(
+                    " ASC" if item["direction"] == "asc" else " DESC",
+                    "window_order_direction",
+                )
+        if s["frame"] is not None:
+            frame = self[s["frame"]]
+            if s["partitions"] or s["orders"]:
+                o(" ", "window_frame_separator")
+            if frame["unit"] not in schema.FRAME_UNITS:
+                raise _Mismatch("frame unit")
+            o(schema.FRAME_UNITS[frame["unit"]] + " BETWEEN ", "window_frame_unit")
+            o(self.frame_bound(frame["start"]), "window_frame_start")
+            o(" AND ", "window_frame_and")
+            o(self.frame_bound(frame["end"]), "window_frame_end")
+            if frame["exclusion"] not in schema.EXCLUSIONS:
+                raise _Mismatch("frame exclusion")
+            spelling = schema.EXCLUSIONS[frame["exclusion"]]
+            if spelling is not None:
+                o(spelling, "window_frame_exclusion")
+
+    def window_clause(self, stage_ref, alias) -> None:
+        if stage_ref is None:
+            return
+        stage = self[stage_ref]
+        if not stage["definitions"]:
+            return
+        self.syntax(" WINDOW ", "window_clause", stage["ref"])
+        names = [self.name(self[d]["symbol"]) for d in stage["definitions"]]
+        if len(set(names)) != len(names):
+            raise _Mismatch("window definition names")
+        for index, definition_ref in enumerate(stage["definitions"]):
+            definition = self[definition_ref]
+            if definition["index"] != index:
+                raise _Mismatch("window definition index")
+            if index:
+                self.syntax(", ", "window_clause_separator", stage["ref"])
+            symbol = self[definition["symbol"]]
+            reference = symbol["binding"]
+            self.ident(symbol["name"], "window_definition", reference)
+            self.syntax(" AS ", "window_definition_as", reference)
+            start = self.offset
+            self.syntax("(", "window_spec_open", reference)
+            self.window_specification(definition["specification"], reference, alias)
+            self.syntax(")", "window_spec_close", reference)
+            self.enclose("window_specification", reference, start)
+
+    def window_literal(self, column, argument):
+        """Closure of the one free-text record field the renderer copies:
+        the emitter writes a canonical integer, NULL, or a PostgreSQL Text
+        token (project_sql_emission_windows._integer_literal/_text_literal)."""
+        literal, role = argument["literal"], argument["role"]
+        if type(literal) is not str:
+            raise _Mismatch("window literal")
+        if (self.family, role) in _COUNT_INTERVAL:
+            if not _canonical_integer(literal, *_COUNT_INTERVAL[self.family, role]):
+                raise _Mismatch("window literal")
+            return literal
+        if role == "default":
+            if literal == "NULL":
+                return literal
+            # An integer default only beside an Int value, an E'' text only
+            # beside a PostgreSQL Text value; an Int default is a source
+            # literal (a negative one is a unary the analyzer refuses) inside
+            # signed64 (window_default_integer_out_of_signed64_range).
+            values = [
+                self[a] for a in column["arguments"] if self[a]["role"] == "value"
+            ]
+            if len(values) != 1 or values[0]["read"] is None:
+                raise _Mismatch("window literal")
+            carrier = self[self[values[0]["read"]]["realization"]]["tag"]
+            if carrier == "Int" and _canonical_integer(literal, 0, _I64_MAX):
+                return literal
+            if (
+                carrier == "Text"
+                and self.family == "postgres"
+                and literal.startswith("E'")
+                and literal.endswith("'")
+            ):
+                inner = literal[2:-1]
+                if len(inner) % 4 == 0 and all(
+                    inner[i] == "\\"
+                    and inner[i + 1] in "0123"
+                    and all(ch in "01234567" for ch in inner[i + 1 : i + 4])
+                    for i in range(0, len(inner), 4)
+                ):
+                    try:
+                        text = bytes(
+                            int(inner[i + 1 : i + 4], 8)
+                            for i in range(0, len(inner), 4)
+                        ).decode("utf-8")
+                    except UnicodeDecodeError:
+                        raise _Mismatch("window literal") from None
+                    if (
+                        "\x00" not in text
+                        and schema.literal_token("Text", text, "postgres") == literal
+                    ):
+                        return literal
+        raise _Mismatch("window literal")
+
+    def same_specification(self, left, right) -> bool:
+        """windows.same_specification on records: partition and order reads by
+        reference, directions and NULL posture and frames by value."""
+        a, b = self[left], self[right]
+
+        def frame(s):
+            if s["frame"] is None:
+                return None
+            f = self[s["frame"]]
+            return f["unit"], f["start"], f["end"], f["exclusion"]
+
+        def orders(s):
+            return [
+                (self[o]["read"], self[o]["direction"], self[o]["nulls"])
+                for o in s["orders"]
+            ]
+
+        return (
+            [self[p]["read"] for p in a["partitions"]]
+            == [self[p]["read"] for p in b["partitions"]]
+            and orders(a) == orders(b)
+            and frame(a) == frame(b)
+        )
+
+    def window_value(self, ref, alias, named, used) -> None:
+        c = self[ref]
+        reference = c["window"]
+        function = c["function"]
+        start = self.offset
+
+        def o(text, role):
+            self.syntax(text, role, reference)
+
+        if function not in schema.WINDOW_SPELLING:
+            raise _Mismatch("window function")
+        signatures = _WINDOW_SIGNATURES.get(function)
+        if signatures is None and self.family == "postgres":
+            signatures = _WINDOW_AGGREGATE_SIGNATURES.get(function)
+        arguments = [self[a] for a in c["arguments"]]
+        if signatures is None or tuple(a["role"] for a in arguments) not in signatures:
+            raise _Mismatch("window signature")
+        for index, argument in enumerate(arguments):
+            # A value is a column read; every other role is one literal.
+            value = argument["role"] == "value"
+            if (
+                argument["position"] != index
+                or (argument["read"] is None) is value
+                or (argument["literal"] is None) is not value
+            ):
+                raise _Mismatch("window argument")
+        spec = self[c["specification"]]
+        insensitive = function in _FRAME_INSENSITIVE
+        if (spec["frame"] is not None) is insensitive:
+            raise _Mismatch("window frame policy")
+        # WindowComputationAnalysis: only an aggregate may omit ORDER BY.
+        if not spec["orders"] and function not in schema.WINDOW_AGGREGATES:
+            raise _Mismatch("window order")
+        if spec["symbol"] is not None:
+            # windows.build_stage: a named use is its definition's whole spec.
+            definition = named.get(spec["symbol"])
+            if definition is None or not self.same_specification(
+                c["specification"], self[definition]["specification"]
+            ):
+                raise _Mismatch("window named specification")
+            used.append(definition)
+        # Derived casts (_Check's "window aggregate"/"window cast" relation).
+        argument_cast = result_cast = None
+        if function in schema.WINDOW_AGGREGATES:
+            reads = [a["read"] for a in arguments if a["read"] is not None]
+            argument_cast, result_cast = _aggregate_casts(
+                self.family,
+                function,
+                self[self[reads[0]]["realization"]]["tag"] if reads else None,
+            )
+        if result_cast is not None:
+            o("CAST(", "window_result_cast_open")
+        o(schema.WINDOW_SPELLING[function] + "(", "window_open")
+        if function == "count" and not arguments:
+            o("*", "window_row_count")
+        for index, argument in enumerate(arguments):
+            if index:
+                o(", ", "window_argument_separator")
+            if argument["read"] is not None:
+                read = self[argument["read"]]
+                if argument_cast is not None:
+                    o("CAST(", "window_argument_cast_open")
+                self.resolve(alias, read)
+                self.ident(alias, "window_argument_scope", read["terminal"])
+                o(".", "window_argument_qualifier")
+                self.ident(read["name"], "window_argument_column", read["terminal"])
+                if argument_cast is not None:
+                    o(" AS " + argument_cast + ")", "window_argument_cast_close")
+            else:
+                self.emit(
+                    self.window_literal(c, argument),
+                    "literal",
+                    "window_argument_literal",
+                    reference,
+                )
+        o(")", "window_close")
+        o(" OVER ", "window_over")
+        if spec["symbol"] is not None:
+            self.ident(self.name(spec["symbol"]), "window_reference", reference)
+        else:
+            inner = self.offset
+            o("(", "window_spec_open")
+            self.window_specification(c["specification"], reference, alias)
+            o(")", "window_spec_close")
+            self.enclose("window_specification", reference, inner)
+        if result_cast is not None:
+            o(" AS " + result_cast + ")", "window_result_cast_close")
+        self.enclose("window", reference, start)
+
+    # -- units ------------------------------------------------------------
+    def row_select(self, unit) -> None:
+        body = self[unit]
+        scan_ref = body["scan"]
+        scan = self[scan_ref]
+        alias = self.name(scan["symbol"])
+        ident = self.ident
+        block_kind = body["block_kind"]
+        columns = body["columns"]
+        kinds = [c.kind for c in columns]
+        if block_kind not in _BODY_COLUMNS or any(
+            kind not in _BODY_COLUMNS[block_kind] for kind in kinds
+        ):
+            raise _Mismatch("body columns")
+        if len(set(columns)) != len(columns):
+            raise _Mismatch("body duplicate column")
+        if (body["predicate"] is not None) is not (block_kind in _FILTER_KINDS):
+            raise _Mismatch("body predicate")
+        if (body["aggregation"] is not None) is not (block_kind == "aggregate"):
+            raise _Mismatch("body aggregation")
+        if (body["window"] is not None) is not (block_kind == "window"):
+            raise _Mismatch("body window")
+        stage = None if body["aggregation"] is None else self[body["aggregation"]]
+        if stage is not None:
+            if tuple(columns) != (*stage["keys"], *stage["values"]):
+                raise _Mismatch("body group keys")
+            if not stage["values"]:
+                raise _Mismatch("body aggregate values")
+            # GROUP BY writes alias.name: keys differ by the name written.
+            names = [self[self[key]["read"]]["name"] for key in stage["keys"]]
+            if len(set(names)) != len(names):
+                raise _Mismatch("body key reads")
+        if block_kind == "window" and "window_column" not in kinds:
+            raise _Mismatch("body window columns")
+        if block_kind == "let" and kinds.count("row_value_column") != 1:
+            raise _Mismatch("body let value")
+        if scan_ref.kind == "row_scan":
+            inputs = self.columns_of(scan["realization"])
+        elif scan_ref.kind in ("row_named_use", "row_join_use", "row_stage_use"):
+            # A stage use reads the body before it, never a projection (the last).
+            if (
+                scan_ref.kind == "row_stage_use"
+                and self[scan["body"]]["block_kind"] == "projection"
+            ):
+                raise _Mismatch("chain reads")
+            self.take(unit, scan["body"], scan_ref.kind != "row_named_use")
+            inputs = self.columns_of(scan["body"])
+        else:
+            raise _Mismatch("scan kind")
+        # compiled lowering (ROW_SHAPE): a satisfying filters an aggregate, a
+        # qualify a window, and a where neither.
+        if block_kind in _FILTER_KINDS:
+            under = (
+                self[scan["body"]]["block_kind"]
+                if scan_ref.kind == "row_stage_use"
+                else ""
+            )
+            if block_kind != {"aggregate": "satisfying", "window": "qualify"}.get(
+                under, "where"
+            ):
+                raise _Mismatch("filter kind")
+        # realize_stages: a body's index is its block's place in the definition.
+        chained = scan_ref.kind == "row_stage_use"
+        if body["index"] != (self[scan["body"]]["index"] + 1 if chained else 0):
+            raise _Mismatch("chain reads")
+        if block_kind in _CARRYING:
+            n = len(inputs)
+            carried = [self[self[c]["read"]]["name"] for c in columns[:n]]
+            if (
+                kinds[:n] != ["row_carry_column"] * n
+                or "row_carry_column" in kinds[n:]
+                or carried != [name for name, _ in inputs]
+            ):
+                raise _Mismatch("body carry columns")
+        # A CTE's projection also has a select item (the final one:
+        # final_columns); a MySQL SELECT always has one (realize_rows'
+        # zero_column_stage_not_admitted_on_target).
+        if not columns and (
+            block_kind == "projection" and not body["final"] or self.family == "mysql"
+        ):
+            raise _Mismatch("body projection columns")
+        # MySQL ranks a `first` or `last` in a derived table (S13).
+        ranks: dict[Ref, str] = {}
+        listed: dict[str, Any] = {}
+        relation = inputs
+        if (
+            self.family == "mysql"
+            and stage is not None
+            and any(self[v]["function"] in _ORDERED_VALUE for v in stage["values"])
+        ):
+            listed, ranks = self.ranked_layout(stage)
+            known = dict(inputs)
+            if any(name not in known for name in listed):
+                raise _Mismatch("column reference")
+            relation = self.exposed(
+                [(name, known[name]) for name in listed]
+                + [(name, ("rank", value)) for value, name in ranks.items()]
+            )
+        outer = self.enter([(alias, relation)])
+        self.syntax("SELECT ", "select", body["block"])
+        windows = None if body["window"] is None else self[body["window"]]
+        named = (
+            {}
+            if windows is None
+            else {self[d]["symbol"]: d for d in windows["definitions"]}
+        )
+        used: list[Ref] = []
+        if (
+            self.family == "mysql"
+            and kinds.count("window_column") > _MYSQL_WINDOW_LIMIT
+        ):
+            raise _Mismatch("window count")
+        triples = {
+            "row_carry_column": ("carry_scope", "carry_qualifier", "carry_column"),
+            "aggregate_key_column": (
+                "group_key_scope",
+                "group_key_qualifier",
+                "group_key_column",
+            ),
+            "aggregate_projection_column": (
+                "result_scope",
+                "result_qualifier",
+                "result_column",
+            ),
+            "window_projection_column": (
+                "window_result_scope",
+                "window_result_qualifier",
+                "window_result_column",
+            ),
+        }
+        for position, column_ref in enumerate(columns):
+            column = self[column_ref]
+            if position:
+                self.syntax(", ", "separator", column["export"])
+            kind = column_ref.kind
+            if kind in triples:
+                scope_role, qualifier_role, column_role = triples[kind]
+                read = self[column["read"]]
+                self.resolve(alias, read)
+                ident(alias, scope_role, column["input_port"])
+                self.syntax(".", qualifier_role, column["export"])
+                ident(read["name"], column_role, read["terminal"])
+            elif kind == "aggregate_value_column" and column_ref in ranks:
+                self.ranked_value(column_ref, alias, ranks[column_ref])
+            elif kind == "aggregate_value_column":
+                self.aggregate_value(column_ref, alias)
+            elif kind == "window_column":
+                self.window_value(column_ref, alias, named, used)
+            else:
+                self.scalar(column["value"], alias)
+            self.syntax(" AS ", "alias", column["export"])
+            ident(column["label"], "label", column["export"])
+        if ranks:
+            assert stage is not None
+            self.syntax(" FROM ", "from", stage["aggregation"])
+            self.ranked_rows(unit, alias, inputs, listed, ranks, outer)
+        else:
+            self.scan_from(unit, alias, outer)
+        if stage is not None and stage["keys"]:
+            self.syntax(" GROUP BY ", "group_by", stage["aggregation"])
+            for position, key_ref in enumerate(stage["keys"]):
+                key = self[key_ref]
+                if position:
+                    self.syntax(", ", "group_separator", key["key"])
+                start = self.offset
+                read = self[key["read"]]
+                self.resolve(alias, read)
+                ident(alias, "grouping_scope", key["input_port"])
+                self.syntax(".", "grouping_qualifier", key["key"])
+                ident(read["name"], "grouping_column", read["terminal"])
+                self.enclose("grouping", key["key"], start)
+        # windows.build_stage: one definition per used declaration and spec,
+        # created at its first use, so the clause lists exactly the used ones.
+        if windows is not None and list(dict.fromkeys(used)) != list(
+            windows["definitions"]
+        ):
+            raise _Mismatch("window definition use")
+        self.window_clause(body["window"], alias)
+        if body["predicate"] is not None:
+            predicate = self[body["predicate"]]
+            role = "satisfying" if block_kind == "satisfying" else "where"
+            self.syntax(" WHERE ", role, predicate["original"])
+            self.scalar(predicate["value"], alias)
+        self.visible = outer
+
+    def scan_from(self, unit, alias, outer) -> None:
+        """FROM one body's own scan, AS its alias."""
+        ident = self.ident
+        scan_ref = self[unit]["scan"]
+        scan = self[scan_ref]
+        if scan_ref.kind == "row_scan":
+            source = self[scan["realization"]]
+            self.syntax(" FROM ", "from", scan["source"])
+            ident(source["namespace"], "namespace", scan["source"])
+            self.syntax(".", "qualifier", scan["source"])
+            ident(source["name"], "relation", scan["source"])
+            self.syntax(" AS ", "alias", scan["use"])
+            ident(alias, "relation_scope", scan["use"])
+        elif scan_ref.kind == "row_named_use":
+            reference = self.block(scan["body"])
+            self.syntax(" FROM ", "from", reference)
+            ident(self.cte_reference(scan["body"]), "cte_reference", reference)
+            self.syntax(" AS ", "alias", scan["use"])
+            ident(alias, "relation_scope", scan["use"])
+        elif scan_ref.kind == "row_join_use":
+            reference = self[scan["body"]]["join"]
+            self.syntax(" FROM ", "from", reference)
+            ident(self.cte_reference(scan["body"]), "join_reference", reference)
+            self.syntax(" AS ", "alias", scan["tail"])
+            ident(alias, "join_scope", scan["tail"])
+        else:
+            reference = self.block(scan["body"])
+            self.syntax(" FROM ", "from", reference)
+            if self.inline(scan["body"]):
+                self.syntax("(", "inline_open", reference)
+                inner, self.visible = self.visible, outer
+                self.unit_select(scan["body"])
+                self.visible = inner
+                self.syntax(")", "inline_close", reference)
+            else:
+                ident(self.cte_reference(scan["body"]), "stage_reference", reference)
+            self.syntax(" AS ", "alias", scan["block"])
+            ident(alias, "stage_scope", scan["block"])
+
+    def result_select(self, unit) -> None:
+        body = self[unit]
+        scan = self[body["scan"]]
+        alias = self.name(scan["symbol"])
+        ident = self.ident
+        projection = scan["body"]
+        # results: a result body carries its projection's visible outputs
+        # (an export, not a hidden ORDER key's port), in order.
+        if projection.kind != "row_body":
+            raise _Mismatch("result reads")
+        columns = self.columns_of(projection)
+        # A result use reads its projection, as a stage use never does.
+        if self[projection]["block_kind"] != "projection":
+            raise _Mismatch("chain reads")
+        self.take(unit, projection, True)
+        carried = self[projection]["columns"]
+        shown = [self[c]["export"].kind == "export" for c in carried]
+        hidden = [c for c, show in zip(carried, shown, strict=True) if not show]
+        stages = {self[c]["column"]: c for c in carried}
+        items = () if body["order"] is None else self[body["order"]]["items"]
+        reads = list(dict.fromkeys(self[i]["read"] for i in items))
+        # project_sql_plan_results.build: only an ORDER without DISTINCT
+        # carries hidden ports (distinct_tuple_includes_hidden_value), after
+        # the exports, one carried key per distinct key its items read, in
+        # the order they first read them; an item reads its key's hidden
+        # port, an aggregate composition's item its exported value (results:
+        # bound_port). Under DISTINCT an item reads its target's export (the
+        # source ports build gives each ORDER use), which PIE-B1003 keeps to
+        # a bare value or an aggregate composition.
+        if hidden and body["distinct"] is not None:
+            raise _Mismatch("result hidden")
+        tail = [self[c]["column"] for c in carried[len(carried) - len(hidden) :]]
+        if [r for r in reads if stages.get(r) in hidden] != tail:
+            raise _Mismatch("result hidden")
+        keys = {
+            self[self[c]["read"]]["name"]
+            for c in hidden
+            if c.kind == "row_carry_column"
+        }
+        if len(keys) != len(hidden):
+            raise _Mismatch("result hidden")
+        # A composition only exists over an aggregate in the projection's chain.
+        below, aggregated = projection, False
+        while self[below]["scan"].kind == "row_stage_use":
+            below = self[self[below]["scan"]]["body"]
+            aggregated = aggregated or self[below]["block_kind"] == "aggregate"
+        values = {
+            r: self[c]["value"].kind if c.kind == "row_value_column" else None
+            for r, c in stages.items()
+        }
+        if any(
+            r in stages
+            and stages[r] not in hidden
+            and (
+                body["distinct"] is None
+                or values[r] not in (None, "sql_stage_reference")
+            )
+            and not (aggregated and values[r] == "sql_operation")
+            for r in reads
+        ):
+            raise _Mismatch("result hidden")
+        visible = [name for (name, _), show in zip(columns, shown, strict=True) if show]
+        if [self[self[c]["read"]]["name"] for c in body["columns"]] != visible:
+            raise _Mismatch("result reads")
+        outer = self.enter([(alias, columns)])
+        self.syntax("SELECT ", "select", self.block(unit))
+        if body["distinct"] is not None:
+            self.syntax("DISTINCT ", "distinct", self[body["distinct"]]["distinct"])
+        for position, column_ref in enumerate(body["columns"]):
+            column = self[column_ref]
+            read = self[column["read"]]
+            if position:
+                self.syntax(", ", "separator", column["export"])
+            self.resolve(alias, read)
+            ident(alias, "result_carry_scope", column["projection_port"])
+            self.syntax(".", "result_carry_qualifier", column["export"])
+            ident(read["name"], "result_carry_column", read["terminal"])
+            self.syntax(" AS ", "alias", column["export"])
+            ident(column["label"], "label", column["export"])
+        reference = self.block(projection)
+        self.syntax(" FROM ", "from", reference)
+        if self.inline(projection):
+            # Only a capturing let's own (inline) result body reads one, and
+            # the exporter refuses that body.
+            raise _Mismatch("inline result")
+        ident(self.cte_reference(projection), "stage_reference", reference)
+        self.syntax(" AS ", "alias", scan["boundary"])
+        ident(alias, "result_scope", scan["boundary"])
+        if body["order"] is not None:
+            order = self[body["order"]]
+            # results: an ORDER without realized items is order_item_inventory_drift.
+            if not order["items"]:
+                raise _Mismatch("order items")
+            self.syntax(" ORDER BY ", "order_by", order["order"])
+            for index, item_ref in enumerate(order["items"]):
+                item = self[item_ref]
+                read = self[item["read"]]
+                if item["position"] != index:
+                    raise _Mismatch("order position")
+                if index:
+                    self.syntax(", ", "order_separator", item["item"])
+                start = self.offset
+                self.resolve(alias, read)
+                ident(alias, "order_scope", item["port"])
+                self.syntax(".", "order_qualifier", item["item"])
+                ident(read["name"], "order_column", read["terminal"])
+                if item["direction"] not in schema.DIRECTIONS:
+                    raise _Mismatch("order direction")
+                direction = schema.DIRECTIONS[item["direction"]]
+                self.syntax(direction, "order_direction", item["item"])
+                self.enclose("order_item", item["item"], start)
+        if body["limit"] is not None:
+            limit = self[body["limit"]]
+            self.syntax(" LIMIT ", "limit", limit["limit"])
+            if type(limit["value"]) is not int or limit["value"] < 0:
+                raise _Mismatch("limit value")
+            self.emit(str(limit["value"]), "literal", "limit_value", limit["limit"])
+        self.visible = outer
+
+    def cte_columns(self, symbols, exports) -> None:
+        """One name per column of the unit (the AST's one symbol per
+        terminal), at least one (a CTE header cannot be empty:
+        zero_column_stage_not_admitted_on_target); SQL gives name i the value
+        of SELECT item i, so symbol i is bound to the one terminal item i
+        exports (exports[i])."""
+        if not symbols or len(symbols) != len(exports):
+            raise _Mismatch("cte columns")
+        if any(
+            {self[s]["binding"]} != terminals for s, terminals in zip(symbols, exports)
+        ):
+            raise _Mismatch("cte column identity")
+        self.exposed(
+            [(self.name(s), ("terminal", self[s]["binding"])) for s in symbols]
+        )
+        for position, symbol_ref in enumerate(symbols):
+            symbol = self[symbol_ref]
+            if position:
+                self.syntax(", ", "terminal_separator", symbol["binding"])
+            self.ident(symbol["name"], "terminal_column", symbol["binding"])
+
+    def set_select(self, unit) -> None:
+        body = self[unit]
+        reference = body["body"]
+        if (
+            body["kind"] not in schema.SET_KINDS
+            or body["quantifier"] not in schema.SET_QUANTIFIERS
+        ):
+            raise _Mismatch("set operator")
+        operator = (
+            " "
+            + schema.SET_KINDS[body["kind"]]
+            + " "
+            + schema.SET_QUANTIFIERS[body["quantifier"]]
+            + " "
+        )
+        operands = body["operands"]
+        count = len(operands)
+        if count < 2:
+            raise _Mismatch("set arity")
+        for _ in range(count - 2):
+            self.syntax("(", "set_fold_open", reference)
+        self.set_operand(unit, operands[0], 0)
+        for position, operand in enumerate(operands[1:], start=1):
+            self.syntax(operator, "set_operator", reference)
+            self.set_operand(unit, operand, position)
+            if position < count - 1:
+                self.syntax(")", "set_fold_close", reference)
+
+    def set_operand(self, unit, operand_ref, index) -> None:
+        unit_columns = self[unit]["columns"]
+        operand = self[operand_ref]
+        reference = operand["operand"]
+        alias = self.name(operand["symbol"])
+        ident = self.ident
+        producer = operand["producer"]
+        if producer.kind != "bound_source":
+            self.take(unit, producer, False)
+        columns = self.columns_of(producer)
+        # UNION aligns by position: an operand selects each of its
+        # relation's columns, in order.
+        if [self[c]["name"] for c in operand["columns"]] != [
+            name for name, _ in columns
+        ]:
+            raise _Mismatch("set operand reads")
+        outer = self.enter([(alias, columns)])
+        self.syntax("(", "set_operand_open", reference)
+        self.syntax("SELECT ", "select", reference)
+        if len(operand["columns"]) != len(unit_columns) or len(
+            operand["inputs"]
+        ) != len(unit_columns):
+            raise _Mismatch("set operand width")
+        for position, column_ref in enumerate(operand["columns"]):
+            column = self[column_ref]
+            subject = operand["inputs"][position]
+            # UNION aligns by position: item i is set column i's input here.
+            if column_ref != self[unit_columns[position]]["inputs"][index]:
+                raise _Mismatch("set operand alignment")
+            if position:
+                self.syntax(", ", "separator", subject)
+            self.resolve(alias, column)
+            ident(alias, "set_input_scope", subject)
+            self.syntax(".", "set_input_qualifier", subject)
+            ident(column["name"], "set_input_column", column["terminal"])
+            self.syntax(" AS ", "alias", subject)
+            output = self[unit_columns[position]]
+            ident(output["label"], "label", output["export"])
+        self.syntax(" FROM ", "from", reference)
+        if producer.kind == "bound_source":
+            source = self[producer]
+            ident(source["namespace"], "set_namespace", operand["source"])
+            self.syntax(".", "set_qualifier", operand["source"])
+            ident(source["name"], "set_relation", operand["source"])
+        else:
+            ident(self.cte_reference(producer), "set_reference", self.block(producer))
+        self.syntax(" AS ", "set_alias", reference)
+        ident(alias, "set_scope", reference)
+        self.syntax(")", "set_operand_close", reference)
+        self.visible = outer
+
+    def join_relation(self, item_ref) -> None:
+        item = self[item_ref]
+        reference = item["original"]
+        producer = item["producer"]
+        if producer.kind == "bound_source":
+            source = self[producer]
+            self.ident(source["namespace"], "join_namespace", item["source"])
+            self.syntax(".", "join_qualifier", item["source"])
+            self.ident(source["name"], "join_relation", item["source"])
+        elif self.inline(producer):
+            # The exporter refuses a LATERAL input (portable fields(): _Outside).
+            raise _Mismatch("lateral input")
+        else:
+            self.ident(self.cte_reference(producer), "join_reference", reference)
+        self.syntax(" AS ", "join_alias", reference)
+        self.ident(self.name(item["symbol"]), "join_scope", reference)
+
+    def full_condition(self, value) -> None:
+        """joins._condition_equalities: a FULL JOIN's ON is an AND tree of
+        `==` between direct fields of the two inputs (shape only; the
+        operands' domain is not re-derived here)."""
+        v = self[value] if value.kind == "sql_operation" else None
+        if v is not None and (v["kind"], v["operator"]) == ("logical", "and"):
+            for operand in v["operands"]:
+                self.full_condition(operand)
+            return
+        if (
+            v is None
+            or (v["kind"], v["operator"]) != ("comparison", "==")
+            or any(o.kind != "sql_stage_reference" for o in v["operands"])
+        ):
+            raise _Mismatch("full join condition")
+        # Two inputs by the alias written (a cloned symbol has a new ref).
+        left, right = (self.name(self[o]["scope"]) for o in v["operands"])
+        if left == right:
+            raise _Mismatch("full join condition")
+
+    def join_select(self, unit) -> None:
+        body = self[unit]
+        reference = body["join"]
+        if len(body["inputs"]) != 2:
+            raise _Mismatch("join inputs")
+        left, right = body["inputs"]
+        ident = self.ident
+        for index, item in enumerate((left, right)):
+            producer = self[item]["producer"]
+            if producer.kind != "bound_source":
+                # A chained JOIN's left input reads the JOIN before it.
+                self.take(unit, producer, not index and producer.kind == "join_body")
+        relations = [
+            (self.name(self[item]["symbol"]), self.columns_of(self[item]["producer"]))
+            for item in (left, right)
+        ]
+        # An input's pre-match reads are its relation's columns, in order.
+        for item, (_, columns) in zip((left, right), relations, strict=True):
+            names = [self[r]["name"] for r in self[item]["columns"]]
+            if names != [name for name, _ in columns]:
+                raise _Mismatch("join input reads")
+        outer = self.enter(relations)
+        owned = {
+            self.name(self[item]["symbol"]): self[item]["columns"]
+            for item in (left, right)
+        }
+        # _join_body publishes every pre-match read, the left input's then
+        # the right's: column i carries read i.
+        ordered = (*self[left]["columns"], *self[right]["columns"])
+        if len(body["columns"]) != len(ordered):
+            raise _Mismatch("join columns")
+        kind = body["join_kind"]
+        self.syntax("SELECT ", "select", reference)
+        for written, column_ref in enumerate(body["columns"]):
+            column = self[column_ref]
+            read = self[column["read"]]
+            if written:
+                self.syntax(", ", "separator", column["port"])
+            if column["read"] != ordered[written]:
+                raise _Mismatch("join columns")
+            scope = self.name(column["scope"])
+            self.owner(owned, scope, column["read"])
+            self.resolve(scope, read)
+            # Nulling is the earlier JOIN's (a chained first input keeps it)
+            # plus this JOIN where its kind null-extends the side as written.
+            side = list(owned).index(scope)
+            extended = kind == "full" or (kind, side) in (("left", 1), ("right", 0))
+            kept: Any = ()
+            if side == 0 and self[left]["producer"].kind == "join_body":
+                earlier = self[self[left]["producer"]]["columns"]
+                kept = [
+                    self[c]["nulling"]
+                    for c in earlier
+                    if self[c]["port"] == read["terminal"]
+                ]
+                kept = kept[0] if len(kept) == 1 else None
+            nulling = column["nulling"]
+            if (
+                kept is None
+                or nulling[: len(kept)] != kept
+                or len(nulling) != len(kept) + extended
+            ):
+                raise _Mismatch("join nulling")
+            ident(scope, "join_column_scope", column["match"])
+            self.syntax(".", "join_column_qualifier", column["port"])
+            ident(read["name"], "join_column", read["terminal"])
+            self.syntax(" AS ", "alias", column["port"])
+            ident(column["label"], "label", column["port"])
+        self.syntax(" FROM ", "from", reference)
+        self.join_relation(left)
+        if body["membership"] is not None:
+            # SEMI/ANTI: `semi join` fails parsing and `where any` lowers to
+            # a block read, so no real document carries one.
+            raise _Mismatch("join membership")
+        # joins.full_admissible: MySQL has no FULL JOIN.
+        if kind not in schema.JOIN_SPELLING or (
+            self.family == "mysql" and kind == "full"
+        ):
+            raise _Mismatch("join kind")
+        self.syntax(schema.JOIN_SPELLING[kind], "join_kind", reference)
+        self.join_relation(right)
+        if kind != "cross":
+            self.syntax(" ON ", "join_on", reference)
+            # A relationship equality needs the retired source spelling; no
+            # modern source writes one, so it fails closed.
+            if body["equalities"]:
+                raise _Mismatch("relationship equality")
+            if body["predicate"] is None:
+                raise _Mismatch("join condition")
+            if kind == "full":
+                self.full_condition(body["predicate"])
+            saved, self.owned = self.owned, owned
+            self.scalar(body["predicate"], "")
+            self.owned = saved
+        elif body["predicate"] is not None:
+            raise _Mismatch("cross join predicate")
+        self.visible = outer
+
+    # -- statements -------------------------------------------------------
+    def row_query(self, query) -> None:
+        q = self[query]
+        units = q["bodies"] if query.kind == "sql_row_query" else q["units"]
+        if not units:
+            raise _Mismatch("no units")
+        *ctes, final = units
+        if ctes:
+            self.syntax("WITH ", "with", _SCOPE)
+            for index, unit in enumerate(ctes):
+                reference = self.block(unit)
+                if index:
+                    self.syntax(", ", "cte_separator", reference)
+                if self[unit]["symbol"] is None:
+                    raise _Mismatch("cte symbol")
+                name = self.cte_name(self.name(self[unit]["symbol"]))
+                self.ident(name, "cte_name", reference)
+                self.syntax(" (", "cte_columns_open", reference)
+                self.cte_columns(
+                    self[unit]["cte_columns"],
+                    [
+                        {self[self[c]["column"]]["terminal"]}
+                        for c in self[unit]["columns"]
+                    ],
+                )
+                self.syntax(") AS (", "cte_body_open", reference)
+                self.outer_select(unit)
+                self.syntax(")", "cte_body_close", reference)
+                self.ctes[name] = unit
+            self.syntax(" ", "with_body", self.block(final))
+        # The statement selects its definition's last unit (by_definition).
+        self.take(None, final, False)
+        self.final_columns(final)
+        self.outer_select(final)
+        # The AST assembly writes each unit once, a CTE for a later reader,
+        # and a body a chain read reads is read by nothing else.
+        self.all_read(ctes)
+        chained = set(self.chained)
+        if len(chained) != len(self.chained) or chained & self.published:
+            raise _Mismatch("chain readers")
+        everything = [ref for kind in UNITS for ref in self.doc.all(kind)]
+        if len(set(self.rendered)) != len(self.rendered) or set(self.rendered) != set(
+            everything
+        ):
+            raise _Mismatch("unit rendered")
+
+    def outer_select(self, unit) -> None:
+        # A capturing let is realized inline at its reader's single read, and
+        # its captures write that row body's scan alias (_inline_target).
+        reader = unit.kind == "row_body"
+        self.reader = self.name(self[self[unit]["scan"]]["symbol"]) if reader else None
+        self.unit_select(unit)
+        self.before = unit
+
+    def final_columns(self, unit) -> None:
+        # The grammar requires a select clause with at least one item.
+        if not self[unit]["columns"]:
+            raise _Mismatch("final columns")
+
+    def select_query(self, ast) -> None:
+        """render_sql: the Slice08-era single SELECT with simple CTEs."""
+        a = self[ast]
+        ident = self.ident
+
+        def select(body_ref, subject):
+            body = self[body_ref]
+            scan_ref = body["scan"]
+            scan = self[scan_ref]
+            scope = self.name(scan["symbol"])
+            if scan_ref.kind == "sql_scan":
+                inputs = self.columns_of(scan["realization"])
+            else:
+                self.cte_reference(scan["cte"])
+                self.take(None, scan["cte"], False)
+                inputs = self.exposed(
+                    [
+                        (self.name(s), ("terminal", self[s]["binding"]))
+                        for s in self[scan["cte"]]["columns"]
+                    ]
+                )
+            outer = self.enter([(scope, inputs)])
+            self.syntax("SELECT ", "select", subject)
+            for i, column_ref in enumerate(body["columns"]):
+                column = self[column_ref]
+                if i:
+                    self.syntax(", ", "separator", column["projection"])
+                literal = column_ref.kind == "sql_literal_column"
+                if literal and column["value"] is not None:
+                    self.constant(column["value"])
+                else:
+                    if literal:
+                        if column["producer"] is None:
+                            raise _Mismatch("literal producer")
+                        producer = self[column["producer"]]
+                        input_port, port = producer["input_port"], producer["terminal"]
+                    else:
+                        input_port = column["input_port"]
+                        port = (
+                            column["source_port"]
+                            if scan_ref.kind == "sql_scan"
+                            else self[column["producer"]]["terminal"]
+                        )
+                    read = {
+                        "name": self.name(column["symbol"]),
+                        "terminal": port,
+                        "field": column.get("source_field"),
+                    }
+                    self.resolve(scope, read)
+                    ident(scope, "column_scope", input_port)
+                    self.syntax(".", "qualifier", column["projection"])
+                    ident(self.name(column["symbol"]), "column", port)
+                self.syntax(" AS ", "alias", column["projection"])
+                ident(column["label"], "label", column["export"])
+            if scan_ref.kind == "sql_scan":
+                source = self[scan["realization"]]
+                self.syntax(" FROM ", "from", scan["source"])
+                ident(source["namespace"], "namespace", scan["source"])
+                self.syntax(".", "qualifier", scan["source"])
+                ident(source["name"], "relation", scan["source"])
+            else:
+                cte = self[scan["cte"]]
+                ref = self[cte["definition"]]["original"]
+                self.syntax(" FROM ", "from", ref)
+                ident(self.name(cte["symbol"]), "cte_reference", ref)
+            self.syntax(" AS ", "alias", scan["use"])
+            ident(scope, "relation_scope", scan["use"])
+            self.visible = outer
+
+        # The terminals each export is bound to (an item's value leaves its
+        # SELECT through the terminal binding whose canonical is its export).
+        bound: dict[Any, set] = {}
+        for t in self.doc.all("terminal_binding"):
+            bound.setdefault(self[t]["canonical"], set()).add(self[t]["terminal"])
+        if a["ctes"]:
+            self.syntax("WITH ", "with", _SCOPE)
+            for i, cte_ref in enumerate(a["ctes"]):
+                cte = self[cte_ref]
+                ref = self[cte["definition"]]["original"]
+                if i:
+                    self.syntax(", ", "cte_separator", ref)
+                name = self.cte_name(self.name(cte["symbol"]))
+                ident(name, "cte_name", ref)
+                self.syntax(" (", "cte_columns_open", ref)
+                self.cte_columns(
+                    cte["columns"],
+                    [
+                        bound.get(self[c]["export"], set())
+                        for c in self[cte["body"]]["columns"]
+                    ],
+                )
+                self.syntax(") AS (", "cte_body_open", ref)
+                select(cte["body"], ref)
+                self.syntax(")", "cte_body_close", ref)
+                self.ctes[name] = cte_ref
+            self.syntax(" ", "with_body", self[a["definition"]]["original"])
+        self.final_columns(ast)
+        select(ast, _SCOPE)
+        self.all_read(a["ctes"])
 
 
 # -- canonical bytes and immutable view --------------------------------------
