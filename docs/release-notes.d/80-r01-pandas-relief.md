@@ -12,11 +12,14 @@
   admits, keeps its exact type, each `UUID` child as its 16 bytes. A missing
   container stays `<NA>`, distinct from an empty list.
 
-Deeper or other shapes stay refused. When `to_polars`, `to_numpy`,
-`to_scipy_csr` or a plot refuses a `UUID`, a `Decimal` above precision 38 or a
-nested field, its message now names `to_pandas` as the fix in place of "leave
-it out of the query", for example `to_numpy: column field 2 ('key_value') has
-Arrow type extension<arrow.uuid>; to_numpy admits only Int, Bool or Float
-fields; to_pandas admits it`. A `to_pandas` refusal of a field lists `UUID`
-and nested fields among the kinds it admits. See the
+Deeper or other shapes stay refused. A refusal of such a field in another
+function now names the frame functions that admit it in place of "leave it
+out of the query": when `to_numpy`, `to_scipy_csr` or a plot refuses a `UUID`
+or a nested field without a `decimal256` child, its message ends with
+`to_pandas and to_polars admit it`, for example `to_numpy: column field 2
+('key_value') has Arrow type extension<arrow.uuid>; to_numpy admits only Int,
+Bool or Float fields; to_pandas and to_polars admit it`, and when one of them
+or `to_polars` refuses a `Decimal` above precision 38, alone or as a child of
+a nested field, with `to_pandas admits it`. A `to_pandas` refusal of a field
+lists `UUID` and nested fields among the kinds it admits. See the
 [interop guide](../interop.md#pandas).

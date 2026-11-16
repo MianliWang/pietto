@@ -243,18 +243,20 @@ the other forms of each second tier wait for that part's midpoint.
 ### Interop relief
 
 The interop relief (IR) is a work package with its own ledger that widens
-D80.03's admission table (PL.47). `UUID` fields reach pandas and Polars as
-their 16 bytes, unchanged; `decimal256` reaches pandas only, and Polars
-keeps refusing it with a fix that names `to_pandas`; one level of nesting, a
-list of structs of admitted flat fields, reaches pandas and Polars, which
-revises PL.39 for that level, while deeper or other shapes stay refused;
-`to_numpy` takes a nullable `Float` with NaN at each null, while a nullable
-`Int` or `Bool` stays refused; the plots take nullable `Int` and `Float`
-fields, where a null breaks the line and draws no point; and `to_scipy_csr`
-takes `Float` values, stored as float64 with `-0.0` kept, beside its `Int`
-coordinates. IR starts at its own Gate 0 on the same head as the two B2
-parts, without waiting for batch 2, and the Windows claim still leaves out
-the extras (PL.40, D5).
+D80.03's admission table (PL.47). Its slices are implemented (PL.53) and
+enter the `0.2.x` release that follows its Gate 2, `0.2.2` at the earliest;
+[Field admission](interop.md#field-admission) gives the widened table. `UUID`
+fields reach pandas and Polars as their 16 bytes, unchanged; `decimal256`
+reaches pandas only, and Polars keeps refusing it with a fix that names
+`to_pandas`; one level of nesting, a list of structs of admitted flat fields,
+reaches pandas and Polars, which revises PL.39 for that level, while deeper
+or other shapes stay refused; `to_numpy` takes a nullable `Float` with NaN at
+each null, while a nullable `Int` or `Bool` stays refused; the plots take
+nullable `Int` and `Float` fields, where a null breaks the line and draws no
+point; and `to_scipy_csr` takes `Float` values, stored as float64 with
+`-0.0` kept, beside its `Int` coordinates. Until that release, `0.2.1`'s
+refusals stand, and the Windows claim still leaves out the extras (PL.40,
+D5).
 
 ### Phase81 scope
 
@@ -340,7 +342,7 @@ stand.
 
 ### Tests and maintenance
 
-Batch 2 (M11–M14), one maintenance batch after the `v0.2.1` tag that
+Batch 2 (M11–M16), one maintenance batch after the `v0.2.1` tag that
 `v0.2.1` does not carry, completed the third whole-tree test pass and the
 CI scheduler fix for module fixtures built in several shards (F3), under the
 [CI workload governance](architecture/ci-workload-governance-v1.md)
@@ -397,7 +399,7 @@ each completion audit adds the freeze inputs of its phase here.
 | `pietto lsp`, editor partial analysis and the five editor-only messages; whether `pietto.cli.main(argv)` is a documented entry point | only the diagnostic protocol freezes; the messages get a catalog without PIE codes; the entry point is decided | D75.09–D75.12, Phase76 handoff |
 | The E-C alpha surfaces of `pietto lsp` (formatting of the open buffer, workspace symbols, import-path document links, completion from the static vocabulary and the open buffer's identifiers, and the hover and definition facts of LSP editor facts v1); the VS Code extension's use of `pietto.cli.main(argv)` to start the server | each surface freezes with its alpha contract or changes before the freeze; the entry point is decided with the `pietto lsp` row above | ED.03, ED.09, ED.11 |
 | `pietto.sql.emit_postgres_sql` | stays public and enters the API inventory | owner, 2026-11-07 |
-| `pietto.interop`: its five adapters (six functions), the D80.03 admission table as the interop relief widens it, with nested fields beyond its one level refused, the D80.04 exception order, and the five `interop-*` extras with their pins | the surface freezes with its alpha contract or changes before the freeze; other pandas and Polars nesting is admitted by a Gate 1 before then or stays refused | D80.02–D80.06, D80.08, D80.09, AD80.01, PL.47; [Phase80 audit](phases/phase-80/completion-audit.md) |
+| `pietto.interop`: its five adapters (six functions), the D80.03 admission table as the interop relief widened it ([Field admission](interop.md#field-admission): a `UUID` as its 16 bytes in pandas and Polars, `decimal256` in pandas only, one level of nesting in both, a nullable `Float` in `to_numpy` and nullable `Int` and `Float` fields in the plots as NaN, and `Float` values in `to_scipy_csr`), with nested fields beyond its one level refused, the D80.04 exception order, and the five `interop-*` extras with their pins | the surface freezes with its alpha contract or changes before the freeze; a pin refresh re-checks whether Polars reads `decimal256`, and if Polars gains a UUID dtype, which the dtype comparison then refuses, its mapping goes to the owner; other pandas and Polars nesting is admitted by a Gate 1 before then or stays refused | D80.02–D80.06, D80.08, D80.09, AD80.01, PL.47, PL.53; [Phase80 audit](phases/phase-80/completion-audit.md) |
 | The header rule and its tokens retained by Phase76 | removed under the migration/hint compatibility contract | D75.06, D76.12; [Phase76 audit](phases/phase-76/completion-audit.md) |
 | The nested public format; grouping extensions, automatic fan-out repair and a public aggregate state | frozen, or kept unsupported | Phase71 route, Phase74 handoff |
 | `def` and `relationship` items in PACKAGE_ROOT modules; a built-in table function | admitted, or kept refused | D74.07, D74.12 |

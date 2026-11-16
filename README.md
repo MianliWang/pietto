@@ -290,8 +290,8 @@ release.
   until a release carries it, those forms stay refused.
 - `pietto.interop` (alpha) turns one open `ResultBatch` into a pandas or
   Polars DataFrame, a NumPy array, a SciPy CSR array or a Matplotlib line or
-  scatter on the caller's Axes, keeping values exactly; any conversion that
-  would change a type is refused
+  scatter on the caller's Axes, keeping values exactly in the types and null
+  forms that the guide maps; every other field is refused
   ([Python interoperability](https://github.com/MianliWang/pietto/blob/main/docs/interop.md)).
 
 ## Project SQL emission
