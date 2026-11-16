@@ -34,6 +34,7 @@ from pietto._project.project_duckdb_sql import (
     DuckDBColumn,
     DuckDBComparison,
     DuckDBHaving,
+    DuckDBOrderKey,
     DuckDBSelect,
     Token,
     ast_rules_hold,
@@ -84,10 +85,7 @@ _EMPTY = (
     "windows",
     "window_arguments",
     "window_projections",
-    "result_boundaries",
     "distincts",
-    "orders",
-    "result_limits",
     "set_bodies",
     "values_bodies",
     "collects",
@@ -111,6 +109,8 @@ _SHAPES = (
     ),
 )
 _FILTERS = ("row_filter", "result_filter")
+# The result boundaries of at most one `order by`, then at most one `limit`.
+_RESULTS = ((), ("relation_ordering",), ("limit",), ("relation_ordering", "limit"))
 # The argument types of each admitted aggregate (rule 7a).
 _AGGREGATES = {
     "count": ((), ("Int",), ("Text",), ("Bool",), ("Float",)),
@@ -313,6 +313,9 @@ class _Values:
         self.refs = reference_source_ports(plan)
         self.origins = stage_origins(plan)
         self.sources = {port.ref: port for port in plan.source_ports}
+        self.results = {port.ref: port for port in plan.result_ports}
+        self.roots = {e.ref: e for e in plan.order_expressions}
+        self.uses = {u.ref: u for u in plan.order_uses}
         owners = {item.ref: item for item in (*plan.group_keys, *plan.aggregates)}
         # Each stage port that carries a group key's or aggregate's result
         # unmodified; a port's source precedes it, as for stage_origins.
@@ -331,8 +334,47 @@ class _Values:
 
     def key(self, key: Any) -> Any:
         """The source port that a group key reads directly, else None."""
-        port = self.origins.get(key.input)
+        return self.stage(key.input)
+
+    def stage(self, ref: Any) -> Any:
+        """The source port that a stage port carries unmodified, else None."""
+        port = self.origins.get(ref)
         return None if port is None else self.sources.get(port.producer_port)
+
+    def order(
+        self, item: Any, outputs: tuple[tuple[Any, Any, Any], ...]
+    ) -> tuple[Any, str | None] | None:
+        """(source port, aggregate function) of an order key that reads a
+        result field of `outputs` directly, or a source field when the
+        statement neither groups nor aggregates; (None, None) when rule 7 or
+        7a refuses that result field; None for any other key (rule 8a).
+        Each port of the key's use is a copy of one value, which it reaches
+        through the result ports."""
+        root = self.roots.get(item.expression)
+        use = None if root is None else self.uses.get(root.use)
+        if (
+            item.value is not item.expression
+            or root is None
+            or use is None
+            or root.operands
+            or use.requirement is not None
+        ):
+            return None
+        ends = []
+        for ref in use.ports:
+            while ref in self.results:
+                ref = self.results[ref].source
+            ends.append(ref)
+        if not ends or any(end is not ends[0] for end in ends):
+            return None
+        owner = self.owners.get(ends[0])
+        for projection, port, selected in outputs:
+            if projection is not None and projection.ref is ends[0]:
+                return (port, None) if selected is None else self.value(selected)
+            if selected is not None and selected is owner:
+                return self.value(selected)
+        port = None if self.plan.aggregations else self.stage(ends[0])
+        return None if port is None else (port, None)
 
     def aggregate(self, aggregate: Any) -> tuple[str, Any] | None:
         """(function, the source port it reads, None in count()) of an
@@ -399,13 +441,18 @@ class _Values:
             if type(owner) is aggregation.ProjectSQLAggregate
         )
         return node_count(
-            len(plan.exports), arguments, len(plan.group_keys), len(plan.filters)
+            len(plan.exports),
+            arguments,
+            len(plan.group_keys),
+            len(plan.filters),
+            len(plan.order_items),
+            len(plan.result_limits),
         )
 
 
 class _Rules:
-    """Rules 1-29, with 7a and 7b keyed 7.1 and 7.2: at most one blocker per
-    rule, at its first failing site."""
+    """Rules 1-29, with 7a, 7b and 8a keyed 7.1, 7.2 and 8.1: at most one
+    blocker per rule, at its first failing site."""
 
     def __init__(self, checked: Any, contract: DuckDBContract, policy: Any) -> None:
         self.found: dict[float, Blocker] = {}
@@ -476,6 +523,9 @@ class _Rules:
         operators = tuple(
             tuple(o.kind.value for o in block.operators) for block in plan.blocks
         )
+        results = ("relation_ordering",) * len(plan.orders) + ("limit",) * len(
+            plan.result_limits
+        )
         if not (
             len(named) == 1
             and len(plan.sources) == 1
@@ -483,6 +533,8 @@ class _Rules:
             and operators in _SHAPES
             and len(plan.filters)
             == sum(o in _FILTERS for block in operators for o in block)
+            and results in _RESULTS
+            and tuple(b.kind.value for b in plan.result_boundaries) == results
             and not any(getattr(plan, name) for name in _EMPTY)
         ):
             definition = self.checked.selected_owner.definition
@@ -493,8 +545,6 @@ class _Rules:
                     for clause in (
                         definition.let_clause,
                         definition.qualify_clause,
-                        definition.order_by_clause,
-                        definition.limit_clause,
                         definition.distinct_clause,
                         *definition.join_clauses,
                         *definition.join_filters,
@@ -579,6 +629,15 @@ class _Rules:
                     "duckdb_filter_not_admitted",
                     filter_.ref,
                     filter_.site.occurrence.span,
+                )
+        for item in plan.order_items:
+            if values.order(item, outputs) is None:
+                self.fail(
+                    8.1,
+                    "PIE-B1003",
+                    "duckdb_order_not_admitted",
+                    item.ref,
+                    item.source.item.span,
                 )
 
     def site(self, item: Any) -> Any:
@@ -840,7 +899,15 @@ def _expected_ast(plan: Any) -> DuckDBSelect:
             port, function = values.value(values.owners[left.port])
             having = DuckDBHaving(field(port), function, operator, 1)
     group_by = tuple(index[values.key(key).ref] for key in plan.group_keys)
-    return DuckDBSelect(RELATION, tuple(columns), where, group_by, having)
+    order_by, outputs = [], values.outputs()
+    for item in plan.order_items:
+        port, function = values.order(item, outputs) or (None, None)
+        descending = item.source.direction.value == "desc"
+        order_by.append(DuckDBOrderKey(field(port), function, descending))
+    limit = plan.result_limits[0].value if plan.result_limits else None
+    return DuckDBSelect(
+        RELATION, tuple(columns), where, group_by, having, tuple(order_by), limit
+    )
 
 
 def _labels(plan: Any) -> tuple[str, ...]:
@@ -887,6 +954,12 @@ def _subjects(
         result["aggregation",] = aggregation_.ref
     for position, key in enumerate(plan.group_keys):
         result["group_key", position] = key.ref
+    for order in plan.orders:
+        result["order",] = order.ref
+    for position, item in enumerate(plan.order_items):
+        result["order_key", position] = item.ref
+    for limit in plan.result_limits:
+        result["limit",] = limit.ref
     for filter_ in plan.filters:
         predicate = plan.expressions[filter_.predicate.position]
         names = (

@@ -24,6 +24,8 @@ from _pietto_sql_duckdb import (
     GROUPED_SQL,
     HEADER,
     INT,
+    ORDERED,
+    ORDERED_SQL,
     PROJECTION,
     PROJECTION_SQL,
     contract,
@@ -253,14 +255,103 @@ def test_a_grouped_query_documents_each_key_and_aggregate(tmp_path: Path) -> Non
     assert blockers(emitted) == [("PIE-B1007", "generated_structure_limit")]
 
 
-SHAPES = {
-    "order_by": (
-        PROJECTION + "    order by:\n        id\n",
-        [("PIE-B1003", "duckdb_relation_shape_not_admitted")],
+ORDERED_FORMS = {
+    "keys_and_limit": (
+        PROJECTION + "    order by:\n        id desc\n        amount\n    limit 3\n",
+        PROJECTION_SQL + ' ORDER BY "pietto_arrow_0"."c0" DESC NULLS FIRST,'
+        ' "pietto_arrow_0"."c1" ASC NULLS LAST LIMIT 3',
     ),
-    "grouped_order_by": (
-        _grouped("n = count()", "    order by:\n        n\n"),
-        [("PIE-B1003", "duckdb_relation_shape_not_admitted")],
+    "limit_zero": (PROJECTION + "    limit 0\n", PROJECTION_SQL + " LIMIT 0"),
+    "largest_limit": (
+        PROJECTION + f"    limit {2**63 - 1}\n",
+        PROJECTION_SQL + f" LIMIT {2**63 - 1}",
+    ),
+    # A bare "c1" in ORDER BY would find the label before the column.
+    "field_named_like_a_label": (
+        PROJECTION.replace("        note\n", "        c1 = note\n")
+        + "    order by:\n        amount\n",
+        PROJECTION_SQL.replace('"note"', '"c1"')
+        + ' ORDER BY "pietto_arrow_0"."c1" ASC NULLS LAST',
+    ),
+    "where": (
+        filtered(">=") + "    order by:\n        price desc\n    limit 5\n",
+        'SELECT "c0" AS "id", "c4" AS "price" FROM temp.main."pietto_arrow_0"'
+        ' WHERE "c1" >= CAST($1 AS BIGINT)'
+        ' ORDER BY "pietto_arrow_0"."c4" DESC NULLS FIRST LIMIT 5',
+    ),
+    "count_key": (
+        _grouped("n = count()", "    order by:\n        n desc\n"),
+        'SELECT "c2" AS "note", count(*) AS "n" FROM temp.main."pietto_arrow_0"'
+        ' GROUP BY "pietto_arrow_0"."c2" ORDER BY count(*) DESC NULLS FIRST',
+    ),
+    "grouped": (ORDERED, ORDERED_SQL),
+}
+
+
+@pytest.mark.parametrize("case", ORDERED_FORMS)
+def test_order_keys_restate_their_values_with_nulls_clauses(
+    tmp_path: Path, case: str
+) -> None:
+    body, sql = ORDERED_FORMS[case]
+    status, document = emit(write(tmp_path / "p", body, contract()), body)
+    assert (status, document["sql"]) == ("VERIFIED", sql)
+    ends = [(r["start"], r["end"]) for r in document["ranges"]]
+    assert ends[0][0] == 0 and ends[-1][1] == len(sql.encode())
+    assert all(a[1] == b[0] for a, b in zip(ends, ends[1:]))
+    uses = [
+        sql.encode()[u["range"]["start"] : u["range"]["end"]]
+        for u in document["parameter_uses"]
+    ]
+    assert uses == ([b"$1"] if "$1" in sql else [])
+
+
+def test_order_keys_and_the_limit_count_toward_the_nodes(tmp_path: Path) -> None:
+    """GROUPED's 25 nodes, then a key and its value per order key and the
+    limit."""
+    for nodes, expected in ((32, "VERIFIED"), (31, "BLOCKED")):
+        limited = contract()
+        limited["environment"].append(statement("resource_limits", {"nodes": nodes}))
+        status, emitted = emit(write(tmp_path / str(nodes), ORDERED, limited), ORDERED)
+        assert status == expected
+    assert blockers(emitted) == [("PIE-B1007", "generated_structure_limit")]
+
+
+def test_order_refusals_report_their_sites(tmp_path: Path) -> None:
+    """Rule 8a at the first computed key, with the text the owner agreed to;
+    rule 5 alone at the `order by` whose key names a renamed or computed
+    output, for which the plan is unavailable."""
+    computed = (
+        PROJECTION + "    order by:\n        id\n        -amount\n        amount + 1\n"
+    )
+    renamed = (
+        PROJECTION.replace("        note\n", "        label = note\n")
+        + "    order by:\n        label\n"
+    )
+    output = (
+        PROJECTION.replace("        note\n", "        more = amount + 1\n")
+        + "    order by:\n        more\n"
+    )
+    for name, body, detail, site in (
+        ("computed", computed, "duckdb_order_not_admitted", (17, 9)),
+        ("renamed", renamed, "duckdb_relation_shape_not_admitted", (15, 5)),
+        ("output", output, "duckdb_relation_shape_not_admitted", (15, 5)),
+    ):
+        status, document = emit(write(tmp_path / name, body, contract()), body)
+        assert (status, blockers(document)) == ("BLOCKED", [("PIE-B1003", detail)])
+        (blocker,) = document["blockers"]
+        location = blocker["location"]
+        assert (location["line"], location["column"]) == site
+    assert adapter.suggestion("PIE-B1003", "duckdb_order_not_admitted") == (
+        "order by source fields or selected outputs, such as order by total"
+        " desc; computed keys are not available on DuckDB"
+    )
+
+
+SHAPES = {
+    # The key reads a selected output, which rule 7 refuses.
+    "computed_output_order_key": (
+        _grouped("t = sum(amount) + 1", "    order by:\n        t\n"),
+        [("PIE-B1003", "duckdb_projection_not_admitted")],
     ),
     "avg": (
         _grouped("mean = avg(amount)"),
@@ -1009,10 +1100,10 @@ def test_a_forged_artifact_is_refused(
 
 
 def test_a_forged_grouped_artifact_is_refused(tmp_path: Path) -> None:
-    """Forgery: a grouped AST that keeps every SQL rule, rendered and
-    documented afresh, does not correspond to the plan; one that breaks a
+    """Forgery: a grouped and ordered AST that keeps every SQL rule, rendered
+    and documented afresh, does not correspond to the plan; one that breaks a
     rule is refused by the rules themselves."""
-    root = write(tmp_path / "p", GROUPED, contract())
+    root = write(tmp_path / "p", ORDERED, contract())
     outcome, _ = emission_cli.emit_project(
         root,
         "main.pietto",
@@ -1030,11 +1121,18 @@ def test_a_forged_grouped_artifact_is_refused(tmp_path: Path) -> None:
     replace = dataclasses.replace
     columns = list(ast.columns)
     columns[5] = replace(columns[5], function="max")
+    first, *rest = ast.order_by
     for forged in (
         replace(ast, columns=tuple(columns)),
         replace(ast, group_by=ast.group_by[::-1]),
         replace(ast, having=replace(ast.having, function="max")),
         replace(ast, having=replace(ast.having, operator="<=")),
+        replace(ast, order_by=ast.order_by[::-1]),
+        replace(ast, order_by=(replace(first, descending=False), *rest)),
+        replace(ast, order_by=(replace(first, function="max"), *rest)),
+        replace(ast, order_by=()),
+        replace(ast, limit=5),
+        replace(ast, limit=None),
     ):
         assert duckdb_sql.ast_rules_hold(forged, fields, labels)
         assert not adapter.verify_artifact(
@@ -1048,8 +1146,29 @@ def test_a_forged_grouped_artifact_is_refused(tmp_path: Path) -> None:
         replace(ast, having=replace(ast.having, field=0, function=None)),
         replace(ast, having=replace(ast.having, function="avg")),
         replace(ast, group_by=(), having=None),
+        replace(ast, order_by=(replace(first, field=1, function=None), *rest)),
+        replace(ast, order_by=(replace(first, function="avg"), *rest)),
+        replace(ast, order_by=(replace(first, descending=1), *rest)),
+        replace(ast, order_by=list(ast.order_by)),
+        replace(ast, limit=-1),
+        replace(ast, limit=2**63),
+        replace(ast, limit=True),
+        replace(ast, limit=4.0),
     ):
         assert not duckdb_sql.ast_rules_hold(broken, fields, labels)
+    # An aggregate order key needs a grouped statement.
+    ungrouped = duckdb_sql.DuckDBSelect(
+        duckdb_sql.RELATION,
+        (duckdb_sql.DuckDBColumn(0, "id"),),
+        None,
+        order_by=(duckdb_sql.DuckDBOrderKey(0, "max", False),),
+    )
+    assert not duckdb_sql.ast_rules_hold(ungrouped, fields, ("id",))
+    assert duckdb_sql.ast_rules_hold(
+        replace(ungrouped, order_by=(duckdb_sql.DuckDBOrderKey(0, None, True),)),
+        fields,
+        ("id",),
+    )
 
 
 def test_the_adapter_imports_no_duckdb_pyarrow_or_sqlglot(tmp_path: Path) -> None:

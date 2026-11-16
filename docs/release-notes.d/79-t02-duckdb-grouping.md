@@ -1,4 +1,4 @@
-### DuckDB Arrow route — grouping, aggregates and `having`
+### DuckDB Arrow route — grouping, aggregates, `having`, `order by` and `limit`
 
 A query or table over one `duckdb.arrow` source can now group its rows and
 aggregate them on DuckDB. `group by` takes direct reads of the source's
@@ -14,7 +14,16 @@ field. `pietto emit-sql --project ... --dialect duckdb` writes them as
 `sum` outside signed 64 bits fails the statement with `PIE-R3003` instead of
 returning a wrong value. Each aggregate's column in the emission document
 names its `aggregate` and `function` and has its result's type and
-nullability, and each key's column names its `group_key`. See the
+nullability, and each key's column names its `group_key`.
+
+Such a query or table can also order and limit its rows. Each `order by` key
+is a direct read of a source field, or in a grouped query a selected output,
+ascending or descending, and the `limit` is the static one the language
+takes. `emit-sql` writes `ORDER BY` over qualified capture columns or the
+restated aggregate, each key with `ASC NULLS LAST` or `DESC NULLS FIRST`, so
+NULL sorts where PostgreSQL puts it, and the limit as `LIMIT <n>`. Rows that
+tie on every key have no promised order, nor do the rows a `limit` keeps
+among ties at its boundary or without `order by`. See the
 [DuckDB Arrow route](../spec/duckdb-arrow-route-v1.md#admission). The example is
 a module of an explicit-module project; checked as a single file it reports
 PIE-S2346 for its header parameter.
@@ -34,17 +43,25 @@ query totals(min_total: Int):
         n = count()
         total = sum(amount)
     having total >= min_total
+    order by:
+        total desc
+    limit 10
 ```
 
 - `avg`, `count_distinct`, `sum` of a `Float` and aggregates of computed
   values are refused with `PIE-B1003` `duckdb_aggregate_not_admitted` at the
   aggregate, and a computed `group by` key, which only a relation `let` can
   make, with `PIE-B1003` `duckdb_grouping_not_admitted` at the key, after
-  the `let`'s `duckdb_relation_shape_not_admitted`. `order by` and `limit`
-  stay refused with `duckdb_relation_shape_not_admitted`.
-- A grouped or aggregated statement that was refused as a whole with
-  `duckdb_relation_shape_not_admitted` now reports only the rules it
-  breaks, or none.
+  the `let`'s `duckdb_relation_shape_not_admitted`. A computed `order by`
+  key, such as `order by -amount`, is refused with `PIE-B1003`
+  `duckdb_order_not_admitted` at the key. In a query without `group by`, a
+  key that names an output other than the source field of that name, such
+  as `order by label` after `label = note` or `order by more` after
+  `more = amount + 1`, leaves the plan unavailable and is refused with
+  `duckdb_relation_shape_not_admitted` at the `order by`.
+- A grouped, aggregated, ordered or limited statement that was refused as a
+  whole with `duckdb_relation_shape_not_admitted` now reports only the rules
+  it breaks, or none.
 - The suggestions of five DuckDB refusals change, and scripts that match
   their text must follow. `duckdb_relation_shape_not_admitted` now reads
   `DuckDB emission admits one source read with where, group by, having,
@@ -62,6 +79,8 @@ query totals(min_total: Int):
   Bool and Float fields`. The new details have the suggestions `use count(),
   count(field), sum of an Int field, or min or max of an Int or Float field;
   other aggregates, sum or avg of a Float and aggregates of computed values
-  are not available on DuckDB` and `group by source fields, such as group by
-  customer; computed keys are not available on DuckDB`. No DuckDB text says
-  "yet" any more, and no PostgreSQL or MySQL text changes.
+  are not available on DuckDB`, `group by source fields, such as group by
+  customer; computed keys are not available on DuckDB` and `order by source
+  fields or selected outputs, such as order by total desc; computed keys are
+  not available on DuckDB`. No DuckDB text says "yet" any more, and no
+  PostgreSQL or MySQL text changes.

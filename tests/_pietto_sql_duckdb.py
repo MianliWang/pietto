@@ -77,6 +77,16 @@ GROUPED_SQL = (
     ' HAVING CAST(sum("pietto_arrow_0"."c1") AS BIGINT) >= CAST($1 AS BIGINT)'
 )
 
+# GROUPED ordered by two aggregates and a key, each restated, then limited.
+ORDERED = (
+    GROUPED + "    order by:\n        c1 desc\n        low\n        note\n    limit 4\n"
+)
+ORDERED_SQL = GROUPED_SQL + (
+    ' ORDER BY CAST(sum("pietto_arrow_0"."c1") AS BIGINT) DESC NULLS FIRST,'
+    ' min("pietto_arrow_0"."c4") ASC NULLS LAST, "pietto_arrow_0"."c2" ASC NULLS LAST'
+    " LIMIT 4"
+)
+
 
 def filtered(operator: str, parameter: str = "min_amount: Int") -> str:
     return f"""query result({parameter}):

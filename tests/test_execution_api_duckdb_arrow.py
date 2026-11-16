@@ -30,7 +30,7 @@ from _pietto_execution_duckdb import (
     projection,
     run,
 )
-from _pietto_sql_duckdb import GROUPED, PROJECTION, contract, filtered, write
+from _pietto_sql_duckdb import GROUPED, ORDERED, PROJECTION, contract, filtered, write
 
 from pietto import execution
 from pietto._project import project_duckdb_emission as adapter
@@ -720,6 +720,55 @@ def test_a_grouped_query_returns_the_oracle_bag(tmp_path: Path) -> None:
     body = "table result:\n    from orders\n    select:\n        n = count()\n"
     rows, _ = run(pa, compiled(tmp_path / "global", body), orders(pa, ()))
     assert rows == [{"n": 0}]
+
+
+# Order keys over ROWS, the rows' ids in the order PostgreSQL gives: NULL
+# last ascending and first descending, Text by its bytes, -0.0 and 0.0 tied
+# (broken by id), false before true, and the first rows within a limit.
+ORDER_CELLS = (
+    ("note desc\n        id", None, [2, 5, 3, 1, 4]),
+    ("note\n        id", 3, [4, 1, 3]),
+    ("price\n        id desc", None, [4, 5, 2, 1, 3]),
+    ("ok\n        id desc", None, [4, 2, 5, 3, 1]),
+    ("id", 0, []),
+)
+
+
+def test_ordered_queries_return_the_oracle_order(tmp_path: Path) -> None:
+    """Each cell's ids in its order for both input orders, and ORDERED's
+    groups in the oracle's order, sorted in Python before the run, cut to
+    the first four of five."""
+    pa = _engine()
+    for position, (keys, limit, ids) in enumerate(ORDER_CELLS):
+        body = PROJECTION + f"    order by:\n        {keys}\n"
+        body += "" if limit is None else f"    limit {limit}\n"
+        query = compiled(tmp_path / str(position), body)
+        for rows in (ROWS, ROWS[::-1]):
+            delivered, handle = run(pa, query, orders(pa, rows))
+            assert [r["id"] for r in delivered] == ids, keys
+            assert handle.outcome.end == "COMPLETE"
+    rows = (*GROUPED_ROWS, (7, 2, "b", True, 4.0))
+    groups: dict[tuple[Any, Any], list[tuple[Any, ...]]] = {}
+    for row in rows:
+        groups.setdefault((row[2], row[3]), []).append(row)
+    expected = sorted(
+        (
+            {
+                "note": note,
+                "ok": ok,
+                "n": len(members),
+                "filled": sum(r[2] is not None for r in members),
+                "c1": sum(r[1] for r in members),
+                "low": min(r[4] for r in members),
+                "high": max(r[0] for r in members),
+            }
+            for (note, ok), members in groups.items()
+        ),
+        key=lambda r: (-r["c1"], r["low"], r["note"] is None, r["note"] or ""),
+    )
+    query = compiled(tmp_path / "ordered", ORDERED)
+    delivered, _ = run(pa, query, orders(pa, rows), parameters={"min_total": 0})
+    assert len(expected) == 5 and delivered == expected[:4]
 
 
 # A NUL at the start, in the middle and at the end, values of only NUL (the
