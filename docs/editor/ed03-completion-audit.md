@@ -36,8 +36,10 @@ conditions:
    completion in the README's Editors item; the ten-slowest profile is
    below.
 4. The closeout reads the eligible CI health and alerts of the latest
-   published head. This audit is part of EB2 and comes before EB2's head is
-   published, so EB2's publication record (D77.14) records that read.
+   published head. This audit is part of EB2 and came before EB2's head was
+   published. EB2's publication record read the health of `22046a4f` but
+   did not close E-C; the [E-C closeout record](#e-c-closeout-record) reads
+   that of `107df991`.
 5. This audit is on `main` with green natural exact-head CI. It takes the
    result of EB2's batch head, which EB2's publication record records.
 
@@ -105,11 +107,11 @@ conditions:
   failed none and skipped 4, each skip owned by a protocol test, and covered
   `file` URIs (percent-encoded and non-ASCII paths included) and `untitled:`
   buffers; formatting, workspace symbols and import links passed narrowed, as
-  the [status](../status.md) records. EB2's host check of completion (the
-  ED.09 word-suggestion check repeated on `e61444f`) and of the new hover and
-  definition facts comes after this audit is written; EB2's publication
-  record records its result, or NOT_RUN with its reason, and this layer is
-  not claimed for C5 and C4 before it.
+  the [status](../status.md) records. EB2's publication record left the
+  host check of completion (the ED.09 word-suggestion check repeated on
+  `e61444f`) and of the new hover and definition facts NOT_RUN; the
+  [E-C closeout record](#e-c-closeout-record) records its run, which
+  passed.
 
 ### What E-C leaves unchanged
 
@@ -277,7 +279,7 @@ publication record records its duration.
 
 | Account | Cap | Use |
 | --- | --- | --- |
-| E-C | `C70/F210/D2400/S6` (ED.04); `C70/F210/D3900/S6` from the midpoint (ED.10); `C140/F420/D7800/S12` from 2026-11-12 (PL.09), with the stop points for C4 and for EB2's batch work at D1200 each (ED.10) | The lead's ledger stood at D2,326 (C at most 8, F 78, S 0) by its entry of 2026-11-12 at 07:45Z, the sixteenth review round; later rounds, EB2's integration and its publication follow, so EB2's publication record records the final figures. Every failure stays counted (ED.04). |
+| E-C | `C70/F210/D2400/S6` (ED.04); `C70/F210/D3900/S6` from the midpoint (ED.10); `C140/F420/D7800/S12` from 2026-11-12 (PL.09), with the stop points for C4 and for EB2's batch work at D1200 each (ED.10) | The lead's ledger stood at D2,326 (C at most 8, F 78, S 0) by its entry of 2026-11-12 at 07:45Z, the sixteenth review round; later rounds, EB2's integration and its publication follow, so EB2's publication record and the [E-C closeout record](#e-c-closeout-record) record the later figures. Every failure stays counted (ED.04). |
 
 ## Failed histories kept
 
@@ -287,6 +289,9 @@ publication record records its duration.
   literally from outside the lane, exit 5) and a start whose arguments pytest
   refused are kept and counted, and so is a mutation run of the C5 closing
   review that stopped before any result (kept as void).
+- The closeout's first completion host run failed before it wrote a result;
+  it is kept beside the two passing runs, outside Git (see the
+  [E-C closeout record](#e-c-closeout-record)).
 - No published E-C head failed its natural CI: `42900771741` (EB1),
   `42917583571` (its record) and `43181411369` (the midpoint) passed all 21
   jobs. Superseded lane trees and their rebase inputs stay outside Git.
@@ -363,6 +368,97 @@ is not complete. E-C stays open until a VS Code host check runs the
 connected layer of C5 and C4 and the closeout then reads the latest
 published head.
 
+## E-C closeout record
+
+E-C closes with this record, written on 2026-11-16 on `107df991`, the latest
+published head. It adds the connected layer of C5 and C4, the closeout read
+of condition 4 and the ledger. The connected layer ran against `851ad83f`;
+the commits from `851ad83f` to `107df991` change no editor file
+(`pietto lsp`, its analysis and the editor tests), only DuckDB's sources and
+tests, a package smoke script and documentation.
+
+- **Connected layer of C5 and C4: passed.** The host checks ran on
+  2026-11-16 between 14:12Z and 14:21Z on the integration host (Linux/WSL):
+  the VS Code 1.145.2 test host, extension `e61444f` from a `git archive`
+  copy built with `npm run build`, the `node_modules` already on the host
+  with `vscode-languageclient` 9.0.1, and Pietto at `851ad83f`, whose
+  `pietto lsp` reports `0.2.1`, started with `-B`. The host steps lived only
+  in that scratch copy. The extension's canonical worktree kept its HEAD,
+  status and diff, and no file in it, `.git` included, was newer than any
+  run's start; nothing was committed or pushed to the extension repository.
+  Before the runs, a `git status` of the closeout's inventory at 14:02:23Z
+  changed the modification time of that `.git` directory; its index,
+  tracked files, HEAD and status did not change.
+  - **Completion (C5).** ED.09's word-suggestion check, repeated with its own
+    probe and file under default editor settings: the suggest widget showed
+    `zebra_count` for `zebr`, `quokka_report` and `quokka_total` for `quok`,
+    `walrus_name` for `walr`, `animals` and `Animal` for `anim`, and the
+    keyword `select` for `sele`, each read at the first trigger. The list
+    that `vscode.executeCompletionItemProvider` returns holds all six
+    identifiers, so the server offers them, not the editor's word-based
+    provider. 7 checks passed, none failed or was skipped. Of three runs, the
+    first failed before it wrote any result: its host ended after about 8 s
+    with exit 1, from a cause not established, and the run is kept. The
+    second, through a wrapper that only records the probe's outcome, and the
+    third, unwrapped, each passed all 7.
+  - **Hover and definition (C4).** New host steps ask
+    `vscode.executeHoverProvider` and `vscode.executeDefinitionProvider` at
+    46 positions. Each answer must be the exact hover text over the exact use
+    range and the exact target, or nothing. The positions with a fact cover
+    every context C4 delivers: the field reads and the relationship call of a
+    single file's JOIN relation; the field and `let` reads of `let` values,
+    `select` items and `where` of a project relation without JOIN, through an
+    imported source's alias too; a `from` that reads a project relation
+    `let`; and fields read from a relation `let`, which have a hover and no
+    target. The positions without one are a relationship call's argument, a
+    template's parameter, a single file's reads outside a JOIN, its `let` use
+    and `def` call, and a project's `group by` read, JOIN relation reads,
+    relationship call, `def` call and table-function input. The single-file
+    positions ran in a plain `file` URI, in a percent-encoded, non-ASCII one
+    and in an `untitled:` buffer; the project root is named `Prøj 50% x`.
+    Three unsaved edits followed. A line inserted at the top of the untitled
+    buffer, and one at the top of a project module, moves their facts with
+    the text. A failing shape in the open `models.pietto` removes the field
+    and `let` facts of the module that reads it and keeps its `from` fact;
+    restored, the text gives a field fact back, with a target that names the
+    open document's URI, spelled as the closed file's. 59 checks passed and
+    none failed. 3 were skipped, each owned by a protocol test: the wait for a
+    pending analysis, no analysis per request, and the occurrence bound of
+    the projection. A second run returned the same answers. Before the host
+    runs, a `pietto lsp` process asked over stdio gave the expected answer at
+    all 46 positions, and each host run's client trace holds a server
+    response to each of its 53 hover and 53 definition requests.
+- **Closure condition 4: done.** The latest published head is `107df991`,
+  whose natural exact-head CI `43888270979`, push/main attempt 1, completed
+  with success at 15:04:04Z on 2026-11-16 and passed all 21 jobs. Its health
+  artifacts were downloaded on 2026-11-16 between 15:22:41Z and 15:22:56Z
+  through the owner's read-only token (PL.07) and checked offline twice:
+  their digests, sizes and head match the run's artifact listing (15 of 15),
+  and `verify_workflow_health` of `107df991` passes. The workflow report
+  says INSUFFICIENT_EVIDENCE with a WATCH screen; history is available, with
+  three accepted runs and no comparable sample. The alerts are the
+  structural `FEWER_UNITS_THAN_WORKERS` of the plan- and
+  emission-portability partitions on both Pythons; the provisional
+  `SHARD_IMBALANCE_WATCH` (3.12), which compares the runtime partitions and
+  names no node; and 18 `LONG_INDIVISIBLE_NODE`, each on a harness node.
+  There is no cost signal or repeat confirmation, and the cost record is
+  partial. No alert or suggested action names an E-C test owner. An earlier
+  read of the health of `851ad83f` (CI `43814266697`) was superseded when
+  `main` moved to `107df991`. Health stays advisory, and E-C takes no
+  action on it.
+- **Ledger.** The closeout's inventory (D 40), its connected checks and its
+  read of the health of `851ad83f` (D 64), and the read of the health of
+  `107df991` (D 5) add D 109 and no F. E-C stands at C at most 8, F 84,
+  D 2,628 (about 34% of D7800) and S 0, still excluding the unapportioned
+  shares of the nineteenth review round and the integration. These figures
+  do not count the writing of this record, its checks, Gate 2, batch audit
+  and publication.
+
+With these facts all five closure conditions hold: 1 (ED.08), 2 (C1 and C2
+by CI `42900771741`, C5 and C4 by CI `43347023208`), 3 (Z1), 4 (above) and 5
+(CI `43347023208`). The connected layer of C5 and C4 is no longer open, and
+E-C is closed.
+
 ## Handoff to the next editor step
 
 - **Uses without a retained binding.** The other reads, `let` uses, `def`
@@ -385,7 +481,7 @@ published head.
   to the [freeze ledger](../roadmap.md#phase82-freeze-ledger).
 - **The extension:** its documentation of the new surfaces waits for its own
   lane (Q4 is not approved).
-- **The connected layer of C5 and C4:** NOT_RUN in EB2's publication record
-  and an open E-C item. E-C closes after a VS Code host check runs the ED.09
-  word-suggestion check on `e61444f` and the hover and definition facts, and
-  the closeout then reads the latest published head (condition 4).
+- **The connected layer of C5 and C4:** NOT_RUN in EB2's publication record,
+  then run and passed in the [E-C closeout record](#e-c-closeout-record). Its
+  host steps are kept with that run's evidence outside Git, not in the
+  extension repository.

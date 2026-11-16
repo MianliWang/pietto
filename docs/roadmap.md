@@ -173,7 +173,13 @@ protocol of `pietto lsp`, and
 [LSP editor facts v1](spec/lsp-editor-facts-v1.md) the hover, go-to-definition
 and document symbols that ED.01 and ED.02 selected, from an ephemeral
 in-process snapshot with the existing metadata formats unchanged; both are
-alpha contracts. Each remaining step needs its own Gate 1. Still ahead are the
+alpha contracts. The editor core work package E-C added formatting,
+workspace symbols, import-path links, completion and the hover and
+definition facts that the analysis retains, all alpha, and closed on
+2026-11-16; its
+[completion audit](editor/ed03-completion-audit.md#handoff-to-the-next-editor-step)
+hands off what the next editor steps take. Each remaining step needs its own
+Gate 1. Still ahead are the
 capability facts, which get a new versioned capability document whose own
 Gate 1 records the weighing against the
 [semantic metadata artifact v1](spec/semantic-metadata-artifact-v1.md) (ED.06),
