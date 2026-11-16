@@ -25,11 +25,18 @@ _DUCKDB_ARROW = "duckdb.arrow"
 # The built-in connectors of each compilation mode. A single file's set grows
 # with its emitters; a LEGACY_FLAT project emits no SQL and keeps its own set,
 # so a single-file-only connector (D78.01) stays unknown there. `duckdb.arrow`
-# is project-only (AD78.03), so only an EXPLICIT_MODULES project knows it.
+# is project-only (AD78.03), so only an EXPLICIT_MODULES project knows it; such
+# a project also knows `sqlite.table` (PL.47).
 SINGLE_FILE_CONNECTORS = (_POSTGRES_TABLE, _MYSQL_TABLE, _SQLITE_TABLE)
 LEGACY_FLAT_CONNECTORS = (_POSTGRES_TABLE, _MYSQL_TABLE)
-EXPLICIT_MODULE_CONNECTORS = (_POSTGRES_TABLE, _MYSQL_TABLE, _DUCKDB_ARROW)
-# The connectors whose one argument is a non-empty string literal.
+EXPLICIT_MODULE_CONNECTORS = (
+    _POSTGRES_TABLE,
+    _MYSQL_TABLE,
+    _DUCKDB_ARROW,
+    _SQLITE_TABLE,
+)
+# The connectors whose one argument is a non-empty string literal; a project's
+# `sqlite.table` too, while a single file checks that string's table-name form.
 _LITERAL_KEY_CONNECTORS = (_MYSQL_TABLE, _DUCKDB_ARROW)
 # The table names a single-file connector string spells; a `sqlite.table`
 # string names a bare table only (D78.01).
@@ -232,7 +239,9 @@ def _check_connector(
         or argument_type.resolved_type.name != "Text"
     ):
         return _invalid_arguments_diagnostic(expression, connector_name)
-    if connector_name in _LITERAL_KEY_CONNECTORS:
+    if connector_name in _LITERAL_KEY_CONNECTORS or (
+        connector_name == _SQLITE_TABLE and connectors == EXPLICIT_MODULE_CONNECTORS
+    ):
         argument = expression.arguments[0]
         if (
             not isinstance(argument, LiteralExpr)

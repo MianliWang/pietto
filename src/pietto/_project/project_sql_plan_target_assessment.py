@@ -454,12 +454,14 @@ def _family(demand):
             "postgres.table": "postgresql",
             "mysql.table": "mysql",
             "duckdb.arrow": "duckdb",
+            "sqlite.table": "sqlite",
         }.get(callee.name)
     if type(callee) is DottedNameExpr:
         bridge: Mapping[tuple[str, ...], str] = {
             ("postgres", "table"): "postgresql",
             ("mysql", "table"): "mysql",
             ("duckdb", "arrow"): "duckdb",
+            ("sqlite", "table"): "sqlite",
         }
         return bridge.get(callee.parts)
     return None
@@ -770,12 +772,14 @@ def _check_outcomes(aspect, request):
                 "postgres.table": ("postgres", "table"),
                 "mysql.table": ("mysql", "table"),
                 "duckdb.arrow": ("duckdb", "arrow"),
+                "sqlite.table": ("sqlite", "table"),
             }.get(callee.name)
         )
         matches = (
             (parts == ("postgres", "table") and request.target.family == "postgresql")
             or (parts == ("mysql", "table") and request.target.family == "mysql")
             or (parts == ("duckdb", "arrow") and request.target.family == "duckdb")
+            or (parts == ("sqlite", "table") and request.target.family == "sqlite")
         )
         return states == ((S.SATISFIED,) if matches else (S.NEGATIVE,))
     if proposition.key is None:

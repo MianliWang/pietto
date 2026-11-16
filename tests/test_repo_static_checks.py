@@ -175,14 +175,16 @@ def test_system_exit_codes_are_normalized(code: object, expected: int) -> None:
 # pipeline never receives its family.
 ADAPTER_FAMILIES = ("duckdb", "sqlite")
 PIPELINE_FAMILIES = {"postgres", "mysql"}
+# Each adapter family's own source connector.
+_CONNECTORS = {"duckdb": "duckdb.arrow", "sqlite": "sqlite.table"}
 _FIREWALL_MODULE = """shape Order:
     id: Int
     amount: Int
 
-source orders: Order = duckdb.arrow("orders")
+source orders: Order = CONNECTOR("orders")
 source rows: Order = postgres.table("orders")
 
-query arrow_rows:
+query own_rows:
     from orders
     select:
         id
@@ -211,12 +213,18 @@ def _firewall_contract(family: str) -> str:
 
     postgres = family == "postgres"
     domain = {"kind": "int_range", "min": "-1", "max": "1"}
+    storage, namespace = {
+        "postgres": ("pg_int8", "public"),
+        "duckdb": ("arrow_int64", "arrow"),
+        "sqlite": ("sqlite_integer", "main"),
+    }[family]
     representation = {
-        "storage": {"kind": "pg_int8" if postgres else "arrow_int64"},
+        "storage": {"kind": storage},
         "nullable": False,
         "domain": domain,
     }
-    environment = [{"key": "client_encoding", "scope": "statement", "value": "UTF8"}]
+    encoding = "UTF-8" if family == "sqlite" else "UTF8"
+    environment = [{"key": "client_encoding", "scope": "statement", "value": encoding}]
     if postgres:
         environment.append(
             {"key": "identifier_case", "scope": "statement", "value": "quoted_exact"}
@@ -227,7 +235,7 @@ def _firewall_contract(family: str) -> str:
             "kind": "source",
             "name": "rows" if postgres else "orders",
         },
-        "relation": {"namespace": "public" if postgres else "arrow", "name": "orders"},
+        "relation": {"namespace": namespace, "name": "orders"},
         "scan": "arrow_registration" if family == "duckdb" else "relation_rows",
         "fields": [
             {
@@ -326,7 +334,9 @@ def test_no_adapter_family_reaches_the_postgres_mysql_pipeline(
     (root / "pietto.toml").write_text(
         'schema_version = 2\n[sources]\ninclude = ["*.pietto"]\n', encoding="utf-8"
     )
-    (root / "main.pietto").write_text(_FIREWALL_MODULE, encoding="utf-8")
+    (root / "main.pietto").write_text(
+        _FIREWALL_MODULE.replace("CONNECTOR", _CONNECTORS[family]), encoding="utf-8"
+    )
     (root / "own.json").write_text(_firewall_contract(family), encoding="utf-8")
     (root / "postgres.json").write_text(
         _firewall_contract("postgres"), encoding="utf-8"
@@ -338,7 +348,7 @@ def test_no_adapter_family_reaches_the_postgres_mysql_pipeline(
     for dialect in (family, "postgres"):
         serving.append(dialect)
         for contract in ("own.json", "postgres.json"):
-            for name in ("arrow_rows", "table_rows"):
+            for name in ("own_rows", "table_rows"):
                 selected = {"module": "main.pietto", "kind": "query", "name": name}
                 for output in ("json", "text"):
                     result = emission_cli.run_project_emit_sql(
@@ -384,8 +394,9 @@ def test_no_adapter_family_reaches_the_postgres_mysql_pipeline(
     assert [call for call in calls if call[0] == family] == []
     assert set(families) - {None} <= PIPELINE_FAMILIES
     # AD78.03 admits `duckdb` as a project dialect, so its requests passed the
-    # argument checks and its own adapter verified them; D78.01 leaves
-    # `sqlite` out of project mode, so its requests stop at the argument checks.
+    # argument checks and its own adapter verified them. A project checks a
+    # `sqlite.table` source (PL.47), but `sqlite` is not yet a project dialect,
+    # so its requests stop at the argument checks.
     assert "usage" not in _error_kinds(documents["postgres"])
     assert refusals["postgres"] == []
     if family == "duckdb":

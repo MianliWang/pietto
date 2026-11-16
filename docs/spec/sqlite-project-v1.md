@@ -25,17 +25,19 @@ fixes; the lead states them to the owner as inform before this page binds
 (see [open items](#open-items)). A text outside the tables of this page, or
 a new diagnostic code, needs the owner.
 
-Construction state: SPECIFIED. S06 wrote this page before any B2 code. S07
-adds the shared connector entry and the three family mappings, S08 the
-adapter and the T1 forms, S09 their native qualification, S10 the T2
-aggregates in both modes, R1 the PostgreSQL replay, S11 the
+Construction state: IN PROGRESS. S06 wrote this page before any B2 code.
+S07 added the shared connector entry and the three family mappings, so a
+project's `check` accepts a `sqlite.table` source and PostgreSQL, MySQL and
+DuckDB emission refuse it as [compile refusals](#compile-refusals) states.
+S08 adds the adapter and the T1 forms, S09 their native qualification, S10
+the T2 aggregates in both modes, R1 the PostgreSQL replay, S11 the
 [execution](#execution) section and its route, S12 that route's
 qualification, and S16 closes the tier. Each slice edits the rows it lands.
-Until a release that the owner approves carries a form, today's behavior
-stands: a project's `check` refuses `sqlite.table` with `PIE-S2306`
-`Unknown source connector: sqlite.table`, `emit-sql --project --dialect
-sqlite` is a usage error, `compile_query(dialect="sqlite")` reports
-`PIE-R1002`, and Pietto opens no SQLite file.
+Until S08, `emit-sql --project --dialect sqlite` is a usage error; until S11,
+`compile_query(dialect="sqlite")` reports `PIE-R1002` and Pietto opens no
+SQLite file. No published release carries a form until the owner approves
+one: `0.2.1` and earlier refuse a project `sqlite.table` with `PIE-S2306`
+`Unknown source connector: sqlite.table`.
 
 ## Admission
 

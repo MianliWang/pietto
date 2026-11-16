@@ -3482,6 +3482,7 @@ def _relationships(document, declared):
                         "postgres.table": "postgresql",
                         "mysql.table": "mysql",
                         "duckdb.arrow": "duckdb",
+                        "sqlite.table": "sqlite",
                     }.get(spelling)
                     require(
                         item["outcomes"]

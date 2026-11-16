@@ -66,6 +66,7 @@ def test_completed_source_rules_preserve_single_file_diagnostics(
 
 
 DUCKDB_ARGUMENTS = "Invalid source connector arguments for duckdb.arrow"
+SQLITE_ARGUMENTS = "Invalid source connector arguments for sqlite.table"
 
 
 @pytest.mark.parametrize(
@@ -79,11 +80,23 @@ DUCKDB_ARGUMENTS = "Invalid source connector arguments for duckdb.arrow"
         ('duckdb.arrow("orders", "extra")', DUCKDB_ARGUMENTS),
         ('duckdb.arrow(concat("a", "b"))', DUCKDB_ARGUMENTS),
         ('duckdb.Arrow("orders")', "Unknown source connector: duckdb.Arrow"),
+        ('sqlite.table("orders")', None),
+        ('sqlite.table(" Orders ")', None),
+        ('sqlite.table("main.orders")', None),
+        ("sqlite.table()", SQLITE_ARGUMENTS),
+        ('sqlite.table("")', SQLITE_ARGUMENTS),
+        ("sqlite.table(1)", SQLITE_ARGUMENTS),
+        ('sqlite.table("orders", "extra")', SQLITE_ARGUMENTS),
+        ('sqlite.table(concat("a", "b"))', SQLITE_ARGUMENTS),
+        ('sqlite.Table("orders")', "Unknown source connector: sqlite.Table"),
     ],
 )
-def test_only_explicit_module_projects_know_duckdb_arrow(
+def test_explicit_module_projects_check_duckdb_arrow_and_sqlite_table(
     tmp_path: Path, connector: str, project_message: str | None
 ) -> None:
+    """AD78.03, PL.47: an explicit-module project knows both connectors, each
+    taking one non-empty string literal; it takes the table from the emission
+    contract, so a dotted `sqlite.table` string checks there."""
     from pietto.semantic.analyzer import analyze_project_namespace
     from _pietto_project_join import (
         _completed,
@@ -105,14 +118,24 @@ def test_only_explicit_module_projects_know_duckdb_arrow(
         == (span.line, span.column, span.end_column)
         for d in completed.diagnostics
     )
-    # A single file and a LEGACY_FLAT project keep the connector unknown.
-    unknown = [("PIE-S2306", f"Unknown source connector: {connector.split('(')[0]}")]
-    for result in (analyze(script), analyze_project_namespace(script)):
+    # A LEGACY_FLAT project keeps the connector unknown, and so does a single
+    # file, except `sqlite.table`, whose single-file rules are tested below.
+    name = connector.split("(")[0]
+    unknown = [("PIE-S2306", f"Unknown source connector: {name}")]
+    results = (analyze_project_namespace(script),)
+    if name != "sqlite.table":
+        results += (analyze(script),)
+    for result in results:
         assert [(d.code, d.message) for d in result.diagnostics] == unknown
+        assert all(
+            (d.location.line, d.location.column, d.location.end_column)
+            == (span.line, span.column, span.end_column)
+            for d in result.diagnostics
+        )
 
 
 @pytest.mark.parametrize("argument", ["missing", "None", "a.b"])
-def test_duckdb_arrow_follows_the_mysql_table_rule_for_untyped_arguments(
+def test_project_connectors_follow_the_mysql_table_rule_for_untyped_arguments(
     tmp_path: Path, argument: str
 ) -> None:
     from _pietto_project_join import (
@@ -126,14 +149,15 @@ def test_duckdb_arrow_follows_the_mysql_table_rule_for_untyped_arguments(
 
     mysql = messages("mysql.table")
     assert messages("duckdb.arrow") == mysql
+    assert messages("sqlite.table") == mysql
     if argument == "missing":
         assert mysql == [("PIE-S2102", "Unknown field: missing")]
 
 
 def test_a_single_file_connector_stays_unknown_in_a_legacy_flat_project() -> None:
-    """D78.01: SQLite B1 has no project mode, so `sqlite.table`, which a
-    single file knows, stays unknown in a LEGACY_FLAT project, whose
-    connector set is its own."""
+    """D78.01, PL.47: `sqlite.table`, which a single file and an
+    explicit-module project know, stays unknown in a LEGACY_FLAT project,
+    whose connector set is its own."""
     from pietto.semantic import analyzer
 
     script = _parse(
@@ -502,9 +526,6 @@ def test_unknown_source_connector_reports_pie_s2306() -> None:
     ] == [("PIE-S2306", "Unknown source connector: oracle.table")]
 
 
-SQLITE_ARGUMENTS = "Invalid source connector arguments for sqlite.table"
-
-
 @pytest.mark.parametrize(
     ("argument", "message", "at_argument"),
     [
@@ -530,15 +551,9 @@ SQLITE_ARGUMENTS = "Invalid source connector arguments for sqlite.table"
     ],
 )
 def test_sqlite_table_names_one_bare_table_in_a_single_file(
-    tmp_path: Path, argument: str, message: str | None, at_argument: bool
+    argument: str, message: str | None, at_argument: bool
 ) -> None:
-    """D78.01: a single file's `sqlite.table` names one bare table; a project
-    has no such connector and refuses a string literal one on the whole call."""
-    from pietto.semantic.analyzer import analyze_project_namespace
-    from _pietto_project_join import (
-        _completed,
-    )
-
+    """D78.01: a single file's `sqlite.table` names one bare table."""
     text = SHAPE + f"source users: UserRow = sqlite.table({argument})\n"
     script = _parse(text, path="main.pietto")
     source = script.definitions[-1]
@@ -561,19 +576,6 @@ def test_sqlite_table_names_one_bare_table_in_a_single_file(
         == (span.line, span.column, span.end_line, span.end_column)
         for d in diagnostics
     )
-    if argument.startswith('"'):
-        unknown = [("PIE-S2306", "Unknown source connector: sqlite.table")]
-        for project in (analyze_project_namespace(script), _completed(tmp_path, text)):
-            assert [(d.code, d.message) for d in project.diagnostics] == unknown
-            assert all(
-                (d.location.line, d.location.column, d.location.end_column)
-                == (
-                    source.connector.span.line,
-                    source.connector.span.column,
-                    source.connector.span.end_column,
-                )
-                for d in project.diagnostics
-            )
 
 
 def test_mysql_connector_name_matching_is_exact() -> None:

@@ -23,6 +23,7 @@ def test_connector_catalog_is_exact_and_static() -> None:
         "postgres.table",
         "mysql.table",
         "duckdb.arrow",
+        "sqlite.table",
     )
 
 

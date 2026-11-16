@@ -927,10 +927,16 @@ that `PIE-S2102`; where defs are available, a call of a `def` there is
 PIE-S2397 instead (see [Inline functions](#inline-functions-def)). Project
 mode does not split or interpret the name, although its check still rejects
 an empty `mysql.table` string; project SQL emission takes the physical
-relation from its emission contract. A project has no `sqlite.table`
-connector: its check refuses `sqlite.table("users")` with `PIE-S2306`
-`Unknown source connector: sqlite.table` on the whole call, as it refuses
-every connector it does not know.
+relation from its emission contract. An explicit-module project also knows
+`sqlite.table`, whose one argument is a non-empty string literal: any other
+argument fails `check --project` with `PIE-S2306` `Invalid source connector
+arguments for sqlite.table` on the call, except one of unknown type, which
+reports only its own diagnostic, as for `mysql.table`, and a string with a
+dot passes that check. A project has no SQLite target yet; PostgreSQL,
+MySQL and DuckDB emission refuse a statement that reads such a source with
+`PIE-B1001` `source_family_mismatch`, as a source of another family. A
+legacy-flat project does not know `sqlite.table` (`PIE-S2306` `Unknown
+source connector: sqlite.table`).
 
 An explicit-module project also knows `duckdb.arrow("key")`, the source of
 the limited DuckDB path: one Arrow table that a program supplies when it runs

@@ -136,10 +136,11 @@ refused alike for every target.
 | A read of a `Decimal`, `Date`, `Timestamp` or `UUID` field | refused PIE-B1000 | [SQLite single files](language.md#sqlite-single-files) |
 | Every table and query of a file that declares a top-level constant | refused PIE-B1000 | [SQLite single files](language.md#sqlite-single-files) |
 
-- **Projects.** There is no SQLite project target: `check --project` refuses
-  a `sqlite.table` source with PIE-S2306 `Unknown source connector:
-  sqlite.table`, `emit-sql --project --dialect sqlite` is a usage error
-  (exit 2), and `compile_query(dialect="sqlite")` keeps PIE-R1002.
+- **Projects.** There is no SQLite project target: `check --project` accepts
+  a `sqlite.table` source, PostgreSQL, MySQL and DuckDB emission refuse it
+  with PIE-B1001 `source_family_mismatch`, `emit-sql --project --dialect
+  sqlite` is a usage error (exit 2), and `compile_query(dialect="sqlite")`
+  keeps PIE-R1002.
 - **Execution and result reading.** None: Pietto runs no SQLite statement,
   opens no database file and reads no SQLite result.
 - **Support.** The SQL text and its goldens are tested wherever CI runs

@@ -286,23 +286,27 @@ def test_source_family_bridge_known_mismatch_mixed_and_connection_residual(
     )
 
 
-def test_a_duckdb_arrow_source_is_the_duckdb_family_through_the_pure_boundary(
-    tmp_path,
+@pytest.mark.parametrize(
+    ("connector", "own"), [("duckdb.arrow", "duckdb"), ("sqlite.table", "sqlite")]
+)
+def test_an_adapter_source_is_its_own_family_through_the_pure_boundary(
+    tmp_path, connector, own
 ):
-    """AD78.03: the bridge, its verifier and the portable pure boundary agree
-    that a `duckdb.arrow` source is exactly the duckdb family. One record is
-    assessed for each family; an assessment leaves its record unchanged."""
+    """AD78.03, PL.47: the bridge, its verifier and the portable pure boundary
+    agree that a `duckdb.arrow` source is exactly the duckdb family and a
+    `sqlite.table` source exactly the sqlite family. One record is assessed
+    for each family; an assessment leaves its record unchanged."""
     source = row_source(ROW_BODY).replace(
-        'postgres.table("rows")', 'duckdb.arrow("rows")'
+        'postgres.table("rows")', f'{connector}("rows")'
     )
     record = _reported(_roots(tmp_path, source), P.PRESERVE_LITERALS)
-    for family in ("postgresql", "mysql", "duckdb"):
+    for family in ("postgresql", "mysql", "duckdb", "sqlite"):
         request = _request(family, "2.0.0")
         product, _, _ = _assessed(record, request)
         (aspect,) = (
             a for a in product.aspects if a.proposition.kind is mapping.K.SOURCE_FAMILY
         )
-        expected = (S.SATISFIED,) if family == "duckdb" else (S.NEGATIVE,)
+        expected = (S.SATISFIED,) if family == own else (S.NEGATIVE,)
         assert aspect.outcomes == expected, family
         view = inspect_project_sql_plan(record[2]).target_assessment(
             request, report_verification=record[4]
