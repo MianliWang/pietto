@@ -15,6 +15,8 @@ import pytest
 
 import _pietto_sql_emission as emission
 import _pietto_sql_emission_portable as portable
+import _pietto_sql_nullsafe_cells as nullsafe
+from pietto._project import project_sql_emission_aggregation as aggregating
 from pietto._project import project_sql_emission_portable_schema as schema
 import _pietto_sql_emission_pure_boundary as pure
 
@@ -2792,3 +2794,824 @@ def test_pure_composition_rejects_external_scalar_read(tmp_path):
         pure.Status.INVALID_RELATION,
         "aggregate composition terminal",
     )
+
+
+def _rendering(data: bytes) -> str | None:
+    """The decode-only judgment: the records-only re-rendering alone, past
+    _Check, as it stands if a _Check relation is ever relaxed. Returns its
+    failing subcheck, or None when the records render to the SQL."""
+    value = json.loads(
+        data,
+        object_pairs_hook=pure._pairs,
+        parse_int=pure._raw_int,
+        parse_float=pure._raw_float,
+        parse_constant=pure._raw_float,
+    )
+    pure._input_tree(value)
+    records, order, children, _ = pure._decode(value)
+    pure._canonical_order(records, order, children)
+    try:
+        pure._Render(pure._Doc(records)).run()
+    except pure._Mismatch as error:
+        return error.check
+    return None
+
+
+def _built(directory, target, query):
+    """One VERIFIED observation of the window fixture's head and ``query``."""
+    item = emission.window_fixture(target, "A_window_ranking", "peers")
+    head = item["source"].split("query result:", 1)[0]
+    checked, outcome = emission.build_case(
+        directory, head + query, item["contract"], item["policy"]
+    )
+    assert checked.verified and outcome.status == "VERIFIED", outcome.blockers
+    artifact = outcome.artifact
+    assert artifact is not None
+    data = portable.export_emission_observation(
+        artifact, artifact.request
+    ).canonical_bytes
+    assert data is not None and _status(data) == (OK, None)
+    assert _rendering(data) is None
+    return data
+
+
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+def test_a_chain_is_anchored_to_its_definition_and_places(tmp_path, target):
+    """A stage or result use reads the body realized just before it in its
+    own definition, at its place in the chain; `definition` and `index`
+    left behind by a move are refused under both judgments. A whole chain
+    relabeled to another definition record is provenance, not shape: the
+    re-rendering admits it."""
+    data = _built(
+        tmp_path,
+        target,
+        "table kept:\n    from rows\n    where id > 0\n    select:\n        id = id\n"
+        "query result:\n    from kept\n    where id > 1\n    select:\n"
+        "        id = id\n    limit 3\n",
+    )
+    document = json.loads(data)
+    rows = [r for r in document["records"] if r["ref"][0] == "row_body"]
+    stage = next(r for r in rows if r["fields"]["scan"][0] == "row_stage_use")
+    head = next(r for r in rows if r["fields"]["scan"][0] == "row_named_use")
+    result = next(r for r in document["records"] if r["ref"][0] == "row_result_body")
+    own = head["fields"]["definition"]
+    other = next(
+        r["ref"]
+        for r in document["records"]
+        if r["ref"][0] == "scope_definition" and r["ref"] != own
+    )
+
+    def moved(record, **change):
+        return lambda d: _record(d, record["ref"]).update(change)
+
+    for edit in (
+        moved(stage, definition=other),
+        moved(result, definition=other),
+        moved(head, index=1),
+        moved(stage, index=stage["fields"]["index"] + 1),
+    ):
+        forged = _mutated(data, edit)
+        assert _status(forged)[0] is not OK
+        assert _rendering(forged) == "chain reads"
+
+    def relabeled(d):
+        for record in d["records"]:
+            if record["ref"][0] in ("row_body", "row_result_body"):
+                if record["fields"]["definition"] == own:
+                    record["fields"]["definition"] = other
+
+    assert _rendering(_mutated(data, relabeled)) is None
+
+
+def _as_carries(document, body, count):
+    """The body's first ``count`` value columns, each a read of an input
+    column, as carry columns: records, token roles and subjects, and their
+    reference ranges, as the emitter writes a carry."""
+    fields = body["fields"]
+    rendered = _records(document, "rendered")[0]
+    events = [_record(document, ref) for ref in rendered["events"]]
+    top = max(
+        (r["ref"][1] for r in document["records"] if r["ref"][0] == "row_carry_column"),
+        default=-1,
+    )
+    for position in range(count):
+        column = _record(document, fields["columns"][position])
+        value = _record(document, column["value"])
+        top += 1
+        document["records"].append(
+            {
+                "ref": ["row_carry_column", top],
+                "fields": {
+                    "ordinal": column["ordinal"],
+                    "export": column["export"],
+                    "input_port": value["port"],
+                    "read": value["column"],
+                    "symbol": column["symbol"],
+                    "label": column["label"],
+                    "column": column["column"],
+                },
+            }
+        )
+        fields["columns"][position] = ["row_carry_column", top]
+        index = next(
+            i
+            for i, event in enumerate(events)
+            if event["role"] == "value_qualifier"
+            and event["subject"] == value["original"]
+        )
+        events[index - 1]["role"] = "carry_scope"
+        events[index]["role"] = "carry_qualifier"
+        events[index]["subject"] = column["export"]
+        events[index + 1]["role"] = "carry_column"
+        rendered["expression_ranges"] = [
+            ref
+            for ref in rendered["expression_ranges"]
+            if (_record(document, ref)["role"], _record(document, ref)["subject"])
+            != ("reference", value["original"])
+        ]
+
+
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+def test_a_result_reads_only_a_projection(tmp_path, target):
+    """A result use reads its definition's projection, never another body.
+    A projection that selects its input's columns in order and one value,
+    rewritten as a let carrying them (records, tokens and ranges), keeps
+    every name and the result's visible columns, so only this subcheck
+    refuses it; it kills the mutant that drops it."""
+    data = _built(
+        tmp_path,
+        target,
+        "query result:\n    from rows\n    select:\n        id = id\n"
+        "        flag = flag\n        text = text\n        money = money\n"
+        "        ratio = ratio\n        extra = id\n    limit 3\n",
+    )
+    document = json.loads(data)
+    projection = next(
+        r
+        for r in document["records"]
+        if r["ref"][0] == "row_body" and not r["fields"]["final"]
+    )
+    assert projection["fields"]["block_kind"] == "projection"
+    _as_carries(document, projection, 5)
+    projection["fields"]["block_kind"] = "let"
+    forged = _encode(_recanonical(document))
+    assert _status(forged)[0] is not OK
+    assert _rendering(forged) == "result projection"
+
+
+def test_a_mysql_float_null_safe_join_on_renders_from_its_records(tmp_path):
+    """8795c02c: a MySQL same_value of two Float fields in a JOIN `on`, the
+    Int cell's statement byte for byte, renders from its records with the
+    null-safe `<=>` template under both judgments."""
+    outcome = nullsafe.cell(tmp_path, "mysql", "inner", "S1", "float")
+    artifact = outcome.artifact
+    assert outcome.status == "VERIFIED" and artifact is not None
+    data = portable.export_emission_observation(
+        artifact, artifact.request
+    ).canonical_bytes
+    assert data is not None and b" <=> " in data
+    assert _status(data) == (OK, None)
+    assert _rendering(data) is None
+
+
+def test_the_rendering_tables_restate_the_emitter():
+    """The re-rendering's aggregate spellings and MySQL sum guard are the
+    emitter's; a change there fails here, toward refusal."""
+    for family in ("postgres", "mysql"):
+        assert pure._AGGREGATE_SPELLING[family] == {
+            function: aggregating.spelling(family, function)
+            for function in aggregating.SPELLING
+        }
+    assert pure._MYSQL_SUM_GUARD == aggregating.MYSQL_SUM_GUARD
+
+
+def _retexted(document, event, text):
+    """Replace one token's text, moving every later offset."""
+    rendered = _records(document, "rendered")[0]
+    raw = rendered["sql"].encode("utf-8")
+    start, end = event["start"], event["end"]
+    delta = len(text.encode("utf-8")) - (end - start)
+    rendered["sql"] = (raw[:start] + text.encode("utf-8") + raw[end:]).decode("utf-8")
+    for ref in (*rendered["events"], *rendered["expression_ranges"]):
+        row = _record(document, ref)
+        if row is not event:
+            row["start"] += delta if row["start"] >= end else 0
+            row["end"] += delta if row["end"] >= end else 0
+    event["end"] += delta
+
+
+def test_a_copied_aggregate_spelling_is_not_rendered(tmp_path_factory):
+    """The re-rendering derives an aggregate's spelling from its function,
+    never from the record: a payload written into both the record and the
+    SQL is refused under both judgments."""
+    _, data = _observed(tmp_path_factory, "postgres", "X_aggregate_grouped", "hidden")
+    document = json.loads(data)
+    column = next(
+        r["fields"]
+        for r in document["records"]
+        if r["ref"][0] == "aggregate_value_column"
+    )
+    event = next(
+        e
+        for e in _records(document, "event")
+        if e["role"] == "aggregate_open" and e["subject"] == column["aggregate"]
+    )
+    column["spelling"] = "COUNT(*) + " + column["spelling"]
+    _retexted(document, event, column["spelling"] + "(")
+    forged = _encode(document)
+    assert _status(forged) == (pure.Status.INVALID_RELATION, "aggregate spelling")
+    assert _rendering(forged) == "token"
+
+
+def _spliced(document, first, last, tokens=()):
+    """Replace the token events [first, last) with ``tokens``, each (kind,
+    role, subject, text): the SQL and every later offset move, a range
+    around the span stretches and a range inside it goes."""
+    rendered = _records(document, "rendered")[0]
+    refs = rendered["events"]
+    raw = rendered["sql"].encode("utf-8")
+    start = _record(document, refs[first])["start"]
+    end = _record(document, refs[last - 1])["end"] if last > first else start
+    added = "".join(token[3] for token in tokens).encode("utf-8")
+    delta = len(added) - (end - start)
+    rendered["sql"] = (raw[:start] + added + raw[end:]).decode("utf-8")
+    for ref in refs[last:]:
+        row = _record(document, ref)
+        row["start"] += delta
+        row["end"] += delta
+    ranges = []
+    for ref in rendered["expression_ranges"]:
+        row = _record(document, ref)
+        if start < end and start <= row["start"] and row["end"] <= end:
+            continue
+        if row["start"] >= end:
+            row["start"] += delta
+            row["end"] += delta
+        elif row["end"] > start:
+            row["end"] += delta
+        ranges.append(ref)
+    rendered["expression_ranges"] = ranges
+    top = max(r["ref"][1] for r in document["records"] if r["ref"][0] == "event")
+    added_refs = []
+    for kind, role, subject, text in tokens:
+        top += 1
+        size = len(text.encode("utf-8"))
+        document["records"].append(
+            {
+                "ref": ["event", top],
+                "fields": {
+                    "kind": kind,
+                    "role": role,
+                    "subject": subject,
+                    "start": start,
+                    "end": start + size,
+                    "origins": [],
+                },
+            }
+        )
+        added_refs.append(["event", top])
+        start += size
+    rendered["events"] = [*refs[:first], *added_refs, *refs[last:]]
+
+
+def _refused(document, check):
+    """Both judgments refuse the forgery; the re-rendering by ``check``."""
+    forged = _encode(_recanonical(document))
+    assert _status(forged)[0] is not OK
+    assert _rendering(forged) == check
+
+
+def _ordered(document, position, column):
+    """ORDER item ``position`` reads the projection's ``column``-th column:
+    its record and its column token."""
+    (result,) = _records(document, "row_result_body")
+    item = _record(document, _record(document, result["order"])["items"][position])
+    projection = _record(document, _record(document, result["scan"])["body"])
+    item["read"] = _record(document, projection["columns"][column])["column"]
+    read = _record(document, item["read"])
+    event = [e for e in _events(document) if e["role"] == "order_column"][position]
+    quote = schema.QUOTES[_records(document, "request")[0]["family"]]
+    _retexted(document, event, quote + read["name"] + quote)
+    event["subject"] = read["terminal"]
+    # The token takes the origins its new subject's tokens carry.
+    event["origins"] = next(
+        e["origins"]
+        for e in _events(document)
+        if e["subject"] == read["terminal"] and e is not event
+    )
+
+
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+def test_a_hidden_order_key_needs_an_order_without_distinct(tmp_path, target):
+    """project_sql_plan_results.build carries hidden ORDER keys only for an
+    ORDER without DISTINCT, after the exports, one per distinct key its items
+    read, in the order they first read them; an item reads its key's hidden
+    column, only an aggregate composition's item reads its export, and under
+    DISTINCT an item reads its target's export, a bare value or a composition.
+    Each forgery keeps every name and read, so only `result hidden` refuses it:
+    a DISTINCT added, the ORDER dropped, an item moved onto the export (the
+    hidden key read by nothing), a hidden key no item reads, two hidden keys
+    read out of order, a hidden key carried twice, an item reading an export,
+    carried or computed outside an aggregate, while the hidden key stays read,
+    and under DISTINCT an item moved onto a computed or a literal export; the
+    computed and DISTINCT ones are OK end to end without this check. Each half
+    kills its mutant; a composition ordered where it is exported renders with
+    and without DISTINCT (PostgreSQL)."""
+    query = (
+        "query result:\n    from rows\n    select:\n        record_id = id\n"
+        "    order by {}\n    limit 2\n"
+    )
+    data = _built(tmp_path / "text", target, query.format("text"))
+    distinct = json.loads(data)
+    (result,) = _records(distinct, "row_result_body")
+    boundary = result["boundaries"][0]
+    distinct["records"].append(
+        {
+            "ref": ["result_distinct", 0],
+            "fields": {"distinct": boundary, "boundary": boundary, "fields": []},
+        }
+    )
+    result["distinct"] = ["result_distinct", 0]
+    at = [(e["role"], e["subject"]) for e in _events(distinct)].index(
+        ("select", boundary)
+    )
+    _spliced(distinct, at + 1, at + 1, [("syntax", "distinct", boundary, "DISTINCT ")])
+    _refused(distinct, "result hidden")
+    unordered = json.loads(data)
+    _records(unordered, "row_result_body")[0]["order"] = None
+    roles = [e["role"] for e in _events(unordered)]
+    _spliced(unordered, roles.index("order_by"), roles.index("limit"))
+    _refused(unordered, "result hidden")
+    # c0 = id is exported and c1 = id hidden: ORDER BY c0 leaves c1 unread.
+    exported = json.loads(_built(tmp_path / "id", target, query.format("id")))
+    _ordered(exported, 0, 0)
+    _refused(exported, "result hidden")
+    # c1 = text and c2 = id are hidden, read in that order.
+    pair = _built(tmp_path / "pair", target, query.format("text, id"))
+    unread = json.loads(pair)
+    _ordered(unread, 1, 1)
+    _refused(unread, "result hidden")
+    swapped = json.loads(pair)
+    _ordered(swapped, 0, 2)
+    _ordered(swapped, 1, 1)
+    _refused(swapped, "result hidden")
+    twice = json.loads(pair)
+    (result,) = _records(twice, "row_result_body")
+    columns = _record(twice, _record(twice, result["scan"])["body"])["columns"]
+    carried, text = _record(twice, columns[2]), _record(twice, columns[1])
+    event = next(
+        e
+        for e in _events(twice)
+        if (e["role"], e["subject"])
+        == ("carry_column", _record(twice, carried["read"])["terminal"])
+    )
+    carried["read"] = text["read"]
+    read = _record(twice, text["read"])
+    quote = schema.QUOTES[target]
+    _retexted(twice, event, quote + read["name"].replace(quote, quote * 2) + quote)
+    event["subject"] = read["terminal"]
+    _refused(twice, "result hidden")
+    # ORDER BY id, id reads the hidden c1 twice; the second item moved onto
+    # the exported c0 keeps c1 read.
+    both = json.loads(_built(tmp_path / "both", target, query.format("id, id")))
+    _ordered(both, 1, 0)
+    _refused(both, "result hidden")
+    # ORDER BY text, text with the second item moved onto u = lower(text):
+    # no aggregate, so no composition.
+    computed = json.loads(
+        _built(
+            tmp_path / "computed",
+            target,
+            "query result:\n    from rows\n    select:\n        id\n"
+            "        u = lower(text)\n    order by text, text\n    limit 2\n",
+        )
+    )
+    _ordered(computed, 1, 1)
+    forged = _encode(_recanonical(computed))
+    assert _status(forged) == (pure.Status.INVALID_RELATION, "rendering")
+    assert _rendering(forged) == "result hidden"
+    # Under DISTINCT an item reads its exported key (text, id); moved onto
+    # u = lower(text) or k = 1 it orders by what PIE-B1003 keeps a DISTINCT
+    # from ordering by.
+    for name, columns, key, column in (
+        ("lower", "text\n        u = lower(text)", "text", 2),
+        ("literal", "k = 1", "id", 1),
+    ):
+        document = json.loads(
+            _built(
+                tmp_path / name,
+                target,
+                "query result:\n    from rows\n    select distinct:\n        id\n"
+                f"        {columns}\n    order by {key}\n    limit 2\n",
+            )
+        )
+        _ordered(document, 0, column)
+        forged = _encode(_recanonical(document))
+        assert _status(forged) == (pure.Status.INVALID_RELATION, "rendering")
+        assert _rendering(forged) == "result hidden"
+    if target == "postgres":
+        for name, select in (
+            ("composition", "select"),
+            ("distinct", "select distinct"),
+        ):
+            _built(
+                tmp_path / name,
+                target,
+                "query result:\n    from rows\n    group by:\n        text\n"
+                f"    {select}:\n        t = text\n        n = count() + 1\n"
+                "    order by:\n        n desc\n        t\n    limit 2\n",
+            )
+
+
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+def test_a_variadic_call_keeps_its_catalog_arity(tmp_path, target):
+    """A call written with separators takes the semantic catalog's operand
+    count: `lower` with its operand twice and `nullif` with one, records and
+    tokens alike, are refused as `call arity`."""
+    data = _built(
+        tmp_path,
+        target,
+        "query result:\n    from rows\n    select:\n        a = lower(text)\n"
+        "        b = nullif(text, text)\n",
+    )
+
+    def call(document, name):
+        value = next(
+            c for c in _records(document, "sql_operation") if c["operator"] == name
+        )
+        marks = [(e["role"], e["subject"]) for e in _events(document)]
+        return value, marks, marks.index(("scalar_call_close", value["original"]))
+
+    twice = json.loads(data)
+    lower, marks, closed = call(twice, "lower")
+    opened = marks.index(("scalar_call_open", lower["original"]))
+    sql = _records(twice, "rendered")[0]["sql"].encode("utf-8")
+    copied = [
+        (e["kind"], e["role"], e["subject"], sql[e["start"] : e["end"]].decode())
+        for e in _events(twice)[opened + 1 : closed]
+    ]
+    separator = ("syntax", "scalar_call_separator", lower["original"], ", ")
+    _spliced(twice, closed, closed, [separator, *copied])
+    lower["operands"] = lower["operands"] * 2
+    _refused(twice, "call arity")
+    once = json.loads(data)
+    nullif, marks, closed = call(once, "nullif")
+    first = marks.index(("scalar_call_separator", nullif["original"]))
+    _spliced(once, first, closed)
+    nullif["operands"] = nullif["operands"][:1]
+    _refused(once, "call arity")
+
+
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+def test_a_block_read_carries_only_what_it_writes(tmp_path, target):
+    """Only an IN reads an operand, and an ANY read is an EXISTS with its
+    predicate: an ANY read given an operand the SQL never writes, or named
+    a scalar read, is refused as `block read kind`."""
+    data = _built(
+        tmp_path,
+        target,
+        "query result:\n    from rows\n    select:\n"
+        "        found = any(c.id == rows.id for c in rows)\n",
+    )
+    for change in ({"operands": "predicate"}, {"kind": "scalar", "column": 0}):
+        document = json.loads(data)
+        (read,) = _records(document, "sql_any_read")
+        if "operands" in change:
+            read["operands"] = [read["predicate"]]
+        else:
+            read.update(change)
+        _refused(document, "block read kind")
+
+
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+def test_an_anchor_casts_to_its_targets_own_carrier(tmp_path, target):
+    """parameters.build_value anchors a literal to its target's carrier of
+    the literal's tag: the other target's carrier, record and suffix alike,
+    is refused as `anchor physical type`."""
+    data = _built(
+        tmp_path,
+        target,
+        "query result:\n    from rows\n    select:\n        big = id > 1\n",
+    )
+    document = json.loads(data)
+    (anchor,) = _records(document, "sql_anchor")
+    other = "mysql" if target == "postgres" else "postgres"
+    anchor["physical_type"] = schema.PHYSICAL[other]["Int"]
+    closing = next(
+        e
+        for e in _events(document)
+        if (e["role"], e["subject"]) == ("anchor_close", anchor["original"])
+    )
+    _retexted(document, closing, schema.ANCHOR_SUFFIX[anchor["physical_type"]])
+    _refused(document, "anchor physical type")
+
+
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+def test_a_cast_writes_what_its_operator_names(tmp_path, target):
+    """rows.resolved_cast_realization: `int_to_float` is the Float cast and
+    `int_to_text` the PostgreSQL Text cast. A Float cast's SQL under a record
+    naming `int_to_text`, and on MySQL a Text cast written as PostgreSQL
+    writes one, are refused as `cast`."""
+    data = _built(
+        tmp_path,
+        target,
+        "query result:\n    from rows\n    select:\n        f = Float(id)\n",
+    )
+
+    def cast(document):
+        (value,) = (
+            c for c in _records(document, "sql_operation") if c["kind"] == "cast"
+        )
+        value["operator"] = "int_to_text"
+        return value
+
+    document = json.loads(data)
+    cast(document)
+    _refused(document, "cast")
+    if target == "mysql":
+        document = json.loads(data)
+        value = cast(document)
+        _record(document, value["realization"])["tag"] = "Text"
+        for event in _events(document):
+            if event["subject"] == value["original"]:
+                text = {
+                    "cast_open": "(CAST(",
+                    "cast_close": ' AS pg_catalog.text) COLLATE "C")',
+                }
+                _retexted(document, event, text[event["role"]])
+        _refused(document, "cast")
+
+
+def test_postgres_parameters_are_numbered_by_slot_without_gaps(tmp_path_factory):
+    """parameters.allocate_uses gives each PostgreSQL slot one $n, from $1
+    with no gap: the last slot renumbered past the end, records and tokens
+    alike, and one slot written as two indexes are refused as `parameter
+    index`."""
+    _, data = _observed(tmp_path_factory, "postgres", "R_fixed_direct", "table_bind")
+    document = json.loads(data)
+    uses = _records(document, "native_use")
+    top = max(use["server_index"] for use in uses)
+    for use in uses:
+        if use["server_index"] == top:
+            use["server_index"] = top + 1
+    for event in _events(document):
+        sql = _records(document, "rendered")[0]["sql"].encode("utf-8")
+        if sql[event["start"] : event["end"]] == f"${top}".encode():
+            _retexted(document, event, f"${top + 1}")
+    _refused(document, "parameter index")
+    # One slot written as two indexes, the slot it shares no longer written.
+    document = json.loads(data)
+    by_index = {use["server_index"]: use for use in _records(document, "native_use")}
+    by_index[top]["slot"] = by_index[top - 1]["slot"]
+    _refused(document, "parameter index")
+
+
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+def test_window_counts_render_at_both_ends_of_their_intervals(tmp_path, target):
+    """Each window offset, bucket and position the emitter writes at the low
+    and the high end of its interval renders from its records under both
+    judgments (_built)."""
+    windows = []
+    for role, call in (
+        ("offset", "lag(id, {})"),
+        ("bucket", "ntile({})"),
+        ("position", "nth_value(id, {})"),
+    ):
+        frame = " rows between unbounded preceding and current row"
+        for end in pure._COUNT_INTERVAL[target, role]:
+            spec = "order by id" + (frame if role == "position" else "")
+            windows.append(f"{call.format(end)} window({spec})")
+    _built(
+        tmp_path,
+        target,
+        "query result:\n    from rows\n    select:\n        id = id\n"
+        + "".join(f"        w{i} = {w}\n" for i, w in enumerate(windows)),
+    )
+
+
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+def test_the_statement_selects_a_definitions_last_unit(tmp_path, target):
+    """by_definition: the statement selects a projection, result or set
+    body. A final projection that selects its input's columns in order and
+    one value, rewritten as a let carrying them (records, tokens and
+    ranges), keeps every name and read, so only `published reads` refuses
+    it."""
+    data = _built(
+        tmp_path,
+        target,
+        "query result:\n    from rows\n    where id > 0\n    select:\n"
+        "        id = id\n        flag = flag\n        text = text\n"
+        "        money = money\n        ratio = ratio\n        extra = id\n",
+    )
+    document = json.loads(data)
+    (final,) = (
+        r
+        for r in document["records"]
+        if r["ref"][0] == "row_body" and r["fields"]["final"]
+    )
+    assert final["fields"]["block_kind"] == "projection"
+    _as_carries(document, final, 5)
+    final["fields"]["block_kind"] = "let"
+    _refused(document, "published reads")
+
+
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+def test_a_filter_is_the_kind_of_what_it_filters(tmp_path, target):
+    """The compiled lowering's ROW_SHAPE: a satisfying filters an aggregate,
+    a qualify a window, a where neither. A satisfying relabelled a where
+    (record and WHERE token role) and a qualify relabelled a where (the
+    record alone; its tokens are a where's) are refused as `filter kind`."""
+    having = _built(
+        tmp_path / "having",
+        target,
+        "query result:\n    from rows\n    group by text\n    select:\n"
+        "        text\n        n = count(id)\n    having:\n        n > 0\n",
+    )
+    qualify = _built(
+        tmp_path / "qualify",
+        target,
+        "query result:\n    from rows\n    select:\n        id\n"
+        "        r = row_number() window(order by id)\n    qualify:\n"
+        "        r <= 3\n",
+    )
+    for data, kind in ((having, "satisfying"), (qualify, "qualify")):
+        document = json.loads(data)
+        (body,) = (b for b in _records(document, "row_body") if b["block_kind"] == kind)
+        body["block_kind"] = "where"
+        for event in _events(document):
+            if event["role"] == "satisfying":
+                event["role"] = "where"
+        _refused(document, "filter kind")
+
+
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+def test_an_unnamed_unit_is_never_a_cte_reference(tmp_path_factory, target):
+    """An inline let body has no symbol, so nothing reads it by name: one
+    marked final, which makes it no inline body, is refused as `cte
+    reference` under both judgments, not left to a lookup error."""
+    _, data = _observed(tmp_path_factory, target, "L_relation_exists", "correlated")
+    document = json.loads(data)
+    (inline, *_) = (
+        _record(document, t["producer"])
+        for t in _records(document, "sql_block_target")
+        if t["producer"][0] == "row_body"
+        and _record(document, t["producer"])["symbol"] is None
+    )
+    inline["final"] = True
+    _refused(document, "cte reference")
+
+
+def _mysql_words(directory, body, policy="preserve_literals", admitted=True):
+    """One VERIFIED MySQL observation of ``body`` in a lpad_now_world world,
+    which pure admits unless ``admitted`` is False."""
+    world = "words" if "from words" in body else "rows"
+    _, outcome = emission.lpad_now_world(directory, world, "mysql", body, policy)
+    artifact = outcome.artifact
+    assert outcome.status == "VERIFIED" and artifact is not None, outcome.blockers
+    data = portable.export_emission_observation(
+        artifact, artifact.request
+    ).canonical_bytes
+    assert data is not None and (_status(data) == (OK, None)) is admitted
+    return data
+
+
+def _cells_alone(monkeypatch, data):
+    """The judgment with _MysqlCellSql standing aside: the cells _Check
+    derives from the records alone, the rest of _Check and the
+    re-rendering still judge."""
+    with monkeypatch.context() as patched:
+        patched.setattr(pure._MysqlCellSql, "run", lambda self: None)
+        return _status(data)
+
+
+def test_a_mysql_lpad_cell_reads_a_plain_source_field(tmp_path, monkeypatch):
+    """S12's mysql_operand_kind: an lpad cell's `field` operand reads a
+    source field and nothing else. Its stage column given no source port, or
+    a literal, aggregate or window origin, the SQL unchanged, is refused end
+    to end only by that guard (_mysql_operand_kind's source_port, literal,
+    aggregate and window conditions); a let-renamed read given no field is
+    refused by it alone while _MysqlCellSql stands aside (its field
+    condition), since _MysqlCellSql refuses it too."""
+    origins = {}
+    for name, query in (
+        (
+            "aggregate",
+            "group by text\n    select:\n        text\n        n = count(id)\n",
+        ),
+        (
+            "window",
+            "select:\n        id\n        r = row_number() window(order by id)\n",
+        ),
+    ):
+        donor = json.loads(
+            _built(
+                tmp_path / name, "mysql", "query result:\n    from rows\n    " + query
+            )
+        )
+        origins[name] = _records(donor, name + "_origin")[0]
+
+    def stage(document):
+        (lpad, *_) = (
+            o
+            for o in _records(document, "sql_operation")
+            if o["operator"] == "lpad" and o["operands"][0][0] == "sql_stage_reference"
+        )
+        return lpad, _record(document, _record(document, lpad["operands"][0])["column"])
+
+    base = _mysql_words(tmp_path / "field", emission.LPAD_NOW_PAIRS["s12_lpad_field"])
+    for change in ("source_port", "literal", "aggregate", "window"):
+        document = json.loads(base)
+        lpad, column = stage(document)
+        if change == "source_port":
+            column["source_port"] = None
+        else:
+            kind = change + "_origin"
+            fields = (
+                {
+                    "value": lpad["operands"][1],
+                    "export": column["terminal"],
+                    "terminal": column["terminal"],
+                }
+                if change == "literal"
+                else origins[change]
+            )
+            document["records"].append({"ref": [kind, 10_000], "fields": fields})
+            column[change] = [kind, 10_000]
+        forged = _encode(_recanonical(document))
+        assert _status(forged) == (pure.Status.INVALID_RELATION, "mysql scalar cell")
+    context = json.loads(
+        _mysql_words(tmp_path / "context", emission.LPAD_NOW_PAIRS["s12_context"])
+    )
+    stage(context)[1]["field"] = None
+    forged = _encode(_recanonical(context))
+    assert _cells_alone(monkeypatch, forged) == (
+        pure.Status.INVALID_RELATION,
+        "mysql scalar cell",
+    )
+
+
+def test_a_mysql_scalar_cell_statement_is_bare_and_scans_its_source(
+    tmp_path, monkeypatch
+):
+    """S12's Q2 and Q3: a cell's statement has no fixed value, and its
+    projection's stages end at a source scan. A fixed value listed on a lpad
+    document, the SQL unchanged, is refused end to end only by the fixed
+    value guard (_mysql_scalar_cells' fixed_value condition); a now() over
+    an upstream table, emitted as if in a cell, is refused by the chain's
+    source scan alone while _MysqlCellSql stands aside (_mysql_body_chain's
+    source scan), since _MysqlCellSql refuses it too."""
+    from pietto._project import project_sql_emission_rows as rows
+
+    donor = json.loads(
+        _mysql_words(
+            tmp_path / "bound",
+            "table result:\n    from rows\n    where id > 1\n    select:\n        id\n",
+            "bind_safe_literals",
+        )
+    )
+    document = json.loads(
+        _mysql_words(tmp_path / "field", emission.LPAD_NOW_PAIRS["s12_lpad_field"])
+    )
+    document["records"].append(
+        {"ref": ["fixed_value", 10_000], "fields": _records(donor, "fixed_value")[0]}
+    )
+    artifact = _records(document, "artifact")[0]
+    artifact["fixed_values"] = [*artifact["fixed_values"], ["fixed_value", 10_000]]
+    forged = _encode(_recanonical(document))
+    assert _status(forged) == (pure.Status.INVALID_RELATION, "mysql scalar cell")
+    law = rows.mysql_scalar_cell
+
+    def opened(plan, expression, values):  # every now() emitted as in a cell
+        return None if law(plan, expression, values) is None else ("now", "select", ())
+
+    with monkeypatch.context() as patched:
+        patched.setattr(rows, "mysql_scalar_cell", opened)
+        upstream = _mysql_words(
+            tmp_path / "upstream",
+            "table a:\n    from rows\n    select:\n        id\n\n"
+            "table result:\n    from a\n    select:\n        id\n        t = now()\n",
+            admitted=False,
+        )
+    assert _status(upstream) == (pure.Status.INVALID_RELATION, "mysql scalar cell")
+    assert _cells_alone(monkeypatch, upstream) == (
+        pure.Status.INVALID_RELATION,
+        "mysql scalar cell",
+    )
+
+
+_KEPT = Path(__file__).parent / "fixtures" / "sql_emission_pure"
+
+
+def test_kept_forgeries_are_refused_by_their_own_subcheck():
+    """The kept forgeries, whose index says where they come from and how one
+    is regenerated: each is refused end to end with its recorded status and
+    detail, and by the re-rendering alone with its recorded subcheck.
+    Together they kill each mutant of the re-rendering that drops or widens
+    one subcheck and that no other test here kills, save one equivalent
+    mutant (the Slice14 contract's coverage)."""
+    index = json.loads((_KEPT / "forgeries.json").read_text(encoding="utf-8"))
+    for entry in index["forgeries"]:
+        data = (_KEPT / entry["file"]).read_bytes()
+        expected = (pure.Status(entry["status"]), entry["detail"])
+        assert _status(data) == expected, entry["file"]
+        assert _rendering(data) == entry["check"], entry["file"]

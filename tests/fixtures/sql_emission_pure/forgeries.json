@@ -1,0 +1,553 @@
+{
+  "about": [
+    "Forged pure observations kept as test inputs. Each is refused by one",
+    "subcheck of the records-only re-rendering in",
+    "tests/_pietto_sql_emission_pure_boundary.py, and",
+    "test_kept_forgeries_are_refused_by_their_own_subcheck in",
+    "tests/test_harness_sql_emission_portability.py judges it end to end and",
+    "through the re-rendering alone.",
+    "Source: an observation the pipeline emitted and pure accepts (the",
+    "multi-key window ORDER one from an earlier pipeline's witnesses). Its",
+    "records are edited as the file's class names; where the SQL changes,",
+    "the SQL and its events are rendered again from the edited records by a",
+    "subclass of the re-rendering that records each token it would write",
+    "instead of comparing it, with the subcheck under test removed, and the",
+    "generated requirements are reconciled with pure's own walk. The",
+    "zero-column CTE one is not edited: it is an earlier pipeline's witness",
+    "of SQL that is not valid, which the current pipeline refuses, kept",
+    "without its expression ranges.",
+    "Regenerate a file only by that procedure, never from the current",
+    "checker's output. A file changes when the subcheck it pins does, and",
+    "every file changes when the schema's record shapes or a target",
+    "release do: by a mechanical edit of those fields or by the same",
+    "procedure again, each reviewed as a source change. These are not",
+    "goldens: docs/spec/golden-fixture-policy-v1.md governs",
+    "tests/fixtures/golden/.",
+    "Each entry names its file, the subcheck the re-rendering reports, and",
+    "the end-to-end status and detail."
+  ],
+  "forgeries": [
+    {
+      "file": "mysql-agg_mysql_group_any.json",
+      "check": "aggregate signature",
+      "status": "invalid_relation",
+      "detail": "group test shape"
+    },
+    {
+      "file": "mysql-alias_join_on.json",
+      "check": "read relation",
+      "status": "invalid_relation",
+      "detail": "rendering"
+    },
+    {
+      "file": "mysql-body_filter_no_where.json",
+      "check": "body predicate",
+      "status": "invalid_relation",
+      "detail": "rendering"
+    },
+    {
+      "file": "mysql-body_window_stage_on_let.json",
+      "check": "body window",
+      "status": "invalid_relation",
+      "detail": "stage columns"
+    },
+    {
+      "file": "mysql-count_ntile_0.json",
+      "check": "window literal",
+      "status": "invalid_relation",
+      "detail": "rendering"
+    },
+    {
+      "file": "mysql-count_offset_over.json",
+      "check": "window literal",
+      "status": "invalid_relation",
+      "detail": "rendering"
+    },
+    {
+      "file": "mysql-default_over.json",
+      "check": "window literal",
+      "status": "invalid_relation",
+      "detail": "window value result representation"
+    },
+    {
+      "file": "mysql-frame_drop.json",
+      "check": "window frame policy",
+      "status": "invalid_relation",
+      "detail": "rendering"
+    },
+    {
+      "file": "mysql-frame_groups.json",
+      "check": "frame family",
+      "status": "invalid_relation",
+      "detail": "rendering"
+    },
+    {
+      "file": "mysql-frame_offset_over.json",
+      "check": "frame offset text",
+      "status": "invalid_relation",
+      "detail": "frame offset"
+    },
+    {
+      "file": "mysql-frame_on_insensitive_lag.json",
+      "check": "window frame policy",
+      "status": "invalid_relation",
+      "detail": "rendering"
+    },
+    {
+      "file": "mysql-frame_reversed.json",
+      "check": "frame bound order",
+      "status": "invalid_relation",
+      "detail": "rendering"
+    },
+    {
+      "file": "mysql-frame_uf_uf.json",
+      "check": "frame bound order",
+      "status": "invalid_relation",
+      "detail": "rendering"
+    },
+    {
+      "file": "mysql-frame_up_up.json",
+      "check": "frame bound order",
+      "status": "invalid_relation",
+      "detail": "rendering"
+    },
+    {
+      "file": "mysql-join_column_read_switched_match.json",
+      "check": "join columns",
+      "status": "invalid_relation",
+      "detail": "rendering"
+    },
+    {
+      "file": "mysql-join_full_nulling_consistent.json",
+      "check": "join kind",
+      "status": "invalid_relation",
+      "detail": "outer null image"
+    },
+    {
+      "file": "mysql-join_kind_right_to_inner.json",
+      "check": "join nulling",
+      "status": "invalid_relation",
+      "detail": "rendering"
+    },
+    {
+      "file": "mysql-kind_ntile_read.json",
+      "check": "window argument",
+      "status": "invalid_relation",
+      "detail": "rendering"
+    },
+    {
+      "file": "mysql-name_cte_header_case_repeated.json",
+      "check": "relation column names",
+      "status": "invalid_relation",
+      "detail": "unit terminal column"
+    },
+    {
+      "file": "mysql-name_cte_used_before_defined.json",
+      "check": "cte reference",
+      "status": "invalid_relation",
+      "detail": "unit index"
+    },
+    {
+      "file": "mysql-named_swapped.json",
+      "check": "window definition use",
+      "status": "invalid_relation",
+      "detail": "rendering"
+    },
+    {
+      "file": "mysql-parameter_index_zero.json",
+      "check": "parameter index",
+      "status": "invalid_relation",
+      "detail": "mysql parameter index"
+    },
+    {
+      "file": "mysql-pos_window_argument_kept.json",
+      "check": "window argument",
+      "status": "invalid_relation",
+      "detail": "rendering"
+    },
+    {
+      "file": "mysql-pos_window_definition_kept.json",
+      "check": "window definition index",
+      "status": "invalid_relation",
+      "detail": "rendering"
+    },
+    {
+      "file": "mysql-range_two_keys.json",
+      "check": "range key count",
+      "status": "invalid_relation",
+      "detail": "range threshold key"
+    },
+    {
+      "file": "mysql-scan_skips_where_to_source_renumbered.json",
+      "check": "cte unread",
+      "status": "invalid_relation",
+      "detail": "rendering"
+    },
+    {
+      "file": "mysql-sig_ntile_noarg.json",
+      "check": "window signature",
+      "status": "invalid_relation",
+      "detail": "rendering"
+    },
+    {
+      "file": "mysql-winagg_mysql.json",
+      "check": "window signature",
+      "status": "invalid_relation",
+      "detail": "window aggregate"
+    },
+    {
+      "file": "mysql-window_count_over.json",
+      "check": "window count",
+      "status": "invalid_relation",
+      "detail": "rendering"
+    },
+    {
+      "file": "postgres-agg_distinct_missing.json",
+      "check": "aggregate signature",
+      "status": "invalid_relation",
+      "detail": "rendering"
+    },
+    {
+      "file": "postgres-agg_star.json",
+      "check": "aggregate signature",
+      "status": "invalid_relation",
+      "detail": "rendering"
+    },
+    {
+      "file": "postgres-aggregate_extra_argument.json",
+      "check": "aggregate extra arguments",
+      "status": "invalid_relation",
+      "detail": "aggregate extra arguments"
+    },
+    {
+      "file": "postgres-aggregate_extra_delimiter.json",
+      "check": "aggregate extra inputs",
+      "status": "invalid_relation",
+      "detail": "aggregate extra inputs"
+    },
+    {
+      "file": "postgres-alias_any_reference.json",
+      "check": "read relation",
+      "status": "invalid_relation",
+      "detail": "ANY reference target column"
+    },
+    {
+      "file": "postgres-alias_capture_cloned.json",
+      "check": "read relation",
+      "status": "invalid_relation",
+      "detail": "capture scope"
+    },
+    {
+      "file": "postgres-body_aggregate_in_window.json",
+      "check": "body columns",
+      "status": "invalid_relation",
+      "detail": "stage columns"
+    },
+    {
+      "file": "postgres-body_aggregate_where.json",
+      "check": "body predicate",
+      "status": "invalid_relation",
+      "detail": "rendering"
+    },
+    {
+      "file": "postgres-body_carry_swapped.json",
+      "check": "body carry columns",
+      "status": "invalid_relation",
+      "detail": "rendering"
+    },
+    {
+      "file": "postgres-body_group_by_dropped_global.json",
+      "check": "body aggregation",
+      "status": "invalid_relation",
+      "detail": "stage columns"
+    },
+    {
+      "file": "postgres-body_group_keys_emptied.json",
+      "check": "body group keys",
+      "status": "invalid_relation",
+      "detail": "rendering"
+    },
+    {
+      "file": "postgres-body_projection_column_duplicated.json",
+      "check": "body duplicate column",
+      "status": "invalid_relation",
+      "detail": "column ordinal"
+    },
+    {
+      "file": "postgres-body_value_capture.json",
+      "check": "capture placement",
+      "status": "invalid_relation",
+      "detail": "captured reference"
+    },
+    {
+      "file": "postgres-core_bytes.json",
+      "check": "token",
+      "status": "invalid_relation",
+      "detail": "syntax spelling"
+    },
+    {
+      "file": "postgres-core_range_twice.json",
+      "check": "range",
+      "status": "invalid_relation",
+      "detail": "rendering"
+    },
+    {
+      "file": "postgres-core_subject.json",
+      "check": "token",
+      "status": "invalid_relation",
+      "detail": "rendering"
+    },
+    {
+      "file": "postgres-decimal_precision_over.json",
+      "check": "decimal arithmetic",
+      "status": "invalid_relation",
+      "detail": "Decimal arithmetic carrier"
+    },
+    {
+      "file": "postgres-decimal_scale_over.json",
+      "check": "decimal arithmetic",
+      "status": "invalid_relation",
+      "detail": "Decimal arithmetic carrier"
+    },
+    {
+      "file": "postgres-default_carrier.json",
+      "check": "window literal",
+      "status": "invalid_relation",
+      "detail": "window value result representation"
+    },
+    {
+      "file": "postgres-default_negative.json",
+      "check": "window literal",
+      "status": "invalid_relation",
+      "detail": "rendering"
+    },
+    {
+      "file": "postgres-dup_projection_diff_same_sql_same.json",
+      "check": "relation column identities",
+      "status": "invalid_relation",
+      "detail": "rendering"
+    },
+    {
+      "file": "postgres-exists_inline_projection_empty.json",
+      "check": "body projection columns",
+      "status": "invalid_relation",
+      "detail": "rendering"
+    },
+    {
+      "file": "postgres-groups_no_order.json",
+      "check": "groups order",
+      "status": "invalid_relation",
+      "detail": "rendering"
+    },
+    {
+      "file": "postgres-inline_scan_skips_where_to_source_renumbered.json",
+      "check": "unit rendered",
+      "status": "invalid_relation",
+      "detail": "orphan unit"
+    },
+    {
+      "file": "postgres-join_column_dropped.json",
+      "check": "join columns",
+      "status": "invalid_relation",
+      "detail": "rendering"
+    },
+    {
+      "file": "postgres-join_cross_predicate.json",
+      "check": "cross join predicate",
+      "status": "invalid_relation",
+      "detail": "rendering"
+    },
+    {
+      "file": "postgres-join_full_operand_capture.json",
+      "check": "full join condition",
+      "status": "invalid_relation",
+      "detail": "captured reference"
+    },
+    {
+      "file": "postgres-join_full_same_input_owned.json",
+      "check": "full join condition",
+      "status": "invalid_relation",
+      "detail": "rendering"
+    },
+    {
+      "file": "postgres-join_input_reads_swapped.json",
+      "check": "join input reads",
+      "status": "invalid_relation",
+      "detail": "rendering"
+    },
+    {
+      "file": "postgres-join_read_shared_replaced.json",
+      "check": "read relation",
+      "status": "invalid_relation",
+      "detail": "rendering"
+    },
+    {
+      "file": "postgres-name_cte_item_swapped_projection.json",
+      "check": "cte column identity",
+      "status": "invalid_relation",
+      "detail": "rendering"
+    },
+    {
+      "file": "postgres-name_cte_repeated.json",
+      "check": "cte names",
+      "status": "invalid_relation",
+      "detail": "unit symbol"
+    },
+    {
+      "file": "postgres-name_source_read_renamed_projection.json",
+      "check": "column identity",
+      "status": "invalid_relation",
+      "detail": "rendering"
+    },
+    {
+      "file": "postgres-name_subquery_alias_shadowing.json",
+      "check": "alias scope",
+      "status": "invalid_relation",
+      "detail": "rendering"
+    },
+    {
+      "file": "postgres-name_unit_keys_dropped.json",
+      "check": "column reference",
+      "status": "invalid_relation",
+      "detail": "unit terminal column"
+    },
+    {
+      "file": "postgres-name_window_definition_twice.json",
+      "check": "window definition names",
+      "status": "invalid_relation",
+      "detail": "window token sequence"
+    },
+    {
+      "file": "postgres-named_spec_mismatch.json",
+      "check": "window named specification",
+      "status": "invalid_relation",
+      "detail": "rendering"
+    },
+    {
+      "file": "postgres-named_unused.json",
+      "check": "window definition use",
+      "status": "invalid_relation",
+      "detail": "rendering"
+    },
+    {
+      "file": "postgres-named_use_as_stage_use_joined.json",
+      "check": "chain reads",
+      "status": "invalid_relation",
+      "detail": "rendering"
+    },
+    {
+      "file": "postgres-open_cte_select_columns_empty.json",
+      "check": "cte columns",
+      "status": "invalid_relation",
+      "detail": "rendering"
+    },
+    {
+      "file": "postgres-operation_extra_operand_sign.json",
+      "check": "operation arity",
+      "status": "invalid_relation",
+      "detail": "operation arity"
+    },
+    {
+      "file": "postgres-order_drop.json",
+      "check": "window order",
+      "status": "invalid_relation",
+      "detail": "rendering"
+    },
+    {
+      "file": "postgres-pos_result_order_kept.json",
+      "check": "order position",
+      "status": "invalid_relation",
+      "detail": "order item"
+    },
+    {
+      "file": "postgres-pos_window_order_kept.json",
+      "check": "window order position",
+      "status": "invalid_relation",
+      "detail": "rendering"
+    },
+    {
+      "file": "postgres-quantile_as_median.json",
+      "check": "quantile",
+      "status": "invalid_relation",
+      "detail": "quantile shape"
+    },
+    {
+      "file": "postgres-quantile_fraction_negzero.json",
+      "check": "quantile fraction",
+      "status": "invalid_relation",
+      "detail": "rendering"
+    },
+    {
+      "file": "postgres-quantile_fraction_over.json",
+      "check": "quantile fraction",
+      "status": "invalid_relation",
+      "detail": "rendering"
+    },
+    {
+      "file": "postgres-result_columns_reads_swapped.json",
+      "check": "result reads",
+      "status": "invalid_relation",
+      "detail": "rendering"
+    },
+    {
+      "file": "postgres-result_order_no_items.json",
+      "check": "order items",
+      "status": "invalid_relation",
+      "detail": "rendering"
+    },
+    {
+      "file": "postgres-select_final_columns_empty.json",
+      "check": "final columns",
+      "status": "invalid_relation",
+      "detail": "rendering"
+    },
+    {
+      "file": "postgres-set_inputs_swapped.json",
+      "check": "set operand alignment",
+      "status": "invalid_relation",
+      "detail": "set positional alignment"
+    },
+    {
+      "file": "postgres-set_operand_items_swapped.json",
+      "check": "set operand reads",
+      "status": "invalid_relation",
+      "detail": "rendering"
+    },
+    {
+      "file": "postgres-set_operand_skips_result_shared.json",
+      "check": "chain readers",
+      "status": "invalid_relation",
+      "detail": "rendering"
+    },
+    {
+      "file": "postgres-stage_aggregate_values_unread.json",
+      "check": "body aggregate values",
+      "status": "invalid_relation",
+      "detail": "rendering"
+    },
+    {
+      "file": "postgres-stage_key_read_repointed.json",
+      "check": "body key reads",
+      "status": "invalid_relation",
+      "detail": "rendering"
+    },
+    {
+      "file": "postgres-stage_let_value_unread.json",
+      "check": "body let value",
+      "status": "invalid_relation",
+      "detail": "rendering"
+    },
+    {
+      "file": "postgres-stage_window_columns_unread.json",
+      "check": "body window columns",
+      "status": "invalid_relation",
+      "detail": "stage columns"
+    },
+    {
+      "file": "postgres-units_interleaved.json",
+      "check": "chain reads",
+      "status": "invalid_relation",
+      "detail": "rendering"
+    }
+  ]
+}

@@ -9873,7 +9873,7 @@ class _Render:
         columns = self.columns_of(projection)
         # A result use reads its projection, as a stage use never does.
         if self[projection]["block_kind"] != "projection":
-            raise _Mismatch("chain reads")
+            raise _Mismatch("result projection")
         self.take(unit, projection, True)
         carried = self[projection]["columns"]
         shown = [self[c]["export"].kind == "export" for c in carried]
