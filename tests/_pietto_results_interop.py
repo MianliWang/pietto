@@ -12,6 +12,7 @@ check belongs to this witness; the adapters check no target version at run time
 from __future__ import annotations
 
 import argparse
+from collections import Counter
 from copy import deepcopy
 from dataclasses import replace
 from datetime import date, datetime
@@ -33,6 +34,7 @@ import sys
 from tempfile import TemporaryDirectory
 from typing import Any, cast
 from unittest import mock
+from uuid import UUID
 
 from pietto._project.project_arrow_result import PYARROW as ARROW_PIN
 
@@ -146,23 +148,69 @@ POLARS = {
     "date32[day]": "Date",
     "timestamp[us]": "Datetime(time_unit='us', time_zone=None)",
 }
-FRAME_ADMITS = (
+# to_polars' rule and fix for a field that only to_pandas admits (PL.47).
+POLARS_ADMITS = (
     "admits only Int, Bool, Float, Text, Decimal, Date or Timestamp fields"
-    " (Decimal up to precision 38); leave it out of the query"
+    " (Decimal up to precision 38); to_pandas admits it"
 )
+PANDAS_ADMITS = (
+    "admits only Int, Bool, Float, Text, Decimal, Date, Timestamp, UUID or nested"
+    " fields (a nested field is a list of non-null structs of the other types);"
+    " leave it out of the query"
+)
+# The finite batch's first refused field: to_pandas still refuses a UUID
+# requested as binary16, and to_polars the decimal256 field that to_pandas admits.
+FINITE_REFUSED = {
+    "pandas": "to_pandas: field 11 ('selected_binary_identifier') has Arrow type"
+    f" fixed_size_binary[16]; to_pandas {PANDAS_ADMITS}",
+    "polars": "to_polars: field 8 ('selected_wide_amount') has Arrow type"
+    f" decimal256(65, 30); to_polars {POLARS_ADMITS}",
+}
 COALESCE = (
     "is nullable in the schema; make it non-nullable in Pietto first,"
     " for example with coalesce"
 )
 # The fix each column refusal names after the rule, by the refused field's kind.
 TO_FRAME = "; to_pandas and to_polars admit it"
-NO_ADAPTER = "; no pietto.interop function admits it; leave it out of the query"
+TO_PANDAS = "; to_pandas admits it"
 AS_INT = "; make it an Int in the query, for example 1 if flag else 0"
 DISTINCT_LABELS = (
     "admits only distinct labels, so give each field its own label in the query"
 )
 COORDINATES = "row field 4 ('i16') and column field 5 ('i32')"
 NESTED = "list<item: struct<i: int64 not null, b: bool, t: string> not null>"
+UUID16 = "fixed_size_binary[16]"
+# PL.47's batches and each field's Arrow type as to_pandas holds it: a UUID,
+# nested too, as its 16 bytes; to_polars refuses each batch at the field given.
+RELIEF = {
+    "temporal": ["timestamp[us]", "timestamp[us]", UUID16, UUID16],
+    "wide": ["decimal256(65, 30)", "decimal256(65, 30)"],
+    "nested": ["int64", NESTED],
+    "nested_uuid": [
+        "int64",
+        f"list<item: struct<i: int64 not null, u: {UUID16}> not null>",
+    ],
+    "outer": ["int64", "list<item: struct<id: int64 not null> not null>"],
+}
+POLARS_REFUSED = {
+    "temporal": "field 2 ('key_value') has Arrow type extension<arrow.uuid>",
+    "wide": "field 0 ('renamed') has Arrow type decimal256(65, 30)",
+    "nested": f"field 1 ('c') has Arrow type {NESTED}",
+    "nested_uuid": "field 1 ('c') has Arrow type list<item: struct<i: int64 not"
+    " null, u: extension<arrow.uuid>> not null>",
+    "outer": "field 1 ('retained') has Arrow type list<item: struct<id: int64 not"
+    " null> not null>",
+}
+# Containers of (i, u) children: UUIDs with 0x00 and 0xff bytes, a null u, an
+# empty container and a repeated row.
+NESTED_UUID_ROWS = [
+    (1, ((1, B53), (UUID(int=1), None))),
+    (2, ((), ())),
+    (1, ((1, B53), (UUID(int=1), None))),
+    (3, ((-1,), (UUID(int=2**128 - 1),))),
+]
+# Outer-JOIN rows: a missing container (None), distinct from an empty one.
+OUTER_ROWS = [(1, None), (2, ((5, 6),)), (3, ((),)), (1, None), (2, ((5, 6),))]
 # Arrow types and the admission row kind() gives each: PL.47 adds UUID,
 # decimal256 and one level of nesting, and every other shape stays refused.
 KINDS = [
@@ -229,6 +277,8 @@ def cases_of(cell):
         return COMMON + tuple(f"scipy_{case}" for case in SCIPY)
     if cell == "matplotlib":
         return COMMON + tuple(f"matplotlib_{case}" for case in PLOT)
+    if cell == "pandas":
+        return COMMON + tuple(f"pandas_{case}" for case in (*FRAME, "ops"))
     return COMMON + (
         tuple(f"{cell}_{case}" for case in FRAME) if cell != "arrow" else ()
     )
@@ -356,6 +406,23 @@ def timestamp_fixture(directory, target="postgres"):
     return bind_producer(neutral, artifact, observed)
 
 
+def outer_fixture(directory):
+    """The real binding of an outer JOIN that keeps a nullable collection."""
+    from pietto._project.project_execution_reader import bind_postgres_output
+    from pietto._project.project_result_output import prepare_output
+    from pietto._project.project_sql_emission import emit_project_sql
+
+    plan = _helper("_pietto_plan_nested")
+    verified = plan.nested_plan(directory, plan.retained_outer_sources())
+    contract = json.dumps(plan.retained_unnest_contract()).encode()
+    outcome = emit_project_sql(verified, contract)
+    assert outcome.status == "VERIFIED" and outcome.artifact is not None
+    output = prepare_output(outcome.artifact)
+    return bind_postgres_output(
+        output, _helper("_pietto_results_nested").metadata(output)
+    )
+
+
 def fixtures(root):
     """Arrow bindings of real queries and the producer rows each batch takes."""
     from pietto._project import project_arrow_result as a
@@ -400,6 +467,15 @@ def fixtures(root):
             p.decimal_arrow(p.decimal_fixture(root / "wide", "postgres", 65, 30)[3]),
             p.decimal_rows("postgres", 65, 30),
         ),
+        "nested_uuid": (
+            a.bind_arrow(
+                nested.real(
+                    p, root / "nested-uuid", (("i", "Int8", False), ("u", "UUID", True))
+                )
+            ),
+            NESTED_UUID_ROWS,
+        ),
+        "outer": (a.bind_arrow(outer_fixture(root / "outer")), OUTER_ROWS),
         # Fields 0 and 1 differ in type; fields 0 and 3 are both int64.
         "labels": (
             a.bind_arrow(numeric, field_labels=labels(0, 1)),
@@ -484,24 +560,31 @@ def token(value):
         return ["timestamp", value.isoformat(timespec="microseconds")]
     if isinstance(value, date):
         return ["date", value.isoformat()]
+    if isinstance(value, bytes):
+        return ["bytes", value.hex()]
+    if isinstance(value, list):
+        return ["list", [token(v) for v in value]]
+    if isinstance(value, dict):
+        return ["struct", [[k, token(v)] for k, v in value.items()]]
     raise TypeError(type(value).__name__)
+
+
+def scaled(value, kind):
+    """A producer value as a frame holds it: a decimal at its field scale (no
+    negative zero)."""
+    if value is not None and kind.startswith("decimal"):
+        scale = int(kind.rstrip(")").split(", ")[1])
+        with localcontext(Context(prec=100)):
+            return Decimal(int(value.scaleb(scale))).scaleb(-scale)
+    return value
 
 
 def oracle(rows, types):
     """Producer input rows as the columns a frame must hold: decimals at their
-    field scale (no negative zero) and timestamps at microseconds."""
-    columns = []
-    for i, kind in enumerate(types):
-        column = []
-        for row in rows:
-            value = row[i]
-            if value is not None and kind.startswith("decimal128"):
-                scale = int(kind.rstrip(")").split(", ")[1])
-                with localcontext(Context(prec=100)):
-                    value = Decimal(int(value.scaleb(scale))).scaleb(-scale)
-            column.append(token(value))
-        columns.append(column)
-    return columns
+    field scale and timestamps at microseconds."""
+    return [
+        [token(scaled(row[i], kind)) for row in rows] for i, kind in enumerate(types)
+    ]
 
 
 def frame_columns(cell, frame):
@@ -860,11 +943,66 @@ def frame_cases(cell, fx):
     gc.collect()
     observations["after_close"] = frame_columns(cell, frame)
 
-    # PL.47's UUID, decimal256 and nested cells, refused while the target's
-    # admitted kinds leave them out.
-    relief = [batch(*fx[name]) for name in ("temporal", "wide", "nested")]
-    observations["relief"] = [refusal(lambda b=b: convert(b), b) for b in relief]
+    # PL.47's UUID, decimal256 and nested cells.
+    observations["relief"] = {
+        name: relieved(cell, convert, *fx[name]) for name in RELIEF
+    }
+    if cell == "pandas":
+        observations["ops"] = {
+            label: pandas_ops(convert(batch(*fx[name])), label)
+            for name, label in (("temporal", "maybe_key"), ("wide", "optional"))
+        }
     return {f"{cell}_{key}": value for key, value in observations.items()}
+
+
+def relieved(cell, convert, binding, rows):
+    """A batch's frame, read after the batch is closed, and its typed empty
+    frame; or the conversion's refusal."""
+    item = batch(binding, rows)
+    try:
+        frame, empty = convert(item), convert(batch(binding, []))
+    except ValueError as exc:
+        return ["ValueError", str(exc), None, item.closed]
+    held = {
+        "types": frame_types(cell, frame),
+        "labels": [str(c) for c in frame.columns],
+        "index": frame_index(cell, frame),
+        "open": not item.closed,
+        "empty": [frame_types(cell, empty), frame_index(cell, empty), len(empty)],
+    }
+    item.close()
+    del item
+    gc.collect()
+    return held | {"columns": frame_columns(cell, frame)}
+
+
+def pandas_ops(frame, label):
+    """pandas' own operations on one nullable column: comparison with a value,
+    membership in a Series, grouping, unique values, stable sorting and a merge
+    with itself, nulls included."""
+    pandas: Any = importlib.import_module("pandas")
+    column = frame[label]
+    first = column.dropna().iloc[:1]
+    equal = column == first.iloc[0]
+    groups = frame.groupby(label, dropna=False, sort=True).size()
+    return {
+        "equal": [
+            None if missing else bool(value)
+            for value, missing in zip(
+                equal.tolist(), equal.isna().tolist(), strict=True
+            )
+        ],
+        "member": column.isin(first).tolist(),
+        "groups": [
+            [token(None if pandas.isna(k) else k), int(n)] for k, n in groups.items()
+        ],
+        "unique": [token(None if pandas.isna(v) else v) for v in column.unique()],
+        "sorted": frame.sort_values(
+            label, kind="stable", na_position="last"
+        ).index.tolist(),
+        "merged": len(frame[[label]].merge(frame[[label]], on=label)),
+        "null": column.isna().tolist(),
+    }
 
 
 def run_cases(cell, root):
@@ -982,14 +1120,8 @@ def expected_common(cell):
             ),
         ],
         "admission": [
-            _value_error(
-                "to_pandas: field 8 ('selected_wide_amount') has Arrow type"
-                f" decimal256(65, 30); to_pandas {FRAME_ADMITS}"
-            ),
-            _value_error(
-                "to_polars: field 8 ('selected_wide_amount') has Arrow type"
-                f" decimal256(65, 30); to_polars {FRAME_ADMITS}"
-            ),
+            _value_error(FINITE_REFUSED["pandas"]),
+            _value_error(FINITE_REFUSED["polars"]),
             _value_error(
                 "to_pandas: field 1 ('same') repeats the label of field 0;"
                 f" to_pandas {DISTINCT_LABELS}"
@@ -1131,10 +1263,7 @@ def expected_frames(cell, inputs):
         for ordinal in (1, 3)
     ]
     expected["refusals"] = [
-        _value_error(
-            f"{convert}: field 8 ('selected_wide_amount') has Arrow type"
-            f" decimal256(65, 30); {convert} {FRAME_ADMITS}"
-        ),
+        _value_error(FINITE_REFUSED[cell]),
         len(inputs["scalar"][1]),
     ]
     changed = (
@@ -1154,17 +1283,52 @@ def expected_frames(cell, inputs):
         else [_value_error(changed % ("Float64", "Int64"))]
     )
     expected["after_close"] = oracle(inputs["text64"][1], MATRIX["text64"])
-    expected["relief"] = [
-        _value_error(
-            f"{convert}: field {field} has Arrow type {t}; {convert} {FRAME_ADMITS}"
-        )
-        for field, t in (
-            ("2 ('key_value')", "extension<arrow.uuid>"),
-            ("0 ('renamed')", "decimal256(65, 30)"),
-            ("1 ('c')", NESTED),
-        )
-    ]
+    if cell == "polars":
+        expected["relief"] = {
+            name: _value_error(f"to_polars: {field}; to_polars {POLARS_ADMITS}")
+            for name, field in POLARS_REFUSED.items()
+        }
+        return {f"{cell}_{key}": value for key, value in expected.items()}
+    expected["relief"] = {}
+    for name, types in RELIEF.items():
+        labels, rows = inputs[name]
+        shown = [f"{t}[pyarrow]" for t in types]
+        expected["relief"][name] = {
+            "types": shown,
+            "labels": labels,
+            "index": ["RangeIndex", 0, len(rows), 1],
+            "open": True,
+            "empty": [shown, ["RangeIndex", 0, 0, 1], 0],
+            "columns": oracle(rows, types),
+        }
+    expected["ops"] = {
+        label: ops_oracle([scaled(row[i], RELIEF[name][i]) for row in inputs[name][1]])
+        for name, label, i in (("temporal", "maybe_key", 3), ("wide", "optional", 1))
+    }
     return {f"{cell}_{key}": value for key, value in expected.items()}
+
+
+def ops_oracle(values):
+    """pandas_ops of a column that holds these values: pandas groups nulls
+    last, sorts bytes unsigned and matches null keys in a merge."""
+    present = [v for v in values if v is not None]
+    counts, nulls = Counter(present), len(values) - len(present)
+    return {
+        "equal": [None if v is None else v == present[0] for v in values],
+        "member": [v is not None and v == present[0] for v in values],
+        "groups": [[token(k), counts[k]] for k in sorted(counts)]
+        + ([[None, nulls]] if nulls else []),
+        "unique": [token(v) for v in dict.fromkeys(values)],
+        "sorted": sorted(
+            range(len(values)),
+            key=lambda i: (
+                values[i] is None,
+                present[0] if values[i] is None else values[i],
+            ),
+        ),
+        "merged": sum(n * n for n in counts.values()) + nulls * nulls,
+        "null": [v is None for v in values],
+    }
 
 
 def frame_inputs():
@@ -1184,6 +1348,36 @@ def frame_inputs():
             ["selected_0", "selected_1"],
             [row[:2] for row in p.temporal_rows("postgres")],
         ),
+        **relief_inputs(p),
+    }
+
+
+def relief_inputs(p):
+    """The labels and producer rows of RELIEF's batches as to_pandas holds them:
+    a UUID as its 16 bytes and a container as the records of its children."""
+    n = _helper("_pietto_results_nested")
+
+    def held(value):
+        return value.bytes if isinstance(value, UUID) else value
+
+    def records(rows, labels):
+        return [
+            [
+                key,
+                None
+                if box is None
+                else [dict(zip(labels, map(held, r), strict=True)) for r in zip(*box)],
+            ]
+            for key, box in rows
+        ]
+
+    temporal = [[held(v) for v in row] for row in p.temporal_rows("postgres")]
+    return {
+        "temporal": (list(p.TEMPORAL_LABELS[:4]), temporal),
+        "wide": (list(p.DECIMAL_LABELS[:2]), p.decimal_rows("postgres", 65, 30)),
+        "nested": (["renamed", "c"], records(n.ROWS, ("i", "b", "t"))),
+        "nested_uuid": (["renamed", "c"], records(NESTED_UUID_ROWS, ("i", "u"))),
+        "outer": (["id", "retained"], records(OUTER_ROWS, ("id",))),
     }
 
 
@@ -1393,12 +1587,12 @@ def expected_numpy():
             _value_error(refused % ("0 ('selected_0')", "timestamp[us]", TO_FRAME)),
             _value_error(
                 refused
-                % ("8 ('selected_wide_amount')", "decimal256(65, 30)", NO_ADAPTER)
+                % ("8 ('selected_wide_amount')", "decimal256(65, 30)", TO_PANDAS)
             ),
             _value_error(
-                refused % ("2 ('key_value')", "extension<arrow.uuid>", NO_ADAPTER)
+                refused % ("2 ('key_value')", "extension<arrow.uuid>", TO_PANDAS)
             ),
-            _value_error(refused % ("1 ('c')", NESTED, NO_ADAPTER)),
+            _value_error(refused % ("1 ('c')", NESTED, TO_PANDAS)),
         ],
         "drift": [
             _value_error(

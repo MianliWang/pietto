@@ -215,9 +215,36 @@ def _damaged(cell: str):
             "same-type labels accepted",
             lambda r: r["cases"][f"{cell}_labels"][1].__setitem__(0, "frame"),
         )
-        yield "relief admitted", lambda r: r["cases"][f"{cell}_relief"].pop()
+        yield "relief dropped", lambda r: r["cases"][f"{cell}_relief"].popitem()
         if cell == "pandas":
-            yield "short index accepted", lambda r: r["cases"]["pandas_drift"].pop(1)
+            yield from _damaged_pandas()
+
+
+def _damaged_pandas():
+    def relief(name):
+        return lambda r: r["cases"]["pandas_relief"][name]
+
+    def ops(r):
+        return r["cases"]["pandas_ops"]["maybe_key"]
+
+    yield "short index accepted", lambda r: r["cases"]["pandas_drift"].pop(1)
+    yield (
+        "uuid extension kept",
+        lambda r: relief("temporal")(r)["types"].__setitem__(
+            2, "extension<arrow.uuid>[pyarrow]"
+        ),
+    )
+    yield (
+        "decimal rounded",
+        lambda r: relief("wide")(r)["columns"][0][0].__setitem__(1, "1E+35"),
+    )
+    yield (
+        "null container emptied",
+        lambda r: relief("outer")(r)["columns"][1].__setitem__(0, ["list", []]),
+    )
+    yield "batch closed", lambda r: relief("nested_uuid")(r).update(open=False)
+    yield "silent comparison", lambda r: ops(r)["equal"].__setitem__(1, False)
+    yield "null keys unmatched", lambda r: ops(r).update(merged=9)
 
 
 def _damaged_numpy():

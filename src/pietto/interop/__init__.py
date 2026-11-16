@@ -53,11 +53,14 @@ __all__ = [
 
 def to_pandas(batch: ResultBatch) -> pandas.DataFrame:
     """A DataFrame with one column per field, in field order, each of dtype
-    ``pandas.ArrowDtype`` of the field's exact Arrow type, and a RangeIndex.
+    ``pandas.ArrowDtype`` of the field's exact Arrow type, a UUID as
+    ``fixed_size_binary(16)``, its 16 big-endian bytes, and a RangeIndex.
 
-    Int, Bool, Float, Text, Decimal (decimal128), Date and zone-less Timestamp
-    fields are admitted, nullable or not; any other field, and a repeated
-    field label, is refused.
+    Int, Bool, Float, Text, Decimal (decimal128 and decimal256), Date,
+    zone-less Timestamp and UUID fields are admitted, nullable or not, and so
+    is one level of nesting, a list of non-null structs of those fields, a
+    nested UUID as 16 bytes too; any other field, and a repeated field label,
+    is refused.
     """
     name = "to_pandas"
     common.check_batch(name, batch)
@@ -67,16 +70,17 @@ def to_pandas(batch: ResultBatch) -> pandas.DataFrame:
     common.admit_frame(name, pa, data, _pandas.ADMITS)
     common.distinct_labels(name, data)
     module = common.target(name, "pandas")
-    return _pandas.convert(name, module, data)
+    return _pandas.convert(name, pa, module, data)
 
 
 def to_polars(batch: ResultBatch) -> polars.DataFrame:
     """A DataFrame with one column per field, in field order, of the Polars
     dtype docs/interop.md maps each admitted Arrow type to.
 
-    The fields to_pandas admits are admitted; a repeated field label is
-    refused, and any other output dtype than the mapped one is refused, never
-    cast.
+    Int, Bool, Float, Text, Decimal up to precision 38 (decimal128), Date and
+    zone-less Timestamp fields are admitted, nullable or not; any other field
+    and a repeated field label are refused, and any other output dtype than
+    the mapped one is refused, never cast.
     """
     name = "to_polars"
     common.check_batch(name, batch)
