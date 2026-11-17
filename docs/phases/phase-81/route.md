@@ -1637,6 +1637,147 @@ diagnostics pages, the aggregate scope lock and a release-note fragment.
   file refused such a call with PIE-S2315 while both project modes
   accepted it.
 
+## P11 record
+
+P11 delivers H3 (4), PL.48 (4), with the forms of the Meaning bullet
+below. It ran
+on 2026-11-17 on the route head `6fa66291`, beside P03, P09 and P10, whose
+write sets the lead's check of the same day found apart from P11's except
+for `docs/spec/diagnostics.md`'s PIE-S2333 paragraph and
+`_single_file_grouping_diagnostics`, which P11 does not edit.
+
+- **Meaning.** After `let k = status`, a single file and an
+  EXPLICIT_MODULES project select `k` and `x = k` beside `group by k` or
+  `group by status`, as they select `status`, and `order by k` reads the
+  selected `k`; after `let state = status` and `group by state`,
+  `having label2 == "open"` reads `label2 = state`. A single file selects
+  `k` after `let k = x` and `group by x` over a source without a shape.
+  With JOIN inputs, `check --project` refuses `order by k` beside the
+  selected `k` with PIE-S2321 at the ORDER BY item, on both targets and on
+  `0.2.2` too, accepts `x = k` with `order by x`, which emits, and reports
+  `Unknown field: k` for a window's `order by k` beside the selected `k`, as
+  `0.2.2` does; a single file accepts each. Without JOIN inputs a grouped
+  window's `order by state` beside `label = state` alone, over a field
+  `label`, still reports `Unknown field: state` in a single file and an
+  EXPLICIT_MODULES project. `state` beside `group by id` and
+  `let state = trimmed` beside `let trimmed = lower(status)` keep their
+  refusals and texts. The hint that told a single file to write the field
+  instead no longer appears; no code, detail, JSON shape, compiled record or
+  `VERSIONS` changes.
+- **Owner answers (D81.04).** On 2026-11-18 the owner kept both readings
+  wider than PL.48 (4)'s example, `group by k` then `k` or `x = k`: such a
+  `let` is selected when GROUP BY writes the field it renames, as
+  `group by status` then `state` or `label = state`, as projects already
+  read it with JOIN inputs; and a single file over a source without a shape
+  accepts `select k`, as it accepts `x = k` and the field, `check` reporting
+  only PIE-S2303 and `emit-sql` refusing it with PIE-B1000.
+- **Causes.** A single file refused the name with PIE-S2329 when it
+  renamed a field (`let_bindings.py`) and resolved no selected `let` name
+  to a key (`group_by.py`). A project resolved a selected item to a key
+  only by its own name, in four places that each needed the `let` name
+  read as its field: the group-key candidate (`aggregate_grouped_schema.py`,
+  whose fact checks now accept a bare name that no key has when it carries
+  the field of the key whose identity the builder recorded for it, and
+  whose finalization binds each selected key by exactly one group
+  projection, to that recorded key),
+  the grouped ORDER BY targets and their check
+  (`aggregate_grouped_clause_facts.py`) and the module's ORDER BY evidence
+  (`module_semantic_fact_preservation.py`). Single-file IR kept no key
+  identity for an output that is the key itself (`ir/builder.py`), so
+  `order by k` beside `x = k` lost its target. HAVING, in both modes, read
+  a selected item as a key only by its own field and expanded a `let` key
+  only with JOIN inputs (`satisfying.py`), and over a row of unknown type a
+  single file resolved the name only where it projected it, not where it
+  selected it (`group_by.renames_group_key`). A grouped item without an
+  aggregate, or one without an alias, typed with no `let` name in scope
+  (`type_relation_expressions` in `semantic/expressions.py`), so a value
+  computed from such a `let` reported PIE-S2102 beside its PIE-S2319 in a
+  single file and in a LEGACY_FLAT check.
+- **Two databases.** At 23:07Z–23:09Z, under PL.14 slots and D77.19's
+  Docker Desktop Engine 29.9.3, the target conformance facility's
+  `Resources` acquired one pinned container per engine (PostgreSQL 18.6
+  and MySQL 8.4.12, `tests/phase66_target_pins.json`) and loaded
+  `cases.setup`. Nineteen statements per engine, nine forms in single files
+  over a view of the facility's aggregate rows and in projects with its
+  contract, emitted through the public CLI, and one single-file JOIN form,
+  each returned the rows of the same query with the field written in its
+  place and of an oracle computed from the fixture rows (the grouped window
+  form against its control only): 19 of 19 passed on each engine, and both
+  containers and networks were removed. The single-file SQL of each form
+  is byte for byte that of its control. The HAVING forms, accepted after
+  that run, ran in the same way at 02:43Z–02:45Z on 2026-11-18: nine
+  statements per engine, four forms in single files and in projects and one
+  single-file JOIN form, each returned the rows of its control and of the
+  oracle, 9 of 9 on each engine, with single-file SQL byte for byte that of
+  its control, and both containers and networks were removed. The evidence
+  stays with the lead's records.
+- **MySQL's cells.** A project keeps such a `let` as a column of its row
+  stage, so on MySQL MC G1's
+  guarded `sum` of an `Int` (PIE-B1004
+  `sum_int_aggregate_range_proof_missing`), E4B's `count` of the sign of a
+  nullable `Float` field (PIE-B1003 `unary_sign_requires_int_operand`) and
+  S07's `Float` key (PIE-B1003
+  `group_key_type_outside_reviewed_comparison_domain`) keep their blockers
+  beside it, where the field-spelled query emits; PostgreSQL emits
+  each form and its twin, and `tests/test_sql_grouped.py` pins each beside
+  its twin. The
+  two-database runs above ran on `6fa66291`, before MC's G1 and E4B reached
+  `main`. Planning such a `let` as its field on MySQL would open these forms;
+  that widening is not P11's. `tests/test_sql_grouped.py` also pins the
+  JOIN ORDER BY refusal above through the public CLI.
+- **Combinations (78-11).** P09, P10 and P11 were written in parallel, so
+  this record, the last of the three, lists their combinations with each
+  other and with the cells on `main`, each with its cell or refusal and
+  its test. P09 with P10: `min(d + 1)` after `let d = qty` is PIE-S2315, as
+  `min(qty + 1)` is, in a single file and an EXPLICIT_MODULES project
+  (`tests/test_semantic_aggregate_expression_argument_semantics.py`,
+  `tests/test_sql_joins.py`). P09 and P10 with P11: over the published
+  `BIGINT` contract, `sum(d + 1)` after `let d = id` and `min(k)` beside `k`
+  after `let k = key` and `group by k`, `count(k + 1)` beside `x = k` under
+  `group by key`, and `max(t)` after `let t = r.id` beside `k` over
+  `inner join r on lhs.id == r.id` emit in a single file the SQL of their
+  field-spelled twins, and a project gives each its twin's outcome:
+  VERIFIED on PostgreSQL, and on MySQL VERIFIED for `min(k)` and `max(t)`
+  and PIE-B1002 `arithmetic_outside_physical_range` for `sum(d + 1)` and
+  `count(k + 1)` (`tests/test_sql_grouped.py`); over
+  `inner join r on r.id == lhs.key`, which may repeat the rows of `r`,
+  `sum(d + 1)` after `let d = r.id` is PIE-S2333 in a project and PIE-S2381
+  in a single file, as its twin is. A SQLite single file writes `max(w)`
+  after `let w = id` beside `a` after `let a = amount` and `group by a` as
+  its twin and refuses `count(w + 1)` there as its twin with PIE-B1000
+  (`tests/test_sql_sqlite_emission.py`). With
+  MySQL's cells on `main`: P09's beside E4B's `count` (the P09 record)
+  and P11's three above; beside a selected `let h = g`, `count(-t)` after
+  `let t = x`, with `x` a nullable `Float` field, keeps one
+  `unary_sign_requires_int_operand`, where `h = g` with `count(-x)` emits
+  (`tests/test_sql_grouped.py`). SQLite and DuckDB projects, which admit
+  no relation `let` stage, pass `check --project` for `count(d + 1)` after
+  `let d = id` and for `a` after `let a = amount` under `group by amount`,
+  as for their field-spelled twins, and refuse both at emission with
+  PIE-B1003 `sqlite_relation_shape_not_admitted` or
+  `duckdb_relation_shape_not_admitted`
+  (`tests/test_sql_sqlite_project_emission.py`,
+  `tests/test_sql_duckdb_emission.py`). The EXPLICIT_MODULES checks of
+  `max(w) + "a"`, `max(w) / 2` and `z = amount` beside `m = max(w)` after
+  `let w = qty` are the same on P10's commit as on P09's.
+- **Tests.** The owners of grouped `let` keys, grouped ORDER BY, the project
+  group-key and grouped schemas, finalization, project grouped SQL and
+  compiled replay gain the accepted forms on both targets, HAVING and a
+  grouped window among them, JOIN inputs and a row of unknown type, a
+  LEGACY_FLAT check and a public bundle that loads and renders the emitted
+  SQL; the cases that pinned the old refusals now pin the forms that still
+  refuse, a duplicate key among them. The fact checks and finalization each
+  refuse a selection whose field is no key's, or bound to another key, also
+  where two keys are outputs of an upstream relation of one type, whose
+  fields look alike, so a key is bound by its identity and not by a field
+  that looks the same; finalization refuses the swapped projections of two
+  keys selected as their fields, which only its field check decides.
+  `next = lower(state)` beside `status` without an aggregate is PIE-S2319
+  alone in a single file and a LEGACY_FLAT check when `group by` writes the
+  field, as `next = lower(status)` is. A SQLite owner pins the SQLite single
+  file's SQL, and the SQLite and DuckDB project owners pin the refusal at
+  emission.
+
 ## P12 record
 
 P12 takes PL.44 (a) on the route's base `6fa66291`, with the scope that

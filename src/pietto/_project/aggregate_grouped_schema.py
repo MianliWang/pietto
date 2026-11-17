@@ -186,25 +186,36 @@ ProjectAnyGroupKeyFact = ProjectGroupKeyFact | ProjectComputedGroupKeyFact
 
 @dataclass(frozen=True, slots=True)
 class ProjectGroupKeySchemaFacts:
-    """Complete private group-key candidates for one grouped relation."""
+    """Complete private group-key candidates for one grouped relation.
+
+    ``selected_key_identities`` gives, for each selected `let` name that
+    renames a key's field, the identity of that key, as the builder resolved
+    the name."""
 
     group_keys: tuple[ProjectAnyGroupKeyFact, ...]
     selected_fields: Mapping[SelectItem, ProjectRowField]
+    selected_key_identities: Mapping[SelectItem, str] = dataclass_field(
+        default_factory=dict
+    )
 
     def __post_init__(self) -> None:
         """Freeze mappings and reject malformed private candidate facts."""
 
         if type(self.group_keys) is not tuple:
             raise ValueError("Project group-key facts require a tuple")
-        identities: set[str] = set()
+        keys: dict[str, ProjectAnyGroupKeyFact] = {}
         for fact in self.group_keys:
             if not isinstance(fact, ProjectAnyGroupKeyFact):
                 raise ValueError("Project group-key facts require fact values")
-            if fact.field_identity in identities:
+            if fact.field_identity in keys:
                 raise ValueError("Project group-key facts require unique identities")
-            identities.add(fact.field_identity)
+            keys[fact.field_identity] = fact
+        identities = set(keys)
 
         selected_fields = MappingProxyType(dict(self.selected_fields))
+        renamed = _selected_key_identities(
+            self.selected_key_identities, selected_fields, identities
+        )
         for item, selected_field in selected_fields.items():
             if not isinstance(item, SelectItem):
                 raise ValueError("Selected group-key fields require select-item keys")
@@ -213,12 +224,21 @@ class ProjectGroupKeySchemaFacts:
             if selected_field.result_role is not ProjectRowResultRole.GROUP_KEY:
                 raise ValueError("Selected group-key fields require GROUP_KEY role")
             identity = _direct_expression_identity(item.expression)
-            if identity is None or identity not in identities:
+            # A bare name that no key has is a `let` name that renames the
+            # field of the key the builder resolved for it.
+            if identity is None or (
+                identity not in identities
+                and (
+                    item not in renamed
+                    or not _selects_key_field(selected_field, keys[renamed[item]])
+                )
+            ):
                 raise ValueError(
                     "Selected group-key fields require a resolved group-key identity"
                 )
 
         object.__setattr__(self, "selected_fields", selected_fields)
+        object.__setattr__(self, "selected_key_identities", renamed)
 
 
 @dataclass(frozen=True, slots=True)
@@ -492,10 +512,16 @@ class ProjectGroupedSelectedResult:
 
 @dataclass(frozen=True, slots=True)
 class ProjectGroupedSchemaFacts:
-    """Complete unpersisted grouped selected-result candidates."""
+    """Complete unpersisted grouped selected-result candidates.
+
+    ``selected_key_identities`` is the group-key candidate's: the key that
+    each selected `let` name renames the field of."""
 
     group_keys: tuple[ProjectAnyGroupKeyFact, ...]
     selected_results: Mapping[SelectItem, ProjectGroupedSelectedResult]
+    selected_key_identities: Mapping[SelectItem, str] = dataclass_field(
+        default_factory=dict
+    )
 
     def __post_init__(self) -> None:
         """Freeze mappings and reject malformed grouped candidate facts."""
@@ -515,6 +541,9 @@ class ProjectGroupedSchemaFacts:
         selected_results = MappingProxyType(dict(self.selected_results))
         if not selected_results:
             raise ValueError("Grouped schema facts require non-empty selected results")
+        renamed = _selected_key_identities(
+            self.selected_key_identities, selected_results, set(group_keys_by_identity)
+        )
 
         aggregate_count = 0
         for item, selected_result in selected_results.items():
@@ -530,19 +559,17 @@ class ProjectGroupedSchemaFacts:
                 key_fact = (
                     None if identity is None else group_keys_by_identity.get(identity)
                 )
+                # A bare name that no key has is a `let` name that renames the
+                # field of the key the builder resolved for it.
+                if key_fact is None and item in renamed:
+                    key_fact = group_keys_by_identity[renamed[item]]
                 if key_fact is None:
                     raise ValueError(
                         "Grouped key result requires a resolved group-key identity"
                     )
                 if selected_result.field.name != (item.alias or identity):
                     raise ValueError("Grouped key result output identity mismatch")
-                if (
-                    selected_result.field.resolved_type
-                    != key_fact.key_field.resolved_type
-                    or selected_result.field.nullability
-                    is not key_fact.key_field.nullability
-                    or selected_result.field.field_def != key_fact.key_field.field_def
-                ):
+                if not _selects_key_field(selected_result.field, key_fact):
                     raise ValueError("Grouped key result input field mismatch")
                 continue
 
@@ -580,6 +607,7 @@ class ProjectGroupedSchemaFacts:
             raise ValueError("Grouped schema facts require an aggregate result")
 
         object.__setattr__(self, "selected_results", selected_results)
+        object.__setattr__(self, "selected_key_identities", renamed)
 
 
 _AggregateGroupedSchemaFacts = (
@@ -738,12 +766,24 @@ class ProjectAggregateGroupedSchemaFinalization:
                 not isinstance(self.candidate, ProjectGroupedSchemaFacts)
                 or not any(key is retained for retained in self.candidate.group_keys)
                 or not any(
-                    item is selected for selected in self.candidate.selected_results
+                    item is selected and _selects_key_field(result.field, key)
+                    for selected, result in self.candidate.selected_results.items()
                 )
+                # A selected `let` name binds the key that it renames the
+                # field of, not another key whose field looks the same.
+                or self.candidate.selected_key_identities.get(item, key.field_identity)
+                != key.field_identity
             ):
                 raise ValueError(
                     "Group projection requires its exact candidate key and selection"
                 )
+        # Each selected key binds its key here, a `let` name's included.
+        if isinstance(self.candidate, ProjectGroupedSchemaFacts) and any(
+            result.aggregate_fact is None
+            and sum(item is projected for projected, _ in self.group_projections) != 1
+            for item, result in self.candidate.selected_results.items()
+        ):
+            raise ValueError("Each selected group key requires one group projection")
         if self.candidate is not None:
             if status is not ProjectRelationRowSchemaStatus.CONCRETE or type(
                 self.candidate
@@ -1063,6 +1103,7 @@ def _build_project_group_key_schema_attempt(
         if isinstance(key, ProjectComputedGroupKeyFact)
     }
     selected_key_targets: dict[SelectItem, ProjectAnyGroupKeyFact] = {}
+    selected_key_identities: dict[SelectItem, str] = {}
     seen_items: set[SelectItem] = set()
     for item in definition.select_items:
         if item in seen_items:
@@ -1115,9 +1156,14 @@ def _build_project_group_key_schema_attempt(
                 result_role=ProjectRowResultRole.GROUP_KEY,
             )
             continue
+        # A `let` name that renames a field selects that field, as a key does.
         resolved = _resolve_input_field(
             definition,
-            selected_expression,
+            _effective_group_key_expression(
+                selected_expression,
+                let_expressions=let_expressions,
+                let_stack=frozenset(),
+            ),
             input_schema,
         )
         if resolved is None:
@@ -1149,8 +1195,18 @@ def _build_project_group_key_schema_attempt(
             )
             continue
         selected_key_targets[item] = keys_by_input[id(input_field)]
+        if (
+            type(selected_expression) is NameExpr
+            and selected_expression.name != field_identity
+        ):
+            selected_key_identities[item] = field_identity
         selected_fields[item] = ProjectRowField(
-            name=item.alias or field_identity,
+            name=item.alias
+            or (
+                selected_expression.name
+                if type(selected_expression) is NameExpr
+                else field_identity
+            ),
             resolved_type=input_field.resolved_type,
             nullability=input_field.nullability,
             field_def=input_field.field_def,
@@ -1173,6 +1229,7 @@ def _build_project_group_key_schema_attempt(
         facts=ProjectGroupKeySchemaFacts(
             group_keys=tuple(group_keys),
             selected_fields=selected_fields,
+            selected_key_identities=selected_key_identities,
         ),
         failure_reason=None,
         group_projections=tuple(selected_key_targets.items()),
@@ -1540,6 +1597,7 @@ def _build_project_grouped_schema_attempt(
         facts=ProjectGroupedSchemaFacts(
             group_keys=group_key_facts.group_keys,
             selected_results=dict(selected_occurrences),
+            selected_key_identities=group_key_facts.selected_key_identities,
         ),
         failure_reason=None,
         analyses=tuple(analyses),
@@ -2517,6 +2575,32 @@ def _declared_group_key_identities(
         if identity is not None:
             identities.add(identity)
     return frozenset(identities)
+
+
+def _selected_key_identities(
+    identities: Mapping[SelectItem, str],
+    selected: Mapping[SelectItem, object],
+    keys: set[str],
+) -> Mapping[SelectItem, str]:
+    """Frozen ``identities``: each a selected bare name's key identity."""
+
+    frozen = MappingProxyType(dict(identities))
+    if any(
+        item not in selected or type(item.expression) is not NameExpr or key not in keys
+        for item, key in frozen.items()
+    ):
+        raise ValueError("Selected let keys require a selected name and its key")
+    return frozen
+
+
+def _selects_key_field(field: ProjectRowField, key: ProjectAnyGroupKeyFact) -> bool:
+    """Whether the selected ``field`` carries the value of ``key``'s field."""
+
+    return (
+        field.resolved_type == key.key_field.resolved_type
+        and field.nullability is key.key_field.nullability
+        and field.field_def == key.key_field.field_def
+    )
 
 
 def _group_key_field_is_concrete_ready(field: ProjectRowField) -> bool:

@@ -963,6 +963,264 @@ def test_multiple_determinants_keep_their_order_rename_and_repeat(tmp_path, targ
 
 
 @pytest.mark.parametrize("target", TARGETS)
+@pytest.mark.parametrize(
+    "body",
+    (
+        "    let k = key\n    group by k\n    select:\n        k\n"
+        "        total = count()\n",
+        "    let k = key\n    group by key\n    select:\n        x = k\n"
+        "        total = count()\n    order by k\n",
+        "    let k = key\n    group by k\n    select:\n        x = k\n"
+        "        total = count()\n    having x > 1\n",
+        "    let k = key\n    group by k\n    select:\n        x = k\n"
+        "        total = count()\n        r = row_number() window(order by k)\n",
+    ),
+    ids=("let_key", "field_key_ordered", "having", "window"),
+)
+def test_a_let_that_renames_a_key_field_selects_that_key(tmp_path, target, body):
+    """H3 (4): a `let` that renames a field GROUP BY groups by, written as the
+    field or as the name, is that key's output, as selecting the field is,
+    which `having` and a grouped window read. Before: PIE-S2333, and
+    PIE-S2102 `Unknown field: k` at the window."""
+    outcome = emit_source(tmp_path, target, "query result:\n    from agg\n" + body)
+    assert outcome.status == "VERIFIED", (outcome.diagnostics, outcome.blockers)
+    data = document(outcome)
+    label = "k" if "        k\n" in body else "x"
+    window = ["r"] if "window(" in body else []
+    assert [item["label"] for item in data["columns"]] == [label, "total", *window]
+    assert origin(data, label)["role"] == "group_key"
+    assert column(data, label)["nullable"] is True
+    assert data["sql"].count(" GROUP BY ") == 1
+    assert data["sql"].endswith(" ASC") == body.endswith("order by k\n")
+    if not window:  # The public decoder reads no window over an aggregation.
+        public(outcome)
+
+
+def _query(source, *lines):
+    return f"query result:\n    from {source}\n" + "".join(f"    {x}\n" for x in lines)
+
+
+# H3 (4) beside MySQL's enumerated cells: (world, source, the `let` form, its
+# field-spelled twin, the cell's blocker of the `let` form on MySQL).
+RENAMED_KEY_BESIDE_MYSQL_CELLS = {
+    "g1_sum": (
+        "numeric_world",
+        "rows",
+        ("let g = k", "group by k", "select:", "    g", "    s = sum(c)"),
+        ("group by k", "select:", "    g = k", "    s = sum(c)"),
+        ("PIE-B1004", "sum_int_aggregate_range_proof_missing"),
+    ),
+    "e4b_count_of_a_sign": (
+        "e4bc_world",
+        "csrc",
+        ("let h = g", "group by g", "select:", "    h", "    n = count(-x)"),
+        ("group by g", "select:", "    h = g", "    n = count(-x)"),
+        ("PIE-B1003", "unary_sign_requires_int_operand"),
+    ),
+    # 78-11: P09's `let` name inside the count's sign beside the renamed key.
+    "e4b_count_of_a_let_sign": (
+        "e4bc_world",
+        "csrc",
+        (
+            "let h = g",
+            "let t = x",
+            "group by g",
+            "select:",
+            "    h",
+            "    n = count(-t)",
+        ),
+        ("group by g", "select:", "    h = g", "    n = count(-x)"),
+        ("PIE-B1003", "unary_sign_requires_int_operand"),
+    ),
+    "s07_float_key": (
+        "e4bc_world",
+        "csrc",
+        ("let z = u", "group by u", "select:", "    z", "    n = count()"),
+        ("group by u", "select:", "    z = u", "    n = count()"),
+        ("PIE-B1003", "group_key_type_outside_reviewed_comparison_domain"),
+    ),
+}
+
+
+@pytest.mark.parametrize("cell", sorted(RENAMED_KEY_BESIDE_MYSQL_CELLS))
+def test_a_let_that_renames_a_key_keeps_a_mysql_cell_blocker(tmp_path, cell):
+    """H3 (4) on MySQL: the plan keeps a `let` that renames a key field as a
+    column of the row stage, so a MySQL cell that admits no other `let`, MC
+    G1's guarded `sum` of an `Int`, E4B's `count` of a sign and S07's `Float`
+    key, keeps its blocker beside it, where the field-spelled twin emits,
+    and beside P09's `count(-t)` of a `let t = x` it is the one blocker
+    (78-11); PostgreSQL emits each form and its twin."""
+    world, source, form, twin, blocker = RENAMED_KEY_BESIDE_MYSQL_CELLS[cell]
+    build = getattr(probe, world)
+    _, outcome = build(tmp_path / "mysql", "mysql", _query(source, *form))
+    assert outcome.status == "BLOCKED" and outcome.artifact is None
+    assert [
+        (item["code"], item["subject"]["detail"])
+        for item in document(outcome)["blockers"]
+    ] == [blocker]
+    _, control = build(tmp_path / "twin", "mysql", _query(source, *twin))
+    assert control.status == "VERIFIED", control.blockers
+    _, postgres = build(tmp_path / "postgres", "postgres", _query(source, *form))
+    assert postgres.status == "VERIFIED", postgres.blockers
+    _, postgres = build(tmp_path / "postgres-twin", "postgres", _query(source, *twin))
+    assert postgres.status == "VERIFIED", postgres.blockers
+
+
+@pytest.mark.parametrize("target", TARGETS)
+def test_a_joined_project_orders_by_a_renamed_key_only_through_a_projection(
+    tmp_path, capsys, target
+):
+    """With JOIN inputs `check --project` refuses `order by k` beside the
+    selected `k`, a `let` that renames a key field, with PIE-S2321 at the
+    ORDER BY item, as on `0.2.2`, where a single file accepts it; `x = k`
+    then `order by x` checks and emits."""
+    from pietto import cli
+
+    def checked(name, item, key):
+        case = probe.labelled_join_witness(
+            target,
+            "query result:\n    from lhs\n    let r = rhs\n"
+            "    inner join r on lhs.id == r.id\n    let k = lhs.key\n"
+            f"    group by lhs.key\n    select:\n        {item}\n"
+            f"        n = count()\n    order by {key}\n",
+        )
+        root = tmp_path / name
+        _, outcome = probe.build_case(root, case["source"], case["contract"])
+        found = []
+        for args in (
+            ["check", "--project", str(root)],
+            ["check", str(root / "main.pietto")],
+        ):
+            code = cli.main([*args, "--format", "json"])
+            diagnostics = json.loads(capsys.readouterr().out)["diagnostics"]
+            found.append(
+                (
+                    code,
+                    [
+                        (d["code"], d["location"]["line"], d["location"]["column"])
+                        for d in diagnostics
+                    ],
+                )
+            )
+        return outcome, found
+
+    _, refused = checked("refused", "k", "k")
+    assert refused == [(1, [("PIE-S2321", 18, 14)]), (0, [])]
+    outcome, accepted = checked("accepted", "x = k", "x")
+    assert accepted == [(0, []), (0, [])]
+    assert outcome.status == "VERIFIED", outcome.blockers
+
+
+JOINED = ("let r = rhs", "inner join r on lhs.id == r.id")
+# 78-11: P09's `let` name inside an aggregate argument and P10's as the whole
+# argument of `min` or `max`, beside a selected `let` that renames the key
+# (P11), over `labelled_join_witness`'s `lhs` and `rhs`: (the `let` form, its
+# field-spelled twin, the blocker that both keep in a MySQL project, where
+# the published BIGINT domain puts `Int` arithmetic outside the physical
+# range, or None).
+LET_NAMES_BESIDE_A_RENAMED_KEY = {
+    "p09_sum": (
+        (
+            "let k = key",
+            "let d = id",
+            "group by k",
+            "select:",
+            "    k",
+            "    s = sum(d + 1)",
+            "order by k",
+        ),
+        ("group by key", "select:", "    k = key", "    s = sum(id + 1)", "order by k"),
+        ("PIE-B1002", "arithmetic_outside_physical_range"),
+    ),
+    "p09_count_of_the_key": (
+        ("let k = key", "group by key", "select:", "    x = k", "    n = count(k + 1)"),
+        ("group by key", "select:", "    x = key", "    n = count(key + 1)"),
+        ("PIE-B1002", "arithmetic_outside_physical_range"),
+    ),
+    "p09_sum_over_a_join": (
+        (
+            *JOINED,
+            "let k = lhs.key",
+            "let d = lhs.id",
+            "group by lhs.key",
+            "select:",
+            "    x = k",
+            "    s = sum(d + 1)",
+            "order by x",
+        ),
+        (
+            *JOINED,
+            "group by lhs.key",
+            "select:",
+            "    x = lhs.key",
+            "    s = sum(lhs.id + 1)",
+            "order by x",
+        ),
+        ("PIE-B1002", "arithmetic_outside_physical_range"),
+    ),
+    "p10_min_of_the_key": (
+        ("let k = key", "group by k", "select:", "    k", "    m = min(k)"),
+        ("group by key", "select:", "    k = key", "    m = min(key)"),
+        None,
+    ),
+    "p10_max_over_a_join": (
+        (
+            *JOINED,
+            "let k = lhs.key",
+            "let t = r.id",
+            "group by k",
+            "select:",
+            "    k",
+            "    m = max(t)",
+        ),
+        (
+            *JOINED,
+            "group by lhs.key",
+            "select:",
+            "    k = lhs.key",
+            "    m = max(r.id)",
+        ),
+        None,
+    ),
+}
+
+
+@pytest.mark.parametrize("target", TARGETS)
+@pytest.mark.parametrize("case", sorted(LET_NAMES_BESIDE_A_RENAMED_KEY))
+def test_let_names_in_aggregates_beside_a_renamed_key_act_as_their_twins(
+    tmp_path, capsys, case, target
+):
+    """78-11: a `let` name inside an aggregate argument (P09) or as the whole
+    argument of `min` or `max` (P10), beside a selected `let` that renames
+    the key (P11), with or without JOIN inputs, emits in a single file the
+    SQL of its field-spelled twin, and a project gives it the twin's
+    outcome: VERIFIED on PostgreSQL, and on MySQL the twin's blocker, if
+    any."""
+    from pietto import cli
+
+    form, twin, blocker = LET_NAMES_BESIDE_A_RENAMED_KEY[case]
+    found = []
+    for name, lines in (("form", form), ("twin", twin)):
+        item = probe.labelled_join_witness(target, _query("lhs", *lines))
+        root = tmp_path / name
+        _, outcome = probe.build_case(
+            root, item["source"], item["contract"], item["policy"]
+        )
+        code = cli.main(["emit-sql", str(root / "main.pietto"), "--dialect", target])
+        assert code == 0
+        found.append(
+            (
+                capsys.readouterr().out,
+                outcome.status,
+                [(b.code, b.detail) for b in outcome.blockers],
+            )
+        )
+    assert found[0] == found[1]
+    blocked = blocker is not None and target == "mysql"
+    assert found[0][1:] == (("BLOCKED", [blocker]) if blocked else ("VERIFIED", []))
+
+
+@pytest.mark.parametrize("target", TARGETS)
 def test_two_identical_declarations_keep_two_result_ports(tmp_path, target):
     """No CSE: repeated aggregates are distinct occurrences with distinct ports."""
     outcome = emit_source(

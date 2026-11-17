@@ -399,12 +399,13 @@ relation with GROUP BY, as `k` or `x = k` after `let k = qty` and
 `group by k`. Item (3) is also a semantic extension: single files accept
 `min` and `max` of a numeric `let`, which projects already accept. Each
 extension takes a slice of its own with a two-database verification, and
-none reaches `main` before the `0.2.2` release commit (PL.57). Items (1)
-and (3) landed with [P09](phases/phase-81/route.md#p09-record) and
-[P10](phases/phase-81/route.md#p10-record), item (3) for a `Date` or
-`Timestamp` `let` too (D81.03), and the
-[diagnostics reference](spec/diagnostics.md) states them; until item (4)
-lands, `0.2.2`'s behavior for it stands.
+none reaches `main` before the `0.2.2` release commit (PL.57). The three
+landed with [P09](phases/phase-81/route.md#p09-record),
+[P10](phases/phase-81/route.md#p10-record) and
+[P11](phases/phase-81/route.md#p11-record), item (3) for a `Date` or
+`Timestamp` `let` too (D81.03) and item (4) also when GROUP BY writes the
+field it renames (D81.04), and the
+[diagnostics reference](spec/diagnostics.md) states them.
 
 ### Tests and maintenance
 

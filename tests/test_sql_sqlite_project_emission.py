@@ -491,6 +491,13 @@ def test_contract_refusals(
             "        d = count_distinct(price)\n        s = sum(price)\n",
             [("PIE-B1003", "sqlite_aggregate_not_admitted", 16)],
         ),
+        # A `let` that renames a GROUP BY field passes `check --project`, and
+        # SQLite emission admits no `let` stage.
+        (
+            "query result:\n    from orders\n    let who = note\n    group by note\n"
+            "    select:\n        who\n        n = count()\n",
+            [("PIE-B1003", "sqlite_relation_shape_not_admitted", 12)],
+        ),
     ],
 )
 def test_statement_refusals_at_their_first_site(

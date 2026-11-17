@@ -573,6 +573,13 @@ SHAPES = {
             ("PIE-B1003", "duckdb_grouping_not_admitted"),
         ],
     ),
+    # A `let` that renames a GROUP BY field passes `check --project`, and
+    # DuckDB emission admits no `let` stage.
+    "let_that_renames_a_key": (
+        "query result:\n    from orders\n    let who = note\n    group by note\n"
+        "    select:\n        who\n        n = count()\n",
+        [("PIE-B1003", "duckdb_relation_shape_not_admitted")],
+    ),
     "computed_output": (
         _grouped("t = sum(amount) + 1"),
         [("PIE-B1003", "duckdb_projection_not_admitted")],

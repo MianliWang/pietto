@@ -237,6 +237,14 @@ def project_grouped_schema(
             continue
 
         key_identity = _field_identity(definition, item.expression, input_schema)
+        if type(item.expression) is NameExpr and key_identity is None:
+            # A `let` name that renames a field reads that field's key.
+            key_identity = _grouped_order_let_field_identity(
+                definition,
+                item.expression,
+                input_schema=input_schema,
+                let_expansions=let_expansions,
+            )
         if (
             type(item.expression) is NameExpr
             and item.expression.name in key_fields
@@ -1769,6 +1777,24 @@ def _is_group_key(
     return False
 
 
+def renames_group_key(
+    definition: DerivedRelation,
+    name: str,
+    input_schema: RowSchema,
+    lets: Mapping[str, Expression],
+) -> bool:
+    """Whether the `let` ``name`` renames an input field, through other `let`
+    names, that GROUP BY groups by, directly or through a `let` name: under
+    GROUP BY it reads that key, as the field does, over a row of unknown type
+    too, whose fields its grouping reads by name."""
+
+    if input_schema.is_unknown:
+        input_schema = open_input_schema(definition)
+    return bool(
+        grouped_let_value(definition, name, input_schema, lets)
+    ) and _is_group_key(definition, name, input_schema, lets)
+
+
 def grouped_let_select_hint(
     definition: DerivedRelation,
     name: str,
@@ -1776,9 +1802,10 @@ def grouped_let_select_hint(
     let_expansions: Mapping[str, Expression] | None,
 ) -> str:
     """What to write for a grouped `select` that reads the `let` name
-    ``name``, which only an explicit-module project's can, as a GROUP BY key;
-    that it is no GROUP BY key when none names it or its field; "" when
-    ``name`` is no `let`."""
+    ``name``: that it is no GROUP BY key when none names it or its field; the
+    two-query route for a computed value that only an explicit-module
+    project's can select as a key; "" when ``name`` is no `let` or renames a
+    key's field, which it then selects (`renames_group_key`)."""
 
     value = grouped_let_value(definition, name, input_schema, let_expansions)
     if value is None:
@@ -1786,10 +1813,7 @@ def grouped_let_select_hint(
     if not _is_group_key(definition, name, input_schema, let_expansions or {}):
         return f"{name} is not a GROUP BY key"
     if value:
-        return (
-            "a query with GROUP BY cannot select a `let` name here yet: "
-            f"write {value} in place of {name}"
-        )
+        return ""
     return (
         "a query with GROUP BY cannot select a computed `let` value here yet: "
         + _two_query_route(name)

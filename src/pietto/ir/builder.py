@@ -943,6 +943,18 @@ def _grouped_order_output_expressions(
         if projection.name is None or projection.name in output_expressions:
             continue
         expression = projection.expression
+        # A key field keeps its identity also when the output is the key
+        # itself, as a selected `let` name that renames it lowers.
+        if (
+            isinstance(expression, FieldRefIR)
+            and expression.field is not None
+            and expression.field in group_key_fields
+        ):
+            output_expressions[projection.name] = _GroupedOrderExpression(
+                expression,
+                field_identity=expression.field,
+            )
+            continue
         leaves = aggregate_composition_leaves(expression, group_keys)
         if expression in group_keys or (
             not isinstance(expression, FieldRefIR)
@@ -956,16 +968,6 @@ def _grouped_order_output_expressions(
             )
         ):
             output_expressions[projection.name] = _GroupedOrderExpression(expression)
-            continue
-        if (
-            isinstance(expression, FieldRefIR)
-            and expression.field is not None
-            and expression.field in group_key_fields
-        ):
-            output_expressions[projection.name] = _GroupedOrderExpression(
-                expression,
-                field_identity=expression.field,
-            )
             continue
         if isinstance(expression, (WindowCallIR, AggregateWindowCallIR)):
             output_expressions[projection.name] = _GroupedOrderExpression(

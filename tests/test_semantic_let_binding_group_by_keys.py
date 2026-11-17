@@ -271,16 +271,6 @@ def test_cli_json_and_explain_shapes_remain_compatible(
         (
             "    from orders\n"
             "    let key = status\n"
-            "    group by:\n"
-            "        key\n"
-            "    select:\n"
-            "        key\n"
-            "        total = count()\n",
-            "PIE-S2329",
-        ),
-        (
-            "    from orders\n"
-            "    let key = status\n"
             "    select:\n"
             "        smallest = min(key)\n",
             "PIE-S2314",
@@ -307,7 +297,8 @@ def test_a_refused_let_group_key_reports_only_the_refusal() -> None:
     semantic = _semantic_for(
         "query grouped_orders:\n"
         "    from orders\n"
-        "    let key = status\n"
+        "    let base = lower(status)\n"
+        "    let key = base\n"
         "    group by:\n"
         "        key\n"
         "    select:\n"
@@ -320,7 +311,8 @@ def test_a_refused_let_group_key_reports_only_the_refusal() -> None:
         (
             "PIE-S2329",
             "Let binding conflicts with projection output name: key; a query with "
-            "GROUP BY cannot select a `let` name here yet: write status in place of key",
+            "GROUP BY cannot select a computed `let` value here yet: select key in "
+            "one query, then group by key in another that reads it with `from`",
         )
     ]
 
@@ -590,7 +582,6 @@ query q:
     select:
 {items}        n = count()
 """
-_LET_FIELD = "a query with GROUP BY cannot select a `let` name here yet: write {} in place of key"
 _TWO_QUERIES = (
     "select key in one query, then group by key in another that reads it with `from`"
 )
@@ -607,25 +598,6 @@ _CONFLICT = "Let binding conflicts with projection output name: key; "
 @pytest.mark.parametrize(
     ("value", "key", "items", "expected"),
     (
-        (
-            "status",
-            "key",
-            "        k = key\n",
-            [
-                (
-                    "PIE-S2102",
-                    "Unknown field: key; " + _LET_FIELD.format("status"),
-                    11,
-                    13,
-                )
-            ],
-        ),
-        (
-            "orders.status",
-            "key",
-            "        key\n",
-            [("PIE-S2329", _CONFLICT + _LET_FIELD.format("orders.status"), 7, 5)],
-        ),
         (
             "lower(status)",
             "key",
@@ -657,33 +629,15 @@ _CONFLICT = "Let binding conflicts with projection output name: key; "
             "        key\n",
             [("PIE-S2329", _CONFLICT + "key is not a GROUP BY key", 7, 5)],
         ),
-        # A `let` of a field that a key groups by is that key.
-        (
-            "status",
-            "orders.status",
-            "        k = key\n",
-            [
-                (
-                    "PIE-S2102",
-                    "Unknown field: key; " + _LET_FIELD.format("status"),
-                    11,
-                    13,
-                )
-            ],
-        ),
-        # What the field hint says to write is accepted.
         ("status", "key", "        k = status\n", []),
     ),
     ids=(
-        "select_field",
-        "self_field",
         "self_computed",
         "key_computed",
         "select_computed_not_key",
         "select_field_not_key",
         "self_field_not_key",
-        "select_field_of_key",
-        "fixed",
+        "select_key_field",
     ),
 )
 def test_single_file_grouped_let_reads_say_what_to_write(
@@ -695,6 +649,314 @@ def test_single_file_grouped_let_reads_say_what_to_write(
         (d.code, d.message, d.location.line, d.location.column)
         for d in analyze(parsed.ast).diagnostics
     ] == expected
+
+
+# H3 (4): a `let` that renames a field that GROUP BY groups by, written as
+# the field or as such a name, reads that key wherever the field would.
+_RENAMED_KEY_FORMS = {
+    "self": ("status", "key", "        key\n", ""),
+    "projected": ("status", "key", "        k = key\n", ""),
+    "field_key": ("status", "status", "        key\n", ""),
+    "field_key_projected": ("status", "orders.status", "        k = key\n", ""),
+    "qualified": ("orders.status", "key", "        key\n", ""),
+    "ordered": ("status", "key", "        k = key\n", "    order by key\n"),
+    "having": ("status", "key", "        k = key\n", '    having k == "open"\n'),
+    "having_field_key": (
+        "status",
+        "status",
+        "        key\n",
+        '    having key == "open"\n',
+    ),
+    # Under a `let` key, `having` also reads the selected field.
+    "having_key_field": (
+        "status",
+        "key",
+        "        status\n",
+        '    having status == "open"\n',
+    ),
+}
+
+
+@pytest.mark.parametrize("dialect", ("postgres", "mysql"))
+@pytest.mark.parametrize("form", sorted(_RENAMED_KEY_FORMS))
+def test_a_single_file_selects_a_let_that_renames_a_key_field(
+    form: str, dialect: str
+) -> None:
+    value, key, items, tail = _RENAMED_KEY_FORMS[form]
+    source = _GROUPED_LET.format(value=value, key=key, items=items) + tail
+    if dialect == "mysql":
+        source = source.replace("postgres.table", "mysql.table")
+    parsed = parse_source(source)
+    assert parsed.ast is not None and parsed.diagnostics == ()
+    semantic = analyze(parsed.ast)
+    assert semantic.diagnostics == ()
+    output = items.split("=")[0].strip()
+    (relation,) = semantic.model.relation_row_schemas.values()
+    assert list(relation.fields) == [output, "n"]
+    _assert_field(relation.fields[output], "Text", EffectiveNullability.NON_NULL)
+    assert semantic.script is not None
+    ir = build_ir(semantic.script, semantic.model)
+    assert ir.diagnostics == () and ir.ir is not None
+    result = (emit_mysql_sql if dialect == "mysql" else emit_postgres_sql)(ir.ir)
+    assert result.diagnostics == ()
+    q = "`" if dialect == "mysql" else '"'
+    bare, qualified = f"{q}status{q}", f"{q}orders{q}.{q}status{q}"
+    # Each read keeps its own spelling, as reads of the field itself do.
+    selected = qualified if "." in value else bare
+    grouped = qualified if "." in value + key else bare
+    expected = (
+        f"SELECT\n    {selected} AS {q}{output}{q},\n    COUNT(*) AS {q}n{q}\n"
+        f"FROM {q}orders{q}"
+        + (f" AS {q}orders{q}" if "." in value + key else "")
+        + f"\nGROUP BY\n    {grouped}"
+        + (f"\nHAVING\n    {grouped} = 'open'" if "having" in tail else "")
+        + (f"\nORDER BY\n    {grouped} ASC" if "order by" in tail else "")
+    )
+    assert [artifact.sql for artifact in result.artifacts] == [expected]
+
+
+@pytest.mark.parametrize("key", ("key", "status"))
+@pytest.mark.parametrize("items", ("        key\n", "        k = key\n"))
+def test_a_let_that_renames_a_key_field_is_selected_over_an_unknown_row(
+    key: str, items: str
+) -> None:
+    """H3 (4): over a source without a shape a single file selects such a
+    `let`, by its name or as another output's value, as it selects the field.
+    Before: PIE-S2329 for `key`, PIE-S2102 with a hint for `k = key`."""
+    source = _GROUPED_LET.format(value="status", key=key, items=items)
+    parsed = parse_source(
+        'source orders = postgres.table("orders")\n'
+        + source[source.index("query q:") :]
+    )
+    assert parsed.ast is not None and parsed.diagnostics == ()
+    assert [(d.code, d.severity) for d in analyze(parsed.ast).diagnostics] == [
+        ("PIE-S2303", Severity.WARNING)
+    ]
+
+
+_SCALAR_OF_KEY = """shape Order:
+    id: Int
+    status: Text
+source orders: Order = postgres.table("orders")
+query q:
+    from orders
+    let key = status
+    group by {key}
+    select:
+        {selected}
+        next = {read}
+"""
+
+
+@pytest.mark.parametrize("read", ("lower({})", "{} + 1"))
+@pytest.mark.parametrize("selected", ("key", "status"))
+@pytest.mark.parametrize("key", ("key", "status"))
+def test_a_grouped_scalar_reads_a_let_that_renames_a_key_field_as_the_field(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    key: str,
+    selected: str,
+    read: str,
+) -> None:
+    """H3 (4): a grouped scalar projection without aggregates that reads such
+    a `let` reports what it reports reading the field, PIE-S2319 beside its
+    own errors, in a single file and in an explicit-module project. Before:
+    a single file also reported PIE-S2102 for the name."""
+    (tmp_path / "pietto.toml").write_text(
+        'schema_version = 2\n\n[sources]\ninclude = ["*.pietto"]\n', encoding="utf-8"
+    )
+    path = tmp_path / "main.pietto"
+    found = []
+    for name in ("key", "status"):
+        path.write_text(
+            _SCALAR_OF_KEY.format(key=key, selected=selected, read=read.format(name)),
+            encoding="utf-8",
+        )
+        for arguments in (["check", str(path)], ["check", "--project", str(tmp_path)]):
+            assert cli.main([*arguments, "--format", "json"]) == 1
+            diagnostics = cast(
+                list[dict[str, dict[str, object]]], _read_json(capsys)["diagnostics"]
+            )
+            found.append(
+                [
+                    (
+                        d["code"],
+                        d["message"],
+                        d["location"]["line"],
+                        d["location"]["column"],
+                    )
+                    for d in diagnostics
+                ]
+            )
+    assert found[1:] == found[:1] * 3
+    assert [row[0] for row in found[0]] == (
+        ["PIE-S2105", "PIE-S2319"] if "+" in read else ["PIE-S2319"]
+    )
+
+
+_SCALAR_OF_NON_KEY = """shape Order:
+    id: Int
+    status: Text
+    label: Text
+source orders: Order = postgres.table("orders")
+query q:
+    from orders
+    let key = status
+    let w = {value}
+    group by {key}
+    select:
+        {selected}
+        {item}
+"""
+_S2319 = ("PIE-S2319", "Grouped scalar projection expressions are not supported yet")
+_UNKNOWN_W = ("PIE-S2102", "Unknown field: w")
+
+
+@pytest.mark.parametrize(
+    ("value", "key", "selected", "item", "expected"),
+    (
+        (
+            "label",
+            "status",
+            "status",
+            "next = lower(w)",
+            [(*_S2319, 13, 16), (*_UNKNOWN_W, 13, 22)],
+        ),
+        (
+            "id",
+            "status",
+            "key",
+            "next = w + 1",
+            [(*_UNKNOWN_W, 13, 16), (*_S2319, 13, 16)],
+        ),
+        (
+            "label",
+            "status",
+            "status",
+            "lower(w)",
+            [(*_S2319, 13, 9), (*_UNKNOWN_W, 13, 15)],
+        ),
+        (
+            "label",
+            "key",
+            "key",
+            "next = lower(w)",
+            [(*_S2319, 13, 16), (*_UNKNOWN_W, 13, 22)],
+        ),
+    ),
+)
+def test_a_grouped_scalar_reads_a_let_that_is_no_key_as_an_unknown_field(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    value: str,
+    key: str,
+    selected: str,
+    item: str,
+    expected: list[tuple[str, str, int, int]],
+) -> None:
+    """H3 (4): only a `let` that renames a key's field reads that key in a
+    grouped select item. A grouped scalar projection without aggregates that
+    reads another `let` still reports PIE-S2319 and PIE-S2102 for the name,
+    beside a selected `let` key too, in a single file and, where `group by`
+    writes the field, in a LEGACY_FLAT check."""
+    path = tmp_path / "main.pietto"
+    path.write_text(
+        _SCALAR_OF_NON_KEY.format(value=value, key=key, selected=selected, item=item),
+        encoding="utf-8",
+    )
+    checks = [["check", str(path)]]
+    if key == "status":
+        (tmp_path / "pietto.toml").write_text(
+            'schema_version = 1\n\n[sources]\ninclude = ["*.pietto"]\n',
+            encoding="utf-8",
+        )
+        checks.append(["check", "--project", str(tmp_path)])
+    for arguments in checks:
+        assert cli.main([*arguments, "--format", "json"]) == 1
+        diagnostics = cast(
+            list[dict[str, dict[str, object]]], _read_json(capsys)["diagnostics"]
+        )
+        assert [
+            (d["code"], d["message"], d["location"]["line"], d["location"]["column"])
+            for d in diagnostics
+        ] == expected
+
+
+@pytest.mark.parametrize("schema_version", (None, 2))
+def test_a_let_key_beside_its_field_is_a_duplicate_group_key(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], schema_version: int | None
+) -> None:
+    """`group by key, status` after `let key = status` groups by `status`
+    twice, as `group by status, status` does, in a single file and in a
+    project. Before: PIE-S2329 in a single file, PIE-S2333 in a project."""
+    source = _GROUPED_LET.format(
+        value="status", key="key, status", items="        key\n"
+    )
+    path = tmp_path / "main.pietto"
+    path.write_text(source, encoding="utf-8")
+    if schema_version is None:
+        arguments = ["check", str(path), "--format", "json"]
+    else:
+        (tmp_path / "pietto.toml").write_text(
+            f'schema_version = {schema_version}\n\n[sources]\ninclude = ["*.pietto"]\n',
+            encoding="utf-8",
+        )
+        arguments = ["check", "--project", str(tmp_path), "--format", "json"]
+    assert cli.main(arguments) == 1
+    diagnostics = cast(list[dict[str, object]], _read_json(capsys)["diagnostics"])
+    assert [(d["code"], d["message"]) for d in diagnostics] == [
+        ("PIE-S2317", "Duplicate GROUP BY key: status")
+    ]
+
+
+_JOINED_LET = """shape Row:
+    id: Int
+    key: Int | None
+    row_key = unique(id)
+source lhs: Row = postgres.table("lhs")
+source rhs: Row = postgres.table("rhs")
+query q:
+    from lhs
+    let r = rhs
+    inner join r on lhs.id == r.id
+{lets}    group by {key}
+    select:
+        {items}
+        n = count()
+    having {output} > 1
+"""
+
+
+@pytest.mark.parametrize(
+    ("key", "items", "output"),
+    (("k", "x = k", "x"), ("r.key", "x = k", "x"), ("k", "k", "k")),
+)
+def test_having_reads_a_joined_let_that_renames_a_key_field_in_both_modes(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    key: str,
+    items: str,
+    output: str,
+) -> None:
+    """H3 (4): over JOIN inputs `having` reads an output that is such a
+    `let` in a single file, with the SQL of the field-spelled query, as a
+    project does. Before: PIE-S2326 in a single file."""
+    source = _JOINED_LET.format(
+        lets="    let k = r.key\n", key=key, items=items, output=output
+    )
+    control = _JOINED_LET.format(
+        lets="", key="r.key", items=f"{output} = r.key", output=output
+    )
+    assert _sql_for(source, prefix="", dialect="postgres") == _sql_for(
+        control, prefix="", dialect="postgres"
+    )
+    (tmp_path / "pietto.toml").write_text(
+        'schema_version = 2\n\n[sources]\ninclude = ["*.pietto"]\n',
+        encoding="utf-8",
+    )
+    (tmp_path / "main.pietto").write_text(source, encoding="utf-8")
+    code = cli.main(["check", "--project", str(tmp_path), "--format", "json"])
+    assert (code, _read_json(capsys)["diagnostics"]) == (0, [])
 
 
 def test_the_two_query_route_the_computed_key_hint_names_is_accepted() -> None:
@@ -709,20 +971,42 @@ def test_the_two_query_route_the_computed_key_hint_names_is_accepted() -> None:
     assert analyze(parsed.ast).diagnostics == ()
 
 
-def test_an_explicit_module_project_groups_by_and_selects_a_computed_let(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+@pytest.mark.parametrize(
+    ("value", "key", "items", "tail"),
+    (
+        ("lower(status)", "key", "        key\n", ""),
+        *(_RENAMED_KEY_FORMS[form] for form in sorted(_RENAMED_KEY_FORMS)),
+    ),
+    ids=("computed", *sorted(_RENAMED_KEY_FORMS)),
+)
+@pytest.mark.parametrize("schema_version", (1, 2))
+def test_an_explicit_module_project_groups_by_and_selects_a_let_key(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    schema_version: int,
+    value: str,
+    key: str,
+    items: str,
+    tail: str,
 ) -> None:
-    """What the computed hints say to write is accepted in a project."""
+    """What the computed hints say to write, and a `let` that renames a key's
+    field (H3 (4)), are accepted in a project, LEGACY_FLAT checks included."""
 
     (tmp_path / "pietto.toml").write_text(
-        'schema_version = 2\n\n[sources]\ninclude = ["*.pietto"]\n', encoding="utf-8"
+        f'schema_version = {schema_version}\n\n[sources]\ninclude = ["*.pietto"]\n',
+        encoding="utf-8",
     )
     (tmp_path / "main.pietto").write_text(
-        _GROUPED_LET.format(value="lower(status)", key="key", items="        key\n"),
+        _GROUPED_LET.format(value=value, key=key, items=items) + tail,
         encoding="utf-8",
     )
     code = cli.main(["check", "--project", str(tmp_path), "--format", "json"])
     assert (code, _read_json(capsys)["diagnostics"]) == (0, [])
+    if schema_version == 2:
+        completed = build_project_completed_semantic_result(
+            build_empty_project_semantic_result(check_project_parse_only(tmp_path))
+        )
+        assert completed.ok and completed.diagnostics == ()
 
 
 @pytest.mark.parametrize(

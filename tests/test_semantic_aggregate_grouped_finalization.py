@@ -20,6 +20,7 @@ from pietto._project.aggregate_grouped_schema import (
     ProjectGroupedSchemaFacts,
     build_project_aggregate_grouped_schema_finalization,
     build_project_aggregate_schema_facts,
+    build_project_group_key_schema_facts,
     build_project_grouped_schema_facts,
 )
 from pietto._project.check import check_project_parse_only
@@ -1190,6 +1191,111 @@ def test_aggregate_grouped_production_is_persisted_private_and_downstream_active
         assert not hasattr(pietto, name)
         assert not hasattr(project_package, name)
         assert name not in serialized
+
+
+@pytest.mark.parametrize("selected", ("key", "status"))
+def test_each_selected_group_key_binds_exactly_one_group_projection(
+    tmp_path: Path, selected: str
+) -> None:
+    """H3 (4): a selected `let` name that renames the key's field is bound to
+    that key by its group projection, which finalization requires once per
+    selected key, each with the field of its own key. A key selected as its
+    field has no key identity to bind it, so only that field check refuses
+    its projection swapped with another key's."""
+    _, _, definition, input_schema, upstream_symbol = _candidate_inputs(
+        tmp_path,
+        "query candidate:\n    from users\n    let key = status\n"
+        f"    group by status, region\n    select:\n        {selected}\n"
+        "        region\n        rows = count()\n",
+    )
+    finalization = _finalize(definition, input_schema, upstream_symbol)
+    assert finalization.state.status is ProjectRelationRowSchemaStatus.CONCRETE
+    candidate = finalization.candidate
+    assert isinstance(candidate, ProjectGroupedSchemaFacts)
+    (item, key), (region_item, region_key) = finalization.group_projections
+    assert candidate.selected_results[item].field.name == selected
+    assert (key.field_identity, region_key.field_identity) == ("status", "region")
+    assert candidate.selected_key_identities == (
+        {item: "status"} if selected == "key" else {}
+    )
+    for projections, message in (
+        ((), "one group projection"),
+        (((item, key), (item, key)), "one group projection"),
+        (((item, region_key), (region_item, key)), "exact candidate key"),
+    ):
+        with pytest.raises(ValueError, match=message):
+            ProjectAggregateGroupedSchemaFinalization(
+                state=finalization.state,
+                aggregate_result_facts=finalization.aggregate_result_facts,
+                _construction=ProjectAggregateGroupedCandidateAttempt(
+                    facts=candidate,
+                    failure_reason=None,
+                    analyses=finalization.analyses,
+                    group_projections=projections,
+                ),
+            )
+
+
+def test_a_selected_let_name_binds_its_own_key_among_look_alike_keys(
+    tmp_path: Path,
+) -> None:
+    """H3 (4): two keys that are outputs of an upstream relation, of one type
+    and nullability and with no field definition, have look-alike fields; a
+    selected `let` name is bound to the key whose field it renames by that
+    key's identity, so a group projection or a key identity forged to the
+    other key is refused."""
+    _, _, definition, input_schema, upstream_symbol = _candidate_inputs(
+        tmp_path,
+        "table base:\n    from users\n    select:\n        amount\n"
+        "        a = amount + 1\n        b = amount + 2\n"
+        "query candidate:\n    from base\n    let k = a\n    group by a, b\n"
+        "    select:\n        k\n        rows = count()\n",
+    )
+    finalization = _finalize(definition, input_schema, upstream_symbol)
+    assert finalization.state.status is ProjectRelationRowSchemaStatus.CONCRETE
+    candidate = finalization.candidate
+    assert isinstance(candidate, ProjectGroupedSchemaFacts)
+    ((item, key),) = finalization.group_projections
+    (other,) = (fact for fact in candidate.group_keys if fact is not key)
+    assert (key.field_identity, other.field_identity) == ("a", "b")
+    assert candidate.selected_key_identities == {item: "a"}
+    assert (
+        key.key_field.resolved_type,
+        key.key_field.nullability,
+        key.key_field.field_def,
+    ) == (
+        other.key_field.resolved_type,
+        other.key_field.nullability,
+        other.key_field.field_def,
+    )
+    # The facts take the name only with the identity of the key it renames,
+    # though the other key's field looks the same.
+    keys = build_project_group_key_schema_facts(
+        definition=definition,
+        input_schema=input_schema,
+        upstream_symbol=upstream_symbol,
+        fallback_path="models.pietto",
+    )
+    assert keys is not None and keys.selected_key_identities == {item: "a"}
+    with pytest.raises(ValueError, match="resolved group-key identity"):
+        replace(keys, selected_key_identities={})
+    with pytest.raises(ValueError, match="resolved group-key identity"):
+        replace(candidate, selected_key_identities={})
+    for facts, projections in (
+        (candidate, ((item, other),)),
+        (replace(candidate, selected_key_identities={item: "b"}), ((item, key),)),
+    ):
+        with pytest.raises(ValueError, match="exact candidate key"):
+            ProjectAggregateGroupedSchemaFinalization(
+                state=finalization.state,
+                aggregate_result_facts=finalization.aggregate_result_facts,
+                _construction=ProjectAggregateGroupedCandidateAttempt(
+                    facts=facts,
+                    failure_reason=None,
+                    analyses=finalization.analyses,
+                    group_projections=projections,
+                ),
+            )
 
 
 def _finalize(

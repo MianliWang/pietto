@@ -529,6 +529,7 @@ def _invalid_binding_names(
             definition,
             binding.name,
             allow_unaliased_selected_let_outputs=allow_unaliased_selected_let_outputs,
+            input_schema=input_schema,
         ):
             # Refused grouped binding reads retain their actionable hint.
             from pietto.semantic.group_by import grouped_let_select_hint
@@ -579,11 +580,13 @@ def _binding_conflicts_with_projection_output(
     binding_name: str,
     *,
     allow_unaliased_selected_let_outputs: bool,
+    input_schema: RowSchema | None = None,
 ) -> bool:
     """Whether an output of another value takes the binding's name.
 
     A single file can select a binding by its own name in an ungrouped
-    relation or when it directly names a computed GROUP BY key.
+    relation, when it directly names a computed GROUP BY key, or over
+    ``input_schema`` when it renames a field that GROUP BY groups by.
     """
 
     for item in definition.select_items:
@@ -605,10 +608,34 @@ def _binding_conflicts_with_projection_output(
                     for key in definition.group_by_clause.items
                 )
             )
+            or (
+                input_schema is not None
+                and _renames_group_key(definition, binding_name, input_schema)
+            )
         ):
             continue
         return True
     return False
+
+
+def _renames_group_key(
+    definition: DerivedRelation, binding_name: str, input_schema: RowSchema
+) -> bool:
+    """Whether the binding renames an input field, through other bindings,
+    that GROUP BY groups by, directly or through a binding."""
+
+    from pietto.semantic.group_by import renames_group_key
+
+    assert definition.let_clause is not None
+    return renames_group_key(
+        definition,
+        binding_name,
+        input_schema,
+        {
+            item.name: item.expression
+            for item in reversed(definition.let_clause.bindings)
+        },
+    )
 
 
 def _dependency_diagnostics(

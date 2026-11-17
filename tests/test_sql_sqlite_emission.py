@@ -351,6 +351,85 @@ def test_min_max_of_a_let_name_writes_a_renamed_field_and_refuses_a_value() -> N
     ]
 
 
+def test_a_let_that_renames_a_grouped_field_writes_that_field() -> None:
+    """PL.48 (4): a single file selects a `let` that renames a field it
+    groups by, by its name and as another output's whole value, and orders
+    by it; SQLite writes the SQL of the query with the field in its place."""
+
+    def emitted(body: str) -> list[tuple[str, str]]:
+        result = emit_sqlite_sql(_compile(HEADER + body))
+        assert result.diagnostics == ()
+        return [(item.name, item.sql) for item in result.artifacts]
+
+    selected = emitted(
+        "query q:\n    from users\n    let who = name\n    group by name\n"
+        "    select:\n        who\n        label = who\n        n = count()\n"
+        "    order by who desc\n"
+    )
+    assert selected == [
+        (
+            "q",
+            "SELECT\n"
+            "    `users`.`name` AS `who`,\n"
+            "    `users`.`name` AS `label`,\n"
+            "    COUNT(*) AS `n`\n"
+            "FROM `users`\n"
+            "GROUP BY\n"
+            "    `users`.`name`\n"
+            "ORDER BY\n"
+            "    `users`.`name` DESC NULLS FIRST",
+        )
+    ]
+    assert selected == emitted(
+        "query q:\n    from users\n    group by name\n    select:\n"
+        "        who = name\n        label = name\n        n = count()\n"
+        "    order by who desc\n"
+    )
+
+
+@pytest.mark.parametrize(
+    ("item", "twin"),
+    (("m = max(w)", "m = max(id)"), ("n = count(w + 1)", "n = count(id + 1)")),
+    ids=("p10_max", "p09_count"),
+)
+def test_a_let_name_in_an_aggregate_beside_a_renamed_key_acts_as_its_twin(
+    item: str, twin: str
+) -> None:
+    """78-11: beside a selected `let` that renames the GROUP BY field (P11),
+    `max` of a `let` name (P10) writes its field-spelled twin's SQL, and an
+    operation on one inside `count` (P09) is refused as its twin is."""
+
+    def emitted(body: str) -> tuple[list[tuple[str, str]], list[str]]:
+        result = emit_sqlite_sql(_compile(HEADER + body))
+        return (
+            [(artifact.name, artifact.sql) for artifact in result.artifacts],
+            [diagnostic.code for diagnostic in result.diagnostics],
+        )
+
+    form = emitted(
+        "query q:\n    from users\n    let who = name\n    let w = id\n"
+        f"    group by name\n    select:\n        who\n        {item}\n"
+    )
+    assert form == emitted(
+        "query q:\n    from users\n    group by name\n    select:\n"
+        f"        who = name\n        {twin}\n"
+    )
+    if item.startswith("m ="):
+        assert form == (
+            [
+                (
+                    "q",
+                    "SELECT\n    `users`.`name` AS `who`,\n"
+                    "    MAX(`users`.`id`) AS `m`\nFROM `users`\n"
+                    "GROUP BY\n    `users`.`name`",
+                )
+            ],
+            [],
+        )
+    else:
+        assert form == ([], ["PIE-B1000"])
+
+
 def test_refusals_keep_backend_order_and_the_other_artifacts(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
