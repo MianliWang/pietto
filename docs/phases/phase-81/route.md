@@ -719,6 +719,57 @@ contract](../../spec/lsp-diagnostics-v1.md) and a release-note fragment.
 - **Roadmap.** At integration, the single writer of the roadmap's Phase81
   row records this overlap as landed with P13.
 
+## P14 record
+
+P14 ran on 2026-11-17 on the route's candidate `6fa66291`, in a fresh
+worktree synced offline from `uv.lock` (CPython 3.13.13). Under PL.50 Q12
+A it moves the release tools that `0.2.1` used and `0.2.2` copied, from
+the previous release's directory outside Git, into the repository; `0.2.2`
+used its copies, since Phase81 was not in it.
+
+- **Tools.** `scripts/publish_release.py` and `scripts/release_prep.py`
+  keep their logic, formatted by Ruff, and their text names no host path,
+  release or commit. Three changes: `--execute` is refused where `CI` or
+  `GITHUB_ACTIONS` is set, before a token is read or a git command runs,
+  which is 81-A9's permission gate, so CI can run only the dry run and the
+  tests; `--ci-jobs` is required, since P04 takes CI from 21 to 30 jobs
+  and a default would go stale; and `release_prep.py` drops its `selftest`
+  command, whose cases moved to the tests.
+- **Self-tests.** They are now tests of the repository area's existing
+  owner, `tests/test_repo_release_notes_fragments.py`: every case of the
+  copied `publish_release_selftest.py` (17 token cases, 7 token-header
+  checks, 33 wheel and sdist binding checks, and 23 stale-text samples of
+  four patterns) and the six link-grammar cases of `release_prep.py
+  selftest`. The fixture version is `7.8.9`, which no release uses, and
+  the fixture commit's module is `src/pietto/cli.py` instead of
+  `src/pietto/a.py`, so that the same commit serves a real dry run. The
+  fake tokens with real public prefixes are split in the source, so that
+  no secret scanner reads a token shape there.
+- **Failure paths.** New tests run `scripts/publish_release.py` with `-I
+  -B` on a release-ready repository made in the test: the dry run exits 0
+  with no `PREFLIGHT` line, the digests of both files and the release
+  notes' anchor; a wrong tree, an unassembled fragment and a fill
+  placeholder each give their `PREFLIGHT` line; and `--execute` with
+  `CI=true` stops with nothing written. In process, `CI` and
+  `GITHUB_ACTIONS` each stop `--execute` before any git or HTTP call.
+  `release_prep.py bump` writes nothing while one version owner is
+  missing, and `fill` refuses a draft part that holds the fill
+  placeholder the preflight refuses. Another test reads the current
+  `docs` and `README.md` with the preflight's stale-text patterns and
+  finds no match except README's links to main, which `bump` pins, so a
+  document that the next release's preflight would refuse fails before
+  it merges.
+- **No external action.** No test reads a credential or opens a network
+  connection: `--execute` runs only against fakes of git, the preflight,
+  HTTP and `uv`, or up to one of its refusals, and git runs only in the
+  test's temporary repository, without the user's configuration. `ci.yml`
+  is unchanged; CI runs the tests in its existing pytest jobs, on Linux
+  only, since the Windows jobs do not run the repository area. The
+  `--execute` path itself is still verified only by a real release.
+
+For the next release the checklist runs this test owner where it ran the
+two self-tests and calls both scripts from the release commit's tree.
+
 ## Single writers and the other lines
 
 The lead sets the order and a later arrival rebases. At the first
