@@ -14,8 +14,9 @@ qualification and the acquisition review, and hands tier 2 to the owner's
 plan (PL.54).
 The batch that publishes T08 determines B2's completion through its Gate 2
 seal and natural exact-head CI; this document does not certify its own
-publication, and the first documentation commit after that batch is
-published records the batch's facts here.
+publication, and a documentation commit after that batch was published
+recorded the batch's facts in
+[Budget, failures and Gate 2](#budget-failures-and-gate-2).
 
 ## Baseline and publication boundary
 
@@ -113,7 +114,8 @@ fails it. B2's pytest cells skip on every CI job, none of which installs
 `execute-duckdb` (lesson 75-3): in T07's CI-shaped environment
 `tests/test_execution_api_duckdb_arrow.py` had 7 passes and 27 skips,
 every skip "the capture needs PyArrow", where the integration host had 34
-passes. The batch Gate 2 records the same pair on the batch tree.
+passes. The batch Gate 2 did not record that pair; see
+[Budget, failures and Gate 2](#budget-failures-and-gate-2).
 
 ## Compiled compatibility
 
@@ -131,9 +133,10 @@ and jobs do not take the route, so B2 adds nothing to migrate.
 - **Inform of the derived rows.** The specification's open item names B2's
   derived rows, due before T02 sealed. That point was missed: T02 sealed
   first. The lead's status report to the owner of 2026-11-16 named the item
-  overdue and listed part of it. Owner: the lead, who states the whole list
-  to the owner before the batch Gate 2 and closes the row in the first
-  documentation commit after that.
+  overdue and listed part of it. Owner: the lead, who stated the whole
+  list, nine derived rules, to the owner at about 08:30Z on 2026-11-16,
+  before the batch Gate 2, by the lead's record; a decision row records
+  it before the `0.2.2` release commit.
 - **Fragment.** T08 compared the fragment with the specification and found
   no rule that differs. It added the links to the capability page and the
   execution guide and the qualified platforms; B2's batch audit compares
@@ -167,9 +170,8 @@ and jobs do not take the route, so B2 adds nothing to migrate.
   verdicts was run by T06's own lane after the run; two independent
   read-only reviews of the lane's head followed, found errata in the
   preregistration's text and the margins above, and changed no frozen file,
-  saved output or verdict. Owner: the lead, who records whether those
-  reviews stand for the independent audit or has one read the saved run
-  before the batch Gate 2.
+  saved output or verdict. Owner: the lead, who had one read the saved
+  run; its verdict is [recorded below](#t06s-run-on-the-t08-tree).
 - **Midpoint.** The route places B2's midpoint after T02–T05 are integrated
   and before T06, with a record and the owner's tier-2 decision. The lane's
   dispatch ran T06 after T05 without that stop, and no midpoint record was
@@ -230,8 +232,9 @@ Classified:
 Structural improvement: none needed; wall-time improvement: none claimed;
 no-gain: the two repeated emissions above. The bounded ten-slowest profile of
 step 4 reads the final natural CI health of the batch head after
-publication; it is NOT_OBSERVED here (PL.07) and is owned by the first
-documentation commit after publication.
+publication; it is NOT_OBSERVED here (PL.07). The lead owns it, from the
+health of the batch head's natural CI `43888270979`, before the `0.2.2`
+release commit.
 
 ## T06's run on the T08 tree
 
@@ -292,17 +295,35 @@ Failures are kept, never rerun as replacements: T02's first candidate
 `28279098`, T04's `98eb2a4f`, T05's `f1e6c6fa` and T07's `74b256c7`, each
 replaced before delivery; T06's rehearsals, of which the second's U1
 was REFUSED by law 3 on cell C18 before the freeze, and T06's run tree
-`6895d347`, whose specification the repair then changed (above); and T07's
-first negative-control attempt, which was void. Each slice was reviewed
-independently before it was delivered.
+`6895d347`, whose specification the repair then changed (above); T07's
+first negative-control attempt, which was void; and the batch Gate 2's
+first run, on `aca2a251` (tree `3649e538`) on 2026-11-16 from 14:18:31Z
+to 14:19:50Z, which stopped at test typing with eight pyright errors in
+`tests/test_sql_duckdb_emission.py` and was followed by the lead's typing
+repair `e1570b5e`. Each slice was reviewed independently before it was
+delivered.
 
-Gate 2 has not run: it runs once on the batch's final tree, on the
-integration host, because `docs/development.md` is on a VR2 acceptance rule
-path. The first documentation commit after publication records here its
-tree, start and end, the `scripts/validate.py` and pytest durations with the
-worker count and the passed and skipped counts, its package smoke, the
-DuckDB extra start with the two DuckDB owners' passes, and the natural
-exact-head CI with its jobs.
+The batch Gate 2's second run was on the batch's final tree `a348295c`, on
+the integration host, because `docs/development.md` is on a VR2 acceptance rule
+path, on 2026-11-16 from 14:21:57Z to 14:31:14Z, with the qualified storage
+and SQLite classes: `scripts/validate.py` passed in 549.2 s, with pytest at
+494.57 s on 20 workers (30,975 passed, 69 skipped, none failed). Its
+package smoke (14:31:14Z to 14:32:48Z) built the `0.2.1` wheel and sdist
+and passed the core and `execute-duckdb` cells, the latter with a real
+`duckdb_arrow` query; the six interop consumers and the sdist member check
+followed and passed. The DuckDB extra start (14:33:33Z to 14:33:48Z) passed
+166 tests of `tests/test_execution_api_duckdb_arrow.py` and
+`tests/test_sql_duckdb_emission.py` on 2 workers in an `execute-duckdb`
+environment, none skipped. Neither run recorded each owner's own count, so
+the pair the acceptance layers name is not recorded. The tree was the same
+before and after. The run sealed `e1570b5e`, whose message alone was then
+amended with its Gate 2 line into `107df991`, pushed under PL.52 at
+14:40:43Z by the lead's record. Its natural exact-head CI `43888270979`,
+push/main attempt 1, passed all 21 jobs from 14:40:47Z to 15:04:04Z:
+Python, Compiler / Package and Windows on 3.12 and 3.13, the six runtime
+jobs of each Python (shared acquisition, plan and emission portability and
+the three general runtime shards), Target postgres, Target mysql and the
+target conformance aggregate.
 
 ## Phase82 inputs
 
@@ -344,7 +365,6 @@ read-back. The route stays alpha until the Phase82 freeze rules on it.
 - **Reminder 8.** It stays satisfied by exclusion: B2 has no JOIN and, since
   bundles still refuse DuckDB, no new consumer of compiled admission. It
   passes to the first slice that admits a JOIN.
-- **Debt.** The derived-rows inform, the integrity-audit record and the
-  `having` and memory-margin items above; the ten-slowest profile of the
-  batch head; and the Gate 2 facts, which the first documentation commit
-  after publication records.
+- **Debt.** The derived-rows decision row and the `having` and
+  memory-margin items above; and the ten-slowest profile of the batch
+  head.

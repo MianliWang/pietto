@@ -1018,7 +1018,10 @@ Phase78's.
 
 **Second batch.** R1 `a47a5713` on `6a0646b4`, S16 above it and, above
 S16, the VR2 fix that lets a split Gate 2's local receipt accept the
-route's counted ARROW skip (by the lead's record of 2026-11-17), with one
+route's counted ARROW skip and, above the fix, the documentation commit
+that records the Gate 2 and CI facts of DuckDB B2's batch in its
+[audit](../phase-79/b2-completion-audit.md#budget-failures-and-gate-2)
+(by the lead's record of 2026-11-17), with one
 Gate 2 and one natural CI (PL.59 (3)); they publish as one batch under
 PL.52, and `0.2.2` waits for it (PL.55, PL.59). A documentation commit
 after its publication, before the `0.2.2` release commit, records its
