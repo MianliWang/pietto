@@ -11,9 +11,9 @@ their own ([SQLite single files](#sqlite-single-files),
 other pages claim for each platform.
 It describes `0.2.2`, whose
 [release notes](release-notes.md#sqlite-project-mode-duckdb-joins-and-mysql-catch-up-public-alpha-release-notes--022)
-give each change, and the range-proved `Int` arithmetic of SQLite projects
-([SQLite single files](#sqlite-single-files)) that no release carries yet.
-Each row was recorded by running one
+give each change, and the range-proved `Int` arithmetic and windows of
+SQLite projects ([SQLite single files](#sqlite-single-files)) that no
+release carries yet. Each row was recorded by running one
 plain example of the family through these commands, with a project emission
 contract that declares every premise
 ([project SQL emission](project-package.md#project-sql-emission)). A cell
@@ -150,7 +150,16 @@ refused alike for every target.
   `where`, and all but `abs` in the argument of `avg` and `sum` (`check`
   refuses `abs` there, PIE-S2315), when the contract's `int_range` bounds
   keep every result inside signed 64 bits, else PIE-B1004
-  `int_arithmetic_range_proof_missing`
+  `int_arithmetic_range_proof_missing`. Over one source read without
+  `group by` or an aggregate, they also write the windows `row_number`,
+  `rank`, `dense_rank` and `count()`, `count`, `min` and `max` of an `Int`
+  or `Float` field, and the one-sided `sum` of an `Int` field in a frame
+  from `unbounded preceding` to `current row` or `unbounded following`,
+  keyed by fields of the source, with no `range` offset and no `exclude`
+  other than `exclude no others`; other windows are PIE-B1003
+  `sqlite_window_not_admitted` or `sqlite_window_sum_frame_not_admitted`,
+  and a window `sum` over a mixed-sign `int_range` is PIE-B1004
+  `sum_int_aggregate_range_proof_missing`
   ([SQLite projects](language.md#sqlite-projects), alpha). PostgreSQL, MySQL
   and DuckDB emission refuse such a source with PIE-B1001
   `source_family_mismatch`.
