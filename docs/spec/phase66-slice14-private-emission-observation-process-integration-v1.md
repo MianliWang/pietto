@@ -101,7 +101,9 @@ policy, empty input blockers and module snapshots; premise positions and JSON va
 source order, field ordinals and column collisions; query/request/rendered roots; unit
 order, finality, `p{n}` unit symbols, `c{i}` terminal columns bound to terminals, and
 producers before consumers; column ordinals and symbol positions; operation kinds,
-operators and arity; anchor physical types per family and tag; acyclic value trees;
+operators and arity; the nullability of each arithmetic, sign, cast and scalar call result
+as the semantic rules derive it from its operands (arithmetic is unknown, nullable over a
+NULL operand); anchor physical types per family and tag; acyclic value trees;
 parameter claims, fixed-value slots, PostgreSQL slot-consistent `$n` reuse and MySQL
 ordinal `?` indexes; tokens partitioning the SQL on UTF-8 boundaries; per-kind lexical
 forms; closed syntax spellings; no comment-forming adjacency; balanced parentheses;
