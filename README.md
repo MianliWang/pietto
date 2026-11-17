@@ -212,9 +212,9 @@ gives every rule and limit.
   flat subset of one-table files, as text or CLI JSON v1, qualified on one
   measured SQLite build, and `emit-sql --project ... --dialect sqlite`
   writes the same forms, with query parameters, for a project table or query
-  that reads one `sqlite.table` source, which the read-only `sqlite_file`
-  execution route runs over a caller's file on Linux x86-64 with the
-  measured build
+  that reads one `sqlite.table` source or joins such sources, which the
+  read-only `sqlite_file` execution route runs over a caller's file on
+  Linux x86-64 with the measured build
   ([SQLite single files](https://github.com/MianliWang/pietto/blob/main/docs/capabilities.md#sqlite-single-files),
   [SQLite file route](https://github.com/MianliWang/pietto/blob/main/docs/execution.md#sqlite-file-route)).
   `0.2.0` and `0.2.1` carry only the single-file SQL; project mode and

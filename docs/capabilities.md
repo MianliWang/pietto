@@ -168,9 +168,8 @@ refused alike for every target.
   compiles such a project query, and the `sqlite_file` route runs it
   read-only over one caller's file of `STRICT` tables, only on Linux x86-64
   with the measured build ([SQLite file route](execution.md#sqlite-file-route),
-  alpha), except a statement with a JOIN, which it refuses with PIE-R1003
-  `PUBLIC_ROUTE_UNAVAILABLE` before the file opens. A single file is never
-  run.
+  alpha); before a statement that joins sources and aggregates, it checks
+  each source's declared keys. A single file is never run.
 - **Support.** The SQL text and its goldens are tested wherever CI runs
   (CPython 3.12 and 3.13). The native cells qualify the SQL in process on one
   measured SQLite library only: release `3.53.1`, source id `2026-05-05

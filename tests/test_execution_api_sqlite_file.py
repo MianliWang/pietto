@@ -286,14 +286,61 @@ def test_compile_query_compiles_a_sqlite_query(
 JOINED = """query joined:
     from orders
     let c = customers
-    inner join c on orders.id == c.id
+    left join c on orders.id == c.id
     select:
         orders.id
         c.name
 """
+CUSTOMERS = (
+    "CREATE TABLE customers (id INTEGER NOT NULL, name TEXT NOT NULL,"
+    " vip INTEGER, rate REAL NOT NULL) STRICT"
+)
+CUSTOMER_ROWS = ((1, "a", 1, 0.5), (3, "b", None, 1.0))
+JOINED_COLUMNS = (("id", "int64", False), ("name", "string", True))
 
 
-def test_compile_query_compiles_a_join_that_the_route_refuses(tmp_path: Path) -> None:
+def _joined(
+    root: Path,
+    body: str = JOINED,
+    *,
+    header: str = files.JOINED_HEADER,
+    amount: tuple[int, int] | None = None,
+) -> execution.CompiledQuery:
+    document = files.joined_contract()
+    if amount is not None:
+        domain = document["sources"][0]["fields"][1]["representation"]["domain"]
+        domain.update(min=str(amount[0]), max=str(amount[1]))
+    files.write(root, body, document, header)
+    return execution.compile_query(
+        root,
+        module="main.pietto",
+        kind="query",
+        name=body.split(":")[0].split()[-1],
+        dialect="sqlite",
+        emission_contract="contract.json",
+    )
+
+
+def _joined_database(
+    path: Path,
+    orders: tuple[tuple[object, ...], ...] = ROWS,
+    customers: tuple[tuple[object, ...], ...] = CUSTOMER_ROWS,
+    schema: str = CUSTOMERS,
+    *setup: str,
+) -> Path:
+    _database(path, orders, SCHEMA, *setup)
+    with closing(sqlite3.connect(path)) as connection:
+        connection.execute(schema)
+        if customers:
+            marks = ", ".join("?" * len(customers[0]))
+            connection.executemany(f"INSERT INTO customers VALUES ({marks})", customers)
+        connection.commit()
+    return path
+
+
+def test_compile_query_compiles_a_join(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     # A third source that the query does not read leaves its contract entry.
     header = files.JOINED_HEADER + ('\nsource spare: Order = sqlite.table("spare")\n')
     document = files.joined_contract()
@@ -312,13 +359,407 @@ def test_compile_query_compiles_a_join_that_the_route_refuses(tmp_path: Path) ->
     assert b'"sql":"SELECT `s0`.`id` AS `id`, `s1`.`name` AS `name` FROM' in (
         query.emission
     )
+    facts = route.execution_facts(query._template)
+    assert [(s.name, s.keys) for s in facts.sources] == [
+        ("orders", ()),
+        ("customers", (((0,), True),)),
+    ]
+    assert (facts.joined, facts.aggregated) == (True, False)
+    # Defence 9 refuses a JOIN as any query, before any file (Windows CI).
     missing = tmp_path / "absent.db"
+    monkeypatch.setattr(route.platform, "machine", lambda: "aarch64")
     access = execution.SQLiteFileInput(missing)
     assert _refusal(query, access=access, parameters={}) == (
-        "PIE-R1003",
-        "PUBLIC_ROUTE_UNAVAILABLE",
+        "PIE-R2002",
+        "SQLITE_BUILD",
     )
     assert not missing.exists()
+    # The authorizer allows each source's contract columns, and nothing else.
+    attempt = route.SQLiteAttempt(facts, "x.db", (), None)
+    read, ok, deny = sqlite3.SQLITE_READ, sqlite3.SQLITE_OK, sqlite3.SQLITE_DENY
+    allowed = [
+        (read, "orders", "note", "main", None),
+        (read, "customers", "rate", "main", None),
+        (read, "customers", "", "main", None),
+        (sqlite3.SQLITE_PRAGMA, "table_list", "customers", None, None),
+        (sqlite3.SQLITE_PRAGMA, "integrity_check", "orders", None, None),
+    ]
+    denied = [
+        (read, "customers", "note", "main", None),
+        (read, "orders", "rate", "main", None),
+        (read, "spare", "id", "main", None),
+        (sqlite3.SQLITE_PRAGMA, "table_list", "spare", None, None),
+    ]
+    assert [attempt._authorize(*c) for c in allowed] == [ok] * len(allowed)
+    assert [attempt._authorize(*c) for c in denied] == [deny] * len(denied)
+
+
+@NATIVE
+def test_a_join_runs_over_each_checked_source(tmp_path: Path) -> None:
+    query = _joined(tmp_path / "p")
+    path = _joined_database(tmp_path / "joined.db")
+    before = path.read_bytes()
+    _judged(
+        _handle(query, path, parameters={}),
+        [(1, "a"), (2, None), (3, "b")],
+        JOINED_COLUMNS,
+        ordered=False,
+    )
+    assert path.read_bytes() == before
+    # The authorizer reports a read with no column of an input that the
+    # statement reads only by its rowid alias, here `c.id`.
+    body = JOINED.replace("left join", "inner join").replace("        c.name\n", "")
+    rowid = _joined(tmp_path / "r", body)
+    keyed = _joined_database(
+        tmp_path / "rowid.db",
+        schema=CUSTOMERS.replace("id INTEGER NOT NULL", "id INTEGER PRIMARY KEY"),
+    )
+    _judged(
+        _handle(rowid, keyed, parameters={}),
+        [(1,), (3,)],
+        JOINED_COLUMNS[:1],
+        ordered=False,
+    )
+    # A comparison of a right field is NULL for order 2, which matches no
+    # customer, and so is a `not` of one; `NULL AND 0` is 0.
+    body = JOINED.replace(
+        "        c.name\n",
+        "        e = c.id == orders.id\n        nt = not (c.rate > 0.0)\n"
+        "        an = c.id == 1 and orders.ok\n",
+    )
+    _judged(
+        _handle(_joined(tmp_path / "e", body), path, parameters={}),
+        [(1, True, False, True), (2, None, None, False), (3, True, False, False)],
+        (("id", "int64", False), *((name, "bool", True) for name in ("e", "nt", "an"))),
+        ordered=False,
+    )
+
+
+@NATIVE
+@pytest.mark.parametrize(
+    ("table", "change", "detail"),
+    [
+        ("orders", "STRICT", "SQLITE_SOURCE_OBJECT"),
+        ("orders", "ok 2", "SQLITE_SOURCE_VALUES"),
+        ("customers", "STRICT", "SQLITE_SOURCE_OBJECT"),
+        ("customers", "vip 2", "SQLITE_SOURCE_VALUES"),
+        ("customers", "rate", "SQLITE_SOURCE_COLUMNS"),
+        ("customers", "index", "SQLITE_SOURCE_OBJECT"),
+    ],
+)
+def test_each_source_of_a_join_passes_every_defence(
+    table: str,
+    change: str,
+    detail: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _pyarrow()
+    query = _joined(tmp_path / "p")
+    path = tmp_path / "joined.db"
+    orders, customers, schema, setup = ROWS, CUSTOMER_ROWS, CUSTOMERS, ()
+    if (table, change) == ("orders", "ok 2"):
+        orders = _row(ok=2)
+    elif (table, change) == ("customers", "vip 2"):
+        customers = ((1, "a", 2, 0.5),)
+    elif change == "rate":
+        schema = CUSTOMERS.replace("rate REAL", "rate INTEGER")
+        customers = ((1, "a", 1, 5),)
+    _joined_database(path, orders, customers, schema, *setup)
+    with closing(sqlite3.connect(path)) as connection:
+        if change == "STRICT":
+            connection.executescript(
+                f"ALTER TABLE {table} RENAME TO old;"
+                f" CREATE TABLE {table} AS SELECT * FROM old; DROP TABLE old"
+            )
+        elif change == "index":
+            connection.execute("CREATE INDEX c_lower ON customers(lower(name))")
+        connection.commit()
+    statements: list[str] = []
+    real = sqlite3.connect
+
+    def connect(*arguments: Any, **keywords: Any) -> Any:
+        connection = real(*arguments, **keywords)
+        connection.set_trace_callback(statements.append)
+        return connection
+
+    handle = _handle(query, path, parameters={})
+    monkeypatch.setattr(sqlite3, "connect", connect)
+    failed = _failed(handle)
+    assert (failed.failure.code, failed.failure.detail) == ("PIE-R2007", detail)
+    assert not any(s.startswith("SELECT `s0`") for s in statements), statements
+    assert failed.outcome is not None and failed.outcome.rows == 0
+
+
+@NATIVE
+def test_a_joined_read_stops_after_the_batch_that_crosses_the_limits(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pa = _pyarrow()
+    # Each order matches every customer of its `ok`: the JOIN fans out.
+    body = JOINED.replace("orders.id == c.id", "orders.ok == c.vip")
+    query = _joined(tmp_path / "p", body)
+    customers = ((1, "a", 1, 0.5), (2, "b", 1, 1.0), (3, "c", 0, 1.5))
+    path = _joined_database(tmp_path / "joined.db", customers=customers)
+    read: list[int] = []
+    bind = results.bind_result
+
+    def counted(pa: Any, rows: Any, columns: Any) -> Any:
+        read.append(len(rows))
+        return bind(pa, rows, columns)
+
+    monkeypatch.setattr(results, "bind_result", counted)
+    # The read measures each batch as delivery does: two batches' bytes
+    # exactly, and the third crosses.
+    single = execution.ExecutionLimits(batch_rows=1)
+    with _handle(query, path, parameters={}, limits=single) as result:
+        charges = [pa.record_batch(batch).nbytes for batch in result]
+    assert len(charges) == 5
+    for limits, delivered in (
+        (execution.ExecutionLimits(batch_rows=1, max_rows=2), [1, 1]),
+        (execution.ExecutionLimits(batch_rows=2, max_bytes=1), []),
+        (execution.ExecutionLimits(batch_rows=1, max_bytes=sum(charges[:2])), [1, 1]),
+        (execution.ExecutionLimits(batch_rows=1, batch_bytes=1), []),
+    ):
+        read.clear()
+        sizes = []
+        handle = _handle(query, path, parameters={}, limits=limits)
+        with pytest.raises(execution.AttemptFailed) as failed:
+            with handle as result:
+                for batch in result:
+                    sizes.append(pa.record_batch(batch).num_rows)
+        assert failed.value.failure.code == "PIE-R3004"
+        assert sizes == delivered
+        # The read stopped with the batch that delivery refused.
+        assert read == [limits.batch_rows] * (len(delivered) + 1)
+    _judged(
+        _handle(query, path, parameters={}),
+        [(1, "a"), (1, "b"), (2, "c"), (3, "a"), (3, "b")],
+        JOINED_COLUMNS,
+        ordered=False,
+    )
+
+
+GROUPED_JOIN = """query totals:
+    from orders
+    let c = customers
+    inner join c on orders.id == c.id
+    group by:
+        c.name
+    select:
+        name = c.name
+        s = sum(orders.amount)
+"""
+GROUPED_ONE = """query totals:
+    from orders
+    group by:
+        note
+    select:
+        note
+        s = sum(amount)
+"""
+
+
+@NATIVE
+@pytest.mark.parametrize(
+    ("body", "delivered", "code"),
+    [
+        # Each group is computed as it is read, and Python's driver steps one
+        # row past the last it returns: the fourth group's overflow lies past
+        # the stop, and the crossing batch ends the attempt.
+        (GROUPED_JOIN, [1], "PIE-R3004"),
+        # Over one source the whole result is read when the attempt opens.
+        (GROUPED_ONE, [], "PIE-R3003"),
+        # Ordered by the sum, every group is computed before the first row.
+        (GROUPED_JOIN + "    order by:\n        s\n", [], "PIE-R3003"),
+    ],
+)
+def test_an_error_past_the_stop_of_a_joined_read_may_not_be_seen(
+    body: str, delivered: list[int], code: str, tmp_path: Path
+) -> None:
+    pa = _pyarrow()
+    query = _joined(tmp_path / "p", body, amount=(0, MAX))
+    orders = tuple(
+        (i, amount, note, 1, 0.5)
+        for i, (amount, note) in enumerate(
+            (
+                *((1, "a"), (2, "a"), (3, "b"), (4, "b")),
+                *((5, "c"), (6, "c"), (MAX, "d"), (1, "d")),
+            ),
+            1,
+        )
+    )
+    customers = tuple(
+        (i, note, None, 0.5) for i, (_, _, note, _, _) in enumerate(orders, 1)
+    )
+    path = _joined_database(tmp_path / "joined.db", orders, customers)
+    sizes = []
+    limits = execution.ExecutionLimits(batch_rows=1, max_rows=1)
+    with pytest.raises(execution.AttemptFailed) as failed:
+        with _handle(query, path, parameters={}, limits=limits) as result:
+            for batch in result:
+                sizes.append(pa.record_batch(batch).num_rows)
+    assert (failed.value.failure.code, sizes) == (code, delivered)
+
+
+UNIQUE_ON = """query keyed:
+    from orders
+    let c = customers
+    inner join c on orders.id == c.id
+    select:
+        orders.id
+        n = count()
+"""
+
+SELF_ON = """query keyed:
+    from orders
+    let p = orders
+    inner join p on orders.id == p.id
+    group by:
+        orders.id
+    select:
+        orders.id
+        n = count()
+"""
+
+
+@NATIVE
+@pytest.mark.parametrize(
+    ("case", "body", "customers", "expected"),
+    [
+        # A key that the `on` matches, and one only in the GROUP BY.
+        (
+            "on",
+            UNIQUE_ON.replace(
+                "    select:", "    group by:\n        orders.id\n    select:"
+            ),
+            ((1, "a", 1, 0.5), (1, "b", 1, 1.0)),
+            "SQLITE_SOURCE_UNIQUE",
+        ),
+        (
+            "group by",
+            """query keyed:
+    from orders
+    let c = customers
+    inner join c on orders.note == c.name
+    group by:
+        c.id
+    select:
+        cid = c.id
+        n = count()
+""",
+            ((1, "a", 1, 0.5), (1, "b", 1, 1.0)),
+            "SQLITE_SOURCE_UNIQUE",
+        ),
+        # A STRICT REAL column keeps no zero sign: -0.0 and 0.0 are one key.
+        (
+            "float",
+            UNIQUE_ON.replace(
+                "    select:", "    group by:\n        orders.id\n    select:"
+            ),
+            ((1, "a", 1, -0.0), (2, "b", 1, 0.0)),
+            "SQLITE_SOURCE_UNIQUE",
+        ),
+        # `a` and `A` differ by their bytes on a COLLATE NOCASE column.
+        (
+            "nocase",
+            UNIQUE_ON.replace(
+                "    select:", "    group by:\n        orders.id\n    select:"
+            ),
+            ((1, "a", 1, 0.5), (2, "A", 1, 1.0)),
+            [(1, 1), (2, 1)],
+        ),
+        # A key's NULLs are distinct: two customers without `vip` break no
+        # key, and two with `vip` 1 do.
+        (
+            "nulls",
+            UNIQUE_ON.replace(
+                "    select:", "    group by:\n        orders.id\n    select:"
+            ),
+            ((1, "a", None, 0.5), (2, "b", None, 1.0)),
+            [(1, 1), (2, 1)],
+        ),
+        (
+            "vip",
+            UNIQUE_ON.replace(
+                "    select:", "    group by:\n        orders.id\n    select:"
+            ),
+            ((1, "a", 1, 0.5), (2, "b", 1, 1.0)),
+            "SQLITE_SOURCE_UNIQUE",
+        ),
+        # The first input's keys are checked too, and a source read twice
+        # once.
+        (
+            "orders",
+            UNIQUE_ON.replace(
+                "    select:", "    group by:\n        orders.id\n    select:"
+            ),
+            CUSTOMER_ROWS,
+            "SQLITE_SOURCE_UNIQUE",
+        ),
+        ("self", SELF_ON, CUSTOMER_ROWS, "SQLITE_SOURCE_UNIQUE"),
+        ("self-once", SELF_ON, CUSTOMER_ROWS, [(1, 1), (2, 1), (3, 1)]),
+        # A JOIN that does not aggregate adds rows but enlarges no value.
+        (
+            "unaggregated",
+            JOINED.replace("left join", "inner join"),
+            ((1, "a", 1, 0.5), (1, "b", 1, 1.0)),
+            [(1, "a"), (1, "b")],
+        ),
+    ],
+)
+def test_a_joined_aggregate_checks_each_declared_key_first(
+    case: str,
+    body: str,
+    customers: tuple[tuple[object, ...], ...],
+    expected: Any,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    header = files.JOINED_HEADER
+    schema = CUSTOMERS
+    orders = ROWS
+    if case in ("orders", "self", "self-once"):
+        header = header.replace(
+            "    price: Float\n", "    price: Float\n    order_key = unique(id)\n", 1
+        )
+        if case != "self-once":
+            orders = (*ROWS, (1, 8, "c", 0, 3.0))
+    if case == "float":
+        header = header.replace("unique(id)", "unique(id)\n    rate_key = unique(rate)")
+    elif case in ("nulls", "vip"):
+        header = header.replace("unique(id)", "unique(id)\n    vip_key = unique(vip)")
+    elif case == "nocase":
+        header = header.replace("unique(id)", "unique(id)\n    name_key = unique(name)")
+        schema = CUSTOMERS.replace("name TEXT", "name TEXT COLLATE NOCASE")
+    query = _joined(tmp_path / "p", body, header=header)
+    path = _joined_database(
+        tmp_path / "joined.db", orders=orders, customers=customers, schema=schema
+    )
+    statements: list[str] = []
+    real = sqlite3.connect
+
+    def connect(*arguments: Any, **keywords: Any) -> Any:
+        connection = real(*arguments, **keywords)
+        connection.set_trace_callback(statements.append)
+        return connection
+
+    handle = _handle(query, path, parameters={})
+    monkeypatch.setattr(sqlite3, "connect", connect)
+    if type(expected) is str:
+        failed = _failed(handle)
+        assert (failed.failure.code, failed.failure.detail) == ("PIE-R2007", expected)
+        assert failed.outcome is not None and failed.outcome.rows == 0
+        assert not any(s.startswith("SELECT `s0`") for s in statements)
+        return
+    columns = (
+        (("id", "int64", False), ("name", "string", False))
+        if case == "unaggregated"
+        else (("id", "int64", False), ("n", "int64", False))
+    )
+    _judged(handle, expected, columns, ordered=False)
+    scans = [s for s in statements if "HAVING (COUNT(*) > 1)" in s]
+    assert len(scans) == {"unaggregated": 0, "self-once": 1}.get(case, 2), scans
 
 
 def test_request_checks_refuse_in_order_before_any_file_opens(
