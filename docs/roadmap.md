@@ -424,9 +424,10 @@ audit](mysql-catchup/completion-audit.md#pl49s-two-items)), and the pure
 verifier fidelity repair (PL.20, D77.54) settled those in the pure reader,
 as the
 [Slice14 contract](spec/phase66-slice14-private-emission-observation-process-integration-v1.md#coverage)
-records. Phase81 takes the import time of
-`pietto.execution` (PL.40, D15). Each completion audit records the Gate 2
-duration.
+records. With [P17](phases/phase-81/route.md#p17-record),
+`import pietto.execution` loads only its access, input, premise and limit
+classes, and each other name imports its owner when first read (PL.40,
+D15). Each completion audit records the Gate 2 duration.
 
 ### Deferred subjects
 

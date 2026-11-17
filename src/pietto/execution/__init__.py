@@ -41,30 +41,30 @@ from pietto.execution._access import (
     PostgresDeploymentPremise,
     SQLiteFileInput,
 )
-from pietto.execution._errors import (
-    AttemptFailed,
-    CompileRejected,
-    ExecutionError,
-    Failure,
-    HandleMisuse,
-    RequestRejected,
-)
-from pietto.execution._handle import (
-    Outcome,
-    ResultBatch,
-    ResultHandle,
-    UnclosedHandleWarning,
-    execute,
-)
-from pietto.execution._query import (
-    CompiledQuery,
-    QueryBundle,
-    compile_query,
-    export_bundle,
-    load_bundle,
-)
 
 if TYPE_CHECKING:
+    from pietto.execution._errors import (
+        AttemptFailed,
+        CompileRejected,
+        ExecutionError,
+        Failure,
+        HandleMisuse,
+        RequestRejected,
+    )
+    from pietto.execution._handle import (
+        Outcome,
+        ResultBatch,
+        ResultHandle,
+        UnclosedHandleWarning,
+        execute,
+    )
+    from pietto.execution._query import (
+        CompiledQuery,
+        QueryBundle,
+        compile_query,
+        export_bundle,
+        load_bundle,
+    )
     from pietto.execution._inspection import (
         GenerationObservation,
         JobObservation,
@@ -99,6 +99,29 @@ if TYPE_CHECKING:
         open_workspace,
         operation_result,
     )
+
+# The compile, execution, result and error names stand on the project
+# compiler; their owners are imported when one of their names is first read,
+# so importing this package loads only the access, input, premise and limit
+# classes.
+_COMPILER_OWNERS = {
+    "AttemptFailed": "_errors",
+    "CompileRejected": "_errors",
+    "ExecutionError": "_errors",
+    "Failure": "_errors",
+    "HandleMisuse": "_errors",
+    "RequestRejected": "_errors",
+    "Outcome": "_handle",
+    "ResultBatch": "_handle",
+    "ResultHandle": "_handle",
+    "UnclosedHandleWarning": "_handle",
+    "execute": "_handle",
+    "CompiledQuery": "_query",
+    "QueryBundle": "_query",
+    "compile_query": "_query",
+    "export_bundle": "_query",
+    "load_bundle": "_query",
+}
 
 # The saved-result calls stand on the job subsystem; their owners are imported
 # when one of their names is first read, so compiling and direct execution
@@ -139,7 +162,7 @@ _SAVED_RESULT_OWNERS = {
 
 
 def __getattr__(name: str) -> object:
-    owner = _SAVED_RESULT_OWNERS.get(name)
+    owner = _COMPILER_OWNERS.get(name) or _SAVED_RESULT_OWNERS.get(name)
     if owner is None:
         raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
     value = getattr(importlib.import_module(f"{__name__}.{owner}"), name)
@@ -148,7 +171,7 @@ def __getattr__(name: str) -> object:
 
 
 def __dir__() -> list[str]:
-    return sorted({*globals(), *_SAVED_RESULT_OWNERS})
+    return sorted({*globals(), *_COMPILER_OWNERS, *_SAVED_RESULT_OWNERS})
 
 
 __all__ = [
