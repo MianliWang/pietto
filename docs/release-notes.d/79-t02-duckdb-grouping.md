@@ -110,14 +110,16 @@ query totals(min_total: Int):
   `duckdb_filter_not_admitted` `compare fields or selected outputs with
   literals or query parameters of the same type, and join the tests with
   and, or and not, such as where amount >= min_amount and note is not
-  None`; `duckdb_parameter_not_admitted` `declare non-null Int, Text, Bool
-  or Float parameters and read each one in a where or having comparison`;
-  and `duckdb_field_type_not_admitted` `DuckDB emission reads Int, Text,
-  Bool and Float fields`. The new details have the suggestions `use count(),
-  count(field), sum of an Int field, or min or max of an Int or Float field;
-  other aggregates, sum or avg of a Float and aggregates of computed values
-  are not available on DuckDB`, `group by source fields, such as group by
-  customer; computed keys are not available on DuckDB` and `order by source
+  None`; `duckdb_parameter_not_admitted` `declare non-null Int, Text, Bool,
+  Float, Date, Timestamp or Decimal(p, s) parameters, p at most 38, and read
+  each one in a where or having comparison`; and
+  `duckdb_field_type_not_admitted` `DuckDB emission reads Int, Text, Bool,
+  Float, Date and Timestamp fields and Decimal(p, s) fields with p at most
+  38`. The new details have the suggestions `use count(), count(field), sum
+  of an Int field, or min or max of an Int, Float, Decimal, Date or
+  Timestamp field; other aggregates, sum or avg of a Float or a Decimal and
+  aggregates of computed values are not available on DuckDB`, `group by
+  source fields, such as group by customer; computed keys are not available on DuckDB` and `order by source
   fields or selected outputs, such as order by total desc; computed keys are
   not available on DuckDB`. No DuckDB text says "yet" any more, and no
   PostgreSQL or MySQL text changes.

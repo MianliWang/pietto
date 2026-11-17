@@ -8,7 +8,17 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from _pietto_sql_duckdb import PROJECTION, contract, filtered, write
+from _pietto_sql_duckdb import (
+    FIELDS,
+    HEADER,
+    PROJECTION,
+    TYPED_FIELDS,
+    TYPED_HEADER,
+    contract,
+    filtered,
+    source_entry,
+    write,
+)
 
 from pietto import execution
 
@@ -22,10 +32,14 @@ ROWS = (
 COLUMNS = ("id", "amount", "note", "ok", "price")
 
 
-def compiled(root: Path, body: str | None = None) -> execution.CompiledQuery:
-    """compile_query of `body` (the filtered `>=` query by default)."""
+def compiled(
+    root: Path, body: str | None = None, *, typed: bool = False
+) -> execution.CompiledQuery:
+    """compile_query of `body` (the filtered `>=` query by default) over the
+    tier 1 `orders` source, or over the TYPED_HEADER one."""
     body = filtered(">=") if body is None else body
-    write(root, body, contract())
+    header, fields = (TYPED_HEADER, TYPED_FIELDS) if typed else (HEADER, FIELDS)
+    write(root, body, contract(source_entry(fields=fields)), header)
     return execution.compile_query(
         root,
         module="main.pietto",
@@ -46,6 +60,24 @@ def orders(pa: Any, rows: tuple[tuple[Any, ...], ...] = ROWS, **columns: Any) ->
     arrays = {
         name: pa.array([row[k] for row in rows], type=types[k])
         for k, name in enumerate(COLUMNS)
+    }
+    arrays.update(columns)
+    return pa.table(arrays)
+
+
+def events(pa: Any, rows: tuple[tuple[Any, ...], ...], **columns: Any) -> Any:
+    """The TYPED_HEADER table of `rows`, each named column replaced."""
+    types = (
+        pa.int64(),
+        pa.date32(),
+        pa.timestamp("us"),
+        pa.decimal128(12, 2),
+        pa.decimal128(38, 10),
+    )
+    names = tuple(name for name, _kind, _nullable in TYPED_FIELDS)
+    arrays = {
+        name: pa.array([row[k] for row in rows], type=types[k])
+        for k, name in enumerate(names)
     }
     arrays.update(columns)
     return pa.table(arrays)

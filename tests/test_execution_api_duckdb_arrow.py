@@ -15,6 +15,8 @@ import subprocess
 import sys
 import threading
 import time
+from datetime import date, datetime, timezone
+from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -26,6 +28,7 @@ from _pietto_execution_duckdb import (
     ROWS,
     bag,
     compiled,
+    events,
     orders,
     projection,
     run,
@@ -1470,14 +1473,19 @@ def test_the_shared_binding_closes_the_duckdb_storage_kinds() -> None:
     pa = _pyarrow()
     kinds = binding._storages("duckdb", False)
     assert binding._storages("duckdb", True) == kinds
+    tags = ("Int", "Bool", "Text", "Float", "Date", "Timestamp", "Decimal")
     assert {tag: kind for tag, (kind,) in kinds.items()} == dict(
-        zip(("Int", "Bool", "Text", "Float"), duckdb_contract.STORAGES, strict=True)
+        zip(tags, duckdb_contract.STORAGES, strict=True)
     )
-    assert [results.arrow_type(pa, tag) for tag in kinds] == [
+    decimal = {"Decimal": (12, 2)}
+    assert [results.arrow_type(pa, tag, decimal.get(tag)) for tag in kinds] == [
         pa.int64(),
         pa.bool_(),
         pa.float64(),
         pa.string(),
+        pa.decimal128(12, 2),
+        pa.date32(),
+        pa.timestamp("us"),
     ]
     assert not {kind for (kind,) in kinds.values()} & {
         kind
@@ -1485,6 +1493,268 @@ def test_the_shared_binding_closes_the_duckdb_storage_kinds() -> None:
         for spelled in binding._storages(family, True).values()
         for kind in spelled
     }
+
+
+# Each tier 2 type at both ends of its interval, NULL where the field admits
+# it, and Decimals that differ in their last digit.
+BIG = Decimal("9999999999999999999999999999.9999999999")
+TYPED_ROWS = (
+    (
+        1,
+        date(1000, 1, 1),
+        datetime(1000, 1, 1),
+        Decimal("-9999999999.99"),
+        BIG.copy_negate(),
+    ),
+    (
+        2,
+        date(9999, 12, 31),
+        datetime(9999, 12, 31, 23, 59, 59, 499999),
+        Decimal("9999999999.99"),
+        BIG,
+    ),
+    (
+        3,
+        None,
+        datetime(2024, 1, 1, 10, 0, 0, 500000),
+        Decimal("0.12"),
+        Decimal("1E-10"),
+    ),
+    (4, date(2024, 1, 1), datetime(2024, 1, 1), None, Decimal("0E-10")),
+    (
+        5,
+        date(2023, 12, 31),
+        datetime(2023, 12, 31, 23, 59, 59, 999999),
+        Decimal("0.13"),
+        Decimal("-1E-10"),
+    ),
+)
+TYPED_NAMES = ("id", "day", "at", "cost", "big")
+
+
+def _typed_rows(selected: tuple[str, ...] = TYPED_NAMES) -> list[dict[str, Any]]:
+    return [
+        {name: row[TYPED_NAMES.index(name)] for name in selected} for row in TYPED_ROWS
+    ]
+
+
+def test_typed_fields_round_trip_their_civil_and_decimal_extremes(
+    tmp_path: Path,
+) -> None:
+    """Each value reaches the caller unchanged, as date32, timestamp[us]
+    without a time zone and decimal128(p, s), with its compiled nullability."""
+    pa = _engine()
+    body = "table result:\n    from orders\n    select:\n" + "".join(
+        f"        {name}\n" for name in TYPED_NAMES
+    )
+    query = compiled(tmp_path / "p", body, typed=True)
+    rows, handle = run(pa, query, events(pa, TYPED_ROWS))
+    assert bag(rows) == bag(_typed_rows())
+    assert pa.schema(handle) == pa.schema(
+        [
+            pa.field("id", pa.int64(), nullable=False),
+            pa.field("day", pa.date32()),
+            pa.field("at", pa.timestamp("us"), nullable=False),
+            pa.field("cost", pa.decimal128(12, 2)),
+            pa.field("big", pa.decimal128(38, 10), nullable=False),
+        ]
+    )
+
+
+def _lt(a: Any, b: Any) -> bool:
+    return a is not None and a < b
+
+
+# Each `where` of one comparison or test and its oracle over a row's values;
+# a NULL operand makes a comparison unknown, which keeps no row.
+TYPED_WHERES = (
+    (
+        'day >= "2024-01-01"',
+        lambda r: r["day"] is not None and r["day"] >= date(2024, 1, 1),
+    ),
+    ('"1000-01-01" == day', lambda r: r["day"] == date(1000, 1, 1)),
+    (
+        'at < "2024-01-01 10:00:00.5"',
+        lambda r: r["at"] < datetime(2024, 1, 1, 10, 0, 0, 500000),
+    ),
+    (
+        'at == "9999-12-31 23:59:59.499999"',
+        lambda r: r["at"] == datetime(9999, 12, 31, 23, 59, 59, 499999),
+    ),
+    ("cost > 0.125", lambda r: r["cost"] is not None and r["cost"] > Decimal("0.125")),
+    ("cost == 0.120", lambda r: r["cost"] == Decimal("0.12")),
+    ("cost != 0.13", lambda r: r["cost"] is not None and r["cost"] != Decimal("0.13")),
+    ("cost <= -9999999999.99", lambda r: _lt(r["cost"], Decimal("-9999999999.98"))),
+    ("big > 0.0000000001", lambda r: r["big"] > Decimal("1E-10")),
+    ("big >= 0.0000000001", lambda r: r["big"] >= Decimal("1E-10")),
+    ("big < 9999999999999999999999999999.9999999999", lambda r: r["big"] < BIG),
+    ("big > -1", lambda r: r["big"] > -1),
+    ("day is None", lambda r: r["day"] is None),
+    ("cost is not None", lambda r: r["cost"] is not None),
+)
+
+
+def test_typed_comparisons_with_literals_return_the_oracle_bag(
+    tmp_path: Path,
+) -> None:
+    """A Date or Timestamp beside a Text literal of its civil spelling, and a
+    Decimal beside the exact decimal that a number literal writes."""
+    pa = _engine()
+    table = events(pa, TYPED_ROWS)
+    for position, (where, oracle) in enumerate(TYPED_WHERES):
+        body = (
+            f"table result:\n    from orders\n    where {where}\n"
+            "    select:\n        id\n"
+        )
+        query = compiled(tmp_path / str(position), body, typed=True)
+        rows, _ = run(pa, query, table)
+        expected = [{"id": r["id"]} for r in _typed_rows() if oracle(r)]
+        assert bag(rows) == bag(expected), where
+
+
+def test_typed_groups_and_order_return_the_oracle(tmp_path: Path) -> None:
+    """`count`, `min` and `max` of each type per `Date` group, NULL first in
+    descending order as on the PostgreSQL emitter, and `min` and `max` of a
+    `Date` and a `Timestamp` over all rows as date32 and timestamp[us]."""
+    pa = _engine()
+    body = (
+        "table result:\n    from orders\n    group by day\n    select:\n"
+        "        day\n        first = min(at)\n        low = min(cost)\n"
+        "        top = max(big)\n        n = count(cost)\n"
+        "    order by:\n        day desc\n"
+    )
+    query = compiled(tmp_path / "p", body, typed=True)
+    rows, _ = run(pa, query, events(pa, TYPED_ROWS + TYPED_ROWS[2:3]))
+    days = sorted(_typed_rows(), key=lambda r: (r["day"] is not None, r["day"]))
+    assert [r["day"] for r in rows] == [None, *(r["day"] for r in days[::-1][:-1])]
+    assert rows[0] == {
+        "day": None,
+        "first": datetime(2024, 1, 1, 10, 0, 0, 500000),
+        "low": Decimal("0.12"),
+        "top": Decimal("1E-10"),
+        "n": 2,
+    }
+    assert rows[2] == {
+        "day": date(2024, 1, 1),
+        "first": datetime(2024, 1, 1),
+        "low": None,
+        "top": Decimal("0E-10"),
+        "n": 0,
+    }
+    body = (
+        "table result:\n    from orders\n    select:\n"
+        "        lo = min(day)\n        hi = max(day)\n        last = max(at)\n"
+    )
+    query = compiled(tmp_path / "extremes", body, typed=True)
+    rows, handle = run(pa, query, events(pa, TYPED_ROWS))
+    days = [r["day"] for r in _typed_rows() if r["day"] is not None]
+    last = max(r["at"] for r in _typed_rows())
+    assert rows == [{"lo": min(days), "hi": max(days), "last": last}]
+    assert pa.schema(handle) == pa.schema(
+        [("lo", pa.date32()), ("hi", pa.date32()), ("last", pa.timestamp("us"))]
+    )
+
+
+def test_typed_parameters_bind_their_exact_values(tmp_path: Path) -> None:
+    """A Date, Timestamp or Decimal(p, s) value of exactly its Python type
+    and domain binds; a Decimal goes to DuckDB as its canonical text, so one
+    of more than 38 digits (trailing zeros) still compares exactly."""
+    pa = _engine()
+    body = (
+        "query result(since: Timestamp, on: Date, floor: Decimal(38, 10)):\n"
+        "    from orders\n    where at >= since or day == on or big >= floor\n"
+        "    select:\n        id\n"
+    )
+    query = compiled(tmp_path / "p", body, typed=True)
+    edge = Decimal("9999999999999999999999999999.99999999990000")
+    good = {"since": datetime(9999, 12, 31), "on": date(1000, 1, 1), "floor": edge}
+    facts = adapter.execution_facts(query._template)
+    assert route._bound(facts, None, good) == (
+        datetime(9999, 12, 31),
+        date(1000, 1, 1),
+        str(BIG),
+    )
+    rows, _ = run(pa, query, events(pa, TYPED_ROWS), parameters=good)
+    assert bag(rows) == bag([{"id": 1}, {"id": 2}])
+    access = execution.DuckDBArrowInput("orders", object())
+    for name, value, refusal in (
+        ("since", date(2024, 1, 1), "0:Timestamp"),
+        ("since", datetime(2024, 1, 1, tzinfo=timezone.utc), "0:Timestamp"),
+        ("since", datetime(9999, 12, 31, 23, 59, 59, 500000), "0:Timestamp"),
+        ("since", "2024-01-01 00:00:00", "0:Timestamp"),
+        ("on", datetime(2024, 1, 1), "1:Date"),
+        ("on", date(999, 12, 31), "1:Date"),
+        ("floor", Decimal("0.00000000001"), "2:Decimal"),
+        ("floor", Decimal("NaN"), "2:Decimal"),
+        ("floor", 1.5, "2:Decimal"),
+        ("floor", Decimal("99999999999999999999999999999.999999999"), "2:Decimal"),
+    ):
+        assert _refusal(query, access=access, parameters={**good, name: value}) == (
+            "PIE-R1006",
+            f"BINDING_PARAMETER:{refusal}",
+        ), (name, value)
+
+
+def _over(pa: Any, value: int, kind: Any) -> Any:
+    """One decimal128 value of `kind` whose unscaled integer is `value`,
+    which may have more digits than `kind`'s precision."""
+    data = pa.py_buffer(value.to_bytes(16, "little", signed=True))
+    return pa.Array.from_buffers(kind, 1, [None, data])
+
+
+def test_the_capture_refuses_typed_columns_beyond_their_type_or_interval(
+    tmp_path: Path,
+) -> None:
+    """Only date32, timestamp[us] without a time zone and decimal128 of the
+    declared (p, s) are admitted, each inside its interval; every other type
+    or value is refused before any session (DUCKDB_ARROW_SCHEMA)."""
+    pa = _pyarrow()
+    body = "table result:\n    from orders\n    select:\n        id\n"
+    query = compiled(tmp_path / "p", body, typed=True)
+    one = TYPED_ROWS[:1]
+    day, at = pa.array([date(2024, 1, 1)]), pa.array([datetime(2024, 1, 1)])
+    forged = {
+        "timestamp_ns": {"at": at.cast(pa.timestamp("ns"))},
+        "timestamp_ms": {"at": at.cast(pa.timestamp("ms"))},
+        "timestamp_utc": {"at": at.cast(pa.timestamp("us", tz="UTC"))},
+        "timestamp_null": {"at": pa.array([None], pa.timestamp("us"))},
+        "date64": {"day": day.cast(pa.date64())},
+        "date_text": {"day": pa.array(["2024-01-01"])},
+        "decimal_precision": {"cost": pa.array([Decimal("1")], pa.decimal128(13, 2))},
+        "decimal_scale": {"cost": pa.array([Decimal("1")], pa.decimal128(12, 3))},
+        "decimal256": {"cost": pa.array([Decimal("1")], pa.decimal256(12, 2))},
+        "decimal_float": {"cost": pa.array([1.0])},
+        "date_before_1000": {"day": pa.array([date(999, 12, 31)], pa.date32())},
+        "date_beyond_9999": {
+            "day": pa.array([2_932_897], pa.int32()).cast(pa.date32())
+        },
+        "timestamp_past_the_civil_end": {
+            "at": pa.array(
+                [datetime(9999, 12, 31, 23, 59, 59, 500000)], pa.timestamp("us")
+            )
+        },
+        "timestamp_before_1000": {
+            "at": pa.array(
+                [datetime(999, 12, 31, 23, 59, 59, 999999)], pa.timestamp("us")
+            )
+        },
+        "decimal_beyond_its_precision": {
+            "cost": _over(pa, 10**12, pa.decimal128(12, 2))
+        },
+        "decimal_below_its_precision": {
+            "big": _over(pa, -(10**38), pa.decimal128(38, 10))
+        },
+    }
+    for name, columns in forged.items():
+        access = execution.DuckDBArrowInput("orders", events(pa, one, **columns))
+        assert _refusal(query, access=access) == ("PIE-R1002", "DUCKDB_ARROW_SCHEMA"), (
+            name
+        )
+    edges = {
+        "cost": _over(pa, 10**12 - 1, pa.decimal128(12, 2)),
+        "big": _over(pa, -(10**38) + 1, pa.decimal128(38, 10)),
+    }
+    _handle(pa, query, events(pa, one, **edges)).close()
 
 
 def test_the_session_settings_are_the_spec_table_in_its_order() -> None:

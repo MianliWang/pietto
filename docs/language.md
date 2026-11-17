@@ -2877,6 +2877,18 @@ PIE-B1003 `query_parameter_type_not_admitted_on_target` at each such
 declaration, as before; a query whose reads all sit in those positions but
 that another rule refuses reports that same list.
 
+DuckDB project SQL (Phase79's second tier, which no release carries yet)
+writes a `Decimal(p, s)`, `Date` or `Timestamp` read as
+`CAST($n AS DECIMAL(p,s))`, `CAST($n AS DATE)` or `CAST($n AS TIMESTAMP)`,
+as one side of a `where` comparison whose other side reads a source field of
+the parameter's type, and of its precision and scale for a `Decimal`, `p` at
+most 38; `execute()` sends a `Decimal` value as its canonical text. There, a
+`Text` literal beside a `Date` or `Timestamp` field must spell one value of
+that type as a [top-level constant](#top-level-constants) does, and a number
+literal beside a `Decimal` field is the exact decimal that it writes; the
+[DuckDB Arrow route](spec/duckdb-arrow-route-v1.md#admission) gives every
+rule.
+
 A read, or a `let` binding or output whose value reads one, is available
 beneath unary, binary, comparison, null-test, BETWEEN, conditional,
 literal-list `in` and `Float` conversion and the value arguments of `lower`,

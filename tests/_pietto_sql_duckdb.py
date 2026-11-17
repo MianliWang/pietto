@@ -1,6 +1,7 @@
 """A DuckDB project and its contract (docs/spec/duckdb-arrow-route-v1.md):
-one `duckdb.arrow("orders")` source of the four admitted field types, and a
-contract that admits every admitted statement over it."""
+one `duckdb.arrow("orders")` source of the four tier 1 field types, or of
+`Date`, `Timestamp` and `Decimal` fields (TYPED_HEADER), and a contract that
+admits every admitted statement over it."""
 
 from __future__ import annotations
 
@@ -29,6 +30,11 @@ REPRESENTATIONS = {
     "Float": {
         "storage": {"kind": "arrow_float64"},
         "domain": {"kind": "finite_float", "format": "binary64"},
+    },
+    "Date": {"storage": {"kind": "arrow_date32"}, "domain": {"kind": "date"}},
+    "Timestamp": {
+        "storage": {"kind": "arrow_timestamp_us"},
+        "domain": {"kind": "timestamp"},
     },
 }
 FIELDS = (
@@ -104,6 +110,38 @@ PREDICATED_SQL = (
 )
 
 
+# The tier 2 types: one field of each, two Decimals of other scales.
+TYPED_FIELDS = (
+    ("id", "Int", False),
+    ("day", "Date", True),
+    ("at", "Timestamp", False),
+    ("cost", "Decimal(12, 2)", True),
+    ("big", "Decimal(38, 10)", False),
+)
+TYPED_HEADER = """shape Event:
+    id: Int
+    day: Date | None
+    at: Timestamp
+    cost: Decimal(12, 2) | None
+    big: Decimal(38, 10)
+
+source orders: Event = duckdb.arrow("orders")
+"""
+
+
+def representation(kind: str) -> dict[str, Any]:
+    """The route's representation of a field type; a `Decimal(p, s)` has its
+    precision and scale in its storage and its domain."""
+    if kind.startswith("Decimal("):
+        precision, scale = (int(k) for k in kind[8:-1].split(","))
+        pair = {"precision": precision, "scale": scale}
+        return {
+            "storage": {"kind": "arrow_decimal128"} | pair,
+            "domain": {"kind": "decimal"} | pair,
+        }
+    return copy.deepcopy(REPRESENTATIONS[kind])
+
+
 def filtered(operator: str, parameter: str = "min_amount: Int") -> str:
     return f"""query result({parameter}):
     from orders
@@ -130,8 +168,7 @@ def source_entry(
                 "ordinal": i,
                 "name": field,
                 "column": field,
-                "representation": copy.deepcopy(REPRESENTATIONS[kind])
-                | {"nullable": nullable},
+                "representation": representation(kind) | {"nullable": nullable},
             }
             for i, (field, kind, nullable) in enumerate(fields)
         ],

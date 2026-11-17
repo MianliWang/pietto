@@ -30,6 +30,8 @@ from _pietto_sql_duckdb import (
     PREDICATED_SQL,
     PROJECTION,
     PROJECTION_SQL,
+    TYPED_FIELDS,
+    TYPED_HEADER,
     contract,
     filtered,
     source_entry,
@@ -337,13 +339,13 @@ def test_a_grouped_query_documents_each_key_and_aggregate(tmp_path: Path) -> Non
         root, **selected(GROUPED), dialect="duckdb", emission_contract="contract.json"
     )
     assert adapter.execution_facts(query._template).result == (
-        ("note", "Text", True),
-        ("ok", "Bool", False),
-        ("n", "Int", False),
-        ("filled", "Int", False),
-        ("c1", "Int", True),
-        ("low", "Float", True),
-        ("high", "Int", True),
+        ("note", "Text", True, None),
+        ("ok", "Bool", False, None),
+        ("n", "Int", False, None),
+        ("filled", "Int", False, None),
+        ("c1", "Int", True, None),
+        ("low", "Float", True, None),
+        ("high", "Int", True, None),
     )
     # Rule 16 counts the AST's nodes from the plan: the statement and its
     # relation, a value and a label per column, the read in each of four
@@ -532,8 +534,12 @@ SHAPES = {
             ("PIE-B1003", "duckdb_parameter_not_admitted"),
         ],
     ),
-    "decimal_parameter": (
+    "int_with_a_decimal_parameter": (
         filtered(">", "min_amount: Decimal(10, 2)"),
+        [("PIE-B1003", "duckdb_filter_not_admitted")],
+    ),
+    "decimal_parameter_beyond_38_digits": (
+        filtered(">", "min_amount: Decimal(39, 2)"),
         [
             ("PIE-B1003", "duckdb_filter_not_admitted"),
             ("PIE-B1003", "duckdb_parameter_not_admitted"),
@@ -791,7 +797,7 @@ def test_a_second_source_is_refused_at_its_declaration(tmp_path: Path) -> None:
     assert [b["location"]["line"] for b in emitted["blockers"][4:]] == [9, 9, 4]
 
 
-@pytest.mark.parametrize("logical", ("Date", "Decimal(10, 2)"))
+@pytest.mark.parametrize("logical", ("UUID", "Decimal", "Decimal(39, 2)"))
 def test_a_field_of_another_type_is_refused_at_the_field(
     tmp_path: Path, logical: str
 ) -> None:
@@ -910,7 +916,7 @@ def test_suggestions_are_the_routes_or_the_existing_texts() -> None:
     ):
         text = adapter.suggestion("PIE-B1001", detail)
         assert text and "postgres:" not in text and "mysql:" not in text
-    # The texts the owner agreed to (PL.50), as the route's table states them.
+    # The texts of the route's table.
     for detail, text in B2_SUGGESTIONS.items():
         assert adapter.suggestion("PIE-B1003", detail) == text
 
@@ -928,9 +934,10 @@ B2_SUGGESTIONS = {
         " are not available on DuckDB"
     ),
     "duckdb_aggregate_not_admitted": (
-        "use count(), count(field), sum of an Int field, or min or max of an Int"
-        " or Float field; other aggregates, sum or avg of a Float and aggregates"
-        " of computed values are not available on DuckDB"
+        "use count(), count(field), sum of an Int field, or min or max of an Int,"
+        " Float, Decimal, Date or Timestamp field; other aggregates, sum or avg"
+        " of a Float or a Decimal and aggregates of computed values are not"
+        " available on DuckDB"
     ),
     "duckdb_grouping_not_admitted": (
         "group by source fields, such as group by customer; computed keys are"
@@ -949,11 +956,13 @@ B2_SUGGESTIONS = {
         "remove NUL from the Text literal; DuckDB emission writes no NUL into SQL text"
     ),
     "duckdb_parameter_not_admitted": (
-        "declare non-null Int, Text, Bool or Float parameters and read each one"
-        " in a where or having comparison"
+        "declare non-null Int, Text, Bool, Float, Date, Timestamp or Decimal(p, s)"
+        " parameters, p at most 38, and read each one in a where or having"
+        " comparison"
     ),
     "duckdb_field_type_not_admitted": (
-        "DuckDB emission reads Int, Text, Bool and Float fields"
+        "DuckDB emission reads Int, Text, Bool, Float, Date and Timestamp fields"
+        " and Decimal(p, s) fields with p at most 38"
     ),
 }
 
@@ -1014,7 +1023,7 @@ def test_bind_safe_and_other_families_are_blocked(tmp_path: Path) -> None:
             FIELD0 + "/storage",
             {"kind": "pg_int8"},
             "Storage kind must be one of: arrow_int64, arrow_bool, arrow_string,"
-            " arrow_float64.",
+            " arrow_float64, arrow_date32, arrow_timestamp_us, arrow_decimal128.",
         ),
     ),
 )
@@ -1513,6 +1522,281 @@ def test_filter_and_parameter_refusals_report_their_sites(tmp_path: Path) -> Non
         location = blocker["location"]
         assert (status, location["line"], location["column"]) == ("BLOCKED", *site)
         assert blocker["suggestion"] == B2_SUGGESTIONS[expected[1]]
+
+
+def _typed(root: Path, body: str, document: dict[str, Any] | None = None) -> Path:
+    """A project over TYPED_HEADER's source, with its contract by default."""
+    entry = source_entry(fields=TYPED_FIELDS)
+    return write(root, body, document or contract(entry), TYPED_HEADER)
+
+
+TYPED_SELECT = 'SELECT "c0" AS "id" FROM temp.main."pietto_arrow_0" WHERE '
+
+
+def test_typed_fields_are_read_grouped_and_ordered(tmp_path: Path) -> None:
+    """A `Date`, `Timestamp` or `Decimal(p, s)` field is read, grouped and
+    ordered, and `count`, `min` and `max` take it; each column keeps its
+    field's representation, a Decimal's logical type its (p, s)."""
+    body = "table result:\n    from orders\n    select:\n" + "".join(
+        f"        {name}\n" for name, _kind, _nullable in TYPED_FIELDS
+    )
+    status, document = emit(_typed(tmp_path / "read", body), body)
+    assert (status, document["sql"]) == (
+        "VERIFIED",
+        'SELECT "c0" AS "id", "c1" AS "day", "c2" AS "at", "c3" AS "cost",'
+        ' "c4" AS "big" FROM temp.main."pietto_arrow_0"',
+    )
+    decimal = {"precision": 12, "scale": 2}
+    assert [
+        (c["logical_type"]["name"], c["logical_type"]["parameters"], c["nullable"])
+        for c in document["columns"][1:]
+    ] == [
+        ("Date", None, True),
+        ("Timestamp", None, False),
+        ("Decimal", decimal, True),
+        ("Decimal", {"precision": 38, "scale": 10}, False),
+    ]
+    assert document["columns"][3]["representation"] == {
+        "storage": {"kind": "arrow_decimal128"} | decimal,
+        "domain": {"kind": "decimal"} | decimal,
+        "nullable": True,
+    }
+    grouped = (
+        "table result:\n    from orders\n    group by day, cost\n    select:\n"
+        "        day\n        cost\n        first = min(at)\n"
+        "        top = max(big)\n        n = count(at)\n"
+        "    order by:\n        day desc\n        top\n"
+    )
+    root = _typed(tmp_path / "grouped", grouped)
+    status, document = emit(root, grouped)
+    assert (status, document["sql"]) == (
+        "VERIFIED",
+        'SELECT "c1" AS "day", "c3" AS "cost", min("c2") AS "first",'
+        ' max("c4") AS "top", count("c2") AS "n" FROM temp.main."pietto_arrow_0"'
+        ' GROUP BY "pietto_arrow_0"."c1", "pietto_arrow_0"."c3"'
+        ' ORDER BY "pietto_arrow_0"."c1" DESC NULLS FIRST,'
+        ' max("pietto_arrow_0"."c4") ASC NULLS LAST',
+    )
+    query = execution.compile_query(
+        root, **selected(grouped), dialect="duckdb", emission_contract="contract.json"
+    )
+    assert adapter.execution_facts(query._template).result == (
+        ("day", "Date", True, None),
+        ("cost", "Decimal", True, (12, 2)),
+        ("first", "Timestamp", True, None),
+        ("top", "Decimal", True, (38, 10)),
+        ("n", "Int", False, None),
+    )
+
+
+TYPED_FORMS = {
+    "date": ('day >= "2024-01-01"', "\"c1\" >= CAST('2024-01-01' AS DATE)"),
+    "date_on_the_left": (
+        '"9999-12-31" == day',
+        "CAST('9999-12-31' AS DATE) = \"c1\"",
+    ),
+    "timestamp": (
+        'at < "2024-01-01 10:00:00.5"',
+        "\"c2\" < CAST('2024-01-01 10:00:00.500000' AS TIMESTAMP)",
+    ),
+    "civil_end": (
+        'at <= "9999-12-31 23:59:59.499999"',
+        "\"c2\" <= CAST('9999-12-31 23:59:59.499999' AS TIMESTAMP)",
+    ),
+    # A number literal is the exact decimal it writes, cast to its own
+    # precision and scale; a trailing zero is one of its digits.
+    "decimal": ("cost > 1_000.5", "\"c3\" > CAST('1000.5' AS DECIMAL(5,1))"),
+    "decimal_int": ("cost == 5", "\"c3\" = CAST('5' AS DECIMAL(1,0))"),
+    "decimal_signed": ("cost > -0.25", "\"c3\" > CAST('-0.25' AS DECIMAL(2,2))"),
+    "decimal_trailing_zero": (
+        "cost != 0.120",
+        "\"c3\" <> CAST('0.120' AS DECIMAL(3,3))",
+    ),
+    # A leading zero is not one of its digits.
+    "decimal_leading_zeros": (
+        "cost == 007 or cost < 00.50",
+        "\"c3\" = CAST('7' AS DECIMAL(1,0)) OR \"c3\" < CAST('0.50' AS DECIMAL(2,2))",
+    ),
+    # Decimal(38, 10) and a literal of scale 10 fit in 38 digits together.
+    "decimal_widest": (
+        "big < 9999999999999999999999999999.0000000001",
+        "\"c4\" < CAST('9999999999999999999999999999.0000000001' AS DECIMAL(38,10))",
+    ),
+    # The sign is exact on all 38 digits.
+    "decimal_widest_signed": (
+        "big > -9999999999999999999999999999.0000000001",
+        "\"c4\" > CAST('-9999999999999999999999999999.0000000001' AS DECIMAL(38,10))",
+    ),
+    "null_tests": (
+        "day is None or cost is not None",
+        '"c1" IS NULL OR "c3" IS NOT NULL',
+    ),
+}
+
+
+@pytest.mark.parametrize("case", TYPED_FORMS)
+def test_typed_literals_are_cast_to_their_types(tmp_path: Path, case: str) -> None:
+    where, sql = TYPED_FORMS[case]
+    body = (
+        f"table result:\n    from orders\n    where {where}\n    select:\n        id\n"
+    )
+    status, document = emit(_typed(tmp_path / "p", body), body)
+    assert (status, document["sql"]) == ("VERIFIED", TYPED_SELECT + sql)
+
+
+@pytest.mark.parametrize(
+    "literal,expected",
+    (
+        ("5", ("VERIFIED", TYPED_SELECT + "\"c3\" < CAST('5' AS DECIMAL(1,0))")),
+        ("0.5", ("BLOCKED", [("PIE-B1003", "duckdb_filter_not_admitted")])),
+    ),
+)
+def test_an_inlined_literal_beside_a_decimal_needs_no_text_or_is_refused(
+    tmp_path: Path, literal: str, expected: tuple[str, Any]
+) -> None:
+    """An `Int` literal of a def body is its exact value; a `Float` one is
+    refused, since its inlined copy has the call's span, not its text."""
+    body = (
+        f"def cheap(c: Decimal | None) -> Bool | None:\n    return c < {literal}\n\n"
+        "table result:\n    from orders\n    where cheap(cost)\n"
+        "    select:\n        id\n"
+    )
+    status, document = emit(_typed(tmp_path / "p", body), body)
+    observed = document["sql"] if status == "VERIFIED" else blockers(document)
+    assert (status, observed) == expected
+
+
+def test_typed_parameters_are_cast_to_their_types(tmp_path: Path) -> None:
+    body = (
+        "query result(since: Timestamp, on: Date, floor: Decimal(12, 2)):\n"
+        "    from orders\n    where at >= since and (day == on or cost <= floor)\n"
+        "    select:\n        id\n"
+    )
+    status, document = emit(_typed(tmp_path / "p", body), body)
+    assert (status, document["sql"]) == (
+        "VERIFIED",
+        TYPED_SELECT + '"c2" >= CAST($1 AS TIMESTAMP) AND ("c1" = CAST($2 AS DATE)'
+        ' OR "c3" <= CAST($3 AS DECIMAL(12,2)))',
+    )
+    assert [u["physical_type"] for u in document["parameter_uses"]] == [
+        "duckdb_timestamp",
+        "duckdb_date",
+        "duckdb_decimal",
+    ]
+    assert [p["tag"] for p in document["parameters"]] == [
+        "Timestamp",
+        "Date",
+        "Decimal",
+    ]
+
+
+FILTER = [("PIE-B1003", "duckdb_filter_not_admitted")]
+TYPED_REFUSALS = {
+    **{
+        name: (f"where {where}", "", FILTER)
+        for name, where in (
+            ("impossible_date", 'day == "2024-02-30"'),
+            ("date_before_1000", 'day > "0999-12-31"'),
+            ("date_for_a_timestamp", 'at >= "2024-01-01"'),
+            ("timestamp_past_the_civil_end", 'at > "9999-12-31 23:59:59.5"'),
+            ("seven_fractional_digits", 'at > "2024-01-01 00:00:00.0000001"'),
+            ("t_separator", 'at > "2024-01-01T00:00:00"'),
+            # Decimal(12, 2) beside a literal of scale 31 needs 41 digits,
+            # Decimal(38, 10) beside one of scale 11 needs 39.
+            ("decimal_literal_too_wide", "cost > 0.0000000000000000000000000000001"),
+            ("decimal_scale_beyond_38", "big > 0.00000000001"),
+        )
+    },
+    "decimal_parameter_of_another_scale": (
+        "where cost > other",
+        "other: Decimal(12, 3)",
+        FILTER,
+    ),
+    "decimal_with_a_float_parameter": ("where cost > ratio", "ratio: Float", FILTER),
+    "decimal_with_an_int_parameter": ("where cost > n", "n: Int", FILTER),
+    # A `having` compares the tier 1 types only (HAVING_TYPES).
+    "having_on_a_date_output": (
+        "group by cost\n    select:\n        cost\n        first = min(day)\n"
+        '    having first > "2024-01-01"',
+        "",
+        FILTER,
+    ),
+    "having_on_a_timestamp_output": (
+        "group by cost\n    select:\n        cost\n        last = max(at)\n"
+        "    having last >= since",
+        "since: Timestamp",
+        FILTER,
+    ),
+    # A Decimal output's kind never matches a literal's or a parameter's.
+    "having_on_a_decimal_output": (
+        "group by day\n    select:\n        day\n        top = max(cost)\n"
+        "    having top > 1",
+        "",
+        FILTER,
+    ),
+    "sum_of_a_decimal": (
+        "group by day\n    select:\n        day\n        total = sum(cost)",
+        "",
+        [("PIE-B1003", "duckdb_aggregate_not_admitted")],
+    ),
+}
+
+
+@pytest.mark.parametrize("case", TYPED_REFUSALS)
+def test_typed_forms_beyond_the_route_are_refused(tmp_path: Path, case: str) -> None:
+    clauses, parameters, expected = TYPED_REFUSALS[case]
+    head = f"query result({parameters}):" if parameters else "table result:"
+    body = f"{head}\n    from orders\n    {clauses}\n"
+    if "select:" not in clauses:
+        body += "    select:\n        id\n"
+    status, document = emit(_typed(tmp_path / "p", body), body)
+    assert (status, blockers(document)) == ("BLOCKED", expected)
+
+
+@pytest.mark.parametrize(
+    "field,change",
+    (
+        ("3", {"storage/precision": 13}),
+        ("3", {"domain/scale": 3}),
+        ("1", {"storage/kind": "arrow_timestamp_us"}),
+        ("2", {"domain/kind": "date"}),
+        ("4", {"storage/precision": 39, "domain/precision": 39}),
+    ),
+)
+def test_a_typed_representation_must_fit_its_field(
+    tmp_path: Path, field: str, change: dict[str, object]
+) -> None:
+    """Rule 28: a Decimal's storage and domain carry its declared (p, s), and
+    a Date or Timestamp has its own storage and domain."""
+    document = contract(source_entry(fields=TYPED_FIELDS))
+    for path, value in change.items():
+        _change(document, f"sources/0/fields/{field}/representation/{path}", value)
+    body = "table result:\n    from orders\n    select:\n        id\n"
+    status, emitted = emit(_typed(tmp_path / "p", body, document), body)
+    assert (status, blockers(emitted)) == (
+        "BLOCKED",
+        [("PIE-B1002", "physical_storage_or_domain_mismatch")],
+    )
+
+
+@pytest.mark.parametrize(
+    "storage",
+    (
+        {"kind": "arrow_decimal128", "precision": 12},
+        {"kind": "arrow_decimal128", "precision": 2, "scale": 3},
+        {"kind": "arrow_decimal128", "precision": 0, "scale": 0},
+        {"kind": "arrow_date32", "precision": 12, "scale": 2},
+    ),
+)
+def test_a_typed_storage_has_exactly_its_members(
+    tmp_path: Path, storage: dict[str, object]
+) -> None:
+    path = "sources/0/fields/3/representation/storage"
+    document = _change(contract(source_entry(fields=TYPED_FIELDS)), path, storage)
+    body = "table result:\n    from orders\n    select:\n        id\n"
+    status, emitted = emit(_typed(tmp_path / "p", body, document), body)
+    assert status == "INPUT_REJECTED" and emitted["cli_errors"]
+    assert all(e["path"].startswith(path) for e in emitted["cli_errors"])
 
 
 def test_the_adapter_imports_no_duckdb_pyarrow_or_sqlglot(tmp_path: Path) -> None:

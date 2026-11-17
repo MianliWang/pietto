@@ -13,7 +13,9 @@ refusals" in docs/spec/duckdb-arrow-route-v1.md.
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+from decimal import Decimal
 import json
+import re
 from typing import Any
 
 from pietto.ast_nodes import QueryDef, SourceDef, TableDef
@@ -42,6 +44,7 @@ from pietto._project.project_duckdb_sql import (
     DuckDBSelect,
     Token,
     ast_rules_hold,
+    literal_decimal,
     literal_holds,
     node_count,
     render,
@@ -54,6 +57,7 @@ from pietto._project.project_sql_emission_contract import (
     MAX_SQL_BYTES,
     Blocker,
     Premise,
+    _logical_evidence,
     canonical,
 )
 from pietto._project.project_sql_emission_scopes import (
@@ -72,20 +76,28 @@ from pietto._project.project_sql_plan_expressions import (
     ProjectSQLUnary,
 )
 from pietto._project.project_sql_plan_inspection import inspect_project_sql_plan
+from pietto.semantic.constants import _temporal
 
 __all__: tuple[str, ...] = ()
 
 FORMAT = "pietto.sql-emission.v1"
 PARAMETERIZED_FORMAT = "pietto.sql-emission.v2"
 COLUMNS = 4096
-TYPES = ("Int", "Text", "Bool", "Float")
-# The Python value type of each literal and parameter type.
+# The digits of an Arrow decimal128 and of a DuckDB DECIMAL.
+MAX_PRECISION = 38
+TYPES = ("Int", "Text", "Bool", "Float", "Date", "Timestamp", "Decimal")
+# A `having` compares outputs of these types only (the spec's predicates row).
+HAVING_TYPES = TYPES[:4]
+# The Python value type of each literal type that the source writes.
 _VALUES = {"Int": int, "Text": str, "Bool": bool, "Float": float}
 PHYSICAL = {
     "Int": "duckdb_bigint",
     "Float": "duckdb_double",
     "Text": "duckdb_varchar",
     "Bool": "duckdb_boolean",
+    "Date": "duckdb_date",
+    "Timestamp": "duckdb_timestamp",
+    "Decimal": "duckdb_decimal",
 }
 PREMISES = {
     "client_encoding": "UTF8",
@@ -127,14 +139,16 @@ _SHAPES = (
     ),
 )
 _FILTERS = ("row_filter", "result_filter")
+# A number literal as the grammar writes it: no sign and no exponent.
+_NUMBER = re.compile(r"[0-9](?:_?[0-9])*(?:\.[0-9](?:_?[0-9])*)?")
 # The result boundaries of at most one `order by`, then at most one `limit`.
 _RESULTS = ((), ("relation_ordering",), ("limit",), ("relation_ordering", "limit"))
 # The argument types of each admitted aggregate (rule 7a).
 _AGGREGATES = {
-    "count": ((), ("Int",), ("Text",), ("Bool",), ("Float",)),
+    "count": ((), *((tag,) for tag in TYPES)),
     "sum": (("Int",),),
-    "min": (("Int",), ("Float",)),
-    "max": (("Int",), ("Float",)),
+    "min": (("Int",), ("Float",), ("Date",), ("Timestamp",), ("Decimal",)),
+    "max": (("Int",), ("Float",), ("Date",), ("Timestamp",), ("Decimal",)),
 }
 
 _SUGGESTIONS = {
@@ -161,9 +175,10 @@ _SUGGESTIONS = {
         " are not available on DuckDB"
     ),
     "duckdb_aggregate_not_admitted": (
-        "use count(), count(field), sum of an Int field, or min or max of an Int"
-        " or Float field; other aggregates, sum or avg of a Float and aggregates"
-        " of computed values are not available on DuckDB"
+        "use count(), count(field), sum of an Int field, or min or max of an Int,"
+        " Float, Decimal, Date or Timestamp field; other aggregates, sum or avg"
+        " of a Float or a Decimal and aggregates of computed values are not"
+        " available on DuckDB"
     ),
     "duckdb_grouping_not_admitted": (
         "group by source fields, such as group by customer; computed keys are"
@@ -182,10 +197,14 @@ _SUGGESTIONS = {
         "remove NUL from the Text literal; DuckDB emission writes no NUL into SQL text"
     ),
     "duckdb_parameter_not_admitted": (
-        "declare non-null Int, Text, Bool or Float parameters and read each one"
-        " in a where or having comparison"
+        "declare non-null Int, Text, Bool, Float, Date, Timestamp or Decimal(p, s)"
+        " parameters, p at most 38, and read each one in a where or having"
+        " comparison"
     ),
-    "duckdb_field_type_not_admitted": "DuckDB emission reads Int, Text, Bool and Float fields",
+    "duckdb_field_type_not_admitted": (
+        "DuckDB emission reads Int, Text, Bool, Float, Date and Timestamp fields"
+        " and Decimal(p, s) fields with p at most 38"
+    ),
     "source_identifier_unrepresentable": (
         'use the relation namespace "arrow"; the DuckDB route reads one'
         " registered Arrow table"
@@ -285,8 +304,36 @@ def _type_name(port: Any) -> str | None:
     return logical.name if logical.name in TYPES else None
 
 
-def _fits(name: str | None, representation: dict[str, Any]) -> bool:
+def _decimal(plan: Any, port: Any) -> tuple[int, int] | None:
+    """The declared `Decimal(p, s)` of a source field, through its aliases,
+    when `p` is at most MAX_PRECISION; else None (rule 10)."""
+    types = plan.scope.completed.semantic_result.module_type_source_resolutions
+    fact = _logical_evidence(port.field, types)[2]
+    if fact is None or fact.precision > MAX_PRECISION:
+        return None
+    return fact.precision, fact.scale
+
+
+def _admitted_decimal(parameter: Any) -> tuple[int, int] | None:
+    """The declared (precision, scale) of a `Decimal` parameter whose
+    precision is at most MAX_PRECISION, else None."""
+    decimal = parameter.decimal
+    return decimal if decimal is not None and decimal[0] <= MAX_PRECISION else None
+
+
+def _fits(
+    name: str | None,
+    representation: dict[str, Any],
+    decimal: tuple[int, int] | None = None,
+) -> bool:
     """The representation table of the route for one logical type."""
+    if name == "Decimal":
+        if decimal is None:
+            return False
+        pair = dict(zip(("precision", "scale"), decimal, strict=True))
+        return representation["storage"] == {"kind": "arrow_decimal128"} | pair and (
+            representation["domain"] == {"kind": "decimal"} | pair
+        )
     storage, domain = representation["storage"]["kind"], representation["domain"]
     if name == "Int":
         return (
@@ -305,6 +352,8 @@ def _fits(name: str | None, representation: dict[str, Any]) -> bool:
     expected = {
         "Bool": ("arrow_bool", "bool01"),
         "Float": ("arrow_float64", "finite_float"),
+        "Date": ("arrow_date32", "date"),
+        "Timestamp": ("arrow_timestamp_us", "timestamp"),
     }
     return name in expected and (storage, domain["kind"]) == expected[name]
 
@@ -351,6 +400,11 @@ class _Values:
             for k, port in enumerate(_ports(plan, source))
         }
         self.results = {port.ref: port for port in plan.result_ports}
+        self.decimals = {
+            port.ref: _decimal(plan, port)
+            for port in plan.source_ports
+            if _type_name(port) == "Decimal"
+        }
         self.roots = {e.ref: e for e in plan.order_expressions}
         self.uses = {u.ref: u for u in plan.order_uses}
         owners = {item.ref: item for item in (*plan.group_keys, *plan.aggregates)}
@@ -361,6 +415,15 @@ class _Values:
             owner = owners.get(port.source) or self.owners.get(port.source)
             if owner is not None:
                 self.owners[port.ref] = owner
+
+    def kind(self, port: Any) -> Any:
+        """What a comparison matches of a source field: its type's name, or
+        ("Decimal", p, s); None for a field that rule 10 refuses."""
+        tag = _type_name(port)
+        if tag != "Decimal":
+            return tag
+        decimal = self.decimals.get(port.ref)
+        return None if decimal is None else ("Decimal", *decimal)
 
     def direct(self, expression: Any) -> Any:
         """The source port that `expression` reads directly, else None."""
@@ -482,25 +545,20 @@ class _Values:
         if kind is ProjectSQLComparison:
             if expression.expression.operator not in OPERATORS:
                 return None
-            # (kind, node, type) of each side, in SQL order.
-            sides = []
-            for operand in operands:
-                read = self.read(operand, selected)
-                constant = None if read else self.constant(operand, numbers)
-                sides.append(
-                    ("read", *read)
-                    if read
-                    else ("constant", *constant)
-                    if constant
-                    else (None, None, None)
-                )
-            if {sides[0][0], sides[1][0]} != {"read", "constant"} or (
-                sides[0][2] != sides[1][2]
-            ):
+            reads = [self.read(operand, selected) for operand in operands]
+            if sum(read is not None for read in reads) != 1:
                 return None
-            left, right = (side[1] for side in sides)
+            (against,) = (read[1] for read in reads if read is not None)
+            # (node, kind) of each side, in SQL order.
+            sides = [
+                read or self.constant(operand, numbers, against)
+                for operand, read in zip(operands, reads, strict=True)
+            ]
+            left, right = sides
+            if left is None or right is None or left[1] != right[1]:
+                return None
             return DuckDBComparison(
-                left, OPERATORS[expression.expression.operator], right
+                left[0], OPERATORS[expression.expression.operator], right[0]
             )
         if kind is ProjectSQLIsNull:
             read = self.read(operands[0], selected)
@@ -515,13 +573,13 @@ class _Values:
 
     def read(
         self, ref: Any, selected: tuple[Any, ...] | None
-    ) -> tuple[DuckDBRead, str] | None:
-        """(read, type) of a direct read of a source field in a `where`, or of
-        a selected output in a `having`."""
+    ) -> tuple[DuckDBRead, Any] | None:
+        """(read, kind) of a direct read of a source field in a `where`, or
+        of a selected output of the tier 1 types in a `having`."""
         expression = self.plan.expressions[ref.position]
         if selected is None:
             port = self.direct(expression)
-            if port is None or (tag := _type_name(port)) is None:
+            if port is None or (tag := self.kind(port)) is None:
                 return None
             return DuckDBRead(self.index[port.ref]), tag
         if type(expression) is not aggregation.ProjectSQLResultReference:
@@ -532,7 +590,7 @@ class _Values:
             owner is None
             or not any(owner is item for item in selected)
             or logical is None
-            or logical[0] not in TYPES
+            or logical[0] not in HAVING_TYPES
         ):
             return None
         port, function = self.value(owner)
@@ -540,17 +598,22 @@ class _Values:
         return DuckDBRead(field, function), logical[0]
 
     def constant(
-        self, ref: Any, numbers: dict[int, int]
-    ) -> tuple[DuckDBLiteral | DuckDBParameter, str] | None:
-        """(node, type) of a literal, a signed number literal or a parameter
-        read of one of the four types."""
+        self, ref: Any, numbers: dict[int, int], against: Any
+    ) -> tuple[DuckDBLiteral | DuckDBParameter, Any] | None:
+        """(node, kind) of a literal, a signed number literal or a parameter
+        read of an admitted type, compared with a read of kind `against`: a
+        `Date` or `Timestamp` read takes a `Text` literal of its civil
+        spelling, and a `Decimal` read a number literal, as the exact
+        decimal it writes, whose cast fits with it in MAX_PRECISION digits."""
         expression = self.plan.expressions[ref.position]
         if type(expression) is ProjectSQLParameterRead:
-            tag, ordinal = expression.parameter.tag, expression.parameter.ordinal
-            if tag not in TYPES:
+            parameter = expression.parameter
+            tag, decimal = parameter.tag, _admitted_decimal(parameter)
+            if tag not in TYPES or (tag == "Decimal") is (decimal is None):
                 return None
-            number = numbers.setdefault(ordinal, len(numbers) + 1)
-            return DuckDBParameter(number, tag), tag
+            number = numbers.setdefault(parameter.ordinal, len(numbers) + 1)
+            node = DuckDBParameter(number, tag, decimal)
+            return node, tag if decimal is None else ("Decimal", *decimal)
         logical = _logical(expression.value_type)
         signed = (
             type(expression) is ProjectSQLUnary
@@ -570,11 +633,50 @@ class _Values:
             or (signed and tag not in ("Int", "Float"))
         ):
             return None
+        if against in ("Date", "Timestamp") and tag == "Text":
+            value = _temporal(against, value)
+            return None if value is None else (DuckDBLiteral(value), against)
+        if type(against) is tuple and tag in ("Int", "Float"):
+            value = self.digits(expression)
+            if value is None:
+                return None
+            # copy_negate is exact; `-` rounds to the context's 28 digits.
+            value = value.copy_negate() if signed else value
+            precision, scale = literal_decimal(value)
+            whole = max(against[1] - against[2], precision - scale)
+            if whole + max(against[2], scale) > MAX_PRECISION:
+                return None
+            return DuckDBLiteral(value), against
         value = -value if signed else value
         # A Text literal that holds NUL is rule 8b's alone.
         if tag != "Text" and not literal_holds(value):
             return None
         return DuckDBLiteral(value), tag
+
+    def digits(self, literal: Any) -> Decimal | None:
+        """The exact decimal number that a number literal writes: an `Int`
+        literal's value, a `Float` literal's source text; None when its span
+        does not hold exactly that number, as for an inlined def body, whose
+        copy has the call's span."""
+        if type(literal.expression.value) is int:
+            return Decimal(literal.expression.value)
+        span = literal.expression.span
+        result = self.plan.scope.completed.semantic_result
+        texts = [
+            s.source_text
+            for s in result.trusted_source_snapshots
+            if s.path == span.path
+        ]
+        if len(texts) != 1 or span.line != span.end_line:
+            return None
+        lines = re.split(r"\r\n|\r|\n", texts[0].removeprefix("\ufeff"))
+        if not 0 < span.line <= len(lines):
+            return None
+        text = lines[span.line - 1][span.column - 1 : span.end_column - 1]
+        if _NUMBER.fullmatch(text) is None:
+            return None
+        number, value = Decimal(text.replace("_", "")), literal.expression.value
+        return number if type(value) is float and float(number) == value else None
 
     def size(self, ref: Any) -> int:
         """Rule 16's nodes of a predicate, as `predicate` builds them."""
@@ -834,6 +936,7 @@ class _Rules:
                 (None, parameter.declaration.span)
                 for parameter in plan.parameters
                 if parameter.tag not in TYPES
+                or (parameter.tag == "Decimal" and _admitted_decimal(parameter) is None)
                 or parameter.value_type.nullability.value != "non_null"
                 or parameter.ordinal not in ordinals
             ),
@@ -848,7 +951,7 @@ class _Rules:
             self.fail(9, "PIE-B1003", "duckdb_parameter_not_admitted", *problem)
         for source in sorted(plan.sources, key=lambda s: _key(s.declaration.span)):
             for port in _ports(plan, source):
-                if _type_name(port) is None:
+                if self.values.kind(port) is None:
                     definition = port.field.evidence.field_def
                     self.fail(
                         10,
@@ -977,7 +1080,8 @@ class _Rules:
             )
             if nullable is None or field.representation["nullable"] is not nullable:
                 self.fail(27, "PIE-B1002", "nullability_mismatch", *place)
-            if not _fits(_type_name(port), field.representation):
+            decimal = self.values.decimals.get(port.ref)
+            if not _fits(_type_name(port), field.representation, decimal):
                 self.fail(
                     28, "PIE-B1002", "physical_storage_or_domain_mismatch", *place
                 )
@@ -1168,7 +1272,7 @@ def _document(artifact: DuckDBArtifact) -> bytes:
             # A count or a sum is a signed 64-bit Int, a count never negative.
             name, nullable = logical or (None, None)
             least = "0" if column.function == "count" else str(-(2**63))
-            representation = {
+            representation: dict[str, Any] = {
                 "storage": {"kind": "arrow_int64"},
                 "domain": {"kind": "int_range", "min": least, "max": str(2**63 - 1)},
                 "nullable": nullable,
@@ -1185,11 +1289,18 @@ def _document(artifact: DuckDBArtifact) -> bytes:
             if type(projection) is plans.ProjectSQLProjection
             else projection.input
         )
+        domain = representation["domain"]
         columns.append(
             {
                 "ordinal": position,
                 "label": column.label,
-                "logical_type": {"kind": "builtin", "name": name, "parameters": None},
+                "logical_type": {
+                    "kind": "builtin",
+                    "name": name,
+                    "parameters": {k: domain[k] for k in ("precision", "scale")}
+                    if name == "Decimal"
+                    else None,
+                },
                 "nullable": nullable,
                 "representation": representation,
                 "correspondence": correspondence
@@ -1472,28 +1583,32 @@ def prepare_duckdb_live_template(outcome: Any) -> DuckDBTemplate | None:
 class DuckDBSourceField:
     """One source field in shape order: its contract column, logical type,
     compiled nullability and declared domain bounds (`int_range` of an
-    `Int`, `max_characters` of a `Text`)."""
+    `Int`, `max_characters` of a `Text`, (precision, scale) of a
+    `Decimal`)."""
 
     column: str
     tag: str
     nullable: bool
     bounds: tuple[int, int] | None
     max_characters: int | None
+    decimal: tuple[int, int] | None = None
 
 
 @dataclass(frozen=True, slots=True)
 class DuckDBExecutionFacts:
     """What the `duckdb_arrow` route reads of one verified artifact: the
     contract's `relation.name`, the rendered statement, the source fields,
-    each result column's (label, logical type, nullable) in result order,
-    the header parameters as (name, tag, nullable) and the header ordinal
-    of the parameter that each placeholder `$1`, `$2`, ... binds."""
+    each result column's (label, logical type, nullable, decimal) in result
+    order, the header parameters as (name, tag, nullable, decimal), where
+    decimal is a `Decimal`'s (precision, scale) and None for every other
+    type, and the header ordinal of the parameter that each placeholder
+    `$1`, `$2`, ... binds."""
 
     key: str
     sql: str
     fields: tuple[DuckDBSourceField, ...]
-    result: tuple[tuple[str, str, bool], ...]
-    parameters: tuple[tuple[str, str, bool], ...]
+    result: tuple[tuple[str, str, bool, tuple[int, int] | None], ...]
+    parameters: tuple[tuple[str, str, bool, tuple[int, int] | None], ...]
     placeholders: tuple[int, ...]
 
 
@@ -1522,18 +1637,32 @@ def execution_facts(template: object) -> DuckDBExecutionFacts:
                 field.representation["nullable"],
                 (int(domain["min"]), int(domain["max"])) if tag == "Int" else None,
                 domain["max_characters"] if tag == "Text" else None,
+                (domain["precision"], domain["scale"]) if tag == "Decimal" else None,
             )
         )
     document = json.loads(artifact.document)
     result = tuple(
-        (c["label"], c["logical_type"]["name"], c["nullable"])
+        (
+            c["label"],
+            c["logical_type"]["name"],
+            c["nullable"],
+            None
+            if c["logical_type"]["parameters"] is None
+            else (
+                c["logical_type"]["parameters"]["precision"],
+                c["logical_type"]["parameters"]["scale"],
+            ),
+        )
         for c in document["columns"]
     )
     bound = {
         u["server_index"]: u["owner"]["parameter"] for u in document["parameter_uses"]
     }
     if any(
-        tag not in TYPES or type(nullable) is not bool for _, tag, nullable in result
+        tag not in TYPES
+        or type(nullable) is not bool
+        or (tag == "Decimal") is (pair is None)
+        for _, tag, nullable, pair in result
     ):
         raise ValueError("BINDING_ARTIFACT")
     return DuckDBExecutionFacts(
@@ -1541,6 +1670,11 @@ def execution_facts(template: object) -> DuckDBExecutionFacts:
         artifact.sql.decode("utf-8"),
         tuple(fields),
         result,
-        template.facts()[7],
+        tuple(
+            (*header, parameter.decimal)
+            for header, parameter in zip(
+                template.facts()[7], plan.parameters, strict=True
+            )
+        ),
         tuple(bound[k] for k in sorted(bound)),
     )

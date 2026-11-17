@@ -1424,11 +1424,13 @@ short:
 - **Install.** `pip install "pietto[execute-duckdb]"` adds `duckdb==2.0.0`
   and `pyarrow==26.0.1`. Another installed `duckdb` is refused when the
   attempt opens (`PIE-R2002`).
-- **Query.** One `duckdb.arrow("key")` source of `Int`, `Text`, `Bool` and
-  finite `Float` fields, read directly or grouped with `count`, `sum`, `min`
-  and `max`, filtered in `where` and `having` by comparisons with literals
-  and with non-null parameters of those types, joined by `and` and `or`, a
-  `where` also with `not` and NULL tests, then ordered and limited, compiled
+- **Query.** One `duckdb.arrow("key")` source of `Int`, `Text`, `Bool`,
+  finite `Float`, `Date`, `Timestamp` and `Decimal(p, s)` fields, `p` at
+  most 38, read directly or grouped with `count`, `sum`, `min` and `max`,
+  filtered in `where` and `having` by comparisons with literals and with
+  non-null parameters of those types (a `having` only of the first four),
+  joined by `and` and `or`, a `where` also with `not` and NULL tests, then
+  ordered and limited, compiled
   with `--dialect duckdb` and `--literal-policy preserve`. Without
   `order by` a result is a bag; with it,
   rows that tie have no promised order. `0.2.0` and `0.2.1` take only a

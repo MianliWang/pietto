@@ -714,10 +714,10 @@ one) and its `domain`:
 | `Int` | `pg_int2`, `pg_int4`, `pg_int8` | `my_smallint`, `my_int`, `my_bigint` | `arrow_int64` | `sqlite_integer` | `int_range`, with string `min` and `max` inside the storage range |
 | `Bool` | `pg_bool` | `my_bool01` | `arrow_bool` | `sqlite_bool01` | `bool01` |
 | `Text` | `pg_text` | `my_varchar`, with a `length` from `max_characters` to 16383 | `arrow_string` | `sqlite_text` | `text`, with `max_characters`, `encoding` `UTF8` (MySQL `utf8mb4`, SQLite `UTF-8`), `collation` `C` (MySQL `utf8mb4_0900_bin`, SQLite `BINARY`) and `padding` `NO PAD` |
-| `Decimal(p, s)` | `pg_numeric` | `my_decimal` | none | none | `decimal`; the storage and domain `precision` and `scale` are `p` and `s` |
+| `Decimal(p, s)` | `pg_numeric` | `my_decimal` | `arrow_decimal128`, `p` at most 38 | none | `decimal`; the storage and domain `precision` and `scale` are `p` and `s` |
 | `Float` | `pg_float8` | `my_double` | `arrow_float64` | `sqlite_real` | `finite_float`, with `format` `binary64` |
-| `Timestamp` | `pg_timestamp` | `my_datetime` | none | none | `timestamp`; the storage has `fractional_seconds` 6 |
-| `Date` | `pg_date` | `my_date` | none | none | `date` |
+| `Timestamp` | `pg_timestamp` | `my_datetime` | `arrow_timestamp_us` | none | `timestamp`; the PostgreSQL and MySQL storage has `fractional_seconds` 6 |
+| `Date` | `pg_date` | `my_date` | `arrow_date32` | none | `date` |
 | `UUID` | `pg_uuid` | `my_uuid_bytes` | none | none | `uuid`, with `encoding` `standard_bytes` |
 
 `finite_float` excludes NaN and ±Infinity: `row_domain_matches` declares

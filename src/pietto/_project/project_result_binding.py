@@ -564,6 +564,9 @@ def _storages(family, general):
             "Bool": ("arrow_bool",),
             "Float": ("arrow_float64",),
             "Text": ("arrow_string",),
+            "Decimal": ("arrow_decimal128",),
+            "Date": ("arrow_date32",),
+            "Timestamp": ("arrow_timestamp_us",),
         },
     }.get(family, {})
     if general and family == "mysql":

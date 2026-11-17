@@ -11,6 +11,8 @@ holds the caller's key or column names (docs/spec/duckdb-arrow-route-v1.md).
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date, datetime
+from decimal import Decimal
 import math
 
 __all__: tuple[str, ...] = ()
@@ -19,7 +21,19 @@ RELATION = "pietto_arrow_0"
 OPERATORS = {"==": "=", "!=": "<>", "<": "<", "<=": "<=", ">": ">", ">=": ">="}
 # The type each parameter's placeholder is cast to: DuckDB types a bound
 # Python value by its value.
-CASTS = {"Int": "BIGINT", "Float": "DOUBLE", "Text": "VARCHAR", "Bool": "BOOLEAN"}
+CASTS = {
+    "Int": "BIGINT",
+    "Float": "DOUBLE",
+    "Text": "VARCHAR",
+    "Bool": "BOOLEAN",
+    "Date": "DATE",
+    "Timestamp": "TIMESTAMP",
+    "Decimal": "DECIMAL",
+}
+# The digits of a DuckDB DECIMAL, and the civil interval of a `Date` and of
+# a `Timestamp` (language.md, "Timestamp and UUID source meaning").
+MAX_PRECISION = 38
+CIVIL = (datetime(1000, 1, 1), datetime(9999, 12, 31, 23, 59, 59, 499999))
 LOGIC = ("AND", "OR", "NOT")
 # NULL sorts as the PostgreSQL emitter's SQL puts it (PL.47); DuckDB's own
 # default puts NULL last in both directions.
@@ -58,17 +72,21 @@ class DuckDBRead:
 
 @dataclass(frozen=True, slots=True)
 class DuckDBLiteral:
-    """An `Int`, `Float`, `Text` or `Bool` literal, with its sign."""
+    """An `Int`, `Float`, `Text` or `Bool` literal, with its sign; a `Date`
+    or `Timestamp` that a `Text` literal spells; or the exact `Decimal` that
+    a number literal writes."""
 
-    value: int | float | str | bool
+    value: int | float | str | bool | date | datetime | Decimal
 
 
 @dataclass(frozen=True, slots=True)
 class DuckDBParameter:
-    """`CAST($<placeholder> AS <type>)`, the type of the parameter's `tag`."""
+    """`CAST($<placeholder> AS <type>)`, the type of the parameter's `tag`,
+    `DECIMAL(p,s)` with the `decimal` (precision, scale) of a `Decimal`."""
 
     placeholder: int
     tag: str
+    decimal: tuple[int, int] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -205,7 +223,10 @@ def render(ast: DuckDBSelect) -> tuple[bytes, tuple[Token, ...]]:
         elif type(node) is DuckDBParameter:
             emit("CAST(", "syntax", "anchor_open", *subject)
             emit(f"${node.placeholder}", "parameter", "parameter", *subject)
-            emit(f" AS {CASTS[node.tag]})", "syntax", "anchor_close", *subject)
+            cast = CASTS[node.tag] + (
+                "" if node.decimal is None else _pair(node.decimal)
+            )
+            emit(f" AS {cast})", "syntax", "anchor_close", *subject)
         elif type(node) is DuckDBLiteral:
             before, text, after = _literal(node.value)
             if before:
@@ -274,17 +295,38 @@ def render(ast: DuckDBSelect) -> tuple[bytes, tuple[Token, ...]]:
     return b"".join(chunks), tuple(tokens)
 
 
+def _pair(decimal: tuple[int, int]) -> str:
+    return f"({decimal[0]},{decimal[1]})"
+
+
+def literal_decimal(value: Decimal) -> tuple[int, int]:
+    """The (precision, scale) of the digits that a `Decimal` literal writes."""
+    _sign, digits, exponent = value.as_tuple()
+    scale = -exponent if type(exponent) is int and exponent < 0 else 0
+    return max(len(digits), scale), scale
+
+
 def _literal(value: object) -> tuple[str, str, str]:
     """The text before, of and after a literal: an `Int` cast to `BIGINT`, a
     `Float` its shortest round-trip decimal cast from text to `DOUBLE`, so
     `-0.0` keeps its sign (a bare `1.5` is a `DECIMAL`), a quoted `Text` with
-    each `'` doubled, and `TRUE` or `FALSE`."""
+    each `'` doubled, `TRUE` or `FALSE`, a `Date` or `Timestamp` its civil
+    text cast to `DATE` or `TIMESTAMP`, and a `Decimal` its digits cast to a
+    `DECIMAL` of their own precision and scale."""
     if type(value) is bool:
         return "", "TRUE" if value else "FALSE", ""
     if type(value) is int:
         return "CAST(", str(value), " AS BIGINT)"
     if type(value) is float:
         return "CAST(", f"'{value!r}'", " AS DOUBLE)"
+    if type(value) is datetime:
+        text = value.isoformat(sep=" ", timespec="microseconds")
+        return "CAST(", f"'{text}'", " AS TIMESTAMP)"
+    if type(value) is date:
+        return "CAST(", f"'{value.isoformat()}'", " AS DATE)"
+    if type(value) is Decimal:
+        pair = _pair(literal_decimal(value))
+        return "CAST(", f"'{format(value, 'f')}'", f" AS DECIMAL{pair})"
     return "", "'" + str(value).replace("'", "''") + "'", ""
 
 
@@ -294,6 +336,12 @@ def literal_holds(value: object) -> bool:
         return -(2**63) <= value <= MAX_LIMIT
     if type(value) is float:
         return math.isfinite(value)
+    if type(value) is datetime:
+        return value.tzinfo is None and CIVIL[0] <= value <= CIVIL[1]
+    if type(value) is date:
+        return CIVIL[0].date() <= value
+    if type(value) is Decimal:
+        return value.is_finite() and literal_decimal(value)[0] <= MAX_PRECISION
     if type(value) is str:
         try:
             value.encode("utf-8")
@@ -329,7 +377,7 @@ def ast_rules_hold(ast: DuckDBSelect, fields: int, labels: tuple[str, ...]) -> b
     values = [(c.field, c.function) for c in ast.columns]
     grouped = bool(ast.group_by) or any(c.function is not None for c in ast.columns)
     # Each placeholder in SQL order, with the type it is cast to.
-    placeholders: list[tuple[object, str]] = []
+    placeholders: list[tuple[object, object]] = []
 
     def term(node: object, having: bool) -> str | None:
         """One comparison side: "read", "constant", or None for no term."""
@@ -345,8 +393,17 @@ def ast_rules_hold(ast: DuckDBSelect, fields: int, labels: tuple[str, ...]) -> b
             type(node) is DuckDBParameter
             and type(node.placeholder) is int
             and node.tag in CASTS
+            and (
+                node.decimal is None
+                if node.tag != "Decimal"
+                else type(node.decimal) is tuple
+                and len(node.decimal) == 2
+                and all(type(k) is int for k in node.decimal)
+                and 0 <= node.decimal[1] <= node.decimal[0] <= MAX_PRECISION
+                and node.decimal[0] >= 1
+            )
         ):
-            placeholders.append((node.placeholder, node.tag))
+            placeholders.append((node.placeholder, (node.tag, node.decimal)))
             return "constant"
         if type(node) is DuckDBLiteral and literal_holds(node.value):
             return "constant"
@@ -375,7 +432,7 @@ def ast_rules_hold(ast: DuckDBSelect, fields: int, labels: tuple[str, ...]) -> b
         return False
     # Placeholders are numbered from 1 in the order of their first use, and
     # each keeps one type.
-    numbered: dict[object, str] = {}
+    numbered: dict[object, object] = {}
     for number, tag in placeholders:
         if number not in numbered and number != len(numbered) + 1:
             return False

@@ -43,7 +43,16 @@ __all__: tuple[str, ...] = ()
 FAMILY = "duckdb"
 RELEASE = "2.0.0"
 SCAN = "arrow_registration"
-STORAGES = ("arrow_int64", "arrow_bool", "arrow_string", "arrow_float64")
+# Each storage kind and its members (docs/spec/duckdb-arrow-route-v1.md).
+STORAGES = {
+    "arrow_int64": ("kind",),
+    "arrow_bool": ("kind",),
+    "arrow_string": ("kind",),
+    "arrow_float64": ("kind",),
+    "arrow_date32": ("kind",),
+    "arrow_timestamp_us": ("kind",),
+    "arrow_decimal128": ("kind", "precision", "scale"),
+}
 
 
 @dataclass(frozen=True, slots=True, eq=False)
@@ -144,8 +153,16 @@ def _representation(value: Any, path: str, errors: list[InputError]) -> bool:
             path + "/storage",
             f"Storage kind must be one of: {', '.join(STORAGES)}.",
         )
-    else:
-        _object(storage, ("kind",), path + "/storage", errors)
+    elif (
+        _object(storage, STORAGES[kind], path + "/storage", errors) is not None
+        and "precision" in storage
+        and not (
+            _integer(storage["precision"], 1)
+            and _integer(storage["scale"])
+            and storage["scale"] <= storage["precision"]
+        )
+    ):
+        _error(errors, path + "/storage")
     if type(value["nullable"]) is not bool and value["nullable"] != "unknown":
         _error(errors, path + "/nullable")
     _domain(value["domain"], path + "/domain", errors)

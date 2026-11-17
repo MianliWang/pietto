@@ -1,8 +1,9 @@
 """The DuckDB storage kind of a `duckdb_arrow` result (D79.04;
 docs/spec/duckdb-arrow-route-v1.md, "Session and attempt", step 4).
 
-`to_arrow_table()` returns `int64`, `string`, `bool` and `double` columns and
-marks every field nullable. The shared result readers hold this kind (D77.32's
+`to_arrow_table()` returns `int64`, `string`, `bool`, `double`, `date32`,
+`timestamp[us]` and `decimal128(p, s)` columns and marks every field
+nullable. The shared result readers hold this kind (D77.32's
 wiring): project_result_binding closes the DuckDB storage kinds of each type,
 and project_execution_reader binds the result against the compiled schema
 built here (`DUCKDB_RESULT_CHECK`, PIE-R3005). This owner gives each kind its
@@ -21,17 +22,22 @@ from pietto._project.project_result_contract import ResultError
 __all__: tuple[str, ...] = ()
 
 ARROW = {
-    "arrow_int64": "int64",
-    "arrow_string": "string",
-    "arrow_bool": "bool_",
-    "arrow_float64": "float64",
+    "arrow_int64": ("int64",),
+    "arrow_string": ("string",),
+    "arrow_bool": ("bool_",),
+    "arrow_float64": ("float64",),
+    "arrow_date32": ("date32",),
+    "arrow_timestamp_us": ("timestamp", "us"),
+    "arrow_decimal128": ("decimal128",),
 }
 
 
-def arrow_type(pa: Any, tag: str) -> Any:
-    """The Arrow type of one admitted logical type's DuckDB storage kind."""
+def arrow_type(pa: Any, tag: str, decimal: tuple[int, int] | None = None) -> Any:
+    """The Arrow type of one admitted logical type's DuckDB storage kind; a
+    `Decimal` has its (precision, scale), a `Timestamp` no time zone."""
     (kind,) = _storages(FAMILY, False)[tag]
-    return getattr(pa, ARROW[kind])()
+    name, *arguments = ARROW[kind]
+    return getattr(pa, name)(*arguments, *(decimal or ()))
 
 
 def result_schema(pa: Any, facts: Any) -> Any:
@@ -39,8 +45,8 @@ def result_schema(pa: Any, facts: Any) -> Any:
     type's Arrow type and its nullability."""
     return pa.schema(
         [
-            pa.field(label, arrow_type(pa, tag), nullable=nullable)
-            for label, tag, nullable in facts.result
+            pa.field(label, arrow_type(pa, tag, decimal), nullable=nullable)
+            for label, tag, nullable, decimal in facts.result
         ]
     )
 

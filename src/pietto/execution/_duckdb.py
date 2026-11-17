@@ -29,7 +29,10 @@ from pietto._project.project_compiled_loading import (
 )
 from pietto._project.project_duckdb_sql import RELATION
 from pietto._project.project_execution_template import BindingError
-from pietto._project.project_sql_emission_parameters import parameter_valid
+from pietto._project.project_sql_emission_parameters import (
+    parameter_text,
+    parameter_valid,
+)
 from pietto.execution._errors import failure, request_failure
 
 __all__: tuple[str, ...] = ()
@@ -38,6 +41,10 @@ PYARROW = ("pyarrow", "26.0.1", "pyarrow")
 DRIVER = ("duckdb", "2.0.0", "duckdb")
 ENGINE = [("v2.0.0", "d54cbbe3df")]
 MAX_ROWS = 1_048_576
+# The civil interval of a `Date` in days and of a `Timestamp` in microseconds
+# from the Unix epoch (1000-01-01 to 9999-12-31 23:59:59.499999).
+CIVIL_DAYS = (-354_285, 2_932_896)
+CIVIL_MICROSECONDS = (-30_610_224_000_000_000, 253_402_300_799_499_999)
 # Of the selected columns only (PL.47).
 MAX_BYTES = 256 * 1024 * 1024
 # DuckDB drops an interrupt that reaches the connection before its statement
@@ -106,20 +113,28 @@ def _bound(facts, values, parameters):
     """Check 7's binding: no value slots, and exactly the declared header
     parameters, each of its exact type (BINDING_* words, PIE-R1006), before
     any reaches DuckDB, whose cast would take ``1.5`` as the BIGINT 2. The
-    arguments come in placeholder order."""
+    arguments come in placeholder order, a `Decimal` as its canonical text,
+    which DuckDB casts exactly, where it reads a `decimal.Decimal` of more
+    than 38 digits as a DOUBLE."""
     if values is not None and len(values) != 0:
         raise BindingError("BINDING_SLOTS")
     supplied = {} if parameters is None else parameters
-    if set(supplied) != {name for name, _tag, _nullable in facts.parameters}:
+    if set(supplied) != {parameter[0] for parameter in facts.parameters}:
         raise BindingError("BINDING_PARAMETERS")
     arguments = []
-    for ordinal, (name, tag, nullable) in enumerate(facts.parameters):
+    for ordinal, (name, tag, nullable, decimal) in enumerate(facts.parameters):
         value = supplied[name]
         if not (
-            nullable if value is None else parameter_valid(tag, value, adapter.FAMILY)
+            nullable
+            if value is None
+            else parameter_valid(tag, value, adapter.FAMILY, decimal)
         ):
             raise BindingError(f"BINDING_PARAMETER:{ordinal}:{tag}")
-        arguments.append(value)
+        arguments.append(
+            parameter_text(tag, value)
+            if tag == "Decimal" and value is not None
+            else value
+        )
     return tuple(arguments[k] for k in facts.placeholders)
 
 
@@ -152,7 +167,7 @@ def _pyarrow():
     )
 
 
-def _admitted(pc, field, column):
+def _admitted(pa, pc, field, column):
     """Step 4 of the capture over one selected column."""
     try:
         column.validate(full=True)
@@ -173,6 +188,14 @@ def _admitted(pc, field, column):
         # caller unchanged (the owner's choice of 2026-11-11).
         longest = pc.max(pc.utf8_length(column)).as_py()
         return longest is None or longest <= field.max_characters
+    if field.tag in ("Date", "Timestamp"):
+        low, high = CIVIL_DAYS if field.tag == "Date" else CIVIL_MICROSECONDS
+        width = pa.int32() if field.tag == "Date" else pa.int64()
+        extremes = pc.min_max(column.cast(width)).as_py()
+        return (
+            extremes["min"] is None or low <= extremes["min"] <= extremes["max"] <= high
+        )
+    # A Decimal's digits beyond its precision fail the full validation above.
     return True
 
 
@@ -207,7 +230,7 @@ def capture(pa, pc, table, fields):
     selected = []
     for field in fields:
         found = schema.get_all_field_indices(field.column)
-        expected = results.arrow_type(pa, field.tag)
+        expected = results.arrow_type(pa, field.tag, field.decimal)
         if len(found) != 1:
             return None, "DUCKDB_ARROW_SCHEMA"
         actual = schema.field(found[0]).type
@@ -217,7 +240,7 @@ def capture(pa, pc, table, fields):
     if sum(column.nbytes for column in selected) > MAX_BYTES:
         return None, "DUCKDB_ARROW_CAPTURE_LIMIT"
     for field, column in zip(fields, selected, strict=True):
-        if not _admitted(pc, field, column):
+        if not _admitted(pa, pc, field, column):
             return None, "DUCKDB_ARROW_SCHEMA"
     copies = [_copy(pa, column) for column in selected]
     names = [f"c{k}" for k in range(len(copies))]

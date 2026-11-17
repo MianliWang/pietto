@@ -281,8 +281,9 @@ release.
   is a read-only executor of one query over one Arrow table that the
   program supplies, run in process on DuckDB `2.0.0` with the
   `execute-duckdb` extra. It runs one query of an explicit-module project
-  that reads one `duckdb.arrow("key")` source of `Int`, `Text`, `Bool`
-  and finite `Float` fields: a direct projection, or `group by` with
+  that reads one `duckdb.arrow("key")` source of `Int`, `Text`, `Bool`,
+  finite `Float`, `Date`, `Timestamp` and `Decimal(p, s)` fields with `p`
+  at most 38: a direct projection, or `group by` with
   `count`, `sum`, `min` and `max` and a `having`, filtered by comparisons
   with literals and query parameters joined by `and` and `or`, a `where`
   also with `not`, with `order by` and `limit`. JOINs, computed values and other aggregates
@@ -290,10 +291,12 @@ release.
   columns named by the source's fields measure more than 256 MiB together
   (read by the query or not), is refused. It is qualified
   only with CPython 3.12 and 3.13 on Linux x86-64 with glibc 2.28 or later
-  ([DuckDB local path](https://github.com/MianliWang/pietto/blob/main/docs/capabilities.md#duckdb-local-path)).
-  `0.2.0` and `0.2.1` carry only the projection with one `Int` parameter
-  comparison, over at most 65,536 rows and 16 MiB; the rest is the first
-  tier of Phase79's second slice, which enters `0.2.2`
+  ([DuckDB local path](https://github.com/MianliWang/pietto/blob/main/docs/capabilities.md#duckdb-local-path));
+  the second tier's `Date`, `Timestamp` and `Decimal` fields are not
+  qualified yet. `0.2.0` and `0.2.1` carry only the projection with one
+  `Int` parameter comparison, over at most 65,536 rows and 16 MiB; the rest
+  is Phase79's second slice, its first tier and its second tier's types,
+  which enter `0.2.2`
   ([roadmap](https://github.com/MianliWang/pietto/blob/main/docs/roadmap.md#third-dialect)).
 - `pietto.interop` (alpha) turns one open `ResultBatch` into a pandas or
   Polars DataFrame, a NumPy array, a SciPy CSR array or a Matplotlib line or

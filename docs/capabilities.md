@@ -184,11 +184,14 @@ at most one comparison of an `Int` field with one non-null `Int` parameter,
 over at most 65,536 rows and 16 MiB. Its second part, Phase79 B2 (PL.47),
 adds the grouping, `having`, `order by`, `limit`, the wider filters and the
 higher limits; no release carries it yet, and it enters `0.2.2` (PL.55).
+B2's second tier adds `Date`, `Timestamp` and `Decimal(p, s)` fields and
+enters `0.2.2` too (D79.21).
 
 Each row was recorded by running one plain example through
 `check --project` and `emit-sql --project --dialect duckdb`, with a DuckDB
-contract that declares every premise, on the tree of B2's closeout, and its
-cell follows the legend above.
+contract that declares every premise, on the tree of B2's closeout, the
+rows of the second tier's types on that slice's tree, and its cell follows
+the legend above.
 
 | Feature | Project, DuckDB | Stated in |
 | --- | --- | --- |
@@ -196,15 +199,18 @@ cell follows the legend above.
 | `where` comparisons of a field with a literal or a query parameter of the same type, `Int`, `Text`, `Bool` or `Float`, joined by `and`, `or` and `not`, and `is None` tests, with any number of non-null parameters of those types | yes | [Admission](spec/duckdb-arrow-route-v1.md#admission) |
 | A comparison of two fields (`amount > id`) or of an `Int` with a `Float`, a bare `Bool` field as a test (`where ok`), a computed side (`-amount > 3`), or a parameter tested with `is None` | BLOCKED PIE-B1003 `duckdb_filter_not_admitted`, beside `duckdb_parameter_not_admitted` for the parameter | [Compile refusals](spec/duckdb-arrow-route-v1.md#compile-refusals) |
 | A `Text` literal that holds NUL | BLOCKED PIE-B1003 `duckdb_text_literal_nul_not_admitted` | [Compile refusals](spec/duckdb-arrow-route-v1.md#compile-refusals) |
-| A nullable parameter, a parameter of another type such as `Decimal(10, 2)`, or a parameter in a projection | BLOCKED PIE-B1003 `duckdb_parameter_not_admitted`, beside `duckdb_filter_not_admitted` for a parameter of another type and `duckdb_projection_not_admitted` in a projection | [Compile refusals](spec/duckdb-arrow-route-v1.md#compile-refusals) |
+| A nullable parameter, a parameter of another type such as `Decimal(39, 2)`, or a parameter in a projection | BLOCKED PIE-B1003 `duckdb_parameter_not_admitted`, beside `duckdb_filter_not_admitted` for a parameter of another type and `duckdb_projection_not_admitted` in a projection | [Compile refusals](spec/duckdb-arrow-route-v1.md#compile-refusals) |
 | `group by` source fields with `count()`, `count(field)`, `sum` of an `Int` field and `min` and `max` of an `Int` or `Float` field, or these aggregates without `group by` | yes | [Admission](spec/duckdb-arrow-route-v1.md#admission) |
 | A `having` that compares selected outputs with literals and parameters, joined by `and` and `or` | yes | [Admission](spec/duckdb-arrow-route-v1.md#admission) |
 | `avg`, `count_distinct` or `sum` of a `Float` | BLOCKED PIE-B1003 `duckdb_aggregate_not_admitted` | [Compile refusals](spec/duckdb-arrow-route-v1.md#compile-refusals) |
 | `order by` source fields, or in a grouped query selected outputs, ascending or descending, and a static `limit` | yes | [Admission](spec/duckdb-arrow-route-v1.md#admission) |
+| `Date`, `Timestamp` and `Decimal(p, s)` fields with `p` at most 38: read, grouped, ordered, `count`, `min` and `max`, and in a `where` compared with a `Text` literal of the `Date` or `Timestamp` spelling of a constant, a number literal beside a `Decimal`, or a non-null parameter of the same type, a `Decimal` one of the same precision and scale | yes | [Admission](spec/duckdb-arrow-route-v1.md#admission) |
+| A `Date` literal that is no date (`day == "2024-02-30"`), a date beside a `Timestamp`, a number literal that needs more than 38 digits beside its `Decimal`, a `Decimal` parameter of another scale, or a `having` comparison of a `Date`, `Timestamp` or `Decimal` output | BLOCKED PIE-B1003 `duckdb_filter_not_admitted` | [Compile refusals](spec/duckdb-arrow-route-v1.md#compile-refusals) |
+| `sum` of a `Decimal` | BLOCKED PIE-B1003 `duckdb_aggregate_not_admitted` | [Compile refusals](spec/duckdb-arrow-route-v1.md#compile-refusals) |
 | A computed `order by` key (`order by -amount`) | BLOCKED PIE-B1003 `duckdb_order_not_admitted` | [Compile refusals](spec/duckdb-arrow-route-v1.md#compile-refusals) |
 | A computed `select` value (`more = amount + 1`) | BLOCKED PIE-B1003 `duckdb_projection_not_admitted` | [Compile refusals](spec/duckdb-arrow-route-v1.md#compile-refusals) |
 | `distinct`, a table that reads another, a JOIN | BLOCKED PIE-B1003 `duckdb_relation_shape_not_admitted`, beside `duckdb_source_count_not_admitted` and `duckdb_projection_not_admitted` for a JOIN of a second source | [Compile refusals](spec/duckdb-arrow-route-v1.md#compile-refusals) |
-| A source field of type `Decimal`, `Date`, `Timestamp` or `UUID` | BLOCKED PIE-B1003 `duckdb_field_type_not_admitted`, beside the contract's own blocker for that field | [Compile refusals](spec/duckdb-arrow-route-v1.md#compile-refusals) |
+| A source field of type `UUID`, a plain `Decimal` or a `Decimal(p, s)` with `p` above 38 | BLOCKED PIE-B1003 `duckdb_field_type_not_admitted`, beside the contract's own blocker for that field | [Compile refusals](spec/duckdb-arrow-route-v1.md#compile-refusals) |
 | `--literal-policy bind-safe` | BLOCKED PIE-B1003 `literal_policy_not_admitted_on_target` | [Compile refusals](spec/duckdb-arrow-route-v1.md#compile-refusals) |
 | A `postgres.table` or `mysql.table` source under `--dialect duckdb` | BLOCKED PIE-B1001 `source_family_mismatch`, beside PIE-B1006 `negative_original_target_evidence` | [Compile refusals](spec/duckdb-arrow-route-v1.md#compile-refusals) |
 | `duckdb.arrow("")` or another argument that is not one non-empty string literal | check PIE-S2306 | [Sources and relations](language.md#sources-and-relations) |
@@ -230,7 +236,9 @@ cell follows the legend above.
   S06's for B1, every unit accepted on 2026-11-14 (D79.07), and T06's for
   B2, every unit accepted on 2026-11-16 (PL.47), on CPython 3.13.13 and
   3.12.13, Linux x86-64, and the `arrow-ready` cell of natural CI, which
-  runs one B1 and three B2 queries.
+  runs one B1 and three B2 queries. The second tier's `Date`, `Timestamp`
+  and `Decimal` forms have the route's own native test cells; their
+  preregistered qualification is still to run.
   Other DuckDB releases and platforms are not qualified.
 
 ## Platforms and qualification
