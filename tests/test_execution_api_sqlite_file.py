@@ -283,6 +283,44 @@ def test_compile_query_compiles_a_sqlite_query(
         )
 
 
+JOINED = """query joined:
+    from orders
+    let c = customers
+    inner join c on orders.id == c.id
+    select:
+        orders.id
+        c.name
+"""
+
+
+def test_compile_query_compiles_a_join_that_the_route_refuses(tmp_path: Path) -> None:
+    # A third source that the query does not read leaves its contract entry.
+    header = files.JOINED_HEADER + ('\nsource spare: Order = sqlite.table("spare")\n')
+    document = files.joined_contract()
+    document["sources"].append(files.source_entry("spare"))
+    root = files.write(tmp_path / "p", JOINED, document, header)
+    query = execution.compile_query(
+        root,
+        module="main.pietto",
+        kind="query",
+        name="joined",
+        dialect="sqlite",
+        emission_contract="contract.json",
+    )
+    assert (query.dialect, query.parameters, query.slots) == ("sqlite", (), ())
+    assert query.emission is not None
+    assert b'"sql":"SELECT `s0`.`id` AS `id`, `s1`.`name` AS `name` FROM' in (
+        query.emission
+    )
+    missing = tmp_path / "absent.db"
+    access = execution.SQLiteFileInput(missing)
+    assert _refusal(query, access=access, parameters={}) == (
+        "PIE-R1003",
+        "PUBLIC_ROUTE_UNAVAILABLE",
+    )
+    assert not missing.exists()
+
+
 def test_request_checks_refuse_in_order_before_any_file_opens(
     filtered_query: execution.CompiledQuery,
     tmp_path: Path,

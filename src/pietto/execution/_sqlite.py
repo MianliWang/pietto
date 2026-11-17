@@ -267,6 +267,13 @@ def prepare(template, access, *, limits, isolation, values, parameters):
     """The route's request checks after execute()'s shared ones, in order:
     (an unopened attempt, None) or (None, the first refusal's Failure)."""
     try:
+        if (
+            type(template) is SQLiteTemplate
+            and adapter.verify_artifact(template.emission)
+            and template.emission.checked.plan.joins
+        ):
+            # A statement that joins sources waits for the route's S13b.
+            return None, failure("PIE-R1003", "PUBLIC_ROUTE_UNAVAILABLE")
         facts = execution_facts(template)
         arguments = _bound(facts, values, parameters)
         if template.compatibility != supported_compatibility():

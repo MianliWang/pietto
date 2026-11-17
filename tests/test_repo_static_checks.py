@@ -533,5 +533,31 @@ def test_the_adapters_name_no_compiled_join_derivation() -> None:
         assert not named & forbidden, path
 
 
+def test_the_sqlite_adapter_reads_no_join_properties() -> None:
+    """SQLite B2's L9 beside the fence above: the SQLite adapter and route
+    read a JOIN's kind, inputs and `on` from the verified plan, never the
+    key and grain facts that a plan JOIN's `properties` project; `check`
+    has refused an aggregate over unproved fan-out (PIE-S2333) before a
+    plan exists, so the adapter needs none of them."""
+    import ast
+
+    package = REPO_ROOT / "src/pietto/_project"
+    paths = sorted(
+        (
+            *package.glob("project_sqlite_*.py"),
+            REPO_ROOT / "src/pietto/execution/_sqlite.py",
+        )
+    )
+    assert package / "project_sqlite_emission.py" in paths
+    for path in paths:
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            assert not (
+                isinstance(node, ast.Attribute) and node.attr == "properties"
+            ), path
+            assert not (
+                isinstance(node, ast.Constant) and node.value == "properties"
+            ), path
+
+
 def _read(path: str) -> str:
     return (REPO_ROOT / path).read_text(encoding="utf-8")

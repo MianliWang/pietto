@@ -159,6 +159,28 @@ PROJECTION_SQL = (
 )
 
 
+# A second source for JOINs (S13a), keyed by its `id`.
+CUSTOMER_FIELDS = (
+    ("id", "Int", False),
+    ("name", "Text", False),
+    ("vip", "Bool", True),
+    ("rate", "Float", False),
+)
+JOINED_HEADER = (
+    HEADER
+    + """
+shape Customer:
+    id: Int
+    name: Text
+    vip: Bool | None
+    rate: Float
+    customer_key = unique(id)
+
+source customers: Customer = sqlite.table("customers")
+"""
+)
+
+
 def statement(name: str, value: object) -> dict[str, object]:
     return {"key": name, "scope": "statement", "value": value}
 
@@ -198,6 +220,14 @@ def contract(*sources: dict[str, Any]) -> dict[str, Any]:
             statement("parameter_protocol", "sqlite_prepared"),
         ],
     }
+
+
+def joined_contract(*, customers: bool = True) -> dict[str, Any]:
+    """The contract of both sources, or of `orders` alone."""
+    entries = [source_entry()]
+    if customers:
+        entries.append(source_entry("customers", CUSTOMER_FIELDS))
+    return contract(*entries)
 
 
 def write(

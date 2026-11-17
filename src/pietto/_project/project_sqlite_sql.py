@@ -1,8 +1,9 @@
 """The SQLite adapter's own SQL AST and renderer (AD78.03, PL.47).
 
-One `SELECT` over one `STRICT` table of the `main` schema, aliased `s0`, with
-the clauses of the SQL rules of docs/spec/sqlite-project-v1.md; a window is
-written inline as `OVER (...)` in its result field (S15). Every node
+One `SELECT` over one `STRICT` table of the `main` schema, aliased `s0`, or
+over INNER and LEFT JOINs of such tables, aliased `s0`, `s1`, ... in input
+order, with the clauses of the SQL rules of docs/spec/sqlite-project-v1.md; a
+window is written inline as `OVER (...)` in its result field (S15). Every node
 keeps the plan object it renders as its `subject`, so the document can name
 the plan owner of each byte range.
 """
@@ -15,7 +16,6 @@ from typing import Any
 
 __all__: tuple[str, ...] = ()
 
-ALIAS = "s0"
 OPERATORS = {"==": "=", "!=": "<>", "<": "<", "<=": "<=", ">": ">", ">=": ">="}
 LOGICAL = {"and": "AND", "or": "OR"}
 ARITHMETIC = ("+", "-", "*")
@@ -57,10 +57,12 @@ WHOLE = ("range", ("unbounded_preceding", None), ("current_row", None))
 
 @dataclass(frozen=True, slots=True)
 class SQLiteColumn:
-    """`` `s0`.`<column>` ``; `field` is the source field's shape position."""
+    """`` `sN`.`<column>` ``; `field` is the source field's shape position in
+    the input whose alias is `sN`, N being `input`."""
 
     field: int
     subject: object
+    input: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -222,8 +224,24 @@ class SQLiteLimit:
 
 
 @dataclass(frozen=True, slots=True)
+class SQLiteJoin:
+    """`` <kind> JOIN `main`.`<table>` AS `sN` ON <on> ``, N being its place
+    in `SQLiteSelect.joins` plus one; `kind` is `INNER` or `LEFT`, and `on` a
+    conjunction of `=` comparisons of a column of `sN` and one of an earlier
+    input."""
+
+    kind: str
+    table: str
+    columns: tuple[str, ...]
+    on: SQLiteExpression
+    subject: object
+    source: object
+
+
+@dataclass(frozen=True, slots=True)
 class SQLiteSelect:
-    """`columns` are the contract columns of the source fields, in shape order."""
+    """`columns` are the contract columns of the source fields, in shape order,
+    of the first input `s0`; `joins` the later inputs."""
 
     table: str
     columns: tuple[str, ...]
@@ -235,6 +253,11 @@ class SQLiteSelect:
     limit: SQLiteLimit | None
     subject: object
     source: object
+    joins: tuple[SQLiteJoin, ...] = ()
+
+    def inputs(self) -> tuple[tuple[str, ...], ...]:
+        """The columns of each input, in alias order."""
+        return (self.columns, *(join.columns for join in self.joins))
 
 
 def _children(node: object) -> tuple[object, ...]:
@@ -252,16 +275,17 @@ def _children(node: object) -> tuple[object, ...]:
 
 def size(ast: SQLiteSelect) -> tuple[int, int]:
     """The node count of the statement and the depth of its deepest expression:
-    the statement, its table, each result, key and limit, and each expression
+    the statement, its tables, each result, key and limit, and each expression
     node."""
     roots = [
         *(r.value for r in ast.results),
+        *(join.on for join in ast.joins),
         *(() if ast.where is None else (ast.where,)),
         *(() if ast.having is None else (ast.having,)),
         *(k.value for k in (*ast.group_by, *ast.order_by)),
     ]
-    nodes = 2 + len(ast.results) + len(ast.group_by) + len(ast.order_by)
-    nodes += ast.limit is not None
+    nodes = 2 + len(ast.joins) + len(ast.results) + len(ast.group_by)
+    nodes += len(ast.order_by) + (ast.limit is not None)
     depth = 0
     pending = [(root, 1) for root in roots]
     while pending:
@@ -322,9 +346,13 @@ def render(ast: SQLiteSelect) -> tuple[bytes, tuple[Token, ...]]:
         tokens.append(Token(offset, offset + len(chunk), kind, role, subject))
         offset += len(chunk)
 
-    def column(node: SQLiteColumn, name: str) -> None:
-        emit(quoted(ALIAS) + ".", "identifier", "alias", node.subject)
-        emit(quoted(name), "identifier", "column", node.subject)
+    inputs = ast.inputs()
+
+    def column(node: SQLiteColumn) -> None:
+        emit(quoted(f"s{node.input}") + ".", "identifier", "alias", node.subject)
+        emit(
+            quoted(inputs[node.input][node.field]), "identifier", "column", node.subject
+        )
 
     def value(node: object, nested: bool = False) -> None:
         if nested and type(node) not in _ATOMS:
@@ -332,7 +360,7 @@ def render(ast: SQLiteSelect) -> tuple[bytes, tuple[Token, ...]]:
             value(node)
             emit(")", "syntax", "close", node.subject)  # type: ignore[attr-defined]
         elif type(node) is SQLiteColumn:
-            column(node, ast.columns[node.field])
+            column(node)
         elif type(node) is SQLiteLiteral:
             text = literal_text(node.value)
             assert text is not None
@@ -441,10 +469,19 @@ def render(ast: SQLiteSelect) -> tuple[bytes, tuple[Token, ...]]:
         emit(" AS ", "syntax", "alias", result.subject)
         emit(quoted(result.label), "identifier", "label", result.export)
     emit(" FROM ", "syntax", "clause", ast.subject)
-    emit(quoted("main") + ".", "identifier", "schema", ast.source)
-    emit(quoted(ast.table), "identifier", "table", ast.source)
-    emit(" AS ", "syntax", "alias", ast.source)
-    emit(quoted(ALIAS), "identifier", "alias", ast.source)
+
+    def table(name: str, alias: int, source: object) -> None:
+        emit(quoted("main") + ".", "identifier", "schema", source)
+        emit(quoted(name), "identifier", "table", source)
+        emit(" AS ", "syntax", "alias", source)
+        emit(quoted(f"s{alias}"), "identifier", "alias", source)
+
+    table(ast.table, 0, ast.source)
+    for alias, join in enumerate(ast.joins, 1):
+        emit(f" {join.kind} JOIN ", "syntax", "join", join.subject)
+        table(join.table, alias, join.source)
+        emit(" ON ", "syntax", "clause", join.subject)
+        value(join.on)
     if ast.where is not None:
         emit(" WHERE ", "syntax", "clause", ast.subject)
         value(ast.where)
@@ -459,16 +496,43 @@ def render(ast: SQLiteSelect) -> tuple[bytes, tuple[Token, ...]]:
     return b"".join(chunks), tuple(tokens)
 
 
+def _on_holds(on: object, alias: int) -> bool:
+    """A conjunction of `=` comparisons of two columns, one of input `alias`
+    and one of an earlier input."""
+    if type(on) is SQLiteLogical:
+        return (
+            on.operator == "AND"
+            and _on_holds(on.left, alias)
+            and _on_holds(on.right, alias)
+        )
+    if type(on) is not SQLiteComparison or on.operator != "=":
+        return False
+    left, right = on.left, on.right
+    if type(left) is not SQLiteColumn or type(right) is not SQLiteColumn:
+        return False
+    return sorted((left.input == alias, right.input == alias)) == [False, True] and (
+        min(left.input, right.input) < alias
+    )
+
+
 def ast_rules_hold(
     ast: SQLiteSelect,
     labels: tuple[str, ...],
-    text_fields: frozenset[int],
+    text_fields: frozenset[tuple[int, int]],
     text_parameters: frozenset[int],
 ) -> bool:
     """The SQL rules of the specification that the AST alone decides, over the
-    statement's result `labels`, its `Text` source fields and the numbers of its
-    `Text` parameters."""
+    statement's result `labels`, its `Text` source fields as (input, field)
+    pairs and the numbers of its `Text` parameters."""
     if type(ast) is not SQLiteSelect or type(ast.table) is not str:
+        return False
+    if type(ast.joins) is not tuple or not all(
+        type(join) is SQLiteJoin
+        and join.kind in ("INNER", "LEFT")
+        and type(join.table) is str
+        and _on_holds(join.on, alias)
+        for alias, join in enumerate(ast.joins, 1)
+    ):
         return False
     if tuple(type(r) for r in ast.results) != (SQLiteResult,) * len(ast.results):
         return False
@@ -492,7 +556,7 @@ def ast_rules_hold(
 
     def text(node: object) -> bool:
         if type(node) is SQLiteColumn:
-            return node.field in text_fields
+            return (node.input, node.field) in text_fields
         if type(node) is SQLiteParameter:
             return node.number in text_parameters
         return type(node) is SQLiteLiteral and type(node.value) is str
@@ -500,23 +564,29 @@ def ast_rules_hold(
     # HAVING reads only GROUP BY keys and aggregates, never an output alias or
     # a column outside the keys, which SQLite would read from any row, and no
     # NOT or null test, which `check` refuses there.
-    grouped = {k.value.field for k in ast.group_by if type(k.value) is SQLiteColumn}
+    grouped = {
+        (k.value.input, k.value.field)
+        for k in ast.group_by
+        if type(k.value) is SQLiteColumn
+    }
     having: list[object] = [] if ast.having is None else [ast.having]
     while having:
         node = having.pop()
-        if type(node) is SQLiteColumn and node.field not in grouped:
+        if type(node) is SQLiteColumn and (node.input, node.field) not in grouped:
             return False
         if type(node) in (SQLiteNot, SQLiteIsNull):
             return False
         if type(node) is not SQLiteAggregate:
             having.extend(_children(node))
     # A window is a whole result field of a statement with no GROUP BY,
-    # HAVING or aggregate (S15).
+    # HAVING, aggregate or JOIN (S15: over one source read).
     windows = {id(r.value) for r in ast.results if type(r.value) is SQLiteWindow}
     aggregated = bool(ast.group_by) or ast.having is not None
+    inputs = ast.inputs()
     numbers: list[int] = []
     pending: list[Any] = [
         *(r.value for r in ast.results),
+        *(join.on for join in ast.joins),
         *(() if ast.where is None else (ast.where,)),
         *(() if ast.having is None else (ast.having,)),
         *(k.value for k in keys),
@@ -526,7 +596,12 @@ def ast_rules_hold(
         node = pending.pop()
         kind = type(node)
         if kind is SQLiteColumn:
-            if not (type(node.field) is int and 0 <= node.field < len(ast.columns)):
+            if not (
+                type(node.input) is int
+                and 0 <= node.input < len(inputs)
+                and type(node.field) is int
+                and 0 <= node.field < len(inputs[node.input])
+            ):
                 return False
         elif kind is SQLiteLiteral:
             if literal_text(node.value) is None:
@@ -572,7 +647,9 @@ def ast_rules_hold(
             return False
         pending.extend(reversed(_children(node)))
     first = list(dict.fromkeys(numbers))
-    if first != list(range(1, len(first) + 1)) or (windows and aggregated):
+    if first != list(range(1, len(first) + 1)) or (
+        windows and (aggregated or ast.joins)
+    ):
         return False
     return all(k.collate is text(k.value) for k in keys)
 

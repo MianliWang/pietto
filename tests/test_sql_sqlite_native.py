@@ -1814,6 +1814,308 @@ _PROJECT_CELLS = (
 )
 
 
+# The JOIN cells (S13a): INNER and LEFT JOINs of `t` with a second table `u`
+# on an `Int`, `Text` or `Bool` key, NULL keys, a self-join, a LEFT JOIN's
+# NULLs under a later `where`, grouping and aggregates over joined rows, and
+# a chain of three inputs, and S14's arithmetic over joined rows (fixture
+# `join-arith`). Each that compares `Text` runs again on the `join-nocase`
+# fixture, whose key columns are `COLLATE NOCASE` with indexes of another
+# collation, with the same oracle. They stay out of `_PROJECT_CELLS`, whose
+# R1 replay binds; R3 is to replay them.
+_U_SCHEMA = (
+    "CREATE TABLE `u` (`k` INTEGER NOT NULL, `w` TEXT, `c` INTEGER, `v` INTEGER) STRICT"
+)
+_U_ROWS: tuple[tuple[object, ...], ...] = (
+    (7, "a", 1, 10),
+    (0, "A", 0, 20),
+    (1, "\u00e9", None, 30),
+    (99, None, 1, 40),
+    (-1, "", 0, None),
+)
+_U_TYPES = {"k": "Int", "w": "Text", "c": "Bool", "v": "Int"}
+_JOIN_FIXTURES: dict[str, tuple[tuple[tuple[str, str, Any], ...], tuple[str, ...]]] = {
+    "join": ((("t", _SCHEMA, _ROWS), ("u", _U_SCHEMA, _U_ROWS)), ()),
+    "join-nocase": (
+        (
+            ("t", _SCHEMA.replace("`s` TEXT", "`s` TEXT COLLATE NOCASE"), _ROWS),
+            ("u", _U_SCHEMA.replace("`w` TEXT", "`w` TEXT COLLATE NOCASE"), _U_ROWS),
+        ),
+        (
+            "CREATE INDEX `t_s` ON `t` (`s`)",
+            "CREATE INDEX `u_w` ON `u` (`w` COLLATE BINARY)",
+            "CREATE INDEX `u_w_nocase` ON `u` (`w`)",
+        ),
+    ),
+}
+# The `join` tables under a contract whose `int_range`s bound `t.id`, `u.k`
+# and `u.v` (S14 over joined rows; each value of the tables lies inside).
+_JOIN_FIXTURES["join-arith"] = _JOIN_FIXTURES["join"]
+_JOIN_RANGES = {"join-arith": {"id": (1, 9), "k": (-1, 99), "v": (0, 100)}}
+_JOIN_HEADER = (
+    _HEADER
+    + """shape Ref:
+    k: Int
+    w: Text | None
+    c: Bool | None
+    v: Int | None
+    by_k = unique(k)
+    by_w = unique(w)
+
+source u: Ref = sqlite.table("u")
+
+"""
+)
+
+
+def _jq(*clauses: str, lets: tuple[str, ...] = ("r = u",)) -> str:
+    head = "query q:\n    from t\n" + "".join(f"    let {let}\n" for let in lets)
+    return _JOIN_HEADER + head + "".join(f"    {c}\n" for c in clauses)
+
+
+def _join_cell(name: str, program: str, columns: tuple[str, ...], *rows: Any) -> _Cell:
+    return _Cell(
+        f"project-join-{name}", program, columns, rows, False, "join", arguments=()
+    )
+
+
+_JOIN_BASE = (
+    _join_cell(
+        "inner-int-with-null-keys",
+        _jq("inner join r on t.n == r.k", _b("select", "t.id", "r.v")),
+        ("id", "v"),
+        (3, 20),
+        (5, 10),
+        (6, 10),
+        (7, 10),
+        (9, 30),
+    ),
+    _join_cell(
+        "left-text-by-its-bytes",
+        _jq("left join r on t.s == r.w", _b("select", "t.id", "r.v")),
+        ("id", "v"),
+        (1, 10),
+        (2, 20),
+        (3, 30),
+        (4, None),
+        (5, None),
+        (6, None),
+        (7, None),
+        (8, None),
+        (9, None),
+    ),
+    _join_cell(
+        "inner-bool-fans-out",
+        _jq("inner join r on t.b == r.c", _b("select", "t.id", "r.k")),
+        ("id", "k"),
+        *((i, k) for i in (1, 4, 6, 7) for k in (7, 99)),
+        *((i, k) for i in (2, 5, 9) for k in (0, -1)),
+    ),
+    _join_cell(
+        "self-join",
+        _jq(
+            "inner join p on t.n == p.n",
+            _b("select", "t.id", "pid = p.id"),
+            lets=("p = t",),
+        ),
+        ("id", "pid"),
+        (1, 1),
+        (2, 2),
+        (3, 3),
+        *((i, j) for i in (5, 6, 7) for j in (5, 6, 7)),
+        (9, 9),
+    ),
+    _join_cell(
+        "left-nulls-under-where",
+        _jq(
+            "left join r on t.n == r.k",
+            "where r.v is None or r.v > 15",
+            _b("select", "t.id"),
+        ),
+        ("id",),
+        *_ids(1, 2, 3, 4, 8, 9),
+    ),
+    # A LEFT JOIN's NULLs fall in one group with the right table's own.
+    _join_cell(
+        "left-nulls-group-with-right-nulls",
+        _jq(
+            "left join r on t.n == r.k",
+            _b("group by", "r.c"),
+            _b("select", "c = r.c", "n = count()"),
+        ),
+        ("c", "n"),
+        (0, 1),
+        (1, 3),
+        (None, 5),
+    ),
+    _join_cell(
+        "inner-text-grouped",
+        _jq(
+            "inner join r on t.s == r.w",
+            _b("group by", "r.c"),
+            _b("select", "c = r.c", "n = count()", "hi = max(t.n)"),
+        ),
+        ("c", "n", "hi"),
+        (1, 1, INT_MIN),
+        (0, 2, INT_MAX),
+        (None, 1, 0),
+    ),
+    replace(
+        _join_cell(
+            "left-grouped-having-order",
+            _jq(
+                "left join r on t.n == r.k",
+                "where r.v is None or r.v < 25",
+                _b("group by", "t.b"),
+                _b("select", "b = t.b", "n = count()", "m = count(t.x)"),
+                "having n > 1",
+                _b("order by", "b"),
+            ),
+            ("b", "n", "m"),
+            (0, 2, 1),
+            (1, 4, 4),
+            (None, 2, 1),
+        ),
+        ordered=True,
+    ),
+    _join_cell(
+        "chain-of-three",
+        _jq(
+            "inner join r on t.n == r.k",
+            "left join p on p.s == r.w and p.b == r.c",
+            _b("select", "t.id", "r.v", "pid = p.id"),
+            lets=("r = u", "p = t"),
+        ),
+        ("id", "v", "pid"),
+        (3, 20, 2),
+        (5, 10, 1),
+        (6, 10, 1),
+        (7, 10, 1),
+        (9, 30, None),
+    ),
+    # The chain on `Text` keys alone, since PostgreSQL project emission
+    # refuses a `Bool` comparison and so cannot replay the chain above.
+    _join_cell(
+        "chain-of-three-on-text",
+        _jq(
+            "inner join r on t.n == r.k",
+            "left join p on p.s == r.w",
+            _b("select", "t.id", "r.v", "pid = p.id"),
+            lets=("r = u", "p = t"),
+        ),
+        ("id", "v", "pid"),
+        (3, 20, 2),
+        (5, 10, 1),
+        (6, 10, 1),
+        (7, 10, 1),
+        (9, 30, 3),
+    ),
+    # A LEFT self-join on an `Int` and a `Text` key joined with `and`, whose
+    # rows, the joined side's NULLs among them, are ordered and cut.
+    replace(
+        _join_cell(
+            "left-self-join-on-int-and-text-limited",
+            _jq(
+                "left join p on t.n == p.n and t.s == p.s",
+                _b("select", "t.id", "pid = p.id"),
+                _b("order by", "p.id", "t.id"),
+                "limit 10",
+                lets=("p = t",),
+            ),
+            ("id", "pid"),
+            (1, 1),
+            (2, 2),
+            (3, 3),
+            (6, 6),
+            (7, 6),
+            (6, 7),
+            (7, 7),
+            (9, 9),
+            (4, None),
+            (5, None),
+        ),
+        ordered=True,
+    ),
+    # S14's arithmetic over joined rows, its bounds from each input's
+    # contract: in `select` and `where`, over a LEFT JOIN's NULLs, in the
+    # one-sided `sum` and the `avg` of a grouped JOIN, and over a self-join,
+    # whose two reads of `id` are bounded apart.
+    replace(
+        _join_cell(
+            "inner-arithmetic",
+            _jq(
+                "inner join r on t.n == r.k",
+                "where r.v - t.id > 5",
+                _b("select", "t.id", "s = r.v * 2 + r.k", "d = t.id - r.v"),
+            ),
+            ("id", "s", "d"),
+            (3, 40, -17),
+            (9, 61, -21),
+        ),
+        fixture="join-arith",
+    ),
+    replace(
+        _join_cell(
+            "left-arithmetic-over-nulls",
+            _jq(
+                "left join r on t.n == r.k",
+                _b("select", "t.id", "w = r.v + 1", "g = -r.k", "a = abs(r.k - t.id)"),
+            ),
+            ("id", "w", "g", "a"),
+            (1, None, None, None),
+            (2, None, None, None),
+            (3, 21, 0, 3),
+            (4, None, None, None),
+            (5, 11, -7, 2),
+            (6, 11, -7, 1),
+            (7, 11, -7, 0),
+            (8, None, None, None),
+            (9, 31, -1, 8),
+        ),
+        fixture="join-arith",
+    ),
+    replace(
+        _join_cell(
+            "inner-grouped-sum-and-avg-of-arithmetic",
+            _jq(
+                "inner join r on t.n == r.k",
+                _b("group by", "r.k"),
+                _b("select", "k = r.k", "s = sum(r.v * t.id)", "a = avg(r.v + t.id)"),
+            ),
+            ("k", "s", "a"),
+            (0, 60, 23.0),
+            (7, 180, 16.0),
+            (1, 270, 39.0),
+        ),
+        fixture="join-arith",
+    ),
+    replace(
+        _join_cell(
+            "self-join-arithmetic",
+            _jq(
+                "inner join p on t.n == p.n",
+                _b("select", "t.id", "s = t.id + p.id"),
+                lets=("p = t",),
+            ),
+            ("id", "s"),
+            (1, 2),
+            (2, 4),
+            (3, 6),
+            *((i, i + j) for i in (5, 6, 7) for j in (5, 6, 7)),
+            (9, 18),
+        ),
+        fixture="join-arith",
+    ),
+)
+_JOIN_CELLS = (
+    *_JOIN_BASE,
+    *(
+        replace(cell, name=f"{cell.name}-nocase", fixture="join-nocase")
+        for cell in _JOIN_BASE
+        if re.search(r"\.[sw]\b", cell.program.split("\nquery q", 1)[1])
+    ),
+)
+
+
 def _ir(program: str) -> ScriptIR:
     parsed = parse_source(program, path="native.pietto")
     assert parsed.diagnostics == ()
@@ -1998,6 +2300,93 @@ def test_each_project_cell_matches_its_prewritten_oracle(
         [cell.program, cell.fixture, sql, repr(parameters), repr(record.rows)],
     )
     _judge(cell, sql, record, parameters)
+
+
+def _join_run(fixture: str, sql: str) -> _Record:
+    tables, indexes = _JOIN_FIXTURES[fixture]
+    with closing(sqlite3.connect(":memory:")) as connection:
+        for table, schema, rows in tables:
+            connection.execute(schema)
+            marks = ", ".join("?" * len(rows[0]))
+            connection.executemany(f"INSERT INTO `{table}` VALUES ({marks})", rows)
+        for index in indexes:
+            connection.execute(index)
+        cursor = connection.execute(sql)
+        columns = tuple(item[0] for item in cursor.description)
+        return _Record(sql, columns, tuple(cursor.fetchall()))
+
+
+def _join_sources(fixture: str) -> tuple[dict[str, Any], dict[str, Any]]:
+    """The contract entries of a JOIN fixture's tables `t` and `u`, with the
+    fixture's `int_range`s."""
+
+    fields = tuple((c, t, c != "k") for c, t in _U_TYPES.items())
+    sources = (_project_source("rows"), project_files.source_entry("u", fields))
+    ranges = _JOIN_RANGES.get(fixture, {})
+    for field in (f for source in sources for f in source["fields"]):
+        if field["name"] in ranges:
+            low, high = ranges[field["name"]]
+            field["representation"]["domain"].update(min=str(low), max=str(high))
+    return sources
+
+
+def _join_emit(cell: _Cell, root: Path) -> adapter.SQLiteArtifact:
+    document = project_files.contract(*_join_sources(cell.fixture))
+    project_files.write(root, cell.program, document, "")
+    outcome, _ = emission_cli.emit_project(
+        root,
+        "main.pietto",
+        "query",
+        "q",
+        "sqlite",
+        "contract.json",
+        emission_cli.POLICIES["preserve"],
+    )
+    assert type(outcome) is adapter.SQLiteEmission, (cell.name, outcome.diagnostics)
+    assert outcome.artifact is not None, (cell.name, outcome.blockers)
+    return outcome.artifact
+
+
+@pytest.mark.parametrize("cell", _JOIN_CELLS, ids=lambda cell: cell.name)
+def test_each_join_cell_matches_its_prewritten_oracle(
+    cell: _Cell, native: _Native, tmp_path: Path
+) -> None:
+    sql = _join_emit(cell, tmp_path / "project").sql.decode("utf-8")
+    if not native.qualified:
+        return
+    record = _join_run(cell.fixture, sql)
+    native.observe("join_cell", [cell.program, cell.fixture, sql, repr(record.rows)])
+    _judge(cell, sql, record)
+
+
+def test_every_join_form_has_a_native_cell(tmp_path: Path) -> None:
+    """Each JOIN kind on each key type of rule 5a, read from the SQL AST."""
+    types = {"t": _COLUMN_TYPES, "u": _U_TYPES}
+    forms: set[str] = set()
+    for position, cell in enumerate(_JOIN_BASE):
+        ast = _join_emit(cell, tmp_path / str(position)).ast
+        tables = (ast.table, *(join.table for join in ast.joins))
+        inputs = ast.inputs()
+        for join in ast.joins:
+            pending = [join.on]
+            while pending:
+                node = pending.pop()
+                if type(node) is adapter_sql.SQLiteLogical:
+                    pending.extend((node.left, node.right))
+                    continue
+                assert type(node) is adapter_sql.SQLiteComparison, node
+                columns = (node.left, node.right)
+                assert all(type(c) is adapter_sql.SQLiteColumn for c in columns)
+                kinds = {
+                    types[tables[c.input]][inputs[c.input][c.field]]
+                    for c in columns
+                    if type(c) is adapter_sql.SQLiteColumn
+                }
+                assert len(kinds) == 1 and node.collate is (kinds == {"Text"}), node
+                forms.add(f"join {join.kind} {kinds.pop()}")
+    assert forms == {
+        f"join {kind} {key}" for kind in ("INNER", "LEFT") for key in adapter._KEYS
+    }
 
 
 _OVERFLOW = ("OperationalError", 1, "SQLITE_ERROR", "integer overflow")
