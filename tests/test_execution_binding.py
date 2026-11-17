@@ -1180,3 +1180,40 @@ def test_a_mysql_division_slot_binds_only_inside_its_law(tmp_path, form, target)
             bound = bind(t, *values(value))
             assert bound.arguments == values(value)
             assert bound.artifact.rendered.sql == t.artifact.rendered.sql
+
+
+@pytest.mark.parametrize("target", ("mysql", "postgres"))
+def test_a_float_literal_product_slot_pair_binds_only_inside_its_fold(tmp_path, target):
+    """A binding folds the two bound Float literals of `1.5 * 2.0` again, so
+    through the live and the compiled template alike, on both targets, two
+    non-zero values whose product rounds to zero are BINDING_INVALID, as
+    PostgreSQL's `*` fails them where MySQL's returns 0.0; a subnormal
+    product or a zero factor binds to the template's SQL."""
+    from pietto._project.project_compiled_build import build_compiled
+    from pietto._project.project_compiled_loading import load_compiled
+
+    _, outcome = probe.numeric_world(
+        tmp_path,
+        target,
+        "query result:\n    from rows\n    select:\n        id\n        r = 1.5 * 2.0\n",
+        "bind_safe_literals",
+    )
+    assert outcome.status == "VERIFIED" and outcome.artifact is not None
+    built = build_compiled(outcome.artifact)
+    loaded = load_compiled(
+        built.payload,
+        expected_pin=built.pin,
+        accepted_producer=built.producer,
+        accepted_compatibility=built.compatibility,
+    )
+    for t in (
+        binding.prepare_live_template(outcome.artifact),
+        binding.prepare_compiled_template(loaded),
+    ):
+        for pair in ((1e-195, 1e-195), (5e-324, 0.5), (-5e-324, 0.5)):
+            with pytest.raises(binding.BindingError, match="^BINDING_INVALID$"):
+                bind(t, *pair)
+        for pair in ((1e-160, 1e-160), (5e-324, 0.75), (0.0, 1e-195)):
+            bound = bind(t, *pair)
+            assert bound.arguments == pair
+            assert bound.artifact.rendered.sql == t.artifact.rendered.sql

@@ -963,8 +963,9 @@ PostgreSQL plans it where it reduces the operands to constants. The R05
 requirement of each such `+`, `-` or `*` carries the evidence
 `{"overflow": "target_checked_binary64_overflow"}`, and the emission
 observation lists it; a sign carries none, as it never fails. Arithmetic of
-two `Float` literals is still folded and checked when the SQL is emitted
-(`PIE-B1002` `float_result_not_finite`), and a typed `None` operand keeps
+two `Float` literals is still folded and checked when the SQL is emitted: a
+result outside binary64, or a product of two non-zero literals that rounds to
+zero, is `PIE-B1002` `float_result_not_finite`, and a typed `None` operand keeps
 `PIE-B1003` `float_literal_operands_required`. The same arithmetic is
 admitted inside an aggregate argument (`sum(price * 2.0)`) and a `let`, so a
 computed `Float` `let` may be a GROUP BY key.

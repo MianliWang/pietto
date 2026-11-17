@@ -3901,7 +3901,11 @@ def resolved_binary_realization(
                 "-": left_value - right_value,
                 "*": left_value * right_value,
             }[operator]
-            if not math.isfinite(result):
+            # PostgreSQL's float8 `*` also fails a product of two non-zero
+            # values that rounds to zero (22003 underflow); MySQL returns 0.0.
+            if not math.isfinite(result) or (
+                operator == "*" and result == 0.0 and 0.0 not in float_values
+            ):
                 return None, ("PIE-B1002", "float_result_not_finite")
         elif not (
             family == "postgres"
