@@ -26,10 +26,16 @@ only framed JSON-RPC messages. A malformed header or truncated frame writes
 `pietto lsp: invalid message header; stopping` to standard error and exits
 with status 1. Invalid JSON produces JSON-RPC `-32700` and does not by itself
 end a valid session. Batch requests are rejected with `-32600`. An error
-inside Pietto that stops the analysis of a document or root does not end the
-session either: that analysis publishes nothing and keeps no facts, the
-server writes `pietto lsp: internal error; continuing` and the traceback to
-standard error, and the next document event analyses again.
+inside Pietto does not end the session either: the server writes
+`pietto lsp: internal error; continuing` and the traceback to standard
+error. If the error stops the analysis of a document or root, or the storing
+or publishing of its result, that document or root keeps no facts and clears
+every diagnostic set it had published, so none stays on a newer text, and
+the next document event analyses it again. A request that the error stops
+receives JSON-RPC `-32603` `Internal error`, and a notification that it
+stops is handled no further. Closed standard output still ends the session
+with status 1, and an interrupt is not caught. A standard error that cannot
+be written changes none of these outcomes.
 
 The session begins in the uninitialized state. `initialize` is the sole
 accepted request there; another request receives `-32002`. A successful
