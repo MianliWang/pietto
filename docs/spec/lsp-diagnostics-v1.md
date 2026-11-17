@@ -133,6 +133,16 @@ a symbolic link and the editor opens a file under its target. Only the root is
 resolved, never the file's own links, and a path under the real paths of two
 or more roots keeps its spelling.
 
+Roots are compared the same way when they select files: two roots select
+one file when its path under one root, with that root replaced by its real
+path, is the real-path form of a path that the other root selects. A root
+nested in another through a symbolic link therefore selects the other's
+files below it, and each root's spelling of such a file receives the
+conflict diagnostic below. This applies only to a spelling that a root
+selects as written: a document open under a spelling that no root selects
+is checked as if no root selected it, even where roots select its file
+under other spellings.
+
 One logical file may not choose a winner among aliases. If multiple configured
 roots select it, or a file that a root selects or publishes diagnostics for is
 open under multiple URIs, each relevant URI receives only the corresponding

@@ -2958,6 +2958,47 @@ def test_overlapping_roots_publish_only_the_overlap_error(
     assert ("PIE-S2301", 1) in lone_codes
 
 
+@pytest.mark.parametrize("outer_selects", [True, False])
+@pytest.mark.parametrize("linked", ["inner", "outer"])
+def test_a_root_nested_through_a_symbolic_link_publishes_the_overlap_error(
+    tmp_path: Path, linked: str, outer_selects: bool
+) -> None:
+    outer = project(tmp_path, "port", top=A_OK, models=MODELS)
+    if outer_selects:
+        (outer / "pietto.toml").write_text(
+            TOML.replace('"*.pietto"', '"**/*.pietto"'), encoding="utf-8"
+        )
+    text = A_BAD.replace("models.pietto", "x.pietto")
+    inner = project(outer, "sub", inner=text)
+    link = tmp_path / "link"
+    try:
+        link.symlink_to(inner if linked == "inner" else outer, target_is_directory=True)
+    except OSError as error:
+        pytest.skip(f"symlink directories are not supported: {error}")
+    roots = (outer, link) if linked == "inner" else (link, inner)
+    # Each root's own spelling of the one file that both select.
+    spellings = [roots[0] / "sub" / "inner.pietto", roots[1] / "inner.pietto"]
+    if not outer_selects:
+        # Only the inner root selects it, so the outer root's spelling, which
+        # no root selects as written, is still checked alone.
+        outer_uri = spellings[0].as_uri()
+        messages = session(init(*roots), [], [opened(outer_uri, text, 1)])
+        assert [
+            [diagnostic["code"] for diagnostic in item["diagnostics"]]
+            for item in publishes(messages, outer_uri)
+        ] == [["PIE-S2708", "PIE-S2301"]]
+        return
+    messages = session(init(*roots), [], [opened(spellings[1].as_uri(), text, 1)])
+    names = " and ".join(str(root) for root in roots)
+    overlap = _lsp._editor_diagnostic(
+        f"This file belongs to two project roots: {names}."
+        " Keep one of them in projectRoots."
+    )
+    assert [publishes(messages, path.as_uri()) for path in spellings] == [
+        [{"uri": path.as_uri(), "diagnostics": [overlap]}] for path in spellings
+    ]
+
+
 @pytest.mark.parametrize("spelling", ["./a.pietto", "A.pietto"])
 @pytest.mark.parametrize("plain_first", [True, False])
 def test_a_file_open_under_two_uris_gets_only_the_alias_error(
