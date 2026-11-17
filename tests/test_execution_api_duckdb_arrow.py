@@ -41,14 +41,19 @@ from _pietto_sql_duckdb import (
     JOINED,
     JOINED_GROUPED,
     JOINED_HEADER,
+    KEYED_HEADER,
     ORDERED,
     PREDICATED,
     PROJECTION,
+    SELF_GROUPED,
+    SELF_JOINED,
+    TWIN_JOINED,
     TYPED_FIELDS,
     TYPED_HEADER,
     contract,
     filtered,
     joined_contract,
+    narrowed,
     source_entry,
     write,
 )
@@ -784,11 +789,7 @@ def test_arithmetic_and_typed_keys_run_over_join_rows(tmp_path: Path) -> None:
     """Arithmetic over LEFT JOIN rows is NULL where the joined side has no
     match or a NULL operand, and a `Date` key joins equal days."""
     pa = _engine()
-    document = joined_contract()
-    for entry in document["sources"]:
-        for field in entry["fields"]:
-            if field["representation"]["domain"]["kind"] == "int_range":
-                field["representation"]["domain"].update(min="-1000", max="1000")
+    document = narrowed(joined_contract())
     body = (
         "table result:\n    from orders\n"
         "    left join customers on orders.amount == customers.id\n"
@@ -1011,6 +1012,135 @@ def test_a_join_that_repeats_rows_stops_at_the_limit(tmp_path: Path) -> None:
     outcome = handle.outcome
     assert (failure.code, outcome.rows, outcome.batches) == ("PIE-R3004", 3000, 3)
     assert outcome.transaction == "UNKNOWN"
+
+
+# Orders within -1000 to 1000: each order's parent is the order whose id is
+# its amount; orders 1 and 4 share a parent, and order 3 has none.
+PARENTED = (
+    (1, 2, "a", True, 1.5),
+    (2, 3, None, False, -0.0),
+    (3, 9, "c", True, 2.0),
+    (4, 2, None, True, 4.0),
+)
+
+
+def _rows(handle: Any) -> list[dict[str, Any]]:
+    pa = _pyarrow()
+    with handle as result:
+        return [r for batch in result for r in pa.record_batch(batch).to_pylist()]
+
+
+def test_a_source_read_twice_is_captured_once_and_registered_for_each_read(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """SELF_JOINED over one `orders` input: one copy of its columns under two
+    captures, registered as pietto_arrow_0 and pietto_arrow_1; the LEFT JOIN
+    rows and their arithmetic are the oracle's, NULL without a parent; the
+    input's rows count once and its bytes once."""
+    pa = _engine()
+    query = joined(tmp_path / "p", SELF_JOINED, document=narrowed(joined_contract()))
+    table = orders(pa, PARENTED)
+    access = execution.DuckDBArrowInput("orders", table)
+    calls, _hooks = _recorded(monkeypatch)
+    handle = execution.execute(query, route="duckdb_arrow", access=access, premise=None)
+    owned = handle._owner._capture
+    assert [t.column_names for t in owned] == [
+        ["c0", "c1", "c2", "c3", "c4"],
+        ["c5", "c6", "c7", "c8", "c9"],
+    ]
+    for left, right in zip(owned[0].columns, owned[1].columns, strict=True):
+        assert left.chunks[0].buffers()[1].address == (
+            right.chunks[0].buffers()[1].address
+        )
+    parents = {row[0]: row for row in PARENTED}
+    expected = []
+    for o_id, amount, _note, _ok, price in PARENTED:
+        parent = parents.get(amount)
+        expected.append(
+            {"id": o_id, "up": None, "s": None, "r": None}
+            if parent is None
+            else {
+                "id": o_id,
+                "up": parent[0],
+                "s": amount + parent[1],
+                "r": parent[4] + price,
+            }
+        )
+    assert bag(_rows(handle)) == bag(expected)
+    registered = [("register", f"pietto_arrow_{k}") for k in range(2)]
+    assert calls == [
+        ("connect", ":memory:"),
+        *registered,
+        *[("unregister", name) for _step, name in registered],
+        ("close",),
+    ]
+    limit = ("PIE-R1002", "DUCKDB_ARROW_CAPTURE_LIMIT")
+    monkeypatch.setattr(route, "MAX_ROWS", len(PARENTED))
+    monkeypatch.setattr(route, "MAX_BYTES", table.nbytes)
+    execution.execute(query, route="duckdb_arrow", access=access, premise=None).close()
+    monkeypatch.setattr(route, "MAX_BYTES", table.nbytes - 1)
+    assert _refusal(query, access=access) == limit
+    monkeypatch.setattr(route, "MAX_BYTES", table.nbytes)
+    monkeypatch.setattr(route, "MAX_ROWS", len(PARENTED) - 1)
+    assert _refusal(query, access=access) == limit
+
+
+def test_a_self_join_on_a_nullable_key_matches_no_null(tmp_path: Path) -> None:
+    """TWIN_JOINED's INNER JOIN on `note`: each order whose note is not None
+    matches itself, filtered by the second read's price, and order 2, whose
+    note is None and whose price -0.0 passes that filter, matches nothing,
+    not even itself."""
+    pa = _engine()
+    query = joined(tmp_path / "p", TWIN_JOINED)
+    handle = execution.execute(
+        query,
+        route="duckdb_arrow",
+        access=execution.DuckDBArrowInput("orders", orders(pa)),
+        premise=None,
+    )
+    expected = sorted(
+        (a[0], b[0])
+        for a in ROWS
+        for b in ROWS
+        if a[2] is not None and a[2] == b[2] and b[4] >= 0.0
+    )
+    assert sorted((r["id"], r["other"]) for r in _rows(handle)) == expected
+    assert expected == [(1, 1), (3, 3), (5, 5)]
+
+
+def test_a_self_join_that_aggregates_checks_the_key_of_each_read(
+    tmp_path: Path,
+) -> None:
+    """D79.24 over both reads of one input: SELF_GROUPED's groups are the
+    oracle's; an input that repeats a declared id is refused before any
+    session, and the same input runs a self-join without an aggregate."""
+    pa = _engine()
+    grouped = joined(tmp_path / "grouped", SELF_GROUPED, KEYED_HEADER)
+    access = execution.DuckDBArrowInput("orders", orders(pa, PARENTED))
+    arguments: dict[str, Any] = {"parameters": {"least": 0}}
+    handle = execution.execute(
+        grouped, route="duckdb_arrow", access=access, premise=None, **arguments
+    )
+    rows = _rows(handle)
+    # Parents: 1 and 4 have order 2 (not ok), 2 has order 3 (ok), 3 none.
+    assert [(r["ok"], r["n"], r["total"], r["top"]) for r in rows] == [
+        (None, 1, 9, None),
+        (False, 2, 4, -0.0),
+        (True, 1, 3, 2.0),
+    ]
+    assert math.copysign(1, rows[1]["top"]) == -1
+    assert [s.unique for s in handle._owner.facts.sources] == [((0,),)] * 2
+    repeated = orders(pa, (*PARENTED, (4, 1, "d", True, 0.5)))
+    access = execution.DuckDBArrowInput("orders", repeated)
+    assert _refusal(grouped, access=access, **arguments) == (
+        "PIE-R1002",
+        "DUCKDB_ARROW_SCHEMA",
+    )
+    plain = joined(
+        tmp_path / "plain", SELF_JOINED, KEYED_HEADER, narrowed(joined_contract())
+    )
+    handle = execution.execute(plain, route="duckdb_arrow", access=access, premise=None)
+    assert len(_rows(handle)) == len(PARENTED) + 1
 
 
 def test_each_operator_returns_the_oracle_bag_and_keeps_its_values(

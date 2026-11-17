@@ -1110,8 +1110,9 @@ included, and its Gate 2 binds the integrated tree. The lead reads
 | D79.24 | Declared unique keys checked at capture when a JOIN statement aggregates | Owner, sheet Q7 (b) |
 | D79.25 | `Int` arithmetic only by range proof (rule 7c); the candidates' refusal design | Lead |
 | D79.26 | The texts of the types and the arithmetic as previewed; the hints in the words of the SQL's checks | Owner, on the lead's preview |
-| D79.27 | Batch reading as the specification lands it, restating D79.10 and D79.14 | Lead; the owner sees it before it binds |
-| D79.28 | Several inputs and JOINs as the specification lands them; one source read twice refused as *derived* | Lead; the owner sees its texts and that narrowing before they bind |
+| D79.27 | Batch reading as the specification lands it, restating D79.10 and D79.14 | Lead; bound by D79.29 |
+| D79.28 | Several inputs and JOINs as the specification lands them; its *derived* refusal of one source read twice replaced by D79.29 | Lead; bound by D79.29 |
+| D79.29 | The second part's texts pass as previewed, so D79.27 and D79.28 bind; one source read twice admitted as two reads | Owner, on the lead's preview |
 
 ### Tier 2 slices
 
@@ -1158,6 +1159,6 @@ reads; and any text beyond what the owner has seen (PL.47).
 
 | Item | Latest point |
 | --- | --- |
-| The suggestions of rules 5, 6 and 22, a refused JOIN reported by rule 5 alone, beside rules 9 and 8b for a parameter or a `Text` literal with NUL in its `on`, and `DUCKDB_ARROW_SCHEMA` as the declared key check's detail (D79.28) | Before the tier's push |
-| The batch reading's visible changes: a batch charged with its validity bitmaps; `UNKNOWN` where the first tier left `COMMIT_ACK`, for `PIE-R3004`, `PIE-R3005`, an exception of the caller's code, an early close, and a cancellation or the deadline before the reader's end, which narrows D79.14; and batches delivered before a statement fails at a later one (D79.27) | Before the tier's push |
-| One source read twice, such as a self-join through a row-input alias, refused as *derived*, which is narrower than D79.19's shared input: accept the narrowing, or open it as work of its own (D79.28) | Before the tier's push |
+| The suggestions of rules 5, 6 and 22, a refused JOIN reported by rule 5 alone, beside rules 9 and 8b for a parameter or a `Text` literal with NUL in its `on`, and `DUCKDB_ARROW_SCHEMA` as the declared key check's detail (D79.28) | Closed: passed as previewed (D79.29) |
+| The batch reading's visible changes: a batch charged with its validity bitmaps; `UNKNOWN` where the first tier left `COMMIT_ACK`, for `PIE-R3004`, `PIE-R3005`, an exception of the caller's code, an early close, and a cancellation or the deadline before the reader's end, which narrows D79.14; and batches delivered before a statement fails at a later one (D79.27) | Closed: passed as previewed (D79.29) |
+| One source read twice, such as a self-join through a row-input alias, refused as *derived*, which is narrower than D79.19's shared input: accept the narrowing, or open it as work of its own (D79.28) | Closed: admitted as work of its own (D79.29) |

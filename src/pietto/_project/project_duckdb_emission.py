@@ -410,10 +410,10 @@ def _arithmetic(expression: Any) -> tuple[Any, ...]:
 
 def _bounds(contract: DuckDBContract, values: Any) -> dict[int, tuple[int, int]]:
     """The declared `int_range` of each read source field that has one, by
-    its number across the sources; the capture admits no value outside it."""
+    its number across the source reads; the capture admits no value outside it."""
     entries = {entry.owner: entry for entry in contract.sources}
     result = {}
-    for source in values.chain or ():
+    for read, source, _ in values.chain or ():
         entry = entries.get(source.source.owner)
         for field in () if entry is None else entry.fields:
             domain = field.representation["domain"]
@@ -421,7 +421,7 @@ def _bounds(contract: DuckDBContract, values: Any) -> dict[int, tuple[int, int]]
                 low, high = int(domain["min"]), int(domain["max"])
                 # A range beyond signed 64 bits is rule 28's.
                 if -(2**63) <= low and high <= 2**63 - 1:
-                    result[values.starts[source.ref] + field.ordinal] = (low, high)
+                    result[values.starts[read.ref] + field.ordinal] = (low, high)
     return result
 
 
@@ -439,50 +439,76 @@ def _operands(expression: Any) -> tuple[Any, ...]:
     return (expression.value,) if kind is ProjectSQLIsNull else ()
 
 
-def _chain(plan: Any) -> tuple[Any, ...] | None:
-    """The read sources in FROM and JOIN order: the first JOIN's two inputs,
-    then each later JOIN's right input, which joins the rows so far; None
-    when the JOINs do not chain source reads so, each source once."""
+def _chain(plan: Any) -> tuple[tuple[Any, Any, tuple[Any, ...]], ...] | None:
+    """Each source read in FROM and JOIN order as (read, source, ports): the
+    first JOIN's two inputs, then each later JOIN's right input, which joins
+    the rows so far, each a read with its own ports, one per field of its
+    source in order, so that a source read twice, as through a row-input
+    alias, is two reads; without JOINs, the source and its source ports.
+    None when the JOINs do not chain source reads so, or a source is not
+    read."""
     if not plan.joins:
-        return tuple(plan.sources)
+        return tuple((source, source, _ports(plan, source)) for source in plan.sources)
     sources = {source.ref: source for source in plan.sources}
     inputs = {item.ref: item for item in plan.join_inputs}
-    chain: list[Any] = []
+    ports = {port.ref: port for port in plan.join_ports}
+    reads: list[Any] = []
     previous = None
     for position, join in enumerate(plan.joins):
         left, right = (inputs.get(ref) for ref in join.inputs)
         if left is None or right is None or join.position != position:
             return None
         if previous is None:
-            chain.append(sources.get(left.producer))
+            reads.append(left)
         elif left.producer is not None or left.predecessor is not previous.ref:
             return None
-        chain.append(sources.get(right.producer))
+        reads.append(right)
         previous = join
-    if None in chain or not len({id(s) for s in chain}) == len(chain) == len(
-        plan.sources
-    ):
+    chain = []
+    for read in reads:
+        source = sources.get(read.producer)
+        if source is None:
+            return None
+        own = tuple(ports.get(ref) for ref in read.ports)
+        fields = _ports(plan, source)
+        # Each own port carries its source field unmodified, so that
+        # `_type_name` and `_decimal` read it as that field.
+        if len(own) != len(fields) or not all(
+            port is not None and port.source is field.ref and port.field is field.field
+            for port, field in zip(own, fields, strict=True)
+        ):
+            return None
+        chain.append((read, source, own))
+    if len({id(source) for _, source, _ in chain}) != len(plan.sources):
         return None
     return tuple(chain)
 
 
 class _Values:
-    """What the plan's values read: source ports, group keys and aggregates.
-    Source fields are numbered across the read sources in FROM and JOIN
-    order."""
+    """What the plan's values read: the ports of source reads, group keys
+    and aggregates. Source fields are numbered across the source reads in
+    FROM and JOIN order, so a source read twice has two numbers per field;
+    the port that a method gives for a field is its numbered port, the
+    source port without JOINs, else the port of the JOIN input that reads
+    it."""
 
     def __init__(self, plan: Any) -> None:
         self.plan = plan
         self.refs = reference_source_ports(plan)
         self.origins = stage_origins(plan)
-        self.sources = {port.ref: port for port in plan.source_ports}
         self.chain = _chain(plan)
         self.starts: dict[Any, int] = {}
         self.index: dict[Any, int] = {}
-        for source in plan.sources if self.chain is None else self.chain:
-            self.starts[source.ref] = len(self.index)
-            for port in _ports(plan, source):
+        # Each numbered field's port: a source port, or the port of a JOIN
+        # input that reads its source; numbered by source when the JOINs do
+        # not chain source reads.
+        self.ports: dict[Any, Any] = {}
+        fallback = ((s, s, _ports(plan, s)) for s in plan.sources)
+        for read, _, ports in fallback if self.chain is None else self.chain:
+            self.starts[read.ref] = len(self.index)
+            for port in ports:
                 self.index[port.ref] = len(self.index)
+                self.ports[port.ref] = port
         self.width = len(self.index)
         self.inputs = {item.ref: item for item in plan.join_inputs}
         # Each port's source port or the port it carries unmodified, through
@@ -498,7 +524,7 @@ class _Values:
         self.results = {port.ref: port for port in plan.result_ports}
         self.decimals = {
             port.ref: _decimal(plan, port)
-            for port in plan.source_ports
+            for port in (*plan.source_ports, *self.ports.values())
             if _type_name(port) == "Decimal"
         }
         self.roots = {e.ref: e for e in plan.order_expressions}
@@ -522,12 +548,12 @@ class _Values:
         return None if decimal is None else ("Decimal", *decimal)
 
     def origin(self, ref: Any) -> Any:
-        """The source port that a port carries unmodified, else None."""
+        """The numbered port that a port carries unmodified, else None."""
         seen = set()
-        while ref not in self.sources and ref in self.carried and ref not in seen:
+        while ref not in self.ports and ref in self.carried and ref not in seen:
             seen.add(ref)
             ref = self.carried[ref]
-        return self.sources.get(ref)
+        return self.ports.get(ref)
 
     def direct(self, expression: Any) -> Any:
         """The source port that `expression` reads directly, else None."""
@@ -536,7 +562,7 @@ class _Values:
         if type(expression) is not ProjectSQLReference:
             return None
         found = self.refs.get(expression.ref)
-        return None if found is None else found[1]
+        return None if found is None else self.ports.get(found[1].ref)
 
     def key(self, key: Any) -> Any:
         """The source port that a group key reads directly, else None."""
@@ -547,18 +573,18 @@ class _Values:
         port = self.origins.get(ref)
         if port is None:
             return self.origin(ref) if self.plan.joins else None
-        return self.sources.get(port.producer_port)
+        return self.ports.get(port.producer_port)
 
     def on(self, join: Any) -> tuple[tuple[Any, int, int], ...] | None:
         """Each `==` of an admitted JOIN's `on`, an `and` of them, as
         (comparison, left field, right field): both sides read fields of one
-        key type, one of the joined source and one of an earlier source;
+        key type, one of the joined source read and one of an earlier one;
         None for any other JOIN."""
         kind = _JOINS.get(join.kind.value)
         joined = self.inputs.get(join.inputs[1])
         if joined is None:
             return None
-        start = self.starts.get(joined.producer)
+        start = self.starts.get(joined.ref)
         if (
             kind is None
             or kind[1] != join.rows.value
@@ -1008,7 +1034,7 @@ class _Rules:
         if not (
             len(named) == 1
             and values.chain is not None
-            and len(plan.input_uses) == len(plan.sources)
+            and len(plan.input_uses) == len(values.chain)
             and operators in (_JOINED_SHAPES if plan.joins else _SHAPES)
             and len(plan.filters)
             == sum(o in _FILTERS for block in operators for o in block)
@@ -1407,7 +1433,7 @@ def _expected_ast(plan: Any) -> DuckDBSelect:
         joins.append(
             DuckDBJoin(
                 _JOINS[join.kind.value][0],
-                values.starts[values.inputs[join.inputs[1]].producer],
+                values.starts[join.inputs[1]],
                 tuple((left, right) for _, left, right in equalities),
             )
         )
@@ -1450,11 +1476,11 @@ def _subjects(plan: Any, values: _Values) -> dict[tuple[object, ...], Any]:
     chain: tuple[Any, ...] = values.chain or ()
     result: dict[tuple[object, ...], Any] = {
         ("statement",): plan.scope,
-        ("source",): chain[0].ref,
+        ("source",): chain[0][1].ref,
     }
     for position, join in enumerate(plan.joins):
         result["join", position] = join.ref
-        result["join_source", position] = chain[position + 1].ref
+        result["join_source", position] = chain[position + 1][1].ref
         for pair, (equality, _, _) in enumerate(values.on(join) or ()):
             result["join_on", position, pair] = equality.ref
             for side, operand in enumerate((equality.left, equality.right)):
@@ -1518,10 +1544,9 @@ def _document(artifact: DuckDBArtifact) -> bytes:
     semantic, owner = checked.completed.semantic_result, checked.selected_owner
     contract = json.loads(artifact.contract.normalized)
     values = _Values(plan)
-    chain: tuple[Any, ...] = values.chain or ()
     # Each source field's (source port, contract entry, its field) by number.
     fields: list[tuple[Any, Any, Any]] = []
-    for source in chain:
+    for _, source, _ in values.chain or ():
         entry = _entry(artifact.contract, source)
         described = {f.ordinal: f for f in entry.fields}
         for k, port in enumerate(_ports(plan, source)):
@@ -1948,7 +1973,7 @@ class DuckDBSourceField:
 
 @dataclass(frozen=True, slots=True)
 class DuckDBSource:
-    """One read source in FROM and JOIN order: the contract's
+    """One source read in FROM and JOIN order: the contract's
     `relation.name`, its fields in shape order and, when the statement
     aggregates JOIN rows, the field positions of each `unique(...)` key that
     its shape declares (D79.24)."""
@@ -1986,11 +2011,8 @@ def execution_facts(template: object) -> DuckDBExecutionFacts:
     artifact = template.emission
     plan = artifact.checked.plan
     values = _Values(plan)
-    inputs = {
-        item.producer: item for item in plan.join_inputs if item.producer is not None
-    }
     sources = []
-    for source in values.chain or ():
+    for read, source, _ in values.chain or ():
         ports = _ports(plan, source)
         entry = _entry(artifact.contract, source)
         fields = []
@@ -2014,7 +2036,7 @@ def execution_facts(template: object) -> DuckDBExecutionFacts:
         unique: set[tuple[int, ...]] = set()
         if plan.joins and plan.aggregates:
             # Every declared key, whichever one a proof used (D79.24).
-            for key in inputs[source.ref].source.source_properties.keys:
+            for key in read.source.source_properties.keys:
                 unique.add(
                     tuple(
                         sorted(

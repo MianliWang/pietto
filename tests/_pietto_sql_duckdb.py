@@ -203,6 +203,73 @@ JOINED_GROUPED_SQL = (
 )
 
 
+# `orders` read twice through a row-input alias: each order left-joined to
+# its parent, the order whose id is its amount. Each read has fields of its
+# own, c0 to c4 and c5 to c9, and a registered name of its own.
+SELF_JOINED = """table result:
+    from orders
+    let parent = orders
+    left join parent on parent.id == orders.amount
+    select:
+        id = orders.id
+        up = parent.id
+        s = orders.amount + parent.amount
+        r = parent.price + orders.price
+"""
+SELF_JOINED_SQL = (
+    'SELECT "c0" AS "id", "c5" AS "up", "c1" + "c6" AS "s", CASE WHEN'
+    ' isinf("c9" + "c4") THEN error(\'Pietto Float overflow: the result is'
+    ' outside binary64\') ELSE ("c9" + "c4") END AS "r"'
+    ' FROM temp.main."pietto_arrow_0"'
+    ' LEFT JOIN temp.main."pietto_arrow_1" ON "c5" = "c1"'
+)
+# JOINED_HEADER with `orders` keyed by its id.
+KEYED_HEADER = JOINED_HEADER.replace(
+    "    price: Float\n", "    price: Float\n    key = unique(id)\n", 1
+)
+# Orders grouped by their parent's `ok` over KEYED_HEADER: each order
+# matches at most one parent by its declared key, and each grouped, having
+# and order read names its own read's registered name.
+SELF_GROUPED = """query result(least: Int):
+    from orders
+    let parent = orders
+    left join parent on parent.id == orders.amount
+    group by parent.ok
+    select:
+        ok = parent.ok
+        n = count()
+        total = sum(orders.amount)
+        top = max(parent.price)
+    having total >= least
+    order by:
+        total desc
+"""
+SELF_GROUPED_SQL = (
+    'SELECT "c8" AS "ok", count(*) AS "n", CAST(sum("c1") AS BIGINT) AS "total",'
+    ' max("c9") AS "top" FROM temp.main."pietto_arrow_0"'
+    ' LEFT JOIN temp.main."pietto_arrow_1" ON "c5" = "c1"'
+    ' GROUP BY "pietto_arrow_1"."c8"'
+    ' HAVING CAST(sum("pietto_arrow_0"."c1") AS BIGINT) >= CAST($1 AS BIGINT)'
+    ' ORDER BY CAST(sum("pietto_arrow_0"."c1") AS BIGINT) DESC NULLS FIRST'
+)
+# Each order joined to the orders of its note, a nullable key, filtered by a
+# field of the second read.
+TWIN_JOINED = """table result:
+    from orders
+    let twin = orders
+    inner join twin on twin.note == orders.note
+    where twin.price >= 0.0
+    select:
+        id = orders.id
+        other = twin.id
+"""
+TWIN_JOINED_SQL = (
+    'SELECT "c0" AS "id", "c5" AS "other" FROM temp.main."pietto_arrow_0"'
+    ' INNER JOIN temp.main."pietto_arrow_1" ON "c7" = "c2"'
+    " WHERE \"c9\" >= CAST('0.0' AS DOUBLE)"
+)
+
+
 def joined_contract() -> dict[str, Any]:
     """The contract of JOINED_HEADER's three sources."""
     return contract(
@@ -210,6 +277,16 @@ def joined_contract() -> dict[str, Any]:
         source_entry("customers", CUSTOMER),
         source_entry("buyers", CUSTOMER, "customers"),
     )
+
+
+def narrowed(document: dict[str, Any]) -> dict[str, Any]:
+    """`document` with the int_range of every Int field narrowed to -1000 to
+    1000, so that Int arithmetic over two fields is proved."""
+    for entry in document["sources"]:
+        for field in entry["fields"]:
+            if field["representation"]["domain"]["kind"] == "int_range":
+                field["representation"]["domain"].update(min="-1000", max="1000")
+    return document
 
 
 def filtered(operator: str, parameter: str = "min_amount: Int") -> str:

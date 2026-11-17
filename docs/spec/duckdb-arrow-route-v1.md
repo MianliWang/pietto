@@ -91,8 +91,8 @@ their preregistered qualification is tier 2's.
 
 | Admission | Exact limit |
 | --- | --- |
-| Project and source | An explicit-module project (`schema_version = 2`) whose statement reads one or more sources, each declared `source x: Shape = duckdb.arrow("key")`. The key is one non-empty string literal, used exactly: no normalization, trimming or case folding. Two sources may have one key; each is still a read of its own. |
-| JOINs | The first source read, then each further source joined to the rows so far by `inner join` or `left join`, in the order written; each JOIN's `on` is one `==`, or an `and` of several, each between a direct read of a field of the joined source and a direct read of a field of an earlier source, both of one type other than `Decimal`: `Int`, `Text`, `Bool`, `Float`, `Date` or `Timestamp`, optional or not. A `Float` key matches `-0.0` with `0.0`, and a NULL key matches nothing (*derived*). A row-input alias (`let c = customers`, then `inner join c on ...`) is a read of its source like any other, but one source read twice, such as a self-join of `customers` through that alias, stays refused (*derived*: the plan gives a source one set of fields, so the adapter cannot tell its two reads apart); to read one table twice, declare two sources with one key. `right`, `full` and `cross` JOINs, an `any(...)` filter before or after the JOINs, any other `on`, such as `<`, `or`, a literal or a test of one side only, and a `Decimal` key stay refused. The language's fan-out laws still apply: a `sum` or a `count(field)` over JOIN rows needs the language's fan-out proof, such as `on` keys that match a declared unique key of the joined source, or a non-null declared unique key of the joined source that the `group by` holds whole, while `count()`, `min` and `max` need none (PIE-S2333, [Aggregates](../language.md#aggregates-and-grouping)). The number of sources has no limit of its own beyond `columns`, `nodes` and the capture limits (D79.17, D79.28). |
+| Project and source | An explicit-module project (`schema_version = 2`) whose statement reads one or more sources, each declared `source x: Shape = duckdb.arrow("key")`. The key is one non-empty string literal, used exactly: no normalization, trimming or case folding. Two sources may have one key, and one source may be read twice through a row-input alias; each is still a read of its own. |
+| JOINs | The first source read, then each further source read joined to the rows so far by `inner join` or `left join`, in the order written; each JOIN's `on` is one `==`, or an `and` of several, each between a direct read of a field of the joined source read and a direct read of a field of an earlier source read, both of one type other than `Decimal`: `Int`, `Text`, `Bool`, `Float`, `Date` or `Timestamp`, optional or not. A `Float` key matches `-0.0` with `0.0`, and a NULL key matches nothing (*derived*). A row-input alias (`let c = customers`, then `inner join c on ...`) is a read of its source like any other, so one source read twice, such as a self-join of `customers` through that alias, is two reads, each with fields and a registered name of its own, over one input, as two sources with one key are (D79.29). `right`, `full` and `cross` JOINs, an `any(...)` filter before or after the JOINs, any other `on`, such as `<`, `or`, a literal or a test of one side only, and a `Decimal` key stay refused. The language's fan-out laws still apply: a `sum` or a `count(field)` over JOIN rows needs the language's fan-out proof, such as `on` keys that match a declared unique key of the joined source, or a non-null declared unique key of the joined source that the `group by` holds whole, while `count()`, `min` and `max` need none (PIE-S2333, [Aggregates](../language.md#aggregates-and-grouping)). The number of sources has no limit of its own beyond `columns`, `nodes` and the capture limits (D79.17, D79.28, D79.29). |
 | Relational shape | The source reads and their JOINs, then at most one `where`, at most one `group by`, the final projection, at most one `having`, at most one `order by` and at most one `limit`. The `where` and the `having` are predicates, as the next row states. No relation `let`, derived source, JOIN that the JOINs row does not admit, window, `qualify`, `distinct`, set operation, typed VALUES body or table function. |
 | Predicates | A `where` reads fields of the read sources and a `having` reads the query's selected outputs. Each is built from comparisons `a <op> b`, where `<op>` is `==`, `!=`, `<`, `<=`, `>` or `>=`, one side is a direct read (of a source field in `where`, of a selected output in `having`), the other is a literal or a parameter read, and both have one type, `Int`, `Text`, `Bool` or `Float`, or in a `where` also `Date`, `Timestamp` or one `Decimal(p, s)` (the next row gives the literals they take); in a `where` also from `x is None` and `x is not None` of such a read; and from `and` and `or` of these, and in a `where` also `not`. The language refuses a NULL test, `not` and a unary `-` or `+` in a `having` on every target (PIE-S2327), so a `having` compares outputs with unsigned literals and parameters only. A comparison of two reads, of an `Int` with a `Float`, or of a `Decimal` with an `Int` or `Float` read or parameter or with a `Decimal` of another precision or scale, a `having` comparison of a `Date`, `Timestamp` or `Decimal` output, such as `min(day)`, and a bare `Bool` read used as a test, such as `where flag`, stay refused, while `where flag == True` is admitted (*derived*: PL.47 names comparisons with literals and parameters). |
 | Literals | `Int`, `Float`, `Text` and `Bool` literals. An explicit-module project has no constants (PIE-S2392, [Top-level constants](../language.md#top-level-constants)), and the language reads a sign before a number as a unary operator, so in a `where`, and as an operand of selected arithmetic (such as `price * -2.0`), a unary `-` whose operand is an `Int` or `Float` literal is admitted as one signed literal, that literal's negation, such as `-5`, or `-0.0`, a negative zero (*derived*). Every other unary `-` or `+`, such as `-amount`, `+5` or `- -5`, is a computed value and stays refused; in a `having` the language refuses every unary operator (PIE-S2327), and a parameter carries a negative bound there. A `Text` literal that holds NUL is refused (rule 8b). A `Date` or `Timestamp` read compares with a `Text` literal that spells one value of its type as a [top-level constant](../language.md#top-level-constants) does: `"YYYY-MM-DD"` from 1000-01-01 to 9999-12-31, or `"YYYY-MM-DD HH:MM:SS"` with up to six fractional digits from 1000-01-01 00:00:00 to 9999-12-31 23:59:59.499999; any other text, such as `"2024-02-30"`, a date for a `Timestamp` or a `T` separator, is refused (rule 8) (*derived*). A `Decimal(p, s)` read compares with an `Int` or `Float` literal, signed or not, read as the exact decimal number that it writes, an `Int` literal's value or a `Float` literal's source text (D76.02 E8), whose own precision `q` and scale `t`, its digits and its fractional digits, fit with `p` and `s` in 38 digits, `max(p − s, q − t) + max(s, t) <= 38`; another such literal is refused (rule 8), and so is a `Float` literal of an inlined `def` body, whose copy has the call's location rather than its source text (*derived*). |
@@ -100,7 +100,7 @@ their preregistered qualification is tier 2's.
 | Grouping | Each `group by` key is a direct read of a source field of an admitted type (the columns row), optional or not. NULL keys form one group, and a `Float` key puts `-0.0` and `0.0` in one group (see [Float values](../language.md#float-values)). The number of keys has no limit of its own beyond `columns` and `nodes`. |
 | Order and limit | Each `order by` key has an admitted type and is ascending or descending. In a query without `group by` or an aggregate it is a direct read of a source field; a key that names an output other than the source field of that name, such as `order by label` after `label = note` or `order by more` after `more = amount + 1`, leaves the plan unavailable, so rule 5 refuses it. In a grouped query it is a selected output, the only key the language admits there (PIE-S2321). With an aggregate and no `group by` the language refuses any `order by` (PIE-S2333). The `limit` is the static non-negative `Int` that the language takes, from 0 to 2^63−1 (PIE-S2307; PIE-S2355 for a parameter). |
 | Parameter | Any number of declared parameters, each non-null `Int`, `Text`, `Bool`, `Float`, `Date`, `Timestamp` or `Decimal(p, s)` with `p` at most 38, each read at least once and only in `where` and `having` comparisons and as operands of selected arithmetic; one parameter may be read several times. A `Decimal` parameter compares only with a `Decimal` of its precision and scale, the law of PostgreSQL's `decimal_comparison_parameter_conflict` (here rule 8). Values bind through the existing exact binding (`execute(parameters=...)`, PIE-R1006). |
-| Columns | Source and result fields are `Int`, `Text`, `Bool`, finite `Float`, `Date`, `Timestamp` or `Decimal(p, s)` with `p` at most 38, its precision and scale written in the field's type or the alias it uses, each with its compiled nullability, in source order. A plain `Decimal`, a `Decimal` with `p` above 38 and every other type are refused (rule 10). A `left join` makes the fields of its joined source nullable in the result, and so an arithmetic value with an operand among them. An arithmetic value is nullable when an operand is a field declared optional or one of a `left join`'s joined source; it takes no proof from an `inner join`'s `on`, which can make a direct read of the same field non-null (*derived*). |
+| Columns | Source and result fields are `Int`, `Text`, `Bool`, finite `Float`, `Date`, `Timestamp` or `Decimal(p, s)` with `p` at most 38, its precision and scale written in the field's type or the alias it uses, each with its compiled nullability, in source order. A plain `Decimal`, a `Decimal` with `p` above 38 and every other type are refused (rule 10). A `left join` makes the fields of its joined read nullable in the result, and so an arithmetic value with an operand among them. An arithmetic value is nullable when an operand is a field declared optional or one of a `left join`'s joined read; it takes no proof from an `inner join`'s `on`, which can make a direct read of the same field non-null (*derived*). |
 | Literal policy | `preserve` only. |
 | Entry points | `pietto check --project`; `pietto emit-sql --project ... --dialect duckdb`, with or without `--all`; `compile_sql`, `compile_all_sql` and `compile_query` with `dialect="duckdb"`; `execute(route="duckdb_arrow")`. |
 
@@ -284,13 +284,13 @@ verifier, and consumes `ProjectSQLPlan`).
   `Float` arithmetic.
 - It reads only `temp.main."pietto_arrow_<i>"`, the name under which the
   route registers the capture of the `i`-th source read (0-based, in FROM
-  and JOIN order); two sources with one key are two registered names over
-  one capture. DuckDB resolves names case-insensitively and lets a
+  and JOIN order); two sources with one key, and two reads of one source,
+  are two registered names over one capture. DuckDB resolves names case-insensitively and lets a
   registered name shadow a system view such as `pg_tables` (observed on
   `2.0.0`), so the SQL never contains the caller's key or column names.
-- Source fields are numbered from 0 across the sources read, in FROM and
+- Source fields are numbered from 0 across the source reads, in FROM and
   JOIN order and in shape order within each, and field `k` is the capture
-  column `"c<k>"` of its source's registered name, so no two inputs share a
+  column `"c<k>"` of its read's registered name, so no two reads share a
   column name. DuckDB renames Arrow columns that differ only in case (`A`
   becomes `A_1`) and `"A"` then reads `a`, so the capture renames every
   selected column.
@@ -317,7 +317,7 @@ verifier, and consumes `ProjectSQLPlan`).
   Error: ` followed by exactly one of these texts as its detail word, and
   never shows the message.
 - The select list and `WHERE` write a source field as `"c<k>"`. `GROUP BY`,
-  `HAVING` and `ORDER BY` write it qualified by its source's registered
+  `HAVING` and `ORDER BY` write it qualified by its read's registered
   name, `"pietto_arrow_<i>"."c<k>"`, and
   never name a select label, an unqualified column or a position; `HAVING`
   and `ORDER BY` restate the expression of each selected output they read.
@@ -397,11 +397,15 @@ of its entries in `parameter_uses`, the comparison side or arithmetic
 operand that reads it; and `binding_obligations` is empty; each column's
 `correspondence` names the source field it reads, as its source's selector
 and the field's ordinal in that source (a `count()` over JOIN rows names
-none), and a column that reads the joined source of a `left join`, or an
+none), so the two reads of one source name one selector, ordinal and
+`source_port` for a field and their columns differ in `input_port`
+(*derived*), and a column that reads the joined read of a `left join`, or an
 arithmetic column with an operand there, is nullable; `requirements` lists the
 plan's original demands with their target evidence under the rule
 `duckdb_b1` and no generated requirement; and `ranges` cover the statement
-byte for byte, in order. A group key's column also names its `group_key`. An
+byte for byte, in order, the range of each read's registered name with its
+source as `subject`, one for both reads of one source (*derived*). A group
+key's column also names its `group_key`. An
 aggregate's column names its `aggregate` and `function`, with `field` and
 `source_port` null in `count()`, and has its result's type, nullability and
 representation (*derived*): `count` an `arrow_int64` `int_range` from 0 to
@@ -530,12 +534,13 @@ private policy (D79.04, whose limits and measure PL.47 revises). Checks run
 in this order, and the first failure is raised; no detail carries a value, a
 name or a count.
 
-An input that several sources read, by one key, is one input: its rows, its
-columns and their bytes count once, and it is copied once (D79.19).
+An input that several source reads read, of sources with one key or of one
+source read twice, is one input: its rows, its columns and their bytes count
+once, and it is copied once (D79.19, D79.29).
 
 1. **Rows.** Each input table has at most 1,048,576 rows; otherwise
    `DUCKDB_ARROW_CAPTURE_LIMIT`. The rows of several inputs are not added.
-2. **Schema**, per source in FROM and JOIN order and per source field in
+2. **Schema**, per source read in FROM and JOIN order and per source field in
    shape order, against its key's table: its `column` names exactly
    one field of the table, by exact string equality, so a name that no field
    or two fields of the table carry is refused; and that field's type is
@@ -549,14 +554,14 @@ columns and their bytes count once, and it is copied once (D79.19).
    and is not copied.
 3. **Bytes.** The selected columns, the table fields that the source fields
    name, measure at most 256 MiB (268,435,456 bytes) together over all
-   inputs, a column that two sources name counted once, as the sum of each
+   inputs, a column that two source reads name counted once, as the sum of each
    selected column's `pyarrow` `nbytes` before any copy; otherwise
    `DUCKDB_ARROW_CAPTURE_LIMIT`. `nbytes` counts the referenced ranges of
    each chunk, validity bitmaps included, and counts a buffer that two chunks
    share once for each: it is a logical admission measure with no physical
    or peak-memory guarantee. The number of chunks is not limited, and the
    capture's time and memory grow with it.
-4. **Values**, per source and source field in that order, over the
+4. **Values**, per source read and source field in that order, over the
    selected column: a
    non-null field has `null_count == 0`; an `Int` lies inside the declared
    `int_range`; a `Float` has no NaN, +Inf or -Inf; a `Text` value is valid
@@ -569,11 +574,11 @@ columns and their bytes count once, and it is copied once (D79.19).
    checked. A NUL is admitted anywhere in a `Text` value, counts as one code
    point, and reaches DuckDB and the caller unchanged (the owner's choice of
    2026-11-11; see the NUL row of [pin facts](#pin-facts)).
-5. **Copy.** Each selected column is copied once, and each source's
+5. **Copy.** Each selected column is copied once, and each source read's
    capture is a new table of its selected columns only, in shape order,
-   named by their field numbers (`c0`, `c1` and so on across the sources,
+   named by their field numbers (`c0`, `c1` and so on across the source reads,
    see [SQL](#sql)), whose buffers are disjoint from the caller's and hold
-   no unselected rows or columns; two sources with one key share the
+   no unselected rows or columns; two reads of one key share the
    copied columns. Changing the caller's
    buffers afterwards (a NumPy array that a column wraps without a copy, for
    example) does not change it. The route checks that its copy's buffers are
@@ -584,7 +589,7 @@ columns and their bytes count once, and it is copied once (D79.19).
    expected to reach (see [pin facts](#pin-facts)).
 
 6. **Declared keys** (D79.24). When the
-   statement has a JOIN and an aggregate, each source's every declared
+   statement has a JOIN and an aggregate, each source read's every declared
    `unique(...)` key, whichever one a fan-out proof used, as the verified
    plan gives each JOIN input's keys, holds on the copied columns under
    Pietto's `==`: no two rows have equal values in every field of the key,
@@ -623,7 +628,7 @@ reused. Every failure from here on is an `AttemptFailed` (AD79.01).
    `duckdb_settings()` before the first statement. A `SET` that fails or a
    read-back that differs is `PIE-R2006` `DUCKDB_SESSION_CONTEXT`
    (accepted by the owner), and the route runs nothing.
-3. **Statement.** The route registers each source's capture as
+3. **Statement.** The route registers each source read's capture as
    `pietto_arrow_<i>`, in FROM and JOIN order, runs
    the compiled statement once, with each placeholder's value bound in
    placeholder order, and reads its result as Arrow record batches of at
@@ -1262,6 +1267,6 @@ The second tier's several inputs and JOINs applied these with their code:
 | Moving each row of the B2 section, which T01 wrote at the end of this page, into the sections above as its code lands | T02–T05; T08 checks | Before each slice seals; T08. Closed: T02–T05 moved their rows, and T08 moved the usability row, the T00 facts and these items and removed the section |
 | Tier 2's *derived* rows of its types, stated as inform: the storage spellings `arrow_date32`, `arrow_timestamp_us` and `arrow_decimal128` with its `precision` and `scale`; the civil spellings that `Date` and `Timestamp` literals must have; a literal beside a `Decimal` cast to its own precision and scale, within 38 digits beside the field; a `Decimal` parameter sent as its canonical text; the `physical_type` values `duckdb_date`, `duckdb_timestamp` and `duckdb_decimal`; a `having` that compares tier 1 types only; and the rewritten suggestions of rules 7a, 9 and 10 | The lead; the owner for the suggestions (PL.47) | When the owner has seen the suggestions, before they bind. Closed: the owner approved the suggestions as previewed on 2026-11-17, and the lead stated the *derived* rows in that preview (D79.26) |
 | The second tier's arithmetic: the check of a `Float` `+`, `-` or `*` that overflows, which fails with `DUCKDB_FLOAT_OVERFLOW` where DuckDB returns an infinity, and the place of the underflow's hint, which the [diagnostics](diagnostics.md) page and this page give while the failure's text stays that of any `PIE-R3003`; the range proof for `Int` arithmetic, where DuckDB was observed to fail on overflow, and refusing an `Int` sign and a constant; and the texts of rules 7, 7c and 9 and of the two checks | The owner (the overflow, the hint and the texts, PL.47); the lead (the range proof and the refusals, stated to the owner) | Before the second tier's texts bind and before its first push. Closed: the owner chose the overflow check and the hint's place (D79.18), and the lead the range proof and the refusal design (D79.25), on 2026-11-17; the owner then approved the texts as previewed, the hints in the words of the SQL's `error()` messages (D79.26) |
-| The second tier's new and rewritten texts that a program or person sees: the suggestions of rules 5, 6 and 22; a refused JOIN reported by rule 5 alone, where rules 6, 7, 7a, 7b or 8 joined it before, while a parameter read in its `on` and a `Text` literal there that holds NUL are still reported by rules 9 and 8b; the *derived* refusal of one source read twice, which D79.19 names as a shared input beside two sources of one key; the declared key check of the capture under `DUCKDB_ARROW_SCHEMA`; the batch reading, which restates D79.10 and D79.14: the `OSError` cause, the `reader` cleanup step, the `transaction` of an attempt that ends before the reader's end, `UNKNOWN` where the first tier left `COMMIT_ACK`, the batches delivered before a statement fails at a later one, and a batch's charge with its validity bitmaps, which moves the `max_bytes` and `batch_bytes` boundaries; and, stated as inform, the *derived* rows of a `Float` JOIN key that matches `-0.0` with `0.0` and a NULL key that matches nothing, of an arithmetic value's nullability from its operands' declarations and `left join`s only, of a signed literal as an operand of arithmetic, and of the interrupt sent again while the reader is open | The lead; the owner sees them before they bind (PL.47) | Before they bind: D79.27 and D79.28 record them as the lead's, pending the owner's view, and the one source read twice is the owner's to settle |
+| The second tier's new and rewritten texts that a program or person sees: the suggestions of rules 5, 6 and 22; a refused JOIN reported by rule 5 alone, where rules 6, 7, 7a, 7b or 8 joined it before, while a parameter read in its `on` and a `Text` literal there that holds NUL are still reported by rules 9 and 8b; the *derived* refusal of one source read twice, which D79.19 names as a shared input beside two sources of one key; the declared key check of the capture under `DUCKDB_ARROW_SCHEMA`; the batch reading, which restates D79.10 and D79.14: the `OSError` cause, the `reader` cleanup step, the `transaction` of an attempt that ends before the reader's end, `UNKNOWN` where the first tier left `COMMIT_ACK`, the batches delivered before a statement fails at a later one, and a batch's charge with its validity bitmaps, which moves the `max_bytes` and `batch_bytes` boundaries; and, stated as inform, the *derived* rows of a `Float` JOIN key that matches `-0.0` with `0.0` and a NULL key that matches nothing, of an arithmetic value's nullability from its operands' declarations and `left join`s only, of a signed literal as an operand of arithmetic, and of the interrupt sent again while the reader is open | The lead; the owner sees them before they bind (PL.47) | Before they bind: D79.27 and D79.28 record them as the lead's, pending the owner's view, and the one source read twice is the owner's to settle. Closed: the owner passed them as previewed on 2026-11-17, so D79.27 and D79.28 bind, and chose to admit one source read twice (D79.29) |
 | The second tier's Gate 1 answers that this page cites (Q1 B with T1, Q2 A, Q3 A and Q7 (b)) and the restatement of D79.10 and D79.14 for batches are not yet in the [decision record](../decisions.md) or the [Phase79 route](../phases/phase-79/route.md): the lead records them, and the route gains its second-tier section | The lead | Before the second tier seals. Closed: D79.17–D79.24 record the answers, D79.27 and D79.28 how this page lands them and the restatement, and the route has its second-tier section |
 | The `duckdb_arrow` part of the `PIE-R1002` row of [diagnostics](diagnostics.md): a tuple of inputs, a repeated, missing or extra name and a broken declared key under `DUCKDB_ARROW_SCHEMA`, and the bytes counted over all inputs | The second tier's one writer of that page | Before the second tier's push. Closed: the batch's records synchronised the row |

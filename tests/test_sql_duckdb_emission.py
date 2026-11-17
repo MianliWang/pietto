@@ -13,6 +13,7 @@ import json
 import subprocess
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -29,17 +30,25 @@ from _pietto_sql_duckdb import (
     JOINED_GROUPED_SQL,
     JOINED_HEADER,
     JOINED_SQL,
+    KEYED_HEADER,
     ORDERED,
     ORDERED_SQL,
     PREDICATED,
     PREDICATED_SQL,
     PROJECTION,
     PROJECTION_SQL,
+    SELF_GROUPED,
+    SELF_GROUPED_SQL,
+    SELF_JOINED,
+    SELF_JOINED_SQL,
+    TWIN_JOINED,
+    TWIN_JOINED_SQL,
     TYPED_FIELDS,
     TYPED_HEADER,
     contract,
     filtered,
     joined_contract,
+    narrowed,
     source_entry,
     statement,
     write,
@@ -1172,11 +1181,7 @@ def test_arithmetic_over_left_join_rows_is_null_on_the_joined_side(
     proved from each input's int_range, and a column whose operand lies on a
     LEFT JOIN's joined side is nullable, a declared non-null field too, while
     over an INNER JOIN it keeps its operands' declared nullability."""
-    document = joined_contract()
-    for entry in document["sources"]:
-        for field in entry["fields"]:
-            if field["representation"]["domain"]["kind"] == "int_range":
-                field["representation"]["domain"].update(min="-1000", max="1000")
+    document = narrowed(joined_contract())
     body = (
         "table result:\n    from orders\n"
         "    left join customers on orders.amount == customers.id\n"
@@ -1708,27 +1713,144 @@ def test_a_forged_artifact_is_refused(
     )
 
 
-def test_a_source_read_twice_is_rule_5_and_two_sources_of_one_key_are_not(
+def _facts(root: Path, body: str) -> Any:
+    query = execution.compile_query(
+        root, **selected(body), dialect="duckdb", emission_contract="contract.json"
+    )
+    return adapter.execution_facts(query._template)
+
+
+def test_a_source_read_twice_is_two_reads_as_two_sources_of_one_key_are(
     tmp_path: Path,
 ) -> None:
+    """A self-join through a row-input alias numbers the fields of each read
+    on their own and registers each read under its own name, as two sources
+    of one key do, and the route reads each read's input by its key; a
+    `where` reads the second read's own field."""
     alias = (
         "table result:\n    from customers\n    let c = customers\n"
         "    inner join c on c.id == customers.id\n"
         "    select:\n        id = customers.id\n        other = c.name\n"
     )
-    status, emitted = _joined(tmp_path / "alias", alias)
-    assert (status, blockers(emitted)) == ("BLOCKED", [SHAPE_REFUSED])
     twice = (
         "table result:\n    from customers\n"
         "    inner join buyers on buyers.id == customers.id\n"
         "    select:\n        id = customers.id\n        other = buyers.name\n"
     )
-    status, emitted = _joined(tmp_path / "twice", twice)
-    assert (status, emitted["sql"]) == (
-        "VERIFIED",
+    sql = (
         'SELECT "c0" AS "id", "c4" AS "other" FROM temp.main."pietto_arrow_0"'
-        ' INNER JOIN temp.main."pietto_arrow_1" ON "c3" = "c0"',
+        ' INNER JOIN temp.main."pietto_arrow_1" ON "c3" = "c0"'
     )
+    for name, body, other in (
+        ("alias", alias, "customers"),
+        ("twice", twice, "buyers"),
+    ):
+        status, emitted = _joined(tmp_path / name, body)
+        assert (status, emitted["sql"]) == ("VERIFIED", sql), emitted
+        assert [
+            (c["correspondence"]["source"]["name"], c["correspondence"]["field"])
+            for c in emitted["columns"]
+        ] == [("customers", 0), (other, 1)]
+        facts = _facts(tmp_path / name / "p", body)
+        assert [(s.key, len(s.fields)) for s in facts.sources] == [("customers", 3)] * 2
+    status, emitted = _joined(tmp_path / "twin", TWIN_JOINED)
+    assert (status, emitted["sql"]) == ("VERIFIED", TWIN_JOINED_SQL)
+
+
+def test_each_read_of_a_self_join_has_its_own_bounds_and_nullability(
+    tmp_path: Path,
+) -> None:
+    """SELF_JOINED: `parent`'s fields are those of the second read, its Int
+    range proved from that read's int_range, and its LEFT JOIN makes them
+    nullable, an arithmetic value with an operand among them too, while
+    over an INNER JOIN they keep their declared nullability."""
+    document = narrowed(joined_contract())
+    body = SELF_JOINED
+    status, emitted = emit(write(tmp_path / "p", body, document, JOINED_HEADER), body)
+    assert (status, emitted["sql"]) == ("VERIFIED", SELF_JOINED_SQL), emitted
+    assert [
+        (c["label"], c["nullable"], c["representation"]["domain"].get("max"))
+        for c in emitted["columns"]
+    ] == [
+        ("id", False, "1000"),
+        ("up", True, "1000"),
+        ("s", True, "2000"),
+        ("r", True, None),
+    ]
+    inner = body.replace("left join", "inner join")
+    status, emitted = emit(write(tmp_path / "i", inner, document, JOINED_HEADER), inner)
+    assert status == "VERIFIED", emitted
+    assert [c["nullable"] for c in emitted["columns"]] == [False] * 4
+
+
+def test_a_self_join_that_aggregates_names_each_read_and_checks_its_keys(
+    tmp_path: Path,
+) -> None:
+    """SELF_GROUPED: grouped, having and order reads are qualified by their
+    own read's registered name, and the route checks the declared key of
+    each read of the input (D79.24)."""
+    root = write(tmp_path / "p", SELF_GROUPED, joined_contract(), KEYED_HEADER)
+    status, emitted = emit(root, SELF_GROUPED)
+    assert (status, emitted["sql"]) == ("VERIFIED", SELF_GROUPED_SQL), emitted
+    facts = _facts(root, SELF_GROUPED)
+    assert [(s.key, s.unique) for s in facts.sources] == [("orders", ((0,),))] * 2
+
+
+def test_a_decimal_where_reads_the_field_of_the_second_read(tmp_path: Path) -> None:
+    """A `where` over a `Decimal` field of a JOIN's second read, of one source
+    read twice or of a second source of one key, casts its literal to that
+    field's own precision and scale."""
+    twins = TYPED_HEADER + 'source twins: Event = duckdb.arrow("orders")\n'
+    body = (
+        "table result:\n    from orders\n{}"
+        "    inner join twins on twins.id == orders.id\n"
+        "    where twins.cost >= 1.5\n"
+        "    select:\n        id = orders.id\n        other = twins.id\n"
+    )
+    for name, header, alias, sources in (
+        ("alias", TYPED_HEADER, "    let twins = orders\n", ()),
+        ("twins", twins, "", (source_entry("twins", TYPED_FIELDS, "orders"),)),
+    ):
+        document = contract(source_entry(fields=TYPED_FIELDS), *sources)
+        text = body.format(alias)
+        status, emitted = emit(write(tmp_path / name, text, document, header), text)
+        assert (status, emitted["sql"]) == (
+            "VERIFIED",
+            'SELECT "c0" AS "id", "c5" AS "other" FROM temp.main."pietto_arrow_0"'
+            ' INNER JOIN temp.main."pietto_arrow_1" ON "c5" = "c0"'
+            " WHERE \"c8\" >= CAST('1.5' AS DECIMAL(2,1))",
+        ), emitted
+
+
+def test_a_read_whose_ports_do_not_carry_its_fields_chains_nothing(
+    tmp_path: Path,
+) -> None:
+    """Forgery: a JOIN input whose ports do not carry its source's fields in
+    order, each unmodified, chains no source read, so rule 5 refuses it."""
+    root = write(tmp_path / "p", TWIN_JOINED, joined_contract(), JOINED_HEADER)
+    query = execution.compile_query(
+        root,
+        **selected(TWIN_JOINED),
+        dialect="duckdb",
+        emission_contract="contract.json",
+    )
+    plan = query._template.emission.checked.plan
+    names = ("joins", "sources", "join_inputs", "join_ports", "source_ports")
+    facts = {name: getattr(plan, name) for name in names}
+    assert adapter._chain(SimpleNamespace(**facts)) is not None
+    first, read = plan.join_inputs
+    ports = {port.ref: port for port in plan.join_ports}
+    moved = dataclasses.replace(ports[read.ports[0]], field=ports[read.ports[1]].field)
+    for forged in (
+        {"join_inputs": (first, dataclasses.replace(read, ports=read.ports[::-1]))},
+        {"join_inputs": (first, dataclasses.replace(read, ports=read.ports[:-1]))},
+        {
+            "join_ports": tuple(
+                moved if p.ref is moved.ref else p for p in ports.values()
+            )
+        },
+    ):
+        assert adapter._chain(SimpleNamespace(**facts | forged)) is None
 
 
 def test_a_forged_join_is_refused(tmp_path: Path) -> None:
