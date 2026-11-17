@@ -188,6 +188,8 @@ _MYSQL_CELL_AUTHORED = frozenset(
 )
 # The aggregates an S02 cell's aggregation may hold beside its sums.
 MYSQL_SUM_STAGE_FUNCTIONS = frozenset({"sum", "count", "min"})
+# MC G1: the storages of an S02 cell sum's field, nullable or not.
+MYSQL_SUM_CARRIERS = ({"kind": "my_bigint"}, {"kind": "my_int"})
 
 
 def mysql_checked_operands(values) -> bool:
@@ -203,28 +205,42 @@ def mysql_checked_operands(values) -> bool:
     )
 
 
+def mysql_sum_operand(value) -> bool:
+    """MC G1: the argument carrier of an S02 cell's sum, a nullable or
+    non-null BIGINT or INT source field (MYSQL_SUM_CARRIERS)."""
+
+    return (
+        value.tag == "Int" and value.storage in MYSQL_SUM_CARRIERS and not value.binding
+    )
+
+
 def mysql_s03_operand(value) -> bool:
-    """The argument carrier of a MySQL guarded SUM: a BIGINT, of a source
-    field, a count or a guarded SUM, never per binding. S02 narrows it to
-    mysql_checked_operands; an S03 form pins each argument's own."""
+    """The argument carrier of a MySQL guarded SUM: a BIGINT or INT, of a
+    source field, a count or a guarded SUM, never per binding. S02 narrows it
+    to mysql_sum_operand; an S03 form pins each argument's own."""
 
     return (
         value.tag == "Int"
-        and value.storage in ({"kind": "my_bigint"}, {"kind": "my_signed_int"})
+        and value.storage in (*MYSQL_SUM_CARRIERS, {"kind": "my_signed_int"})
         and not value.binding
     )
 
 
-def mysql_checked_query(plan, *, aggregate: bool, slots: bool = False) -> bool:
+def mysql_checked_query(
+    plan, *, aggregate: bool, slots: bool = False, lets: bool = False
+) -> bool:
     """A cell's query, from the plan and its authored `query` or `table`:
     its non-empty tables are among _MYSQL_CELL_PLAN_TABLES (and, with
     ``slots``, _MYSQL_SLOT_PLAN_TABLES), it reads a
     source of its own module through one WHERE at most, then
     (``aggregate``) one aggregation of one GROUP BY key at most, then its
     projection, and as written it sets only _MYSQL_CELL_AUTHORED fields.
-    Every check is O(1) in the program: at most four blocks, one source and
-    one authored declaration are read. No query is one while emission
-    derives as main (AS_MAIN)."""
+    With ``lets`` (MC G1) a block of each of its value `let`s may come
+    first, and its authored names are those `let`s alone: a relation alias
+    leaves no value `let`. Every check is O(1) in the program beside its
+    `let`s: at most four more blocks, one source and one authored
+    declaration are read. No query is one while emission derives as main
+    (AS_MAIN)."""
 
     from pietto._project.module_catalog import authored_definitions
     from pietto._project.project_sql_plan import (
@@ -234,6 +250,7 @@ def mysql_checked_query(plan, *, aggregate: bool, slots: bool = False) -> bool:
 
     stage = row.ProjectSQLStageKind
     middle = (stage.AGGREGATE,) if aggregate else ()
+    named = (stage.LET,) * len(plan.let_values) if lets else ()
     owner = plan.scope.selected_owner
     module = plan.scope.completed.semantic_result.modules[owner.module_position]
     authored = authored_definitions(module)[owner.declaration_position]
@@ -244,11 +261,15 @@ def mysql_checked_query(plan, *, aggregate: bool, slots: bool = False) -> bool:
             and value
             and name not in _MYSQL_CELL_PLAN_TABLES
             and not (slots and name in _MYSQL_SLOT_PLAN_TABLES)
+            and not (lets and name == "let_values")
             for name in plan.__dataclass_fields__
         )
         or len(plan.group_keys) > 1
-        or tuple(block.kind for block in plan.blocks[:4])
-        not in ((*middle, stage.PROJECTION), (stage.WHERE, *middle, stage.PROJECTION))
+        or tuple(block.kind for block in plan.blocks[: len(named) + 4])
+        not in (
+            (*named, *middle, stage.PROJECTION),
+            (*named, stage.WHERE, *middle, stage.PROJECTION),
+        )
         or any(
             type(block.boundary) is not ProjectSQLBoundary
             or block.boundary.reason is not ProjectSQLBoundaryReason.SOURCE_INPUT
@@ -265,13 +286,19 @@ def mysql_checked_query(plan, *, aggregate: bool, slots: bool = False) -> bool:
             getattr(authored, name) not in (None, ())
             for name in authored.__dataclass_fields__
             if name not in _MYSQL_CELL_AUTHORED
+            and not (
+                lets
+                and name == "naming_declarations"
+                and len(authored.naming_declarations) == len(plan.let_values)
+            )
         )
     )
 
 
 def mysql_field_column(column) -> bool:
     """A source field column, read directly or carried by the query's own
-    stages, never a let value, literal, aggregate or window result."""
+    stages, a let value only when it copies a field read, never a literal,
+    aggregate or window result."""
 
     return (
         type(column) is StageColumn
@@ -309,14 +336,16 @@ def mysql_sum_query(plan, keys) -> bool:
     """S02: an aggregation that can hold a MySQL sum(Int) cell, asked once
     per aggregation stage: the query is mysql_checked_query's, its aggregates
     are sums, counts and mins (MYSQL_SUM_STAGE_FUNCTIONS), each GROUP BY key
-    column a non-null Int source field (mysql_field_column), and no SELECT
-    item computes over an aggregate result. The scans of the plan's
-    aggregates and expressions run only for a query with one aggregation."""
+    column a non-null Int source field (mysql_field_column), no SELECT
+    item computes over an aggregate result, and its value `let`s keep MC
+    G1's law (mysql_sum_lets). The scans of the plan's aggregates and
+    expressions run only for a query with one aggregation."""
 
     from pietto._project.project_sql_emission_aggregation import function_name
 
     return (
-        mysql_checked_query(plan, aggregate=True)
+        mysql_checked_query(plan, aggregate=True, lets=True)
+        and mysql_sum_lets(plan)
         and all(
             function_name(value.source) in MYSQL_SUM_STAGE_FUNCTIONS
             for value in plan.aggregates
@@ -332,6 +361,44 @@ def mysql_sum_query(plan, keys) -> bool:
             is row.ProjectSQLExpressionRole.SELECT
             for item in plan.expressions
         )
+    )
+
+
+def mysql_sum_lets(plan) -> bool:
+    """MC G1: each value `let` of an S02 query is read at least once, and
+    every read of its name is the whole argument of a `sum` of the query: no
+    chain, no GROUP BY key (a key reads its input port, outside the plan's
+    expressions), no other reader. A sum's argument is then a source field
+    read (mysql_sum_cell) only when the `let` reads one as written. Linear
+    in the plan."""
+
+    from pietto._project.project_sql_emission_aggregation import function_name
+    from pietto.ast_nodes import LetBinding
+
+    if not plan.let_values:
+        return True
+    ports = {port.ref: port for port in plan.stage_ports}
+    if any(
+        type(getattr(ports.get(key.input), "key", None)) is LetBinding
+        for key in plan.group_keys
+    ):
+        return False
+    summed = {
+        id(argument)
+        for value in plan.aggregates
+        if function_name(value.source) == "sum"
+        for argument in value.arguments
+    }
+    read = set()
+    for expression in plan.expressions:
+        key = getattr(ports.get(getattr(expression, "port", None)), "key", None)
+        if type(expression) is row.ProjectSQLReference and type(key) is LetBinding:
+            if id(expression.ref) not in summed:
+                return False
+            read.add(id(key))
+    return all(
+        id(getattr(ports.get(value.port), "key", None)) in read
+        for value in plan.let_values
     )
 
 
@@ -673,6 +740,9 @@ def mysql_compiled_cells(
     sum over a read of a marked port; its aggregate has one key at most, a
     read of a marked non-null Int port, holds sums, counts and mins only
     (MYSQL_SUM_STAGE_FUNCTIONS), and the terminal row only reads its ports.
+    Below its WHERE row, an S02 aggregate may stand over one `let` row of
+    its declaration per value `let`, whose ports are marked as the WHERE
+    row's are and which keeps MC G1's law (_mysql_compiled_lets).
     S15 cells need a terminal straight over the source, each of whose values
     is a read of a marked port whose field's physical storage is its tag's
     MYSQL_REMAINDER_CARRIERS one, or a `%` that no other counted record
@@ -703,6 +773,16 @@ def mysql_compiled_cells(
         chain.append(current)
         where = current.address
         current = records[current.get("input")]
+    lets = []
+    while (
+        chain[1:2]
+        and chain[1].address.kind == "aggregate"
+        and current.address.kind == "row"
+        and current.get("stage") == "let"
+    ):
+        chain.append(current)
+        lets.append(current.address)
+        current = records[current.get("input")]
     if current.address.kind != "source" or any(
         unit.get("owner") != owner for unit in chain
     ):
@@ -732,7 +812,7 @@ def mysql_compiled_cells(
         if kind == "port":
             port_owner, port_source = record.get("owner"), record.get("source")
             if port_owner.kind == "source" or (
-                port_owner == where
+                (port_owner == where or port_owner in lets)
                 and port_source is not None
                 and port_source.kind == "read"
                 and records[port_source].get("port") in marked
@@ -743,9 +823,9 @@ def mysql_compiled_cells(
         return address.kind == "read" and records[address].get("port") in marked
 
     if chain[1:2] and chain[1].address.kind == "aggregate":
-        if slotted:
-            return empty
         aggregate = chain[1]
+        if slotted or lets and not _mysql_compiled_lets(records, chain[2:], aggregate):
+            return empty
         keys = aggregate.get("keys")
         if (
             len(keys) > 1
@@ -872,6 +952,64 @@ def mysql_compiled_cells(
         frozenset(remainders),
         frozenset(divisions),
     )
+
+
+def _mysql_compiled_lets(records, rows, aggregate) -> bool:
+    """MC G1, from the records: below ``aggregate`` (``rows``, from it
+    down), the last port of each `let` row is its value and every other
+    port of a row carries its input's. The ports that a `let` derives, its
+    value or a carry of one, are found first from the source up, in chain
+    order and so in no record order or numbering. Then every reference to a
+    read of one, but a requirement's (which only anchors it), is the source
+    of the port that carries it (its row's values repeat its ports'
+    sources) or an argument of a sum of ``aggregate``, so a read shared
+    with another user counts too, and each value is read at least once so.
+    Linear in the records."""
+
+    from pietto._project.project_compiled_schema import Address
+
+    derived, carries, values = {}, set(), set()
+    for unit in reversed(rows):
+        outputs = unit.get("outputs")
+        if unit.get("stage") == "let":
+            values.update(outputs[-1:])
+            derived.update((value, value) for value in outputs[-1:])
+            outputs = outputs[:-1]
+        for port in outputs:
+            source = records[port].get("source")
+            origin = (
+                derived.get(records[source].get("port"))
+                if getattr(source, "kind", None) == "read"
+                else None
+            )
+            if origin is not None:
+                derived[port] = origin
+                carries.add(port)
+    sums = {
+        value
+        for value in aggregate.get("values")
+        if records[value].get("function") == "sum"
+    }
+    chain = {unit.address for unit in rows}
+    used = set()
+    for address, record in records.items():
+        if address.kind in ("read", "requirement"):
+            continue
+        pending = [record.get("predicate")] if address in chain else list(record.values)
+        while pending:
+            item = pending.pop()
+            if type(item) is tuple:
+                pending.extend(item)
+            elif (
+                type(item) is Address
+                and item.kind == "read"
+                and records[item].get("port") in derived
+            ):
+                if address in sums and item in record.get("arguments"):
+                    used.add(derived[records[item].get("port")])
+                elif not (address in carries and record.get("source") == item):
+                    return False
+    return used == values
 
 
 # The MySQL project cells of lpad and now() that the Phase77 native

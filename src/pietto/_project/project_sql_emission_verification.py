@@ -2333,12 +2333,14 @@ def resolved_window_integer_result(family, realization, origin, default):
 
 
 def _mysql_guarded_argument(realization) -> bool:
-    """Independent image of a MySQL guarded SUM's argument: a BIGINT of a
-    source field, a count or a guarded SUM, never per binding; emission's
-    blockers, which verification re-derives first, pin each cell's own."""
+    """Independent image of a MySQL guarded SUM's argument: a BIGINT or INT
+    of a source field (MC G1), a count or a guarded SUM, never per binding;
+    emission's blockers, which verification re-derives first, pin each
+    cell's own."""
     return (
         realization.tag == "Int"
-        and realization.storage in ({"kind": "my_bigint"}, {"kind": "my_signed_int"})
+        and realization.storage
+        in ({"kind": "my_bigint"}, {"kind": "my_int"}, {"kind": "my_signed_int"})
         and not realization.binding
     )
 
@@ -2403,8 +2405,8 @@ def _aggregate_result_realization(
     if function in grouping.FILTERED_FUNCTIONS:
         # A conditional count, the target's own (on MySQL as its argument law
         # admits it), or a conditional sum narrowed by its checked CAST (on
-        # MySQL, S03's guarded SUM of a BIGINT): never NULL, 0 when no row
-        # matches.
+        # MySQL, S03's guarded SUM of a BIGINT or INT, MC G1): never NULL, 0
+        # when no row matches.
         if (
             family not in grouping.COUNT_STORAGE
             or family == "mysql"
@@ -2474,7 +2476,7 @@ def _aggregate_result_realization(
             or nullable is not True
             or family != "postgres"
             and not (
-                # S02, S03: the guarded SUM of a BIGINT.
+                # S02, S03: the guarded SUM of a BIGINT or INT (MC G1).
                 family == "mysql" and _mysql_guarded_argument(argument.realization)
             )
         ):

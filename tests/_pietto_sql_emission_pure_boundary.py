@@ -336,6 +336,28 @@ def parse_emission_observation(raw: bytes | str) -> Outcome:
         return Outcome(Status.INVALID_JSON, detail="JSON")
 
 
+def rendering_refusal(raw: bytes) -> str | None:
+    """The decode-only judgment of a well-formed document: the records-only
+    re-rendering alone, past _Check, as it stands if a _Check relation is
+    ever relaxed. Returns its failing subcheck, or None when the records
+    render to the SQL. Only tests ask it."""
+    value = json.loads(
+        raw,
+        object_pairs_hook=_pairs,
+        parse_int=_raw_int,
+        parse_float=_raw_float,
+        parse_constant=_raw_float,
+    )
+    _input_tree(value)
+    records, order, children, _ = _decode(value)
+    _canonical_order(records, order, children)
+    try:
+        _Render(_Doc(records)).run()
+    except _Mismatch as error:
+        return error.check
+    return None
+
+
 def _input_tree(root: object) -> None:
     """Bound a parsed builtin tree; never call user-defined methods."""
     pending: list[tuple[Any, int]] = [(root, 0)]
@@ -2017,7 +2039,8 @@ def _pg_decimal_parameters(realization):
 
 def _mysql_field_column(doc, column) -> bool:
     """A stage column that is a source field, as emission's mysql_field reads
-    it: never a let value, literal, aggregate or window result."""
+    it: a let value only when it copies a field read, never a literal,
+    aggregate or window result."""
 
     fields = doc[column]
     return (
@@ -2103,10 +2126,11 @@ def _mysql_cells(doc) -> tuple[frozenset, frozenset, frozenset, frozenset]:
     body stands over one aggregate body at most, over one WHERE body at
     most, over a source scan, with no window. An S01 operation is the whole
     value of a column of that body, named once, over reads of nullable
-    BIGINT source fields; an S02 sum reads a nullable BIGINT source field,
-    its aggregate has one non-null Int source field key at most and sums,
-    counts and mins only, and the final body only projects the aggregate's
-    columns. S15 cells need one projection body straight over the scan,
+    BIGINT source fields; an S02 sum reads a BIGINT or INT source field
+    (MC G1), its aggregate has one non-null Int source field key at most and
+    sums, counts and mins only, and the final body only projects the
+    aggregate's columns. Below a WHERE an S02 chain may start with one body
+    per value `let` (_mysql_sum_lets). S15 cells need one projection body straight over the scan,
     each of whose columns is a read of a source field of its tag's carrier
     (_mysql_remainder_carrier) or a `%` named once over two such reads of
     its own tag; any other column closes them. R08 cells need the same body,
@@ -2114,8 +2138,9 @@ def _mysql_cells(doc) -> tuple[frozenset, frozenset, frozenset, frozenset]:
     or BIGINT storage or a `/` named once of an unsigned Int literal and one
     such read, the law restated here (_mysql_division_literal); a bind-safe
     parameter of any other literal closes them, and any parameter closes
-    every other cell. The bound of three bodies only ends the walk early: the
-    block kinds and the chain that holds every body imply it."""
+    every other cell. The bound of three bodies beside an aggregate's row
+    value columns only ends the walk early: the block kinds and the chain
+    that holds every body imply it."""
 
     empty: tuple[frozenset, frozenset, frozenset, frozenset] = (
         frozenset(),
@@ -2127,7 +2152,10 @@ def _mysql_cells(doc) -> tuple[frozenset, frozenset, frozenset, frozenset]:
         return empty
     slotted = not _MYSQL_CELL_KINDS.issuperset(doc.kinds)
     bodies = doc.all("row_body")
-    if len(bodies) > 3:
+    # An S02 chain's `let` bodies each hold one row value column (MC G1).
+    if len(bodies) > 3 + (
+        len(doc.all("row_value_column")) if doc.all("aggregate_stage") else 0
+    ):
         return empty
     finals = [ref for ref in bodies if doc[ref]["final"] is True]
     if len(finals) != 1:
@@ -2140,6 +2168,9 @@ def _mysql_cells(doc) -> tuple[frozenset, frozenset, frozenset, frozenset]:
             return empty
         chain.append(inner)
     kinds = [doc[ref]["block_kind"] for ref in reversed(chain)]
+    lets = next(
+        (index for index, kind in enumerate(kinds) if kind != "let"), len(kinds)
+    )
     if (
         doc[chain[-1]]["scan"].kind != "row_scan"
         or len(chain) != len(bodies)
@@ -2147,7 +2178,10 @@ def _mysql_cells(doc) -> tuple[frozenset, frozenset, frozenset, frozenset]:
     ):
         return empty
     aggregate = None
-    if kinds in (["aggregate", "projection"], ["where", "aggregate", "projection"]):
+    if kinds[lets:] in (
+        ["aggregate", "projection"],
+        ["where", "aggregate", "projection"],
+    ):
         aggregate = chain[1]
     elif kinds not in (["projection"], ["where", "projection"]):
         return empty
@@ -2255,6 +2289,8 @@ def _mysql_cells(doc) -> tuple[frozenset, frozenset, frozenset, frozenset]:
             frozenset(divisions),
         )
     stage = doc[doc[aggregate]["aggregation"]]
+    if lets and not _mysql_sum_lets(doc, chain[:1:-1], stage):
+        return empty
     if (
         len(stage["keys"]) > 1
         or any(
@@ -2282,11 +2318,52 @@ def _mysql_cells(doc) -> tuple[frozenset, frozenset, frozenset, frozenset]:
             for value in stage["values"]
             if doc[value]["function"] == "sum"
             and _mysql_field_read(doc, doc[value]["argument"])
-            and _mysql_checked_carrier(doc, doc[value]["argument"])
+            and _mysql_sum_carrier(doc, doc[value]["argument"])
         ),
         frozenset(),
         frozenset(),
     )
+
+
+def _mysql_sum_lets(doc, bodies, stage) -> bool:
+    """MC G1, from the document: below ``stage`` (``bodies``, from the scan
+    up), each `let` body carries its input's columns and adds one value
+    column last; each column that a `let` derives, its value or a carry of
+    one, is read only as an argument of a sum of ``stage``, never by its
+    key (a stage column, read outside sql_stage_reference), and each value
+    at least once so. Linear in the document."""
+
+    derived: dict[Any, Ref] = {}
+    values = set()
+    for body in bodies:
+        columns = doc[body]["columns"]
+        if doc[body]["block_kind"] == "let":
+            if not columns or columns[-1].kind != "row_value_column":
+                return False
+            values.add(columns[-1])
+            derived[doc[columns[-1]]["export"]] = columns[-1]
+            columns = columns[:-1]
+        for column in columns:
+            if column.kind != "row_carry_column":
+                return False
+            origin = derived.get(doc[doc[column]["read"]]["terminal"])
+            if origin is not None:
+                derived[doc[column]["export"]] = origin
+    if any(doc[doc[key]["read"]]["terminal"] in derived for key in stage["keys"]):
+        return False
+    summed = {
+        doc[value]["argument"]
+        for value in stage["values"]
+        if doc[value]["function"] == "sum"
+    }
+    used = set()
+    for ref in doc.all("sql_stage_reference"):
+        origin = derived.get(doc[doc[ref]["column"]]["terminal"])
+        if origin is not None:
+            if ref not in summed:
+                return False
+            used.add(origin)
+    return used == values
 
 
 def _mysql_division_read(doc, ref) -> bool:
@@ -2571,8 +2648,18 @@ def _mysql_s03(doc) -> frozenset:
     return frozenset(sums) if sum_forms.paired(levels, preserve) else frozenset()
 
 
+def _mysql_sum_carrier(doc, ref) -> bool:
+    """MC G1: an S02 sum's argument carrier, a MySQL BIGINT or INT."""
+
+    realization = doc[doc[ref]["realization"]]
+    return realization["tag"] == "Int" and dict(realization["storage"]) in (
+        {"kind": "my_bigint"},
+        {"kind": "my_int"},
+    )
+
+
 def _mysql_checked_carrier(doc, ref) -> bool:
-    """The S01/S02 operand carrier: a nullable MySQL BIGINT."""
+    """The S01 operand carrier: a nullable MySQL BIGINT."""
 
     realization = doc[doc[ref]["realization"]]
     return (

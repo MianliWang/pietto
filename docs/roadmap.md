@@ -163,7 +163,7 @@ databases (D77.78), and MySQL R2's first page that ends `FAILED` without a
 public reason, which it measures on a real MySQL before it extends D77.80's
 precheck (PL.40, D19). MC is the catch-up phase that those rows name, a
 work package with no phase number (MC.01); it comes before Phase81 and
-ships in `0.2.2`. Its Gate 1 is recorded (MC.01–MC.17) and MC is active:
+ships in `0.2.2`. Its Gate 1 is recorded (MC.01–MC.18) and MC is active:
 all eight `sum(Int)` families G1–G8 (MC.02), E4's narrow cell with a
 guarded `*` (MC.04, MC.05), D19 and PL.49's two items, on its own ledger
 (MC.07); see the [MC route](mysql-catchup/route.md).

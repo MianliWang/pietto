@@ -2472,15 +2472,23 @@ S02_CELL_EDITS = {
 
 
 @pytest.mark.parametrize(
-    "edit", [*sorted(S02_QUERY_EDITS), *sorted(S02_CELL_EDITS), "result_carrier"]
+    "edit",
+    [
+        *sorted(S02_QUERY_EDITS),
+        *sorted(S02_CELL_EDITS),
+        "argument_carrier",
+        "result_carrier",
+    ],
 )
 def test_the_mysql_sum_cell_law_refuses_each_edited_input(tmp_path, edit):
     """The S02 laws emission asks of a MySQL aggregation and of each of its
     sums hold the native `group by k` cell and refuse it once one input
     changes: a key that is no non-null Int source field, a SELECT item that
     computes, a sum whose fact is no result fact, or a computed argument;
-    and the sum result law refuses an INT argument (S03 sums a non-null
-    BIGINT count, so the cell laws, not the result law, pin the carrier)."""
+    the cell's argument law takes a nullable or non-null BIGINT or INT
+    field (MC G1) and refuses a SMALLINT one; and the sum result law refuses
+    a SMALLINT argument too (S03 sums a non-null BIGINT count and MC G1 an
+    INT field, so the cell laws, not the result law, pin the carrier)."""
     seen = probe.numeric_law_inputs(tmp_path, probe.NUMERIC_CELLS["s02_grouped"])
     plan, keys = seen["mysql_sum_query"]
     aggregate, argument = seen["mysql_sum_cell"]
@@ -2492,10 +2500,30 @@ def test_the_mysql_sum_cell_law_refuses_each_edited_input(tmp_path, edit):
         assert rows.mysql_sum_cell(*S02_CELL_EDITS[edit](aggregate, argument)) is (
             False
         )
+    elif edit == "argument_carrier":
+        for kind, nullable, problem in (
+            ("my_bigint", False, None),
+            ("my_int", True, None),
+            ("my_int", False, None),
+            (
+                "my_smallint",
+                True,
+                ("PIE-B1004", "sum_int_aggregate_range_proof_missing"),
+            ),
+        ):
+            realization = replace(
+                argument.realization, storage={"kind": kind}, nullable=nullable
+            )
+            assert (
+                grouping.resolved_argument_problem(
+                    "sum", True, realization, "mysql", True
+                )
+                == problem
+            )
     else:
         assert grouping.result_realization("mysql", "sum", argument, ("Int", True))[0]
         narrow = SimpleNamespace(
-            realization=replace(argument.realization, storage={"kind": "my_int"})
+            realization=replace(argument.realization, storage={"kind": "my_smallint"})
         )
         assert grouping.result_realization("mysql", "sum", narrow, ("Int", True)) == (
             None,

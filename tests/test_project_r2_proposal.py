@@ -1506,8 +1506,8 @@ _FIRST = (
 # One MySQL form of each slice that the unreleased Phase77 opened, with the
 # world its own tests build it in: S06 one that R2 executed refined and one
 # that failed at its first page, S06's `same_value` in a JOIN `on` (of an
-# Int and of a Float), S02 beside S01, and R08's `Int /` over a literal
-# divisor.
+# Int and of a Float), S02 beside S01, R08's `Int /` over a literal
+# divisor, and MC G1's INT and `let` carriers.
 PHASE77_MYSQL_FORMS = {
     "S05": ("agg", _STATISTIC),
     "S06_join": (
@@ -1552,6 +1552,14 @@ PHASE77_MYSQL_FORMS = {
         "s03",
         "query result:\n    from orders\n    group by customer\n    select:\n"
         "        customer\n        paid = sum(o.amount for o in group if o.flag)\n",
+    ),
+    "G1_int": (
+        "numeric",
+        "query result:\n    from rows\n    select:\n        x = sum(c)\n",
+    ),
+    "G1_let": (
+        "numeric",
+        "query result:\n    from rows\n    let t = n\n    select:\n        s = sum(t)\n",
     ),
     "S15": (
         "remainder",
@@ -1606,6 +1614,12 @@ MYSQL_0111_FORMS = {
         "s03",
         "query result:\n    from orders\n    group by customer\n    select:\n"
         "        customer\n        n = count()\n",
+        _WORKSPACE,
+    ),
+    "G1": (
+        "numeric",
+        "query result:\n    from rows\n    let t = n\n    group by k\n    select:\n"
+        "        k\n        m = count(t)\n",
         _WORKSPACE,
     ),
     "S15": (
