@@ -13,8 +13,9 @@ SQLite class decides (`--pietto-sqlite-class` or `PIETTO_SQLITE_CLASS`):
 program, while `qualified` fails and `report` skips with a counted
 `PIETTO_NOT_RUN sqlite-native` line in the module fixture, before a cell
 emits anything. There only the coverage laws (SQLite) and the PostgreSQL
-replay binding (PostgreSQL, the golden's statements too) emit programs, those
-of every cell except the premise controls, and the self-tests still run.
+replay bindings (PostgreSQL, the golden's statements too) emit programs, the
+laws those of every cell except the first tier's premise controls, the
+bindings only those of the cells they replayed, and the self-tests still run.
 """
 
 from __future__ import annotations
@@ -1516,6 +1517,271 @@ _PROJECT_T4_CELLS: tuple[_Cell, ...] = (
     ),
 )
 
+# The window cells: rankings over ties and NULL keys, `Text` partition and
+# order keys (again on the `nocase` fixture, where a key without `COLLATE
+# BINARY` would tie `a` with `A`), count, min and max over each frame unit
+# and bound kind, and `sum` over each monotone frame up to the signed 64-bit
+# bounds. They stay out of `_PROJECT_CELLS`, whose R1 replay binds; R2 is
+# to replay each that PostgreSQL project emission writes.
+_W = "window"
+_WINDOW_BASE: tuple[_Cell, ...] = (
+    _Cell(
+        "project-window-rankings-over-ties-and-null-keys",
+        _q(
+            _b(
+                "select",
+                "id",
+                f"r = rank() {_W}(order by n desc)",
+                f"d = dense_rank() {_W}(order by n desc)",
+                f"k = row_number() {_W}(order by n desc, id)",
+            )
+        ),
+        ("id", "r", "d", "k"),
+        (
+            (1, 9, 6, 9),
+            (2, 3, 2, 3),
+            (3, 8, 5, 8),
+            (4, 1, 1, 1),
+            (5, 4, 3, 4),
+            (6, 4, 3, 5),
+            (7, 4, 3, 6),
+            (8, 1, 1, 2),
+            (9, 7, 4, 7),
+        ),
+        False,
+        arguments=(),
+    ),
+    _Cell(
+        "project-window-text-keys-by-their-bytes",
+        _q(
+            _b(
+                "select",
+                "id",
+                f"r = rank() {_W}(partition by b order by s)",
+                f"d = dense_rank() {_W}(partition by b order by s desc)",
+                f"c = count() {_W}(partition by s)",
+                f"k = rank() {_W}(order by s)",
+                f"g = count() {_W}(order by s groups between current row"
+                " and current row)",
+            )
+        ),
+        ("id", "r", "d", "c", "k", "g"),
+        (
+            (1, 1, 3, 1, 3, 1),
+            (2, 2, 2, 1, 2, 1),
+            (3, 1, 2, 1, 5, 1),
+            (4, 2, 2, 1, 4, 1),
+            (5, 3, 1, 1, 9, 1),
+            (6, 3, 1, 2, 6, 2),
+            (7, 3, 1, 2, 6, 2),
+            (8, 2, 1, 1, 8, 1),
+            (9, 1, 3, 1, 1, 1),
+        ),
+        False,
+        arguments=(),
+    ),
+    _Cell(
+        "project-window-rows-offsets",
+        _q(
+            _b(
+                "select",
+                "id",
+                f"k = count(n) {_W}(order by id rows between 1 preceding"
+                " and 1 following)",
+                f"lo = min(n) {_W}(order by id rows between 2 preceding"
+                " and current row)",
+                f"hi = max(n) {_W}(order by id rows between current row"
+                " and 2 following)",
+            )
+        ),
+        ("id", "k", "lo", "hi"),
+        (
+            (1, 2, INT_MIN, INT_MAX),
+            (2, 3, INT_MIN, INT_MAX),
+            (3, 2, INT_MIN, 7),
+            (4, 2, 0, 7),
+            (5, 2, 0, 7),
+            (6, 3, 7, 7),
+            (7, 2, 7, 7),
+            (8, 2, 7, 1),
+            (9, 1, 1, 1),
+        ),
+        False,
+        arguments=(),
+    ),
+    _Cell(
+        "project-window-groups-and-range-frames",
+        _q(
+            _b(
+                "select",
+                "id",
+                f"g = count() {_W}(order by b groups between 1 preceding"
+                " and current row)",
+                f"t = min(n) {_W}(order by b desc range between current row"
+                " and unbounded following)",
+                f"m = min(n) {_W}(order by b rows between unbounded preceding"
+                " and unbounded following)",
+            )
+        ),
+        ("id", "g", "t", "m"),
+        (
+            (1, 7, INT_MIN, INT_MIN),
+            (2, 3, 1, INT_MIN),
+            (3, 6, INT_MIN, INT_MIN),
+            (4, 7, INT_MIN, INT_MIN),
+            (5, 3, 1, INT_MIN),
+            (6, 7, INT_MIN, INT_MIN),
+            (7, 7, INT_MIN, INT_MIN),
+            (8, 6, INT_MIN, INT_MIN),
+            (9, 3, 1, INT_MIN),
+        ),
+        False,
+        arguments=(),
+    ),
+    _Cell(
+        "project-window-float-and-int-keys-and-following-offsets",
+        _q(
+            _b(
+                "select",
+                "id",
+                f"a = count(n) {_W}(order by x, id rows between 1 following"
+                " and 2 following)",
+                f"z = count() {_W}(partition by x order by id rows between"
+                " 1 preceding and 1 preceding)",
+                f"p = rank() {_W}(partition by n order by x desc)",
+            )
+        ),
+        ("id", "a", "z", "p"),
+        (
+            (1, 1, 0, 1),
+            (2, 1, 0, 1),
+            (3, 1, 0, 1),
+            (4, 2, 1, 2),
+            (5, 0, 0, 1),
+            (6, 2, 0, 2),
+            (7, 2, 1, 2),
+            (8, 0, 1, 1),
+            (9, 2, 0, 1),
+        ),
+        False,
+        arguments=(),
+    ),
+    # PostgreSQL project emission writes neither a window over a `Float`
+    # argument nor `count()` over an empty window (D78.15).
+    _Cell(
+        "project-window-float-arguments-and-an-empty-window",
+        _q(
+            _b(
+                "select",
+                "id",
+                f"a = count(x) {_W}(order by x, id rows between 1 following"
+                " and 2 following)",
+                f"m = min(x) {_W}(order by b rows between unbounded preceding"
+                " and unbounded following)",
+                f"hi = max(x) {_W}(order by id rows between current row"
+                " and 2 following)",
+                f"c = count() {_W}()",
+            )
+        ),
+        ("id", "a", "m", "hi", "c"),
+        (
+            (1, 2, -0.5, 1e300, 9),
+            (2, 0, -0.5, 1e300, 9),
+            (3, 2, -0.5, 0.0, 9),
+            (4, 2, -0.5, 2.5, 9),
+            (5, 0, -0.5, 2.5, 9),
+            (6, 2, -0.5, 2.5, 9),
+            (7, 1, -0.5, 2.5, 9),
+            (8, 0, -0.5, 1.0, 9),
+            (9, 2, -0.5, 1.0, 9),
+        ),
+        False,
+        arguments=(),
+    ),
+    _Cell(
+        "project-window-where-order-limit-around-windows",
+        _q(
+            "where n is not None",
+            _b("select", "id", f"c = count(n) {_W}()", f"hi = max(n) {_W}()"),
+            _b("order by", "id desc"),
+            "limit 2",
+        ),
+        ("id", "c", "hi"),
+        ((9, 7, INT_MAX), (7, 7, INT_MAX)),
+        True,
+        arguments=(),
+    ),
+    # Every monotone frame sums one sign up to the bound exactly.
+    _Cell(
+        "project-window-sum-up-to-the-bound-in-each-monotone-frame",
+        _q(
+            _b(
+                "select",
+                "id",
+                f"a = sum(n) {_W}(partition by b order by id)",
+                f"w = sum(n) {_W}(partition by b)",
+                f"r = sum(n) {_W}(partition by b order by id rows between"
+                " unbounded preceding and current row)",
+                f"u = sum(n) {_W}(partition by b order by id rows between"
+                " unbounded preceding and unbounded following)",
+                f"g = sum(n) {_W}(partition by b order by id groups between"
+                " unbounded preceding and current row)",
+                f"h = sum(n) {_W}(partition by b order by id range between"
+                " unbounded preceding and unbounded following)",
+                f"q = sum(n) {_W}(partition by b order by id groups between"
+                " unbounded preceding and unbounded following)",
+            )
+        ),
+        ("id", "a", "w", "r", "u", "g", "h", "q"),
+        tuple(
+            (i, a, w, a, w, a, w, w)
+            for i, a, w in (
+                (1, INT_MAX - 7, INT_MAX),
+                (2, INT_MAX - 4, INT_MAX),
+                (3, INT_MAX, INT_MAX),
+                (4, INT_MAX, INT_MAX),
+                (5, 0, 5),
+                (6, 5, 5),
+                (7, None, None),
+            )
+        ),
+        False,
+        "sum-up",
+        arguments=(),
+    ),
+    _Cell(
+        "project-window-sum-down-to-the-bound",
+        _q(
+            _b(
+                "select",
+                "id",
+                f"a = sum(n) {_W}(partition by b order by id)",
+                f"w = sum(n) {_W}(partition by b)",
+            )
+        ),
+        ("id", "a", "w"),
+        (
+            (1, INT_MIN + 7, INT_MIN),
+            (2, INT_MIN + 4, INT_MIN),
+            (3, INT_MIN, INT_MIN),
+            (4, INT_MIN, INT_MIN),
+            (5, 0, 0),
+        ),
+        False,
+        "sum-down",
+        arguments=(),
+    ),
+)
+_WINDOW_CELLS = (
+    *_WINDOW_BASE,
+    *(
+        replace(cell, name=f"{cell.name}-nocase", fixture="nocase")
+        for cell in _WINDOW_BASE
+        if cell.fixture == "rows"
+        and re.search(r"\bs\b", cell.program.split("\nquery q", 1)[1])
+    ),
+)
+
 # Project cells (PL.47): each single-file law and T2 cell's program as a
 # project module, with the same oracle, and the parameter cells. Project SQL writes
 # `COLLATE BINARY` where single files assume it, so each of these that reads
@@ -1710,7 +1976,9 @@ def test_each_cell_matches_its_prewritten_oracle(cell: _Cell, native: _Native) -
 
 
 @pytest.mark.parametrize(
-    "cell", (*_PROJECT_CELLS, *_PROJECT_T4_CELLS), ids=lambda cell: cell.name
+    "cell",
+    (*_PROJECT_CELLS, *_PROJECT_T4_CELLS, *_WINDOW_CELLS),
+    ids=lambda cell: cell.name,
 )
 def test_each_project_cell_matches_its_prewritten_oracle(
     cell: _Cell,
@@ -1734,6 +2002,7 @@ _OVERFLOW = ("OperationalError", 1, "SQLITE_ERROR", "integer overflow")
 
 
 _SUM = _q(_b("select", "s = sum(n)"))
+_WINDOW_SUM = _q(_b("select", f"s = sum(n) {_W}(order by id)"))
 
 
 @pytest.mark.parametrize(
@@ -1760,6 +2029,8 @@ _SUM = _q(_b("select", "s = sum(n)"))
             _OVERFLOW,
             id="arith-abs-of-the-minimum",
         ),
+        pytest.param(_WINDOW_SUM, "sum-over", _OVERFLOW, id="window-sum-over"),
+        pytest.param(_WINDOW_SUM, "sum-under", _OVERFLOW, id="window-sum-under"),
     ],
 )
 def test_a_one_sided_sum_or_abs_fails_exactly_outside_signed_64_bits(
@@ -1771,11 +2042,12 @@ def test_a_one_sided_sum_or_abs_fails_exactly_outside_signed_64_bits(
 ) -> None:
     """Rule 35's `sum` cells (PL.47): over one sign SQLite fails exactly
     when the result leaves signed 64 bits, where PostgreSQL's exact sum
-    raises SQLSTATE 22003. The `sum-mixed` premise controls break the declared
-    non-negative range: the exact sum fits in both scan orders, yet SQLite
-    fails in one and not in the other, so a mixed range stays refused. A sum
-    of arithmetic (S14) fails as a sum of a field does, and `abs` of the
-    minimum, which a broken range lets in, fails too."""
+    raises SQLSTATE 22003, grouped or over a monotone window frame.
+    The `sum-mixed` premise controls break the declared non-negative range:
+    the exact sum fits in both scan orders, yet SQLite fails in one and not
+    in the other, so a mixed range stays refused. A sum of arithmetic (S14)
+    fails as a sum of a field does, and `abs` of the minimum, which a broken
+    range lets in, fails too."""
 
     cell = _Cell(
         f"project-t2-{fixture}", program, ("s",), (), False, fixture, arguments=()
@@ -1794,6 +2066,35 @@ def test_a_one_sided_sum_or_abs_fails_exactly_outside_signed_64_bits(
         )
     native.observe("sum_order", [program, fixture, sql, list(observed)])
     assert observed == expected
+
+
+def test_a_sliding_window_sum_can_fail_where_every_frame_fits(
+    native: _Native,
+) -> None:
+    """Rule 5c's control: over values of one sign, a frame that starts
+    after the current row fails although every frame's exact sum fits, so a
+    window `sum` keeps the monotone frames, where every partial sum lies
+    between zero and the largest frame's sum."""
+
+    values = (-606, 0, INT_MIN + 2)
+    frames = [values[i + 1 : i + 4] for i in range(len(values))]
+    assert all(INT_MIN <= sum(frame) <= INT_MAX for frame in frames)
+    sql = (
+        "SELECT `id`, SUM(`n`) OVER (ORDER BY `id` ASC NULLS LAST ROWS BETWEEN"
+        " 1 FOLLOWING AND 3 FOLLOWING) FROM `main`.`t`"
+    )
+    if not native.qualified:
+        return
+    with closing(sqlite3.connect(":memory:")) as connection:
+        connection.execute(_SCHEMA)
+        rows = [(i, n, None, None, None) for i, n in enumerate(values, 1)]
+        connection.executemany("INSERT INTO `t` VALUES (?, ?, ?, ?, ?)", rows)
+        try:
+            observed: object = connection.execute(sql).fetchall()
+        except sqlite3.OperationalError as error:
+            observed = str(error)
+    native.observe("sliding_sum", [sql, list(values), repr(observed)])
+    assert observed == "integer overflow"
 
 
 _GOLDEN = {
@@ -2729,7 +3030,28 @@ def _project_forms(artifact: adapter.SQLiteArtifact) -> set[str]:
         assert type(node) is adapter_sql.SQLiteLiteral, node
         return _VALUE_KINDS[type(node.value)]
 
+    def window(node: adapter_sql.SQLiteWindow) -> None:
+        argument = "" if node.argument is None else f" {kind(node.argument)}"
+        if node.function == "count" and node.argument is None:
+            argument = " *"
+        forms.add(f"window {node.function}{argument}")
+        for name, keys in (("partition", node.partition_by), ("order", node.order_by)):
+            for key in keys:
+                assert key.collate is (kind(key.value) == "Text"), key
+                direction = {None: "", False: " asc", True: " desc"}[key.descending]
+                forms.add(f"window {name} {kind(key.value)}{direction}")
+        frame = node.frame
+        if frame is not None:
+            forms.add(f"window frame {frame.unit}")
+            forms.add(f"window frame start {frame.start[0]}")
+            forms.add(f"window frame end {frame.end[0]}")
+            if node.function == "sum":
+                forms.add(f"window sum frame {frame.unit} {frame.end[0]}")
+
     def walk(node: object, clause: str) -> None:
+        if type(node) is adapter_sql.SQLiteWindow:
+            window(node)
+            return
         if type(node) is adapter_sql.SQLiteAggregate:
             argument = "*" if node.argument is None else kind(node.argument)
             text = node.function == "count_distinct" and argument == "Text"
@@ -2853,6 +3175,37 @@ _PROJECT_FORMS = {
     *(f"aggregate Int {operator}" for operator in (*adapter_sql.ARITHMETIC, "unary -")),
     *(f"{function} Int arithmetic" for function in ("avg", "sum")),
     "literal Int minimum",
+    # Windows: each function over each type it reads, each key type and
+    # direction, each frame unit and bound kind, and `sum` over each unit of
+    # the monotone frames.
+    *(f"window {function}" for function in sorted(adapter_sql.RANKING)),
+    "window count *",
+    *(
+        f"window {function} {kind}"
+        for function, kinds in adapter._WINDOW_ARGUMENTS.items()
+        for kind in sorted(kinds)
+    ),
+    *(f"window partition {kind}" for kind in adapter.TYPES),
+    *(
+        f"window order {kind} {direction}"
+        for kind in adapter.TYPES
+        for direction in ("asc", "desc")
+    ),
+    *(f"window frame {unit}" for unit in adapter_sql.UNITS),
+    *(
+        f"window frame {side} {kind}"
+        for side, excluded in (
+            ("start", "unbounded_following"),
+            ("end", "unbounded_preceding"),
+        )
+        for kind in adapter_sql.BOUNDS
+        if kind != excluded
+    ),
+    *(
+        f"window sum frame {unit} {end}"
+        for unit in adapter_sql.UNITS
+        for end in ("current_row", "unbounded_following")
+    ),
 }
 
 
@@ -2860,11 +3213,12 @@ def test_every_emitted_form_has_a_native_cell(
     project_emit: Callable[[_Cell], adapter.SQLiteArtifact],
 ) -> None:
     assert _missing_forms((*_LAW_CELLS, *_T2_CELLS)) == set()
-    cells = (*_PROJECT_LAW_CELLS, *_PROJECT_T4_CELLS)
+    cells = (*_PROJECT_LAW_CELLS, *_PROJECT_T4_CELLS, *_WINDOW_CELLS)
     artifacts = (project_emit(cell) for cell in cells)
     assert _PROJECT_FORMS - set().union(*map(_project_forms, artifacts)) == set()
     for cell in _ALIASED_CELLS:
         ast = project_emit(cell).ast
         assert (ast.table, ast.columns) == (_ALIASED_TABLE, _ALIASED_COLUMNS)
-    names = [cell.name for cell in (*_CELLS, *_PROJECT_CELLS, *_PROJECT_T4_CELLS)]
+    cells = (*_CELLS, *_PROJECT_CELLS, *_PROJECT_T4_CELLS, *_WINDOW_CELLS)
+    names = [cell.name for cell in cells]
     assert len(names) == len(set(names))

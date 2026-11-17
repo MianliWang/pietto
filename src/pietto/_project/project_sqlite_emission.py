@@ -22,6 +22,7 @@ from pietto._project import project_sql_plan as plans
 from pietto._project import project_sql_plan_aggregation as aggregation
 from pietto._project import project_sql_plan_expressions as expressions
 from pietto._project import project_sql_plan_target_assessment as targets
+from pietto._project import project_sql_plan_windows as windowing
 from pietto._project.aggregate_grouped_schema import ProjectGroupKeyFact
 from pietto._project.model import ProjectResolvedTypeKind
 from pietto._project.project_sql_emission_contract import (
@@ -50,11 +51,15 @@ from pietto._project.project_sqlite_sql import (
     LOGICAL,
     MAX_INT,
     OPERATORS,
+    RANKING,
+    UNITS,
+    WINDOWS,
     SQLiteAbs,
     SQLiteAggregate,
     SQLiteArithmetic,
     SQLiteColumn,
     SQLiteComparison,
+    SQLiteFrame,
     SQLiteIsNull,
     SQLiteKey,
     SQLiteLimit,
@@ -65,6 +70,7 @@ from pietto._project.project_sqlite_sql import (
     SQLiteParameter,
     SQLiteResult,
     SQLiteSelect,
+    SQLiteWindow,
     Token,
     ast_rules_hold,
     literal_text,
@@ -101,9 +107,6 @@ _EMPTY = (
     "join_inputs",
     "relationship_matches",
     "single_matches",
-    "windows",
-    "window_arguments",
-    "window_projections",
     "distincts",
     "set_bodies",
     "values_bodies",
@@ -126,6 +129,8 @@ _SHAPES = (
         ("result_filter",),
         ("final_projection",),
     ),
+    (("relation_input", "window_evaluation"), ("final_projection",)),
+    (("relation_input", "row_filter"), ("window_evaluation",), ("final_projection",)),
 )
 # The field types each aggregate reads (rule 10); `count` reads any.
 _ARGUMENTS = {
@@ -133,6 +138,13 @@ _ARGUMENTS = {
     "min": {"Int", "Float"},
     "max": {"Int", "Float"},
     "avg": {"Int"},
+    "sum": {"Int"},
+}
+# The field types each window function reads (rule 5b); `count()` reads none.
+_WINDOW_ARGUMENTS = {
+    "count": {"Int", "Float"},
+    "min": {"Int", "Float"},
+    "max": {"Int", "Float"},
     "sum": {"Int"},
 }
 _RESULTS = ((), ("relation_ordering",), ("limit",), ("relation_ordering", "limit"))
@@ -150,9 +162,19 @@ _SUGGESTIONS = {
     ),
     "sqlite_relation_shape_not_admitted": (
         "SQLite emission admits one source read with where, group by, having,"
-        " order by, limit and select; JOINs, windows, qualify, distinct, set"
-        " operations, relation lets and reads of another table or query are not"
-        " available on SQLite"
+        " order by, limit and select, and windows over one source read without"
+        " group by; JOINs, qualify, distinct, set operations, relation lets and"
+        " reads of another table or query are not available on SQLite"
+    ),
+    "sqlite_window_not_admitted": (
+        "use row_number, rank or dense_rank, count(), or count, min or max of"
+        " an Int or Float field, or sum of an Int field, over fields of the"
+        " source, with an inline window, no RANGE offset and no exclude"
+    ),
+    "sqlite_window_sum_frame_not_admitted": (
+        "write a window sum over the frame from unbounded preceding to current"
+        " row or unbounded following, or omit the frame: SQLite can fail a"
+        " sliding sum whose every frame fits"
     ),
     "sqlite_source_count_not_admitted": "read exactly one sqlite.table source",
     "sqlite_field_type_not_admitted": (
@@ -340,6 +362,38 @@ def _fits(name: str | None, representation: dict[str, Any]) -> bool:
     return name in expected and (storage, domain["kind"]) == expected[name]
 
 
+@dataclass(frozen=True, slots=True)
+class _Window:
+    """One admitted window (rule 5b): each use with the source field it reads,
+    each order use with `descending`, and the frame as (unit, start, end),
+    each bound as (kind, offset)."""
+
+    function: str
+    argument: tuple[Any, int] | None
+    partitions: tuple[tuple[Any, int], ...]
+    orders: tuple[tuple[Any, int, bool], ...]
+    frame: tuple[str, tuple[str, int | None], tuple[str, int | None]] | None
+
+    def uses(self) -> tuple[Any, ...]:
+        """The argument's use, then each partition and order use: the columns
+        the window renders, in order."""
+        argument = () if self.argument is None else (self.argument[0],)
+        keys = (*self.partitions, *self.orders)
+        return (*argument, *(key[0] for key in keys))
+
+    def monotone(self) -> bool:
+        """The frame starts at UNBOUNDED PRECEDING and ends at CURRENT ROW or
+        UNBOUNDED FOLLOWING, so it only grows."""
+        return self.frame is not None and (
+            self.frame[1][0] == "unbounded_preceding"
+            and self.frame[2][0] in ("current_row", "unbounded_following")
+        )
+
+
+def _window_site(window: Any) -> Any:
+    return getattr(getattr(window.source, "item", None), "span", None)
+
+
 class _View:
     """The plan seen as one SQLite statement: what each port carries, and the
     source field, group key or aggregate it ends at."""
@@ -367,6 +421,8 @@ class _View:
         self.group_keys = {k.ref: k for k in plan.group_keys}
         self.aggregates = {a.ref: a for a in plan.aggregates}
         self.order_uses = {u.ref: u for u in plan.order_uses}
+        self.windowed = {p.export: p for p in plan.window_projections}
+        self.windows = {w.ref: w for w in plan.windows}
         self.aggregated = bool(plan.aggregations)
         self.selected = {id(self.end(p.input)) for p in plan.aggregate_projections} - {
             id(None)
@@ -498,6 +554,98 @@ class _View:
             return found if found in self.index else None
         return found if id(found) in self.selected else None
 
+    def window(self, window: Any) -> _Window | None:
+        """Rule 5b at one window: a selected window over ungrouped rows, of an
+        admitted function and argument, whose partition and order keys are
+        fields of the source and whose frame has no RANGE offset and no
+        EXCLUDE other than NO OTHERS, which excludes nothing; else None."""
+        plan, function = self.plan, window.function.name
+        policies = [p for p in plan.window_policies if p.window is window.ref]
+        if (
+            self.aggregated
+            or window.function.namespace
+            or function not in WINDOWS
+            or window.selected is None
+            or len(policies) != 1
+            or policies[0].named_use is not None
+            or policies[0].modifiers is not None
+        ):
+            return None
+        policy = policies[0]
+        uses = {u.ref: u for u in plan.window_uses if u.window is window.ref}
+        read = {
+            ref: self.field(u.input) for ref, u in uses.items() if u.input is not None
+        }
+        fields = {ref: field for ref, field in read.items() if field is not None}
+        if len(fields) != len(read):
+            return None
+        roles: dict[str, list[Any]] = {}
+        for use in sorted(uses.values(), key=lambda u: u.role_position):
+            roles.setdefault(use.role.value, []).append(use)
+        partitions = roles.pop("window_partition", [])
+        orders = roles.pop("window_order", [])
+        roles.pop("relation_input", None)
+        arguments = sorted(
+            (a for a in plan.window_arguments if a.window is window.ref),
+            key=lambda a: a.position,
+        )
+        used = roles.pop("window_argument", [])
+        if (
+            roles
+            or len(partitions) != len(policy.partitions)
+            or len(orders) != len(policy.orders)
+            or len(arguments) != len(window.arguments)
+            or len(arguments) > (function not in RANKING)
+            or (not arguments and function not in RANKING | {"count"})
+            or [a.use for a in arguments] != [u.ref for u in used]
+            or any(a.parameter is not None for a in arguments)
+        ):
+            return None
+        argument = None
+        if used:
+            argument = (used[0].ref, fields[used[0].ref])
+            if _type_name(self.ports[argument[1]]) not in _WINDOW_ARGUMENTS[function]:
+                return None
+        directions = [
+            policy.orders[u.role_position].effective_direction for u in orders
+        ]
+        if not set(directions) <= {"asc", "desc"}:
+            return None
+        resolved = getattr(policy.specification.frame, "resolved", None)
+        unit = getattr(resolved, "unit", None)
+        frame = None
+        if (unit is None) is not (function in RANKING):
+            return None
+        if resolved is not None and unit is not None:
+            # SQLite recomputes an EXCLUDE frame row by row: S15 measured one
+            # past the route's default 20 s deadline over 1,048,576 rows.
+            # EXCLUDE NO OTHERS excludes nothing and is left out.
+            if unit.value not in UNITS or resolved.exclusion not in (None, "no_others"):
+                return None
+            bounds = []
+            for bound in (resolved.start, resolved.end):
+                if bound is None:
+                    return None
+                kind, offset = bound.kind.value, None
+                if kind.startswith("offset_"):
+                    offset = getattr(bound.offset, "value", None)
+                    if unit.value == "range" or not (
+                        type(offset) is int and 0 <= offset <= MAX_INT
+                    ):
+                        return None
+                bounds.append((kind, offset))
+            frame = (unit.value, bounds[0], bounds[1])
+        return _Window(
+            function,
+            argument,
+            tuple((u.ref, fields[u.ref]) for u in partitions),
+            tuple(
+                (u.ref, fields[u.ref], direction == "desc")
+                for u, direction in zip(orders, directions, strict=True)
+            ),
+            frame,
+        )
+
     def roots(self) -> list[Any]:
         """Each plan value the statement renders: the results, the `where` and
         `having` filters, then each `group by` and `order by` key."""
@@ -507,6 +655,8 @@ class _View:
             grouped = self.grouped.get(export.ref)
             if grouped is not None:
                 found.append(self.end(grouped.input))
+            elif export.ref in self.windowed:
+                found.append(self.windows[self.windowed[export.ref].window])
             elif export.ref in self.projections:
                 found.append(self.expression(self.projections[export.ref].expression))
         found.extend(self.expression(f.predicate) for f in plan.filters)
@@ -528,7 +678,12 @@ class _View:
             if type(node) is aggregation.ProjectSQLResultReference:
                 node = self.end(node.port)  # rendered as the key or aggregate
             if type(node) is aggregation.ProjectSQLAggregate:
-                children = tuple(self.expression(a) for a in node.arguments[:1])
+                children: tuple[Any, ...] = tuple(
+                    self.expression(a) for a in node.arguments[:1]
+                )
+            elif type(node) is windowing.ProjectSQLWindow:
+                window = self.window(node)  # each key and argument is a column
+                children = () if window is None else window.uses()
             else:
                 children = self.children(node)
             pending.extend((child, level + 1) for child in children)
@@ -536,8 +691,9 @@ class _View:
 
 
 class _Rules:
-    """Rules 1-35, with 9b keyed 9.2: at most one blocker per rule, at its
-    first failing site."""
+    """Rules 1-35: at most one blocker per rule, at its first failing site.
+    A lettered rule sorts after its number: rule 5b is 5.2, 5c is 5.3 and 9b
+    is 9.2."""
 
     def __init__(self, checked: Any, contract: SQLiteContract, policy: Any) -> None:
         self.found: dict[float, Blocker] = {}
@@ -584,6 +740,7 @@ class _Rules:
         for node in reversed(plan.expressions):  # an operand after its node
             self.bounds[node.ref] = self.interval(node)
         self.shape()
+        self.windows()
         self.fields()
         self.values()
         self.overflows()
@@ -643,6 +800,7 @@ class _Rules:
             and operators in _SHAPES
             and len(plan.filters) == ("row_filter" in flat) + ("result_filter" in flat)
             and len(plan.aggregations) == ("group_aggregate" in flat)
+            and bool(plan.windows) == ("window_evaluation" in flat)
             and results in _RESULTS
             and len(plan.orders) == ("relation_ordering" in results)
             and len(plan.result_limits) == ("limit" in results)
@@ -688,6 +846,20 @@ class _Rules:
                 second.ref,
                 second.declaration.span,
             )
+
+    def windows(self) -> None:
+        """Rules 5b and 5c: each window is admitted (`_View.window`), and a
+        `sum` has a monotone frame."""
+        refused, frames = [], []
+        for window in self.plan.windows:
+            site = (window.ref, _window_site(window) or self.statement)
+            found = self.view.window(window)
+            if found is None:
+                refused.append(site)
+            elif found.function == "sum" and not found.monotone():
+                frames.append(site)
+        self.first(5.2, "PIE-B1003", "sqlite_window_not_admitted", refused)
+        self.first(5.3, "PIE-B1003", "sqlite_window_sum_frame_not_admitted", frames)
 
     def fields(self) -> None:
         plan = self.plan
@@ -736,15 +908,7 @@ class _Rules:
         view = self.view
         field = view.direct(node)
         if field is not None:
-            found = self.entry.get(field)
-            if (
-                found is None
-                or _type_name(view.ports[field]) != "Int"
-                or not _fits("Int", found.representation)
-            ):
-                return None
-            domain = found.representation["domain"]
-            return int(domain["min"]), int(domain["max"])
+            return self.field_bounds(field)
         if type(node) in _LITERALS:
             value = node.expression.value
             admitted = literal_text(value, id(node) in view.negated) is not None
@@ -761,6 +925,18 @@ class _Rules:
                 return None
             operands.append(bounds)
         return ranges.combine(operator, tuple(operands))
+
+    def field_bounds(self, field: int) -> ranges.Bounds | None:
+        """The `int_range` of an `Int` field that passes rule 33, or None."""
+        found = self.entry.get(field)
+        if (
+            found is None
+            or _type_name(self.view.ports[field]) != "Int"
+            or not _fits("Int", found.representation)
+        ):
+            return None
+        domain = found.representation["domain"]
+        return int(domain["min"]), int(domain["max"])
 
     def proved(self, node: Any) -> bool:
         """Rule 9b holds at `node` and at each operation under it."""
@@ -893,6 +1069,7 @@ class _Rules:
                 bool(
                     plan.filters
                     or plan.aggregations
+                    or plan.windows
                     or plan.orders
                     or plan.result_limits
                     or computed
@@ -1058,9 +1235,10 @@ class _Rules:
                     self.fail(34, "PIE-B1005", "field_domain_premise_mismatch", *place)
 
     def sums(self) -> None:
-        """Rule 35: a `sum` reads an `Int` field or arithmetic whose bounds
-        lie on one side of zero, so SQLite fails exactly where the exact sum
-        leaves signed 64 bits, and never on a partial sum alone."""
+        """Rule 35: a `sum`, grouped or over a window, reads an `Int` field
+        or arithmetic whose bounds lie on one side of zero, so SQLite fails
+        exactly where the exact sum leaves signed 64 bits, and never on a
+        partial sum alone."""
         sites = []
         for aggregate in self.plan.aggregates:
             arguments = aggregate.arguments
@@ -1078,6 +1256,14 @@ class _Rules:
                 sites.append(
                     (aggregate.ref, self.statement if call is None else call.span)
                 )
+        for window in self.plan.windows:
+            found = self.view.window(window)
+            if found is None or found.function != "sum":
+                continue
+            assert found.argument is not None  # rule 5b: one field
+            bounds = self.field_bounds(found.argument[1])
+            if bounds is not None and bounds[0] < 0 < bounds[1]:
+                sites.append((window.ref, _window_site(window) or self.statement))
         self.first(35, "PIE-B1004", "sum_int_aggregate_range_proof_missing", sites)
 
 
@@ -1162,17 +1348,41 @@ def _expected_ast(plan: Any, contract: SQLiteContract) -> SQLiteSelect:
             _type_name(view.ports[column.field]) == "Text"
         )
 
+    def window(found: Any) -> SQLiteWindow:
+        admitted = view.window(found)
+        assert admitted is not None
+        argument = admitted.argument
+        partition_by = []
+        for use, field in admitted.partitions:
+            column = SQLiteColumn(field, use)
+            partition_by.append(SQLiteKey(column, text(column), None, use))
+        order_by = []
+        for use, field, descending in admitted.orders:
+            column = SQLiteColumn(field, use)
+            order_by.append(SQLiteKey(column, text(column), descending, use))
+        frame = admitted.frame
+        return SQLiteWindow(
+            admitted.function,
+            None if argument is None else SQLiteColumn(argument[1], argument[0]),
+            tuple(partition_by),
+            tuple(order_by),
+            None if frame is None else SQLiteFrame(*frame, found.policy),
+            found.ref,
+        )
+
     results = []
     for export in plan.exports:
         grouped = view.grouped.get(export.ref)
+        windowed = view.windowed.get(export.ref)
         if grouped is not None:
-            subject, node = grouped.ref, view.end(grouped.input)
+            subject, built = grouped.ref, value(view.end(grouped.input))
+        elif windowed is not None:
+            subject, built = windowed.ref, window(view.windows[windowed.window])
         else:
             projection = view.projections[export.ref]
-            subject, node = projection.ref, view.expression(projection.expression)
-        results.append(
-            SQLiteResult(value(node), export.identity.name, subject, export.ref)
-        )
+            subject = projection.ref
+            built = value(view.expression(projection.expression))
+        results.append(SQLiteResult(built, export.identity.name, subject, export.ref))
     where = view.filter("where")
     where = None if where is None else value(where)
     group_by = []
@@ -1332,6 +1542,24 @@ def _columns(artifact: SQLiteArtifact) -> list[dict[str, Any]]:
                 "domain": domain,
             }
             correspondence = {"aggregate": _ref(value.subject)}
+        elif type(value) is SQLiteWindow:
+            assert tag is not None
+            if value.function in ("min", "max"):
+                assert value.argument is not None
+                read = fields[value.argument.field].representation
+                storage, domain = read["storage"]["kind"], read["domain"]
+            else:  # a ranking or count from 1 or 0, a sum over the widest
+                storage = STORAGES[tag]
+                domain = {
+                    "sum": _domain(tag),
+                    "count": _int_range(0, MAX_INT),
+                }.get(value.function, _int_range(1, MAX_INT))
+            representation = {
+                "storage": {"kind": storage},
+                "nullable": nullable,
+                "domain": domain,
+            }
+            correspondence = {"window": _ref(value.subject)}
         else:
             assert tag is not None
             literal = value.value if type(value) is SQLiteLiteral else None

@@ -1,7 +1,8 @@
 """The SQLite adapter's own SQL AST and renderer (AD78.03, PL.47).
 
 One `SELECT` over one `STRICT` table of the `main` schema, aliased `s0`, with
-the clauses of the SQL rules of docs/spec/sqlite-project-v1.md. Every node
+the clauses of the SQL rules of docs/spec/sqlite-project-v1.md; a window is
+written inline as `OVER (...)` in its result field (S15). Every node
 keeps the plan object it renders as its `subject`, so the document can name
 the plan owner of each byte range.
 """
@@ -28,6 +29,26 @@ FUNCTIONS = {
     "sum": "SUM",
 }
 MAX_INT = 2**63 - 1
+# Each admitted window function by its Pietto name, with the SQL it calls
+# (S15); a ranking function takes no argument and no frame.
+WINDOWS = {
+    "row_number": "ROW_NUMBER",
+    "rank": "RANK",
+    "dense_rank": "DENSE_RANK",
+    "count": "COUNT",
+    "min": "MIN",
+    "max": "MAX",
+    "sum": "SUM",
+}
+RANKING = frozenset({"row_number", "rank", "dense_rank"})
+UNITS = {"rows": "ROWS", "range": "RANGE", "groups": "GROUPS"}
+BOUNDS = {
+    "unbounded_preceding": "UNBOUNDED PRECEDING",
+    "offset_preceding": "PRECEDING",
+    "current_row": "CURRENT ROW",
+    "offset_following": "FOLLOWING",
+    "unbounded_following": "UNBOUNDED FOLLOWING",
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -121,6 +142,31 @@ class SQLiteAggregate:
     subject: object
 
 
+@dataclass(frozen=True, slots=True)
+class SQLiteFrame:
+    """`<unit> BETWEEN <start> AND <end>`, with no EXCLUDE: each bound is a
+    key of BOUNDS and its offset, None unless the bound is an offset."""
+
+    unit: str
+    start: tuple[str, int | None]
+    end: tuple[str, int | None]
+    subject: object
+
+
+@dataclass(frozen=True, slots=True)
+class SQLiteWindow:
+    """`<FUNCTION>(* | x) OVER ([PARTITION BY ...] [ORDER BY ...] [frame])`;
+    `function` is a key of WINDOWS, `partition_by` holds keys with
+    `descending` None."""
+
+    function: str
+    argument: SQLiteColumn | None
+    partition_by: tuple[SQLiteKey, ...]
+    order_by: tuple[SQLiteKey, ...]
+    frame: SQLiteFrame | None
+    subject: object
+
+
 type SQLiteExpression = (
     SQLiteColumn
     | SQLiteLiteral
@@ -133,8 +179,16 @@ type SQLiteExpression = (
     | SQLiteNegative
     | SQLiteAbs
     | SQLiteAggregate
+    | SQLiteWindow
 )
-_ATOMS = (SQLiteColumn, SQLiteLiteral, SQLiteParameter, SQLiteAbs, SQLiteAggregate)
+_ATOMS = (
+    SQLiteColumn,
+    SQLiteLiteral,
+    SQLiteParameter,
+    SQLiteAbs,
+    SQLiteAggregate,
+    SQLiteWindow,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -186,6 +240,9 @@ def _children(node: object) -> tuple[object, ...]:
         return (node.operand,)  # type: ignore[attr-defined]
     if type(node) is SQLiteAggregate and node.argument is not None:
         return (node.argument,)
+    if type(node) is SQLiteWindow:
+        argument = () if node.argument is None else (node.argument,)
+        return (*argument, *(k.value for k in (*node.partition_by, *node.order_by)))
     return ()
 
 
@@ -331,16 +388,39 @@ def render(ast: SQLiteSelect) -> tuple[bytes, tuple[Token, ...]]:
                 if function == "avg":
                     emit(" AS REAL)", "syntax", "cast", node.subject)
             emit(")", "syntax", "close", node.subject)
+        elif type(node) is SQLiteWindow:
+            emit(WINDOWS[node.function] + "(", "syntax", "function", node.subject)
+            if node.argument is None:
+                if node.function not in RANKING:
+                    emit("*", "syntax", "star", node.subject)
+            else:
+                value(node.argument)
+            emit(") OVER (", "syntax", "over", node.subject)
+            keys("PARTITION BY", node.partition_by, node.subject, "")
+            lead = " " if node.partition_by else ""
+            keys("ORDER BY", node.order_by, node.subject, lead)
+            lead = " " if node.partition_by or node.order_by else ""
+            frame = node.frame
+            if frame is not None:
+                bounds = [
+                    BOUNDS[kind] if offset is None else f"{offset} {BOUNDS[kind]}"
+                    for kind, offset in (frame.start, frame.end)
+                ]
+                text = f"{lead}{UNITS[frame.unit]} BETWEEN {bounds[0]} AND {bounds[1]}"
+                emit(text, "syntax", "frame", frame.subject)
+            emit(")", "syntax", "close", node.subject)
         else:
             raise TypeError(type(node).__name__)
 
-    def keys(clause: str, items: tuple[SQLiteKey, ...]) -> None:
+    def keys(
+        clause: str, items: tuple[SQLiteKey, ...], owner: object, lead: str = " "
+    ) -> None:
         for position, key in enumerate(items):
             emit(
-                f" {clause} " if position == 0 else ", ",
+                f"{lead}{clause} " if position == 0 else ", ",
                 "syntax",
                 "clause" if position == 0 else "separator",
-                ast.subject if position == 0 else key.subject,
+                owner if position == 0 else key.subject,
             )
             value(key.value)
             if key.collate:
@@ -364,11 +444,11 @@ def render(ast: SQLiteSelect) -> tuple[bytes, tuple[Token, ...]]:
     if ast.where is not None:
         emit(" WHERE ", "syntax", "clause", ast.subject)
         value(ast.where)
-    keys("GROUP BY", ast.group_by)
+    keys("GROUP BY", ast.group_by, ast.subject)
     if ast.having is not None:
         emit(" HAVING ", "syntax", "clause", ast.subject)
         value(ast.having)
-    keys("ORDER BY", ast.order_by)
+    keys("ORDER BY", ast.order_by, ast.subject)
     if ast.limit is not None:
         emit(" LIMIT ", "syntax", "clause", ast.limit.subject)
         emit(str(ast.limit.value), "literal", "limit", ast.limit.subject)
@@ -426,6 +506,10 @@ def ast_rules_hold(
             return False
         if type(node) is not SQLiteAggregate:
             having.extend(_children(node))
+    # A window is a whole result field of a statement with no GROUP BY,
+    # HAVING or aggregate (S15).
+    windows = {id(r.value) for r in ast.results if type(r.value) is SQLiteWindow}
+    aggregated = bool(ast.group_by) or ast.having is not None
     numbers: list[int] = []
     pending: list[Any] = [
         *(r.value for r in ast.results),
@@ -463,7 +547,11 @@ def ast_rules_hold(
             if literal_text(node.operand.value, True) is None:
                 return False
             continue
+        elif kind is SQLiteWindow:
+            if id(node) not in windows or aggregated or not _window_holds(node, text):
+                return False
         elif kind is SQLiteAggregate:
+            aggregated = True
             if (
                 node.function not in FUNCTIONS
                 or (node.argument is None and node.function != "count")
@@ -480,6 +568,45 @@ def ast_rules_hold(
             return False
         pending.extend(reversed(_children(node)))
     first = list(dict.fromkeys(numbers))
-    if first != list(range(1, len(first) + 1)):
+    if first != list(range(1, len(first) + 1)) or (windows and aggregated):
         return False
     return all(k.collate is text(k.value) for k in keys)
+
+
+def _window_holds(node: SQLiteWindow, text: Any) -> bool:
+    """The rules of one window: its function and argument, its keys over
+    columns, and its frame; a `sum` frame starts at UNBOUNDED PRECEDING and
+    ends at CURRENT ROW or UNBOUNDED FOLLOWING."""
+    function, frame = node.function, node.frame
+    if function not in WINDOWS:
+        return False
+    if function in RANKING and node.argument is not None:
+        return False
+    if function not in RANKING | {"count"} and node.argument is None:
+        return False
+    if node.argument is not None and type(node.argument) is not SQLiteColumn:
+        return False
+    for key in (*node.partition_by, *node.order_by):
+        if type(key) is not SQLiteKey or type(key.value) is not SQLiteColumn:
+            return False
+        if key.collate is not text(key.value):
+            return False
+    if any(k.descending is not None for k in node.partition_by) or any(
+        type(k.descending) is not bool for k in node.order_by
+    ):
+        return False
+    if function in RANKING:
+        return frame is None
+    if type(frame) is not SQLiteFrame or frame.unit not in UNITS:
+        return False
+    for kind, offset in (frame.start, frame.end):
+        if kind not in BOUNDS or (offset is None) is kind.startswith("offset_"):
+            return False
+        if offset is not None and not (
+            type(offset) is int and 0 <= offset <= MAX_INT and frame.unit != "range"
+        ):
+            return False
+    return function != "sum" or (
+        frame.start[0] == "unbounded_preceding"
+        and frame.end[0] in ("current_row", "unbounded_following")
+    )

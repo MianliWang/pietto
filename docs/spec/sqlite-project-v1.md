@@ -49,7 +49,9 @@ aggregates in both modes with their native cells. S11 added
 by its timing, the file cap of 128 MiB. R1 added the PostgreSQL replay,
 which passed, and S16 closed the tier; the second tier has its own
 Gate 1 (PL.54, PL.58, D78.14). In the second tier, S14 added range-proved
-`Int` arithmetic (D78.14 (3), rule 9b). Each slice edits the rows it lands.
+`Int` arithmetic (D78.14 (3), rule 9b), and S15 windows over one source read
+([admission](#admission)), each with its native cells. Each slice edits the
+rows it lands.
 No published release carries a form until the owner approves
 one: `0.2.1` and earlier refuse a project `sqlite.table` with `PIE-S2306`
 `Unknown source connector: sqlite.table`.
@@ -59,10 +61,11 @@ one: `0.2.1` and earlier refuse a project `sqlite.table` with `PIE-S2306`
 | Admission | Exact limit |
 | --- | --- |
 | Project and source | An explicit-module project (`schema_version = 2`) whose statement reads exactly one source declared `source x: Shape = sqlite.table("name")`. |
-| Relational shape | One source read, its `where` filter, a `group by`, a `having`, an `order by`, a `limit`, and the final projection. No JOIN, window or `qualify`, relation `let`, read of another table or query, `distinct`, set operation, typed VALUES body or table function. |
+| Relational shape | One source read, its `where` filter, a `group by`, a `having`, an `order by`, a `limit`, and the final projection; without `group by` or an aggregate, also the windows below. No JOIN, window over grouped rows, `qualify`, relation `let`, read of another table or query, `distinct`, set operation, typed VALUES body or table function. |
 | Columns | Source fields are `Int`, `Text`, `Bool` or `Float`, each with its compiled nullability. Results follow the projection. |
 | Expressions | In `select`, `where` and `having`: a field of the source, a literal, a query parameter, a comparison (`==`, `!=`, `<`, `<=`, `>`, `>=`) of two values of one type, `and`, `or`, `not`, `is None` and `is not None`; in `having` and in the `select` of an aggregated relation also an admitted aggregate. In `select` and `where` also `Int` arithmetic (S14): `+`, `-`, `*`, unary `-` and `abs(x)`, whose operands are `Int` fields of the source, `Int` literals and such arithmetic, when the bounds of every result lie inside signed 64 bits (rule 9b). `check` refuses arithmetic in `having` (PIE-S2327) and arithmetic over `group by` keys in the `select` of an aggregated relation that selects no aggregate (PIE-S2319); beside an aggregate, rules 9 and 11 refuse such arithmetic. Arithmetic that reads an aggregate passes `check`, and rule 9 refuses it, beside rules 10 and 11. No arithmetic that reads a parameter or an aggregate, no `Float` arithmetic, `/`, `%` or unary `+`, no `in`, range comparison, conditional, cast, other function call or `any(...)` read, and no `None` literal outside `is None` and `is not None`. |
 | Aggregates | `count()` and `count(x)`; `count_distinct(x)` of an `Int`, `Text` or `Bool` field; `min(x)` and `max(x)` of an `Int` or `Float` field; `avg(x)` of an `Int` field or of admitted `Int` arithmetic (S14); and `sum(x)` of the same whose bounds lie on one side of zero (a field's contract `int_range` with a `min` of 0 or more or a `max` of 0 or less, or arithmetic whose bounds do, rule 35). Each other aggregate reads one field of the source directly; `check` refuses `abs` in an aggregate's argument and `min` and `max` of an expression on every target (PIE-S2315). |
+| Windows | Each a whole result field: `row_number()`, `rank()` and `dense_rank()`; `count()`; `count(x)`, `min(x)` and `max(x)` of an `Int` or `Float` field; and `sum(x)` of an `Int` field whose contract `int_range` lies on one side of zero, in a frame that starts at `unbounded preceding` and ends at `current row` or `unbounded following`, the omitted frame included. Each partition and order key is a field of the source; a frame is `rows`, `range` or `groups`, with no `exclude` other than `exclude no others`, which excludes nothing and is left out, and, in `range`, no offset. No named window, other window function, window argument other than a field, or window result as an `order by` key. |
 | Grouping and order | A `group by` key is a field of the source. In an aggregated relation a result field is a `group by` key, an admitted aggregate or a literal (`check` refuses a query parameter there with `PIE-S2355`), and an `order by` key is a selected `group by` key or aggregate; elsewhere an `order by` key is a field of the source. A `limit` is an `Int` literal from 0 to 9223372036854775807. |
 | Parameters | Query header parameters of type `Int`, `Text`, `Bool` or `Float`, optional or not, read in `select`, `where` or `having`. |
 | Literal policy | `preserve` only. |
@@ -78,12 +81,12 @@ null tests (`PIE-S2327`) there, and a `having` without `group by`
 Not in this tier: `Decimal`, `Date`, `Timestamp`, `UUID`, `Bytes`, `Json`,
 enum and nested fields; `--literal-policy bind-safe`; arithmetic other than
 that of the expressions row above, `Float` `sum` and `avg`, text functions
-and `LIKE`, `string_agg`, `median` and `quantile`; JOINs and windows,
-which a later Gate 1 decides at the B2 midpoint; schema-qualified or
-attached tables; query bundles, saved results, relay, jobs and R2 recovery; and any
-change to PostgreSQL, MySQL or DuckDB SQL bytes, contracts or diagnostics
-beyond the refusal of a `sqlite.table` source that
-[compile refusals](#compile-refusals) states. No claim of parity across
+and `LIKE`, `string_agg`, `median` and `quantile`; JOINs and the windows
+that the table above leaves out; schema-qualified or attached tables; query
+bundles, saved results, relay, jobs and R2 recovery; and any change to PostgreSQL,
+MySQL or DuckDB SQL bytes, contracts or diagnostics beyond the refusal of a
+`sqlite.table` source that [compile refusals](#compile-refusals) states. No
+claim of parity across
 databases is made.
 
 Of the JOINs, arithmetic and windows, the second tier (D78.14) opens only
@@ -202,7 +205,7 @@ Premises (*derived*):
 | `row_domain_matches` | source | `true` | always; otherwise `PIE-B1001`. Execution checks it ([execution](#execution)). |
 | `read_only_object` | source | `true` | always; otherwise `PIE-B1001` |
 | `client_encoding` | statement | `"UTF-8"`: the database encoding, as `PRAGMA encoding` names it | always |
-| `operator_environment` | statement | `"builtin_only"` | when the SQL computes more than the selected columns: a `where`, `group by`, aggregate, `having`, `order by`, `limit`, or a literal, parameter, comparison or arithmetic in `select` |
+| `operator_environment` | statement | `"builtin_only"` | when the SQL computes more than the selected columns: a `where`, `group by`, aggregate, window, `having`, `order by`, `limit`, or a literal, parameter, comparison or arithmetic in `select` |
 | `parameter_protocol` | statement | `"sqlite_prepared"` | when the statement reads a parameter |
 | `resource_limits` | statement | as today | optional |
 
@@ -226,9 +229,9 @@ nests at most 500 levels deep (*derived*), half the build's
 
 ## SQL
 
-S08, S10 and S14 own the exact bytes and their goldens; any form they write
-satisfies these rules (AD78.03: the adapter has its own SQL AST, renderer and
-artifact verifier, and consumes `ProjectSQLPlan`).
+S08, S10, S14 and S15 own the exact bytes and their goldens; any form they
+write satisfies these rules (AD78.03: the adapter has its own SQL AST,
+renderer and artifact verifier, and consumes `ProjectSQLPlan`).
 
 - One `SELECT` statement with no `WITH`, subquery or second statement, its
   clauses in the order `SELECT`, `FROM`, `WHERE`, `GROUP BY`, `HAVING`,
@@ -245,14 +248,26 @@ artifact verifier, and consumes `ProjectSQLPlan`).
 - Each result field is written `` <expression> AS `<label>` ``, in result
   order.
 - Each `Text` comparison writes `COLLATE BINARY` after its left operand, and
-  each `Text` `GROUP BY` key, `ORDER BY` key and `count_distinct` argument
-  after itself, as in `` COUNT(DISTINCT `s0`.`name` COLLATE BINARY) ``, so a
-  `COLLATE NOCASE` column still compares by its bytes (PL.47). `min` and
+  each `Text` `GROUP BY` key, `ORDER BY` key, window partition or order key
+  and `count_distinct` argument after itself, as in
+  `` COUNT(DISTINCT `s0`.`name` COLLATE BINARY) ``, so a `COLLATE NOCASE`
+  column still compares by its bytes (PL.47). `min` and
   `max` of a `Text`, which `check` refuses on every target, never reach the
   SQL.
 - Each ascending key ends with `ASC NULLS LAST` and each descending one with
-  `DESC NULLS FIRST`, the NULL place that the PostgreSQL emitter keeps
-  (D78.02).
+  `DESC NULLS FIRST`, a window's order keys included, the NULL place that
+  the PostgreSQL emitter keeps (D78.02).
+- A window is written inline in its result field, never with a `WINDOW`
+  clause: `ROW_NUMBER()`, `RANK()`, `DENSE_RANK()`, `COUNT(*)`, `COUNT(x)`,
+  `MIN(x)`, `MAX(x)` or `SUM(x)`, then `OVER (`, its `PARTITION BY` keys,
+  its `ORDER BY` keys and its frame, each when present and separated by
+  single spaces, and `)`. The frame is the one the plan resolves, written
+  out as `<ROWS|RANGE|GROUPS> BETWEEN <start> AND <end>` with
+  `UNBOUNDED PRECEDING`, `<n> PRECEDING`, `CURRENT ROW`, `<n> FOLLOWING` or
+  `UNBOUNDED FOLLOWING`: an omitted frame of an aggregate window is
+  `RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW`, which is the whole
+  partition without `ORDER BY`, and a ranking function has none. A
+  statement with a window has no `GROUP BY`, `HAVING` or aggregate.
 - `count()` is `COUNT(*)`, `count(x)` is `COUNT(x)`, `count_distinct(x)` is
   `COUNT(DISTINCT x)`, `min` and `max` are `MIN(x)` and `MAX(x)`, `avg(x)` is
   `AVG(CAST(x AS REAL))`, by the language's rule that an `Int` is cast to the
@@ -301,7 +316,9 @@ Each column has its export's logical type and nullability. A column that
 reads a source field, selected directly or as a `group by` key, has that
 field's contract `representation`; a `count` has the storage `sqlite_integer`
 and the `int_range` 0 to 9223372036854775807; a `min` or `max` has its
-field's storage and domain; a `count_distinct` is a `count`; and any other
+field's storage and domain; a `count_distinct` is a `count`; a window is
+the aggregate it computes, except that `row_number`, `rank` and
+`dense_rank` have the `int_range` 1 to 9223372036854775807; and any other
 value, arithmetic, an `avg` or a `sum` among them, has its type's storage kind
 and the widest domain of its type (an `int_range` of signed 64 bits,
 `bool01`, `finite_float`, or `text` with `max_characters` null), except that
@@ -311,7 +328,8 @@ an `Int` literal's range is its value and a `Text` literal's
 relation) and its `sql_symbol`, its position. A column that reads a source
 field also names `source`, `field` and `source_port`, with the `input_port`
 it reads outside aggregation or the `group_key` it is; an aggregate column
-names its `aggregate`; and any other column names its select `expression`.
+names its `aggregate`; a window column names its `window`; and any other
+column names its select `expression`.
 
 ## Differences from PostgreSQL and MySQL
 
@@ -324,11 +342,14 @@ about it.
 | --- | --- | --- |
 | Type affinity | A table that is not `STRICT` converts values by column affinity (*inferred* from SQLite's documentation; S05 measured `STRICT` tables only); a `STRICT` `ANY` column takes any value | The storage kinds name `STRICT` columns of the four declared types; `ANY` and `BLOB` have none. Emission assumes it (`row_domain_matches`); execution checks the table and its column types |
 | `Int` overflow outside `sum` | `9223372036854775807 + 1` gives a `REAL`; `abs(-9223372036854775808)` fails with `integer overflow`. S14's native cells saw a `+`, a binary or unary `-` and a `*` whose result leaves signed 64 bits give the `REAL` of the binary64 operation, without an error, `abs` of the minimum fail with `integer overflow`, and a `sum` of such a value give a `REAL` too, while each result at the bounds is the exact `INTEGER` | `Int` arithmetic only with a range proof (rule 9b): each field read contributes its contract `int_range`, each read on its own, and each literal its value, each operation's bounds follow from its operands', and the bounds of every result, an aggregate's argument row by row included, must lie inside signed 64 bits, so `abs` of bounds that hold the minimum is refused too. `check` bounds a single file's literals to signed 64 bits (`PIE-S2364`); in a project, rule 9 refuses 9223372036854775808 anywhere but right after a unary `-`. The `sqlite_file` route holds each value to its `int_range` before the statement runs ([execution](#execution)) |
-| `sum` overflow | `sum()` fails with `integer overflow` (`SQLITE_ERROR`, code 1) as soon as a partial sum leaves signed 64 bits, even when the result is inside them, so the scan order decides: `[MAX, 1, -1]` fails and the reverse gives `MAX`, and an index on the column changes the plan and so the result. Over values of one sign it failed exactly when the result left signed 64 bits, in all 5,334 random cases; over mixed signs 470 of 2,666 failed with the result inside; no wrong value was returned | `sum` of an `Int` only when the contract's `int_range` lies on one side of zero: then every partial sum lies between zero and the result (*derived*), so SQLite fails exactly when PostgreSQL's exact sum raises SQLSTATE 22003, and never returns a wrong value. A mixed range is `PIE-B1004` `sum_int_aggregate_range_proof_missing` (rule 35); single files keep `sum` refused |
-| Collation | A column may be `COLLATE NOCASE`; `PRAGMA table_xinfo` does not report a column's collation. With `COLLATE BINARY` written, comparisons, `ORDER BY`, `GROUP BY`, `HAVING`, `count(distinct ...)`, `min` and `max` compare bytes, on either side of a comparison | Project SQL writes `COLLATE BINARY` (see [SQL](#sql)); single files keep the `BINARY` premise |
+| `sum` overflow | `sum()` fails with `integer overflow` (`SQLITE_ERROR`, code 1) as soon as a partial sum leaves signed 64 bits, even when the result is inside them, so the scan order decides: `[MAX, 1, -1]` fails and the reverse gives `MAX`, and an index on the column changes the plan and so the result. Over values of one sign it failed exactly when the result left signed 64 bits, in all 5,334 random cases; over mixed signs 470 of 2,666 failed with the result inside; no wrong value was returned | `sum` of an `Int` only when the contract's `int_range` lies on one side of zero: then every partial sum lies between zero and the result (*derived*), so SQLite fails exactly when PostgreSQL's exact sum raises SQLSTATE 22003, and never returns a wrong value, over the groups it computes: under a `limit` without an `order by`, a group that no delivered row needs may overflow with no error, and the two databases may take the groups in different orders (*inferred* for PostgreSQL), so whether such a statement fails is not compared. A mixed range is `PIE-B1004` `sum_int_aggregate_range_proof_missing` (rule 35); single files keep `sum` refused |
+| Window `sum` | A window `sum` fails with `integer overflow` too when a partial sum leaves signed 64 bits. S15's native control: over `-606`, `0`, `-9223372036854775806`, a frame from `1 FOLLOWING` to `3 FOLLOWING` failed although every frame's sum fits | A window `sum` of an `Int` only over a one-sided `int_range` (rule 35) and in a frame that starts at `UNBOUNDED PRECEDING` and ends at `CURRENT ROW` or `UNBOUNDED FOLLOWING` (rule 5c): such a frame only grows, so every partial sum lies between zero and the largest frame's sum (*derived*), and SQLite fails exactly when that sum leaves signed 64 bits, where PostgreSQL's `CAST(SUM(...) OVER (...) AS int8)` raises SQLSTATE 22003. As with a grouped `sum`, under a `limit` without an `order by` a partial sum that no delivered row needs may overflow with no error; SQLite takes the partitions in their key order, NULL first, and PostgreSQL may take them in another (*inferred*). The native cells reach the upper bound in each such frame and the lower one in two, and fail one past either |
+| Window `EXCLUDE` | SQLite computes a frame with `EXCLUDE` row by row. S15 measured, through Python's `sqlite3` under CPython 3.13.13 with a warm cache, over a 92 MiB table of 1,048,576 rows: `COUNT(*)` over `ROWS BETWEEN 1000 PRECEDING AND CURRENT ROW EXCLUDE CURRENT ROW` took 13.7 s, `GROUPS BETWEEN 2 PRECEDING AND CURRENT ROW EXCLUDE GROUP` or a whole partition with `EXCLUDE CURRENT ROW` passed 30 s in each round, and five windows, one with `EXCLUDE GROUP`, took 76.6 s and 78.5 s in one statement on the route. Each admitted frame it timed took under 5 s, except three that passed 30 s in a round whose host load rose to 1842 and took 2.6–4.0 s when timed again at load 216 to 33; the same five windows without `EXCLUDE` took 6.6 s and 7.0 s on the route | No `exclude` other than `exclude no others`, which excludes nothing and is left out (rule 5b), since the route's default deadline, `limits.seconds`, is 20 s |
+| Collation | A column may be `COLLATE NOCASE`; `PRAGMA table_xinfo` does not report a column's collation. With `COLLATE BINARY` written, comparisons, `ORDER BY`, `GROUP BY`, `HAVING`, `count(distinct ...)`, `min` and `max` compare bytes, on either side of a comparison, and so do a window's `PARTITION BY` and `ORDER BY` (S15's `nocase` cell) | Project SQL writes `COLLATE BINARY` (see [SQL](#sql)); single files keep the `BINARY` premise |
 | Encoding | A database may be `UTF-16le`, and `PRAGMA encoding` reports it | Emission assumes UTF-8 (`client_encoding` `"UTF-8"`); execution checks `PRAGMA encoding` |
 | Identifier case | Every identifier, quoted or not, matches without ASCII case: `"a"` and `"A"` are one column, tables `IC` and `ic` one table | Columns that collide under ASCII case folding are refused (rule 31); the relation name must equal the connector's string exactly (rule 27); the SQL names only the alias `s0` and qualified columns; `identifier_case` is not admitted |
-| NULL order | Ascending order puts NULL first by default; explicit `NULLS FIRST` and `NULLS LAST` hold in all four combinations | Explicit NULLS clauses, as D78.02 decided for single files (lead, stated to the owner in PL.47) |
+| NULL order | Ascending order puts NULL first by default; explicit `NULLS FIRST` and `NULLS LAST` hold in all four combinations | Explicit NULLS clauses, as D78.02 decided for single files (lead, stated to the owner in PL.47), in a window's `ORDER BY` too |
+| `row_number`, and a `ROWS` frame, among peers | Which of two peers in a window's order gets the lower number, and which of them a `ROWS` frame takes, is not determined, as on PostgreSQL (*inferred*) | Written as the language states it; the native cells give `row_number` an order without peers, and each `ROWS` frame an order by a unique key or the whole partition |
 | `-0.0` | A `STRICT` `REAL` column stores `-0.0` as `0.0`. A bound `-0.0` keeps its sign as a value, also through `abs`, and loses it when cast to text; `GROUP BY` puts both zeros in one group and keeps the first; `count(distinct ...)` counts them once | No stored value is a negative zero. A projected `Float` parameter returns `-0.0` as Pietto's value does; this tier has no `abs` or `count_distinct` of a `Float` and no cast to text |
 | `Bool` | A `STRICT` `INTEGER` column stores 2 and -1 | Emission assumes 0 and 1 (`bool01`, `row_domain_matches`); execution checks each value |
 | NaN and infinities | A bound NaN becomes NULL; a `REAL` column stores ±Infinity | Execution refuses a NaN or infinite `Float` parameter before it binds and checks each stored value; emission assumes finite values (`finite_float`) |
@@ -346,24 +367,25 @@ A SQLite emission reports only the blockers of the table below, and no other
 Emission first runs `check --project`, then the one existing verification of
 the project SQL plan, then reads the contract, then checks these rules:
 
-- Rules 1–35, with rule 9b after rule 9, are checked together. The
-  document lists one blocker for each rule that fails, in rule order, and
-  none for a rule that holds.
+- Rules 1–35, with rules 5b and 5c after rule 5 and rule 9b after rule 9,
+  are checked together. The document lists one blocker for each rule that
+  fails, in rule order, and none for a rule that holds.
 - A rule that fails at several sites reports the first one only: source,
   stage and expression sites in source order (path, line, column), source
   fields in shape order, and premises in contract order (`environment`, then
   each source's `premises`, in `sources` order).
-- A rule whose subject is absent holds: rules 12–14 need their clause, rule
-  18 a parameter read, rules 25–34 a contract entry for the read source, and
-  rules 9b and 35 arithmetic or a `sum` argument whose bounds are known:
-  every field it reads passes rule 33 and rule 9 admits its operands, and
-  for rule 35 rule 9b holds at each operation in it.
+- A rule whose subject is absent holds: rules 5b and 5c need a window,
+  rules 12–14 their clause, rule 18 a parameter read, rules 25–34 a
+  contract entry for the read source, and rules 9b and 35 arithmetic or a
+  `sum` argument whose bounds are known: every field it reads passes rule 33
+  and rule 9 admits its operands, for rule 35 rule 9b holds at each
+  operation in it, and a window `sum` passes rule 5b.
 - When the plan is unavailable, rule 5 reports at the plan's first blocker,
-  and rules 6–35 and 9b are not checked.
+  and rules 5b, 5c, 6–35 and 9b are not checked.
 - Rule 20 counts the nodes and the expression depth of the SQL AST that the
   adapter will build, from the plan and before anything is built. A built AST
   with another count does not correspond to the plan (rule 36).
-- Only when rules 1–35 and 9b all hold is the SQL built, verified,
+- Only when rules 1–35, 5b, 5c and 9b all hold is the SQL built, verified,
   rendered and put in its document; then the first of rules 36–39 that
   fails is the only blocker.
 
@@ -378,7 +400,9 @@ table in it.
 | 2 | `PIE-B1003` | `target_release_not_reviewed` | `target.release` is not `"3.53.1"` | None, as today | `the reviewed sqlite release is "3.53.1"` |
 | 3 | `PIE-B1003` | `literal_policy_not_admitted_on_target` | The literal policy is not `preserve` | The statement | `SQLite emission takes --literal-policy preserve only` |
 | 4 | `PIE-B1003` | `premise_not_admitted_on_target` | An `identifier_case`, `session_sql_mode` or `session_time_zone` premise is declared | The declaration | `remove this premise; SQLite project SQL does not use it` |
-| 5 | `PIE-B1003` | `sqlite_relation_shape_not_admitted` | The plan is unavailable, or the statement has a stage beyond one source read, its `where` filter, a `group by`, a `having`, an `order by`, a `limit` and its final projection | The first such stage | `SQLite emission admits one source read with where, group by, having, order by, limit and select; JOINs, windows, qualify, distinct, set operations, relation lets and reads of another table or query are not available on SQLite` |
+| 5 | `PIE-B1003` | `sqlite_relation_shape_not_admitted` | The plan is unavailable, or the statement has a stage other than one source read, its `where` filter, a `group by`, a `having`, an `order by`, a `limit`, its final projection and, without `group by` or an aggregate, a window stage | The first such stage | `SQLite emission admits one source read with where, group by, having, order by, limit and select, and windows over one source read without group by; JOINs, qualify, distinct, set operations, relation lets and reads of another table or query are not available on SQLite` |
+| 5b | `PIE-B1003` | `sqlite_window_not_admitted` | A window is outside the windows of [admission](#admission) other than its `sum` frame: another function, an argument of another type or that is not a field, a named window, a partition or order key that is not a field of the source, a frame with a `range` offset or an `exclude` other than `exclude no others`, or a window over grouped rows | The window | `use row_number, rank or dense_rank, count(), or count, min or max of an Int or Float field, or sum of an Int field, over fields of the source, with an inline window, no RANGE offset and no exclude` |
+| 5c | `PIE-B1003` | `sqlite_window_sum_frame_not_admitted` | A window `sum` that rule 5b admits has a frame that does not start at `unbounded preceding` or does not end at `current row` or `unbounded following` | The window | `write a window sum over the frame from unbounded preceding to current row or unbounded following, or omit the frame: SQLite can fail a sliding sum whose every frame fits` |
 | 6 | `PIE-B1003` | `sqlite_source_count_not_admitted` | The statement reads no source, or more than one | The second source read, or the statement | `read exactly one sqlite.table source` |
 | 7 | `PIE-B1003` | `sqlite_field_type_not_admitted` | A field of the read source is not established as `Int`, `Text`, `Bool` or `Float`, optional or not | The source field | `SQLite emission reads Int, Text, Bool and Float fields` |
 | 8 | `PIE-B1003` | `sqlite_parameter_not_admitted` | A header parameter's type is not `Int`, `Text`, `Bool` or `Float` | The parameter declaration | `declare Int, Text, Bool or Float parameters, with or without None` |
@@ -409,7 +433,7 @@ table in it.
 | 32 | `PIE-B1002` | `nullability_mismatch` | A field's `nullable` does not fit the field | The source field | `set nullable to false for a non-null field and true for an optional one` |
 | 33 | `PIE-B1002` | `physical_storage_or_domain_mismatch` | A field's `storage` or `domain` is not its logical type's row of the representation table | The source field | `use the SQLite storage and domain of the field's logical type` |
 | 34 | `PIE-B1005` | `field_domain_premise_mismatch` | A field premise disagrees with the field's `domain` | The source field | Existing |
-| 35 | `PIE-B1004` | `sum_int_aggregate_range_proof_missing` | A `sum` reads an `Int` field whose `int_range` has a negative `min` and a positive `max`, or arithmetic whose bounds (rule 9b) do | The aggregate | `declare an int_range on one side of zero, or keep this sum in check/plan: SQLite can fail a sum over values of both signs whose result fits` |
+| 35 | `PIE-B1004` | `sum_int_aggregate_range_proof_missing` | A `sum`, grouped or over a window that rule 5b admits, reads an `Int` field whose `int_range` has a negative `min` and a positive `max`, or a grouped `sum` reads arithmetic whose bounds (rule 9b) do | The aggregate or window | `declare an int_range on one side of zero, or keep this sum in check/plan: SQLite can fail a sum over values of both signs whose result fits` |
 | 36 | `PIE-B1008` | `plan_ast_correspondence` | The SQL AST breaks a rule of [SQL](#sql) or does not correspond to the plan | None | Existing |
 | 37 | `PIE-B1007` | `sql_byte_limit` | The rendered SQL exceeds `sql_bytes` | None | Existing |
 | 38 | `PIE-B1008` | `artifact_correspondence` | The artifact verifier refuses the document | None | Existing |
@@ -572,10 +596,11 @@ The authorizer answers allow or `SQLITE_DENY`, never `SQLITE_IGNORE`, which
 would read a column as NULL. It allows reads of the source's contract
 columns in `main`; reads of no column (`count(*)`, `rowid`), whose database
 is `main` or, unqualified, None; `SELECT`; the functions `count`, `min`,
-`max`, `avg`, `sum`, `typeof` and `abs`; the PRAGMA statements of steps 3
-and 4, with no argument, the source's name or, for `index_xinfo`, the name
-of an index that `index_list` listed for the source, until the statement
-runs;
+`max`, `avg`, `sum`, `row_number`, `rank`, `dense_rank`, `typeof` and
+`abs`, each under the lower-case name SQLite reports to the authorizer; the
+PRAGMA statements of steps 3 and 4, with no argument, the source's name or,
+for `index_xinfo`, the name of an index that `index_list` listed for the
+source, until the statement runs;
 and the transaction's `BEGIN`, `COMMIT` and `ROLLBACK`. Everything else is
 denied, `ATTACH`, writes and any access through a view or trigger included.
 
@@ -640,8 +665,11 @@ without a passing cell ships refused. One PostgreSQL replay campaign, R1,
 covers the new project bytes of T1 and every T2 form under D78.08's
 conditions and the method of D78.10 and D78.11, on one PostgreSQL slot; its
 `avg` entries pass on data whose sum does not depend on the order, and a
-cancelling case is recorded as an observed difference, not a failure. The
-route's [qualification rules](../phases/phase-78/route.md#b2-qualification-and-replay)
+cancelling case is recorded as an observed difference, not a failure.
+S15's window cells, and a window query on the route, run beside them
+under the same law, outside R1's saved runs; R2 is to cover them, with
+S14's. The route's
+[qualification rules](../phases/phase-78/route.md#b2-qualification-and-replay)
 hold the rest. The route's native cells in
 `tests/test_execution_api_sqlite_file.py` open test-owned files under the
 same SQLite class, judge each result by its types as well as its values,
@@ -707,10 +735,16 @@ integration, one page at a time, in the route's single-writer order.
   section; and `docs/spec/diagnostics.md`, the `PIE-B1004` row naming
   `int_arithmetic_range_proof_missing`, at a time the lead schedules apart
   from Phase81's diagnostic review (P03, PL.58).
+- S15: `docs/language.md` and `docs/capabilities.md`, the windows of a
+  SQLite project; `docs/spec/diagnostics.md`, the `PIE-B1003` row naming
+  `sqlite_window_not_admitted` and `sqlite_window_sum_frame_not_admitted`
+  and the `PIE-B1004` row naming a window `sum`, at a time the lead
+  schedules apart from P03.
 
 ## Open items
 
 | Item | Owner | Latest point |
 | --- | --- | --- |
-| The second tier's *derived* rows, stated as inform as each slice lands them: the new details, rule letters and suggestions of [compile refusals](#compile-refusals); the SQL rules it adds, such as the aliases `s0` to `sN` in input order, `COLLATE BINARY` at each `ON` equality and window key, the signed writing of a negative `Int` literal and the inline `OVER`; the functions that the route's authorizer adds; the detail of a duplicate declared key; and how the bounded read of a statement that joins sources measures its batches | The lead | Each batch's rows before that batch's push, with a decision row |
+| The second tier's *derived* rows, stated as inform as each slice lands them: the new details, rule letters and suggestions of [compile refusals](#compile-refusals); the SQL rules it adds, such as the aliases `s0` to `sN` in input order, `COLLATE BINARY` at each `ON` equality and the signed writing of a negative `Int` literal; the detail of a duplicate declared key; and how the bounded read of a statement that joins sources measures its batches | The lead | Each batch's rows before that batch's push, with a decision row |
+| S15's *derived* rows, stated as inform: the two window details, their suggestions and the rule letters 5b and 5c; the inline `OVER` with its frame written out; the ranking result domain; the three ranking functions of the authorizer; the refusal of a `range` offset, as single-file PostgreSQL and MySQL emission refuse it, since RANGE offsets keep unresolved type and arithmetic requirements ([windows](../language.md#windows)) and project PostgreSQL emission admits one only over a single non-null `Int` order key with a range proof for each threshold, checks SQLite would need with its own cells; and the refusal of an `exclude` other than `exclude no others` by the measured time | The lead | Before the first batch's push, with a decision row |
 | This page's *derived* rows, stated as inform: the `main` namespace, the `sqlite_` and dot refusals and `sqlite_table_name_mismatch`; the `relation_rows` scan; the storage kinds and domain spellings (`UTF-8`, `BINARY`); the premise values and `premise_not_admitted_on_target`; the limits `columns` 2,000, `parameters` 32,766 and the depth 500; the SQL rules (`s0`, backticks, `?N`); the closed order of compile refusals with its new details and suggestions; the two new single-file reasons | The lead | Settled: not stated by S08's seal ([Phase78 audit](../phases/phase-78/completion-audit.md#not-verified)); stated to the owner as inform on 2026-11-17 at about 08:20Z, before the `0.2.2` release commit, and recorded by D78.13 in the [decision record](../decisions.md) |

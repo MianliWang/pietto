@@ -752,6 +752,20 @@ over `group by` keys in the `select` of an aggregated relation that selects
 no aggregate (PIE-S2319); beside an aggregate, such arithmetic is BLOCKED
 with PIE-B1003 `sqlite_expression_not_admitted` and
 `sqlite_projection_not_admitted`.
+Over one source read without `group by` or an aggregate, a project also
+selects windows: `row_number`, `rank`, `dense_rank` and `count()`, `count`,
+`min` and `max` of an `Int` or `Float` field, and `sum` of an `Int` field
+whose `int_range` lies on one side of zero, only in a frame from
+`unbounded preceding` to `current row` or `unbounded following`, the
+omitted frame included, since SQLite can fail a sliding sum whose every
+frame fits. Their partition and order keys are fields of the source, and a
+frame has no `range` offset and no `exclude`, which SQLite computes again
+for every row, other than `exclude no others`, which excludes nothing and
+is left out; any other window is BLOCKED with PIE-B1003
+`sqlite_window_not_admitted` or, for such a `sum`,
+`sqlite_window_sum_frame_not_admitted`, and a window `sum` of an `Int`
+field whose `int_range` holds both signs with PIE-B1004
+`sum_int_aggregate_range_proof_missing`.
 The emission contract gives the table as the `relation` `{"namespace":
 "main", "name": NAME}`, where NAME is the `sqlite.table` string exactly,
 and each field's storage ([emission contract values](project-package.md#emission-contract-values));
@@ -767,10 +781,12 @@ every descending key with `NULLS FIRST`, as single files do. It writes
 `abs(x)` as `ABS(x)` and a unary `-` before an `Int` literal as one signed
 literal, so `-9223372036854775808` is SQLite's `INTEGER` minimum. It keeps
 the single-file premises above except the collation: project SQL writes
-`COLLATE BINARY` at each `Text` comparison, `group by` key, `order by` key
-and `count_distinct` argument, so a `COLLATE NOCASE` column still compares
-by its bytes, and the contract's `Text` collation `BINARY` names that
-comparison, not the column's. `compile_query(dialect="sqlite")` compiles
+`COLLATE BINARY` at each `Text` comparison, `group by` key, `order by` key,
+window key and `count_distinct` argument, so a `COLLATE NOCASE` column
+still compares by its bytes, and the contract's `Text` collation `BINARY`
+names that comparison, not the column's. It writes each window inline as
+`OVER (...)`, with the frame the plan resolves written out.
+`compile_query(dialect="sqlite")` compiles
 such a query for the read-only
 [`sqlite_file` route](execution.md#sqlite-file-route).
 

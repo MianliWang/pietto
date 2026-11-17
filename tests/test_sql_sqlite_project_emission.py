@@ -912,6 +912,255 @@ def test_the_sql_ast_writes_no_comment_and_the_minimum_once() -> None:
         assert not sql.ast_rules_hold(changed, ("a",), frozenset(), frozenset())
 
 
+WINDOWED = """query result(v: Int):
+    from orders
+    where amount > v
+    select:
+        id
+        r = rank() window(partition by note order by amount desc)
+        d = dense_rank() window(order by ok, price desc)
+        n = row_number() window(partition by ok order by id)
+        c = count() window(partition by note)
+        k = count(price) window(order by id rows between 2 preceding and 1 following)
+        lo = min(id) window(order by note groups between 1 preceding and current row)
+        hi = max(price) window(order by id range between current row and unbounded following)
+        s = sum(id) window(order by id)
+        t = sum(id) window(partition by ok)
+    order by:
+        id
+    limit 5
+"""
+# Each window inline, with the frame the plan resolves written out: an
+# omitted frame is RANGE from UNBOUNDED PRECEDING to CURRENT ROW, which is
+# the whole partition without ORDER BY.
+WINDOWED_SQL = (
+    "SELECT `s0`.`id` AS `id`, RANK() OVER (PARTITION BY `s0`.`note` COLLATE"
+    " BINARY ORDER BY `s0`.`amount` DESC NULLS FIRST) AS `r`, DENSE_RANK() OVER"
+    " (ORDER BY `s0`.`ok` ASC NULLS LAST, `s0`.`price` DESC NULLS FIRST) AS `d`,"
+    " ROW_NUMBER() OVER (PARTITION BY `s0`.`ok` ORDER BY `s0`.`id` ASC NULLS"
+    " LAST) AS `n`, COUNT(*) OVER (PARTITION BY `s0`.`note` COLLATE BINARY RANGE"
+    " BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS `c`, COUNT(`s0`.`price`)"
+    " OVER (ORDER BY `s0`.`id` ASC NULLS LAST ROWS BETWEEN 2 PRECEDING AND 1"
+    " FOLLOWING) AS `k`, MIN(`s0`.`id`) OVER (ORDER BY"
+    " `s0`.`note` COLLATE BINARY ASC NULLS LAST GROUPS BETWEEN 1 PRECEDING AND"
+    " CURRENT ROW) AS `lo`, MAX(`s0`.`price`) OVER (ORDER BY"
+    " `s0`.`id` ASC NULLS LAST RANGE BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING"
+    ") AS `hi`, SUM(`s0`.`id`) OVER (ORDER BY `s0`.`id` ASC NULLS"
+    " LAST RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS `s`,"
+    " SUM(`s0`.`id`) OVER (PARTITION BY `s0`.`ok` RANGE BETWEEN UNBOUNDED"
+    " PRECEDING AND CURRENT ROW) AS `t` FROM `main`.`orders` AS `s0`"
+    " WHERE `s0`.`amount` > ?1 ORDER BY `s0`.`id` ASC NULLS LAST LIMIT 5"
+)
+
+
+def test_windows_over_one_source_emit_their_sql(tmp_path: Path) -> None:
+    status, document = emit(tmp_path, WINDOWED, _ranged("0", str(2**63 - 1)))
+    assert (status, document["sql"]) == ("VERIFIED", WINDOWED_SQL)
+    ranges = document["ranges"]
+    assert [r["start"] for r in ranges] == [0] + [r["end"] for r in ranges[:-1]]
+    assert ranges[-1]["end"] == len(WINDOWED_SQL.encode("utf-8"))
+    columns = {c["label"]: c for c in document["columns"]}
+    full = sqlite.REPRESENTATIONS["Int"]["domain"]
+    domains = {
+        label: {"kind": "int_range", "min": low, "max": str(2**63 - 1)}
+        for label, low in (("r", "1"), ("d", "1"), ("n", "1"), ("c", "0"), ("k", "0"))
+    }
+    domains |= {
+        "lo": {"kind": "int_range", "min": "0", "max": str(2**63 - 1)},
+        "hi": sqlite.REPRESENTATIONS["Float"]["domain"],
+        "s": full,
+        "t": full,
+    }
+    assert {
+        label: columns[label]["representation"]["domain"] for label in domains
+    } == domains
+    assert [columns[label]["nullable"] for label in domains] == [False] * 5 + [True] * 4
+    assert {
+        columns[label]["correspondence"]["window"]["kind"] for label in domains
+    } == {"window"}
+
+
+@pytest.mark.parametrize(
+    ("select", "expected"),
+    [
+        # A named window, a function outside the tier, a Text argument, a
+        # RANGE offset and an exclude are rule 5b.
+        (
+            "        r = row_number() window w\n",
+            [("PIE-B1003", "sqlite_window_not_admitted", 15)],
+        ),
+        (
+            "        r = ntile(2) window(order by id)\n",
+            [("PIE-B1003", "sqlite_window_not_admitted", 15)],
+        ),
+        (
+            "        r = lag(id) window(order by id)\n",
+            [("PIE-B1003", "sqlite_window_not_admitted", 15)],
+        ),
+        (
+            "        r = avg(amount) window()\n",
+            [("PIE-B1003", "sqlite_window_not_admitted", 15)],
+        ),
+        (
+            "        r = count(note) window()\n",
+            [("PIE-B1003", "sqlite_window_not_admitted", 15)],
+        ),
+        (
+            "        r = max(id) window(order by id range between 1 preceding"
+            " and current row)\n",
+            [("PIE-B1003", "sqlite_window_not_admitted", 15)],
+        ),
+        (
+            "        r = count() window(order by id rows between 1 preceding"
+            " and current row exclude current row)\n",
+            [("PIE-B1003", "sqlite_window_not_admitted", 15)],
+        ),
+        # A sliding sum is rule 5c even over a one-sided range, and a mixed
+        # range is rule 35 at the window.
+        (
+            "        s = sum(id) window(order by id rows between 1 preceding"
+            " and current row)\n"
+            "        t = sum(id) window(order by id rows between current row"
+            " and unbounded following)\n",
+            [("PIE-B1003", "sqlite_window_sum_frame_not_admitted", 15)],
+        ),
+        (
+            "        s = sum(amount) window(order by id)\n",
+            [("PIE-B1004", "sum_int_aggregate_range_proof_missing", 15)],
+        ),
+    ],
+)
+def test_window_refusals_at_their_first_site(
+    tmp_path: Path, select: str, expected: list[tuple[str, str, int]]
+) -> None:
+    body = "query result:\n    from orders\n    let w = window(order by id)\n"
+    body += "    select:\n        id\n" + select
+    status, document = emit(tmp_path, body, _ranged("0", str(2**63 - 1)))
+    assert status == "BLOCKED"
+    assert [
+        (b["code"], b["subject"]["detail"], b["location"]["line"])
+        for b in document["blockers"]
+    ] == expected
+
+
+@pytest.mark.parametrize(
+    ("body", "expected"),
+    [
+        (
+            "    group by:\n        note\n    select:\n        note\n"
+            "        c = count()\n        r = rank() window(order by note)\n",
+            [
+                ("PIE-B1003", "sqlite_relation_shape_not_admitted"),
+                ("PIE-B1003", "sqlite_window_not_admitted"),
+                ("PIE-B1003", "sqlite_projection_not_admitted"),
+            ],
+        ),
+        # A window that reads no key or argument is still over grouped rows.
+        (
+            "    group by:\n        note\n    select:\n        note\n"
+            "        k = count()\n        c = count() window()\n",
+            [
+                ("PIE-B1003", "sqlite_relation_shape_not_admitted"),
+                ("PIE-B1003", "sqlite_window_not_admitted"),
+                ("PIE-B1003", "sqlite_projection_not_admitted"),
+            ],
+        ),
+        (
+            "    select:\n        id\n        r = row_number() window(order by id)\n"
+            "    qualify r < 3\n",
+            [("PIE-B1003", "sqlite_relation_shape_not_admitted")],
+        ),
+        (
+            "    select:\n        id\n        r = row_number() window(order by id)\n"
+            "    order by:\n        r\n",
+            [("PIE-B1003", "sqlite_order_not_admitted")],
+        ),
+    ],
+)
+def test_windows_stay_refused_over_groups_qualify_and_their_order(
+    tmp_path: Path, body: str, expected: list[tuple[str, str]]
+) -> None:
+    status, document = emit(tmp_path, "query result:\n    from orders\n" + body)
+    assert (status, details(document)) == ("BLOCKED", expected)
+
+
+def test_exclude_no_others_is_left_out(tmp_path: Path) -> None:
+    """`exclude no others` excludes nothing, so its SQL is the frame's."""
+    frame = "order by id rows between 1 preceding and current row"
+    sql = []
+    for exclude in ("", " exclude no others"):
+        body = "query result:\n    from orders\n    select:\n"
+        body += f"        c = count() window({frame}{exclude})\n"
+        status, document = emit(tmp_path / str(len(sql)), body)
+        assert status == "VERIFIED"
+        sql.append(document["sql"])
+    assert sql[0] == sql[1]
+    assert "EXCLUDE" not in sql[1]
+
+
+def test_a_window_needs_the_operator_environment(tmp_path: Path) -> None:
+    body = "query result:\n    from orders\n    select:\n"
+    body += "        r = count() window()\n"
+    status, document = emit(tmp_path, body, _contract("operators"))
+    assert (status, details(document)) == (
+        "BLOCKED",
+        [("PIE-B1004", "operator_environment_declaration_missing")],
+    )
+
+
+def test_the_ast_rules_keep_each_window_to_its_tier(tmp_path: Path) -> None:
+    """The AST's own window rules: a `sum` in a monotone frame, a ranking
+    without a frame, `COLLATE BINARY` at a `Text` key, and no GROUP BY or
+    aggregate beside a window."""
+    root = sqlite.write(tmp_path / "project", WINDOWED, _ranged("0", str(2**63 - 1)))
+    outcome, _ = emission_cli.emit_project(
+        root,
+        "main.pietto",
+        "query",
+        "result",
+        "sqlite",
+        "contract.json",
+        emission_cli.POLICIES["preserve"],
+    )
+    assert type(outcome) is adapter.SQLiteEmission and outcome.artifact is not None
+    ast = outcome.artifact.ast
+    labels = tuple(result.label for result in ast.results)
+
+    def window(label: str) -> adapter_sql.SQLiteWindow:
+        (value,) = (result.value for result in ast.results if result.label == label)
+        assert type(value) is adapter_sql.SQLiteWindow
+        return value
+
+    def holds(label: str, value: object, **change: object) -> bool:
+        results = tuple(
+            dataclasses.replace(r, value=value) if r.label == label else r
+            for r in ast.results
+        )
+        changed = dataclasses.replace(ast, results=results, **change)
+        return adapter_sql.ast_rules_hold(changed, labels, frozenset({2}), frozenset())
+
+    rank, count, total = window("r"), window("k"), window("s")
+    assert count.frame is not None and total.frame is not None
+    sliding = dataclasses.replace(
+        total.frame, unit="rows", start=("offset_preceding", 1)
+    )
+    assert holds("s", total)
+    assert holds("k", dataclasses.replace(count, frame=sliding))
+    assert not holds("s", dataclasses.replace(total, frame=sliding))
+    # A window reads a column, never arithmetic.
+    assert total.argument is not None
+    negative = adapter_sql.SQLiteNegative(total.argument, None)
+    assert not holds("s", dataclasses.replace(total, argument=negative))
+    assert not holds("r", dataclasses.replace(rank, frame=count.frame))
+    (partition,) = rank.partition_by
+    unbound = dataclasses.replace(partition, collate=False)
+    assert not holds("r", dataclasses.replace(rank, partition_by=(unbound,)))
+    key = adapter_sql.SQLiteKey(adapter_sql.SQLiteColumn(0, None), False, None, None)
+    assert not holds("r", rank, group_by=(key,))
+    # An aggregate rendered after every window.
+    assert not holds("t", adapter_sql.SQLiteAggregate("count", None, False, None))
+
+
 def test_field_and_parameter_types_outside_the_tier(tmp_path: Path) -> None:
     header = sqlite.HEADER.replace("price: Float", "price: Decimal(10, 2)")
     body = "query result(d: Decimal(10, 2)):\n    from orders\n    select:\n"

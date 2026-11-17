@@ -68,6 +68,17 @@ GROUPED = """query result(v: Int, t: Text):
         ok
 """
 SUM = "query result:\n    from orders\n    select:\n        s = sum(id)\n"
+WINDOW_SUM = SUM.replace("sum(id)", "sum(id) window(order by id)")
+WINDOWS = """query result:
+    from orders
+    select:
+        id
+        r = rank() window(partition by ok order by amount desc)
+        n = row_number() window(order by id)
+        d = dense_rank() window(order by note)
+        c = count(price) window(partition by ok)
+        s = sum(id) window(order by id)
+"""
 FLOAT = "query f(x: Float):\n    from orders\n    where price > x\n    select:\n        id\n"
 MAX = 2**63 - 1
 # The result columns of FILTERED and GROUPED: name, Arrow type, nullable.
@@ -475,6 +486,9 @@ def test_the_authorizer_allows_only_the_source_reads_and_the_checks(
         (sqlite3.SQLITE_SELECT, None, None, None, None),
         (function, None, "count", None, None),
         (function, None, "typeof", None, None),
+        (function, None, "row_number", None, None),
+        (function, None, "rank", None, None),
+        (function, None, "dense_rank", None, None),
         (pragma, "schema_version", None, None, None),
         (pragma, "index_list", "orders", None, None),
         (pragma, "integrity_check", "orders", None, None),
@@ -489,6 +503,8 @@ def test_the_authorizer_allows_only_the_source_reads_and_the_checks(
         (read, "orders", "amount", "main", "v"),
         (read, "Orders", "", "main", None),
         (function, None, "load_extension", None, None),
+        (function, None, "ntile", None, None),
+        (function, None, "lag", None, None),
         (function, None, "sqlite_version", None, None),
         (pragma, "integrity_check", None, None, None),
         (pragma, "table_list", "other", None, None),
@@ -1358,9 +1374,27 @@ def test_the_session_is_hardened_and_checks_before_it_reads(
 
 
 @NATIVE
-def test_a_sum_overflow_is_named_by_its_code_and_message(tmp_path: Path) -> None:
+def test_windows_run_on_the_route(tmp_path: Path) -> None:
+    """The ranking functions pass the authorizer, and each window's result
+    column is checked as its document describes it."""
+    query = _compiled(tmp_path / "p", WINDOWS, _contract(id=(0, MAX)))
+    path = _database(tmp_path / "orders.db")
+    columns = (
+        ("id", "int64", False),
+        *((name, "int64", False) for name in ("r", "n", "d", "c")),
+        ("s", "int64", True),
+    )
+    rows = [(1, 2, 1, 1, 2, 1), (2, 1, 2, 3, 1, 3), (3, 1, 3, 2, 2, 6)]
+    _judged(_handle(query, path, parameters=None), rows, columns, ordered=False)
+
+
+@NATIVE
+@pytest.mark.parametrize("body", [SUM, WINDOW_SUM], ids=["grouped", "window"])
+def test_a_sum_overflow_is_named_by_its_code_and_message(
+    tmp_path: Path, body: str
+) -> None:
     _pyarrow()
-    query = _compiled(tmp_path / "p", SUM, _contract(id=(0, MAX)))
+    query = _compiled(tmp_path / "p", body, _contract(id=(0, MAX)))
     path = _database(tmp_path / "orders.db", _row(id=MAX))
     failed = _failed(_handle(query, path, parameters=None))
     failure = failed.failure
