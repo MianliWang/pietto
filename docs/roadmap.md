@@ -378,13 +378,13 @@ public type contract, as Phase81's review found, so the freeze keeps the
 v1 rules and v2 waits for `0.3.0` as a breaking item (PL.69).
 
 From the `0.2.1` lanes (PL.44), Phase81's editor work takes the rest of
-the fault
-tolerance of `pietto lsp` (an internal error outside the analysis of a
-document or a root, such as
-while the server answers a request or stores and publishes an analysis,
-still ends the server, and a failed analysis leaves its old diagnostics on
-the new text) and the overlap diagnostic for a project
-root nested in another through a symbolic link.
+the fault tolerance of `pietto lsp` and the overlap diagnostic for a
+project root nested in another through a symbolic link. With
+[P12](phases/phase-81/route.md#p12-record), an internal error outside the
+analysis of a document or a root, while the server answers a request or
+stores and publishes an analysis, no longer ends the server, and a failed
+analysis no longer leaves its old diagnostics on the new text; the
+overlap diagnostic remains open.
 
 Phase81 also takes three semantic extensions that the owner decided on
 2026-11-15 for `let` names in aggregates and under GROUP BY (PL.48), in

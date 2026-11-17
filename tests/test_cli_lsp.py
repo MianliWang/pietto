@@ -2424,6 +2424,178 @@ def test_an_internal_analysis_error_leaves_the_server_running(
     assert f"{error.__name__}: internal" in err
 
 
+@pytest.mark.parametrize("in_root", [False, True])
+@pytest.mark.parametrize(
+    "failing",
+    [
+        # Checking, storing the facts, publishing the diagnostics.
+        ("analyze", "check_project_editor_diagnostics"),
+        ("_EditorSnapshot", "_root_editor_facts"),
+        ("_lsp_diagnostic", "_lsp_diagnostic"),
+    ],
+    ids=["check", "store", "publish"],
+)
+def test_a_failed_analysis_clears_its_diagnostics_and_the_server_goes_on(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    in_root: bool,
+    failing: tuple[str, str],
+) -> None:
+    root = project(tmp_path, models=MODELS, a=A_OK)
+    uri = (root / "a.pietto").as_uri() if in_root else (tmp_path / "x.pietto").as_uri()
+    bad, good = (
+        (A_BAD, A_OK)
+        if in_root
+        else (SINGLE, SINGLE.replace(" and nope_u is None", ""))
+    )
+
+    def fail(*args: object, **kwargs: object) -> None:
+        raise RuntimeError("internal")
+
+    messages = session(
+        init(*((root,) if in_root else ())),
+        [opened(uri, bad, 1)],
+        [
+            lambda: monkeypatch.setattr(_lsp, failing[in_root], fail),
+            changed(uri, bad, 2),
+            request(5, "textDocument/hover", uri, 0, 0),
+            symbols(7, ""),
+        ],
+        [
+            monkeypatch.undo,
+            changed(uri, good, 3),
+            request(6, "textDocument/documentSymbol", uri),
+        ],
+    )
+    # The failed version's set is cleared, not left from version 1; requests
+    # that waited for it get none of its facts, and the next version is
+    # served.
+    assert [
+        (item.get("version"), bool(item["diagnostics"]))
+        for item in publishes(messages, uri)
+    ] == [(1, True), (2, False), (3, False)]
+    assert response(messages, 5)["result"] is None
+    assert response(messages, 7)["result"] == []
+    assert [item["name"] for item in response(messages, 6)["result"]] == (
+        ["active_users"] if in_root else ["User", "users", "active_users"]
+    )
+    err = capsys.readouterr().err
+    assert err.startswith("pietto lsp: internal error; continuing")
+    assert "RuntimeError: internal" in err
+
+
+@pytest.mark.parametrize(
+    "failing", ["completion_items", "_editor_use_at", "_absolute_uri_path"]
+)
+def test_an_internal_error_handling_a_message_leaves_the_server_running(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    failing: str,
+) -> None:
+    uri, other = (tmp_path / "x.pietto").as_uri(), (tmp_path / "y.pietto").as_uri()
+    text = SINGLE.replace(" and nope_u is None", "")
+
+    def fail(*args: object, **kwargs: object) -> None:
+        raise RuntimeError("internal")
+
+    messages = session(
+        init(),
+        [opened(uri, text, 1)],
+        [
+            lambda: monkeypatch.setattr(_lsp, failing, fail),
+            # Answered at once, answered after an analysis, and a notification.
+            request(5, "textDocument/completion", uri, 0, 0),
+            changed(uri, text, 2),
+            request(6, "textDocument/hover", uri, 1, 8),
+            opened(other, text, 1),
+        ],
+        [monkeypatch.undo, request(7, "textDocument/hover", uri, 1, 8)],
+    )
+    # Only the request that failed gets the internal error, and the next one
+    # is answered.
+    failed = {"completion_items": [5], "_editor_use_at": [6]}.get(failing, [])
+    assert [(item["id"], item["error"]) for item in messages if "error" in item] == [
+        (id_, {"code": -32603, "message": "Internal error"}) for id_ in failed
+    ]
+    assert response(messages, 7)["result"] is not None
+    assert bool(publishes(messages, other)) == (failing != "_absolute_uri_path")
+    err = capsys.readouterr().err
+    assert err.startswith("pietto lsp: internal error; continuing")
+    assert "RuntimeError: internal" in err
+
+
+@pytest.mark.parametrize("closing", [True, False])
+@pytest.mark.parametrize(
+    "failing", ["completion_items", "_lsp_diagnostic", "_editor_use_at"]
+)
+def test_an_error_that_must_end_the_session_is_not_taken_for_an_internal_one(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    failing: str,
+    closing: bool,
+) -> None:
+    uri, other = (tmp_path / "x.pietto").as_uri(), (tmp_path / "y.pietto").as_uri()
+    out = io.BytesIO()
+    real = getattr(_lsp, failing)
+
+    def answering(*args: Any) -> object:
+        if not closing:
+            raise KeyboardInterrupt
+        out.close()
+        return real(*args)
+
+    monkeypatch.setattr(_lsp, failing, answering)
+    script = Script(
+        [
+            INIT,
+            opened(uri, SINGLE, 1),
+            opened(other, SINGLE.replace(" and nope_u is None", ""), 1),
+            request(5, "textDocument/completion", uri, 0, 0),
+            request(6, "textDocument/hover", other, 1, 8),
+        ]
+    )
+    server = _lsp._Server(script, out, "test")
+    # While answering a request at once or after an analysis, or publishing
+    # an analysis, closed output ends the session with 1, and an interrupt
+    # propagates.
+    if closing:
+        assert server.run() == 1
+    else:
+        with pytest.raises(KeyboardInterrupt):
+            server.run()
+        assert not any("error" in item for item in frames(out.getvalue()))
+    assert capsys.readouterr().err == ""
+
+
+def test_a_standard_error_that_cannot_be_written_changes_no_outcome(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    uri = (tmp_path / "x.pietto").as_uri()
+
+    class Closed(io.StringIO):
+        def write(self, text: str) -> int:
+            raise BrokenPipeError
+
+    def fail(*args: object, **kwargs: object) -> None:
+        raise RuntimeError("internal")
+
+    # A framing error still stops the session at once, and an internal error
+    # still lets it go on to the next version.
+    monkeypatch.setattr(sys, "stderr", Closed())
+    stopped = Script([INIT, _lsp._FRAMING_ERROR, lambda: pytest.fail("read on")])
+    assert _lsp._Server(stopped, io.BytesIO(), "test").run() == 1
+    monkeypatch.setattr(_lsp, "analyze", fail)
+    messages = session(
+        init(),
+        [opened(uri, SINGLE, 1)],
+        [monkeypatch.undo, changed(uri, SINGLE, 2)],
+    )
+    assert [item.get("version") for item in publishes(messages, uri)] == [2]
+
+
 @pytest.mark.parametrize(
     "text",
     [

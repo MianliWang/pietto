@@ -181,7 +181,13 @@ class _Server:
                 self._handle(self.inbox.get())
                 self._drain()
                 while self.exit_code is None and self.state == "running" and self.dirty:
-                    self._analyse(min(self.dirty, key=_unit_order))
+                    unit = min(self.dirty, key=_unit_order)
+                    try:
+                        self._analyse(unit)
+                    except _Closed:
+                        raise
+                    except Exception:
+                        self._failed(unit)
                     if self.exit_code is None:
                         self._answer_held()
         except _Closed:
@@ -200,12 +206,25 @@ class _Server:
     # Messages.
 
     def _handle(self, message: object) -> None:
+        """Handle one message. An error inside Pietto ends neither the session
+        nor, for a request, its answer; closed output still ends both."""
+
+        try:
+            self._receive(message)
+        except _Closed:
+            raise
+        except Exception:
+            # Only a valid request reaches a handler, so an id is its id.
+            request_id = message.get("id") if isinstance(message, dict) else None
+            self._internal_error(
+                request_id if isinstance(request_id, int | str) else None
+            )
+
+    def _receive(self, message: object) -> None:
         if message is _EOF:
             self.exit_code = 0 if self.state == "shutdown" else 1
         elif message is _FRAMING_ERROR:
-            if sys.stderr is not None:
-                sys.stderr.write("pietto lsp: invalid message header; stopping\n")
-                sys.stderr.flush()
+            _report("pietto lsp: invalid message header; stopping\n")
             self.exit_code = 1
         elif message is _INVALID_JSON:
             self._error(None, -32700, "Parse error")
@@ -456,11 +475,7 @@ class _Server:
         kind, value = unit
         if kind == "root":
             assert isinstance(value, int)
-            try:
-                checked, selections = self._check_root(value)
-            except Exception:
-                self._failed(unit)
-                return
+            checked, selections = self._check_root(value)
             self._drain()
             if self._current(unit, epoch):
                 self._set_root_snapshot(unit, epoch, value, checked)
@@ -474,14 +489,10 @@ class _Server:
                 del self.dirty[unit]
                 self._sweep()
                 return
-            try:
-                diagnostics, facts = _check_text_with_editor_facts(
-                    document.text,
-                    path=str(document.path) if document.path is not None else None,
-                )
-            except Exception:
-                self._failed(unit)
-                return
+            diagnostics, facts = _check_text_with_editor_facts(
+                document.text,
+                path=str(document.path) if document.path is not None else None,
+            )
             self._drain()
             if self._current(unit, epoch):
                 self.snapshots[unit] = _EditorSnapshot(
@@ -503,15 +514,28 @@ class _Server:
                 self._sweep()
 
     def _failed(self, unit: _Key) -> None:
-        """End an analysis that an error inside Pietto stopped: it publishes
-        nothing and keeps no facts, and the session goes on."""
+        """End an analysis, or the storing or publishing of its result, that
+        an error inside Pietto stopped: the unit keeps no facts and clears
+        every diagnostic set it published, so no older result stays on newer
+        text, and the session goes on."""
 
-        if sys.stderr is not None:
-            sys.stderr.write("pietto lsp: internal error; continuing\n")
-            traceback.print_exc(file=sys.stderr)
-            sys.stderr.flush()
-        del self.dirty[unit]
+        self._internal_error()
+        self.dirty.pop(unit, None)
         self.snapshots.pop(unit, None)
+        for uri, (key, path) in list(self.published.items()):
+            if key == unit:
+                document = self.documents.get(uri)
+                self._publish(
+                    uri, key, path, [], document.version if document else None
+                )
+
+    def _internal_error(self, request_id: int | str | None = None) -> None:
+        """Report an error inside Pietto that the session survives, and
+        answer the request it stopped, if any."""
+
+        _report("pietto lsp: internal error; continuing\n", trace=True)
+        if request_id is not None:
+            self._error(request_id, -32603, "Internal error")
 
     def _current(self, unit: _Key, epoch: int) -> bool:
         if self.exit_code is not None or self.state != "running":
@@ -976,7 +1000,12 @@ class _Server:
 
         held, self.held = self.held, []
         for request in held:
-            self._answer(*request)
+            try:
+                self._answer(*request)
+            except _Closed:
+                raise
+            except Exception:
+                self._internal_error(request[0])
 
     def _target_uri(
         self, target: EditorDeclaration, owner: _Key, snapshot: _EditorSnapshot
@@ -1351,6 +1380,21 @@ def _entries(root: Path) -> dict[Path, str | None]:
         joined = _join(root, path)
         entries[joined] = None if joined in entries else path
     return entries
+
+
+def _report(text: str, trace: bool = False) -> None:
+    """Write `text`, and the traceback being handled if `trace`, to standard
+    error. A standard error that cannot be written changes no outcome."""
+
+    if sys.stderr is None:
+        return
+    try:
+        sys.stderr.write(text)
+        if trace:
+            traceback.print_exc(file=sys.stderr)
+        sys.stderr.flush()
+    except (OSError, ValueError):  # a closed pipe or file
+        pass
 
 
 def _join(root: Path, relative: str) -> Path:

@@ -633,6 +633,51 @@ follow their `projectRoots` order: P12 or P13. The
 [roadmap](../../roadmap.md) drops the five items; the
 [status](../../status.md) names none of them.
 
+## P12 record
+
+P12 takes PL.44 (a) on the route's base `6fa66291`, with the scope that
+the [roadmap's Phase81 row](../../roadmap.md#phase81-scope) states: an
+internal error of `pietto lsp` outside the analysis of a document or a
+root, while it stores or publishes a result or answers a request, no
+longer ends the server, and a failed analysis no longer leaves its old
+diagnostics on the new text. Its write set is `src/pietto/_lsp.py`,
+`tests/test_cli_lsp.py`, the [LSP diagnostics
+contract](../../spec/lsp-diagnostics-v1.md) and a release-note fragment.
+
+- **Change.** One guard covers each unit's whole analysis, its check, the
+  storing of its facts and the publishing of its diagnostics; a failure
+  there clears every diagnostic set that the unit published and drops its
+  facts. Each message, and each request answered after an analysis, has
+  its own guard; a failed request receives JSON-RPC `-32603` `Internal
+  error`. Messages that arrive during an analysis are handled under their
+  own guard, so their errors are never taken for the analysis's.
+- **Errors that end the session.** Closed standard output (`_Closed`)
+  passes every guard and still ends the session with status 1; an
+  interrupt or `SystemExit`, which are not `Exception`, is never caught; a
+  framing error still stops the reader as before. A standard error that
+  cannot be written changes none of these outcomes: its report is dropped.
+- **Before and after.** In a `pietto lsp` process made to raise
+  `RuntimeError` for marked texts, `6fa66291` left version 1's diagnostics
+  on version 2 after a failed analysis and exited with 1 when publishing
+  version 3 failed; with P12, version 2's set is cleared, the failed
+  completion request receives `-32603`, versions 4 and 5 publish, and the
+  session exits with 0.
+- **Tests.** Four new tests, sixteen cases, in `tests/test_cli_lsp.py`: a
+  failed check, store or publish, for a file and for a root, clears the
+  older set, a waiting hover or workspace symbol request sees none of its
+  facts and the next version is served; an error answering a request at
+  once or after an analysis, or handling `didOpen`, answers only that
+  request with `-32603`; closed output or an interrupt while answering or
+  publishing ends the session without the internal-error report; and with
+  a standard error that cannot be written, a framing error still stops the
+  session and an internal error still lets it go on. On `6fa66291` ten of
+  the sixteen new cases failed and the six guards passed. Removing the
+  `_Closed` re-raise from any guard fails a closed-output case, keeping
+  the facts in `_failed` fails the root's publish case, and an unguarded
+  standard error write fails the standard error case.
+- **Roadmap.** At integration, the single writer of the roadmap's Phase81
+  row records this fault tolerance as landed with P12.
+
 ## Single writers and the other lines
 
 The lead sets the order and a later arrival rebases. At the first
