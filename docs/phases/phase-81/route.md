@@ -154,7 +154,7 @@ from the run records).
 | PL.50 Q3 A, Q4 A | A Windows directory writer that holds the new directory's handle; CLI and `pietto.compiler` declared supported on Windows x86-64 with execution NOTRUN and the extras left out; Windows classifiers | P05 |
 | PL.50 Q5 A; PL.40 D11 A; PL.87 (2) | The extension repository's `windows-latest` job runs its integration tests against an installed Pietto wheel; D11 A's small fixes (`.gitattributes`, core `0.1.12`, `0.2.0`, `0.2.1` and `0.2.2` in its CI matrix, and `0.2.2` in its Windows job, `node --test` on `windows-latest`, and its next version's documentation and test items) in the same authorization and the same one push | P06 |
 | PL.66 (2) | PL.44 (c), the extension preview's `None:1:1`, joins P06 | P06 |
-| PL.87 | P08's code adopted after an independent review, and the assurance material of the specification page it had added kept in its route record instead; CPython 3.14.5 downloaded and installed on the integration host | P04, P08 |
+| PL.87 | P08's code adopted after an independent review, and the assurance material of the specification page it had added kept in its route record instead; CPython 3.14.5 downloaded and installed on the integration host; the midpoint report accepted, Phase81 continuing by the rebuild plan | P04, P08, [Midpoint](#midpoint) |
 | PL.50 Q6 A; PL.40 D15 A | Verification reused only inside one public call, under the existing call-scoped law; done only with a measured benefit | P15 |
 | PL.50 Q7 B (d) (a); PL.48 (2) | The diagnostic review within the existing codes, H3 (2) included | P03 |
 | PL.50 Q8 A | A read-only review of Nullability v2, reported to the owner at the midpoint | P02 |
@@ -247,17 +247,17 @@ Rust rewrite, as its owner.
 
 ## Midpoint
 
-The midpoint comes after P02, P03 and one real platform end-to-end sample,
-and no later than half the expected use. The lane workflows stop there and
-the lead reports to the owner: S/H/L/K, then Q; whether Nullability changes
-a public type contract (PL.50 Q8 A); H3's real size; platform cost; shared
-write sets; whether P15 is still worth doing; the ledger; whether the CI
-evidence applies; and Phase79's completion audit if it has landed. If the
-Nullability report says a public type contract changes, that change enters
-Phase81 only with the semantics and budget the owner then approves, in a
-position of its own with acceptance and regression before P16; otherwise it
-waits for `0.3.0`. A real bug found in an existing contract is handled
-before the freeze either way.
+The midpoint came after P02, P03 and one real platform end-to-end sample,
+and no later than half the expected use. The lane workflows stopped there
+for the lead's report to the owner: S/H/L/K, then Q; H3's real size;
+platform cost; shared write sets; whether P15 was still worth doing; the
+ledger; whether the CI evidence applied; and Phase79's completion audit if
+it had landed. The owner accepted the report on 2026-11-21: Phase81
+continues by the rebuild plan (PL.87). The owner had answered the
+Nullability question (PL.50 Q8 A) before the midpoint: v2 changes a public
+type contract and goes to `0.3.0`, and Phase81 opens no Nullability
+position (PL.69, [P02 record](#p02-record)). A real bug found in an
+existing contract is still handled before the freeze.
 
 P15 may leave without failing the line; diagnostic errors and invalid
 qualification evidence may not. A position that grows beyond one
@@ -465,6 +465,101 @@ is stop point 5. MC's PL.49 item also changes
 decided, and the refusal reached `main` before MC, as `e15846fb` in the
 existing-defect batch ([P02 record](#p02-record)).
 
+## P02 record
+
+P02 ran on 2026-11-17 on Gate 0's head `900e8915` with this route on
+top, which changes only documentation, in a fresh worktree synced offline
+from `uv.lock` (CPython 3.13.13, `pietto` editable from that worktree),
+with no database. It changed no tracked file; its probes built bundles
+with the test owners' helpers and changed their records in memory. It
+stopped at stop point 4 on Nullability v2 and on row 20, and the owner
+answered both in a dialog on 2026-11-17, ahead of the
+[midpoint](#midpoint), which therefore no longer carries the Nullability
+question; the decision rows are PL.69 and PL.70 (1).
+
+- **Nullability v2.** With no proposal text (P01), the review read the
+  Phase72 handoff's item, "the external nullability v2 proposal and
+  general narrowing after `x is not None`", against the current rules: a
+  bare type is never None, `T | None` may be None and a field of a source
+  without a shape is unknown; an INNER JOIN proves the direct field
+  leaves of its `on`'s top-level `and` operands non-null; WHERE does not
+  refine, OR gives no proof, and arithmetic outside a `def` body's check
+  has unknown nullability ([language](../../language.md), [nullability
+  contract](../../spec/nullability-propagation-contract-v1.md)). On
+  `900e8915`, `explain --project` reports `amount` after `where amount is
+  not None` as `nullable`, `amount if amount is not None else 0` as
+  `nullable`, `id + 1` over a non-null `id` as `unknown`,
+  `coalesce(amount, 0)` as `non_null` and a field that an INNER JOIN's
+  `on` tests with `is not None` as `non_null`, and passing that `amount`
+  to a `def` parameter of type `Int` is PIE-S2395. Any narrowing after
+  `x is not None` therefore changes, for sources accepted today, the
+  nullability that the relation column view, the semantic metadata
+  artifact, project JSON v2's emission columns, the result schema,
+  `pietto.interop`'s admission and compiled records carry, and which
+  `def` arguments and relationship rows bind: it changes a public type
+  contract (PL.50 Q8 A). The owner chose not to take it before the
+  freeze: Phase82 freezes the current rules, and Nullability v2 goes to
+  `0.3.0` as a breaking change (PL.51). Phase81 opens no Nullability
+  position, and P07 generates nullability by the current rules.
+- **Row 20.** A forged compiled bundle still loads through `load_bundle`
+  when its records give an aggregate an argument that `compile_query`
+  refuses with PIE-S2315: `median`, `stddev`, `variance`, `pstdev`, `min`,
+  `max` or `count_distinct` of a row expression, or `sum` of `value % 2`
+  or `value / 2`, each written into a VERIFIED PostgreSQL bundle with the
+  result type kept. The replay restates emission's carrier law for such an
+  argument but not the source's argument law, while the [execution
+  guide](../../execution.md) says that only queries `compile_query` can
+  produce are loaded. A bundle that another consistent project would
+  produce, such as one whose declared key was changed (JF's J0), is the
+  trust boundary the guide already states. The owner decided to refuse the
+  first kind: the replay restates the source's argument law by function
+  and shape (`sum` and `avg` of fields under `+`, `-`, `*` and unary
+  signs, alone or with an `Int` or `Float` literal or parameter, `count`
+  of its counting shapes, `count_distinct` of a `lower` and `trim` chain
+  over `Text`, `string_agg` of `Text`, a direct read for every other
+  function) and refuses what that law does not admit with PIE-R1004 and
+  its existing details, so no PIE code, detail, JSON shape, compiled
+  record or `VERSIONS` changes, and valid bundles keep their bytes. The
+  second kind stays the guide's trust boundary. The refusal repairs an
+  existing defect on its own (D77.63), in a repair commit outside P02,
+  pushed under PL.13 (b): once the owner's second answer had held it until
+  a forgery read through a `let` was refused too (PL.70 (2)), it was
+  published as `e15846fb` in the existing-defect batch that ends at
+  `65c22852`, on 2026-11-20, whose natural CI `44808726926` passed all 21
+  jobs, and it shipped in `0.2.2`. This placement supersedes r17's "P02
+  implements row 20's refusal" and the P02 position's "with its
+  implementation"; the answer names no ledger, so the repair's cost stays
+  on row 20's reserve in Phase81's ledger ([Budget](#budget)). Reading the
+  code narrows [its write set](#row-20s-write-set) to the derivation and
+  the independent verification in `project_completed_semantics.py`, cases
+  in `tests/test_execution_compiled_families.py` and a release-note
+  fragment; the repair commit bound the final one, those files and the
+  roadmap's Phase82 freeze row 20. When P09 widens the source law, the
+  replay's restatement changes with it, with a compiled case.
+- **L113.** The JOIN-then-WHERE, ON and QUALIFY forms have been refused
+  since `0.2.1` (`4553fa1a`), and their tests pass on `900e8915`. A
+  bundle built past emission's law with an inclusive chain, a
+  conditional, `abs`, a cast or a membership test in a `let` after a
+  JOIN is refused on both targets with PIE-R1004 `COMPILED_OPERATOR`,
+  except MySQL's `abs`, which emission refuses before any bundle exists.
+  A forged bundle with no columns stays a known low and was not probed
+  again.
+- **Row 19.** The freeze ledger row, PL.61, PL.62 and J1 (`a5bd2c8e`)
+  agree, and the adapters' fence passes. Row 20's refusal reads no JOIN
+  fact. P01, P07 and P15 consume none as long as P07 and P08 compare only
+  public outputs; P15 adds no reader, but the plan's verification calls
+  the compiled aggregate evidence, so P15 and J2 rebase in the order they
+  reach `main`. This part closes with JF's J3, which follows the `0.2.2`
+  release commit (PL.61 (4)), and P16 waits for J3 only through P02.
+- **A known low.** An aggregate argument's `operation` record whose
+  `operator` is a string of other than two characters, such as `"%"`,
+  instead of a role and a token, makes `load_compiled` raise an unnamed
+  `ValueError`, which `load_bundle` reports as PIE-R1999 instead of
+  PIE-R1008; a string of two characters unpacks and is refused with
+  PIE-R1008, and any string in an `operation` record elsewhere is refused
+  with PIE-R1008 `COMPILED_OPERATOR`. The load still fails closed; the
+  misclassification is recorded as a known low.
+
 ## Single writers and the other lines
 
 The lead sets the order and a later arrival rebases. At the first
@@ -506,7 +601,7 @@ one-minute load below 24 and 8 workers per lane.
 | ---: | --- | --- |
 | 1 | Live authority | Gate 0 above: `d2298193` (tree `2133efbb`), `origin/main` equal, clean, natural CI `46096387561` 21/21 and its health; bound before on `900e8915` (tree `54387606`) with natural CI `44166283520` 21/21 and its health, and first on `300f0a93` (tree `9fb0d7c3`) with natural CI `44042698462` 21/21 and its health; PL.50, PL.58 and PL.66 with the rows they cite. |
 | 2 | Outcome | Trustworthy diagnostics, platform coverage, negative and integration evidence for selected capabilities; verification reused within one call where measured; an import-time target. Not dialect parity, not a correctness proof of the compiler. |
-| 3 | Semantic model | Semantic analysis to the verified ProjectIR stays the authority; `docs/language.md` and the diagnostics reference; H3 (1), (3) and (4) extend `let` reads by value as PL.48 states; Nullability unchanged unless the owner approves at the midpoint. |
+| 3 | Semantic model | Semantic analysis to the verified ProjectIR stays the authority; `docs/language.md` and the diagnostics reference; H3 (1), (3) and (4) extend `let` reads by value as PL.48 states; Nullability unchanged (PL.69). |
 | 4 | Identity | Diagnostic identity (code, detail, position, order); a plan's identity within one public call for P15, with no reuse across calls, mutated objects, verification contexts or trust domains; platform identity (OS, architecture, Python patch); package identity; seed identity of generated cases; the core versions in the extension's matrix. |
 | 5 | Construction states | A position is planned, a candidate, Gate 2 passed, pushed under PL.52, which covers Phase81 since `0.2.2`'s D2 ended, then naturally green; a platform claim exists only after CI observes it on that platform. |
 | 6 | Proof posture | Asserted: the decision rows. Derived: the cp314 lock reading. Observed: S00, P01, CI `44042698462` and `44166283520`, and Gate 0's head CI `46096387561`. Verified: Gate 2 and natural CI per batch. Unknown: the setup-python 3.14 SQLite build (P04), the Nullability proposal text (absent). Disproven: none yet. |
@@ -531,7 +626,7 @@ one-minute load below 24 and 8 workers per lane.
 | 25 | Packaging | P04's classifiers, lock and cp314 wheels in one commit; P05's Windows classifiers; P14's tools outside the wheel; no generated file and no new dependency. |
 | 26 | Support matrix | Now Linux x86-64 on CPython 3.12 and 3.13, with platform-neutral tests on Windows; after Phase81 also 3.14, and Windows x86-64 CLI and compiler with execution NOTRUN and no extras; macOS not claimed. |
 | 27 | Release | Pushes under PL.52 after `0.2.2`'s D2 (PL.57 (2), PL.58 (2)); `0.2.3` at the earliest, and not before Phase81 is done (PL.94), after P16 closes and before the Phase82 freeze (PL.98 (3)); each release asked of the owner; P06's one push of the extension repository and no Marketplace release. |
-| 28 | Readiness and deferrals | Closed: r17's dispatch (PL.66 (1)), JF's J1 on `main` (`a5bd2c8e`), Phase79's completion audit (D79.23), SQLite B2's second tier and the green natural CI `46096387561` of Gate 0's head `d2298193`. Deferred: JF's J3 for P02's row 19 part; P15's memo to `0.3.0` if not done; the MC audit's loadfile cost estimates of four test owners to P16's acquisition review; the owed ten-node profile to P16. |
+| 28 | Readiness and deferrals | Closed: r17's dispatch (PL.66 (1)), JF's J1 on `main` (`a5bd2c8e`), Phase79's completion audit (D79.23), SQLite B2's second tier, the Nullability question (PL.69), the midpoint (PL.87) and the green natural CI `46096387561` of Gate 0's head `d2298193`. Deferred: JF's J3 for P02's row 19 part; P15's memo to `0.3.0` if not done; the MC audit's loadfile cost estimates of four test owners to P16's acquisition review; the owed ten-node profile to P16. |
 | 29 | Slice route | P01, then P02–P07, P12, P14 and P17 as their dependencies allow; P08 after P07; P09–P11 and P12–P13 in turn; P15 after its profile; P16 last. Ready positions are batched: one Gate 2, one push, one natural CI, one commit each. |
 | 30 | Repair and stop | The budget above under PL.15; the stop points above; a failed natural CI is kept and repaired in a new child, never rerun; failed runs and their evidence are kept. |
 
