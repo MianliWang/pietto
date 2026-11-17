@@ -2485,7 +2485,7 @@ def _uncleaned(root: Path, output: Path, monkeypatch: pytest.MonkeyPatch) -> Non
 
 def _directory(root: Path, output: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     if not batch_output.supported():
-        pytest.skip("Linux descriptor publication required")
+        pytest.skip("Linux or Windows publication required")
 
 
 def _drift(root: Path, output: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -2503,7 +2503,10 @@ def _locked_directory(
 def _no_temporary_files(
     root: Path, output: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    _directory(root, output, monkeypatch)
+    # Only the Linux descriptor writer probes for anonymous files; the
+    # Windows writer never raises UnsupportedPlatform.
+    if not batch_output._descriptors_supported():
+        pytest.skip("Linux descriptor publication required")
 
     def refuse(directory: int) -> int:
         # A file system without O_TMPFILE, such as some mounted drives.
@@ -2660,8 +2663,9 @@ _ONCE_A_QUERY_EMITS: dict[str, _Emits] = {
         _to_directory,
         (
             2,
-            "batch_output_platform: Safe batch directory output requires supported"
-            " Linux filesystem capabilities; use stdout instead.",
+            "batch_output_platform: Safe batch directory output requires Windows"
+            " with CPython 3.12.4 or later or a supported Linux filesystem; use"
+            " stdout instead.",
         ),
         prepare=_no_temporary_files,
     ),
@@ -3172,7 +3176,7 @@ def test_a_typed_mysql_projection_chain_reports_as_its_where_twin_in_every_cell(
     as JSON on standard output does."""
     if cell.route != "single" and cell.output != "stdout":
         if not batch_output.supported():
-            pytest.skip("Linux descriptor publication required")
+            pytest.skip("Linux or Windows publication required")
     runs, modules = {}, {}
     for name, where in (("chain", ""), ("where", "    where id > 1\n")):
         root = tmp_path / name / "mysql"

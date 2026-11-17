@@ -69,11 +69,14 @@ and MySQL routes the only qualified native profile recorded here is CPython
 3.13.13 on Linux x86-64 with the lock's exact artifacts on the qualified
 integration host; `duckdb_arrow` is qualified on CPython 3.13.13 and 3.12.13
 (see the support matrix), and `sqlite_file` runs only on Linux x86-64 with
-the measured SQLite build. Windows native execution is `NOTRUN`; an offline
-Windows compiler-project check is not native execution, job, or database
-support. Saved-result workflows are local workspace APIs, and the reference
-sink is a local bounded endpoint. There is no CLI command that connects to a
-database.
+the measured SQLite build. Execution is not claimed on Windows: no route,
+saved result, job or extra is qualified there. The `sqlite_file` route
+refuses there (PIE-R2002), the workspace and saved-result names need
+`fcntl`, which Windows CPython lacks, and the other routes are not refused.
+Running the CLI or `pietto.compiler` on Windows is no execution, job or
+database support. Saved-result workflows are local workspace APIs, and the
+reference sink is a local bounded endpoint. There is no CLI command that
+connects to a database.
 
 Saved-result APIs are public alpha surface. Their Python calls are explicit:
 callers name a workspace, durable operation identities, records and any source
@@ -95,9 +98,9 @@ The qualified profile is the integration host with the lock's exact artifacts.
 Installing an extra selects no route, grants no execution, opens no source and
 does not qualify storage. A missing or wrong selected dependency is refused
 before connection; another route's driver is never a fallback. The PyArrow pin
-does not bound allocator retention. Windows native routes are `NOTRUN`; an
-offline Windows compiler-project check does not establish jobs, database
-execution or a supported Windows profile.
+does not bound allocator retention. No route is claimed on Windows (above),
+and a Windows run of the CLI or `pietto.compiler` establishes no job,
+database execution or supported Windows execution profile.
 
 ## Install
 

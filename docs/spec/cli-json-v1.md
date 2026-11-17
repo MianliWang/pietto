@@ -477,8 +477,10 @@ pietto emit-sql file.pietto --dialect postgres --format json --output out.sql
 stdout still contains the complete JSON result, including generated
 `artifacts`. The output file receives the SQL text that text mode writes, not
 JSON and not plain-text presentation escaping. The output file is UTF-8 with
-LF line endings on every platform; text stdout keeps the platform's newline
-convention.
+LF line endings on every platform. The line ends that the CLI itself writes
+to stdout, in text and JSON format alike, are also LF on every platform,
+Windows included; `fmt` and `migrate` keep the source's line endings, and
+stderr keeps the platform's newline convention, CRLF on Windows.
 
 Text mode (without `--format json`) writes the same SQL text to stdout or to
 the `--output` file: for each artifact in backend order, a `-- <name>` line

@@ -65,9 +65,12 @@ reasons with errno codes for handled file errors, and `--output` rules that
 refuse zero SQL artifacts, write LF line endings on every platform, report a
 regular-file or uninspectable output parent as `output_write` after
 compilation, and report an unreadable input as `file_read`. A closed or
-unwritable stdout exits `2` without a traceback, and text output writes C1,
-separator, and bidi controls as `\uNNNN` escapes; project mode follows both
-rules too. In both modes `--output` refuses as `output_write` an existing
+unwritable stdout exits `2` without a traceback, the line ends that the CLI
+itself writes to stdout are LF on every platform (`fmt` and `migrate` keep
+the source's) while stderr keeps the platform's newline, and text
+output writes C1, separator, and bidi controls as `\uNNNN` escapes; project
+mode follows these rules too.
+In both modes `--output` refuses as `output_write` an existing
 regular output file the user may not write, outside Windows an existing output
 that belongs to another user than a non-root caller or, where the user
 namespace leaves some user id unmapped, whose owner is shown as the kernel's
@@ -153,10 +156,12 @@ Exceeding it returns INPUT_REJECTED, exit 2, empty `items` and the
 selectors to reduce the batch. Existing per-item limits are unchanged. This is
 an output-byte limit, not a process-memory limit.
 
-In batch mode `--output DIR` requires Linux filesystem capabilities for pinned
-directory descriptors and atomic no-replace installation. Unsupported platforms
-return INPUT_REJECTED / exit 2 with `batch_output_platform` before creating DIR;
-batch stdout remains available. DIR must be a new, non-symlink path. The
+In batch mode `--output DIR` writes on Windows with CPython 3.12.4 or later
+and on Linux filesystems that support pinned directory descriptors and atomic
+no-replace installation. Other platforms, macOS and Windows with an earlier
+CPython among them, return INPUT_REJECTED / exit 2 with
+`batch_output_platform` before creating DIR; batch stdout remains available.
+DIR must be a new, non-symlink path. The
 command creates it exclusively only when every item is VERIFIED, writes each `artifacts/000000.json` item with
 the same bytes as its single-owner serializer, and writes `manifest.json` last
 with the canonical batch JSON document, identical to stdout when JSON format
@@ -167,6 +172,32 @@ interrupted process can leave a directory without `manifest.json`, which
 consumers must treat as incomplete. Existing output paths are never replaced.
 The command does not promise whole-directory atomic visibility or power-loss
 durability; a subsequent stdout failure does not roll back a completed directory.
+
+On Linux every directory is pinned by its descriptor. On Windows the command
+writes by path. It creates each directory, DIR and `DIR/artifacts`, with a
+protected access list that admits only its owner, SYSTEM and Administrators
+(what `os.mkdir(path, 0o700)` sets there from CPython 3.12.4), not the access
+that DIR's parent passes on. It holds both open without delete sharing, so
+that neither can be renamed or removed while it writes; it refuses either one
+when it is a reparse point, such as a junction, and checks both against their
+paths before each step. It creates each file exclusively under a temporary
+`.pietto-*.tmp` name beside its final name, checks that file's identity and
+bytes again just before it renames it there, which fails rather than replace
+an existing name, and checks the identity of the installed name after the
+rename; an interrupted run can also leave such a file. On failure it removes a
+file only while its identity is its own and a directory only through a handle
+whose identity it has checked. DIR's ancestors are resolved by path, and so is
+DIR between its creation and the moment the command holds it: someone who can
+delete entries in DIR's parent can move the output elsewhere in that interval,
+though no existing file is ever replaced. The access list does not keep out
+the owner's other processes or Administrators; a file that they change fails
+the command, except within the short interval between a check and the rename
+or after the manifest is installed. On a volume that keeps no access lists,
+such as FAT32 or exFAT, the directories get none, so every local user can
+change files in DIR in the same way. Windows output
+failures use the existing kinds: `output_path` for an existing or linked DIR
+or a missing parent, and `output_write` for any failure while writing,
+including a reparse point and a changed identity.
 
 Project `explain` is not a JSON v2 command either. For a
 `schema_version = 4` package-root project it writes the Project Explain

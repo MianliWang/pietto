@@ -633,6 +633,103 @@ follow their `projectRoots` order: P12 or P13. The
 [roadmap](../../roadmap.md) drops the five items; the
 [status](../../status.md) names none of them.
 
+## P05 record
+
+P05 ran on 2026-11-17 on the route's candidate `6fa66291`, in a fresh
+worktree synced offline from `uv.lock` (CPython 3.13.13), under PL.50 Q3 A
+and Q4 A.
+
+- **Dependency.** The output contract it depends on was already locked: the
+  batch section of [project CLI JSON v2](../../spec/project-cli-json-v2.md)
+  and the owner's batch emission approvals of 2026-10-31 and 2026-11-01 fix
+  the batch document, the `artifacts/NNNNNN.json` names, the manifest as the
+  completion point, the refusal of an existing DIR and the error kinds, and
+  no unpublished candidate changed `src/pietto/_batch_output.py` or that
+  section. P05 changes no byte of a document, artifact or manifest and no
+  error kind; only the message of `batch_output_platform` names Windows and
+  CPython 3.12.4.
+- **Writer.** `src/pietto/_batch_output.py` keeps the Linux descriptor
+  writer unchanged and adds Q3 A's path writer for Windows. It creates DIR
+  and `DIR/artifacts` with `os.mkdir(path, 0o700)`, which from CPython
+  3.12.4 gives a Windows directory a protected access list for only its
+  owner, SYSTEM and Administrators, so Windows with an earlier CPython keeps
+  `batch_output_platform`. It holds each directory through a `CreateFileW`
+  handle that shares reading and writing but not deletion and opens a
+  reparse point itself; it refuses a directory that is not plain or whose
+  path no longer names the held directory, and checks the parent and both
+  directories before each file and each rename. It writes each file under an
+  exclusive `.pietto-*.tmp` name, checks that file's identity and bytes just
+  before it installs it with `os.rename`, which fails on an existing name on
+  Windows, and checks the installed name's identity after; it checks every
+  artifact's bytes and identity and the project inputs before it renames the
+  manifest last. On failure it removes only files whose identity is still
+  its own, and a directory, once its own handle is closed, only through a
+  new handle with delete access whose identity it checks. The path logic
+  takes the pin, the rename and the removal as arguments, so its tests run
+  on Linux with a no-follow descriptor, a hard link and a checked `rmdir`,
+  and on Windows with the real calls.
+- **Claim.** README, the project guide, the capability page and the
+  release-note fragment `81-p05-windows-output.md` claim the CLI (`check`,
+  `emit-sql`, `fmt`, `explain` and `lsp`) and `pietto.compiler` on Windows
+  x86-64 with CPython 3.12 and 3.13, with execution not claimed and no
+  extra, as the execution guide says, and the first three mark the claim
+  as not in `0.2.2`;
+  the classifiers become `Operating System :: POSIX :: Linux` and
+  `Operating System :: Microsoft :: Windows`. The Windows jobs already run
+  every test owner of that surface, which lies in their eight areas
+  (`test_cli_lsp.py` for `lsp`, `test_sql_compile_api.py` for
+  `pietto.compiler`); each now also runs `scripts/package_smoke.py` without
+  an extra. On Windows the smoke takes stdout's LF line ends as written,
+  compares stderr with its CRLF line ends made LF, expects the directory
+  output, which holds from CPython 3.12.4 (the 3.12 and 3.13 Windows jobs
+  run 3.12.10 and 3.13.15; on an earlier Windows CPython the smoke reports
+  the designed `batch_output_platform` as a failure), and skips, among the
+  installed `_project` modules it imports, only the job and saved-result
+  modules that need `fcntl`.
+- **Evidence.** The host is Linux, so every Windows statement above is
+  derived until the batch's natural CI runs. Pyright checked the Win32 calls
+  for the Windows platform; the tests simulate Windows' no-replace rename
+  and the pin, which on Linux does not hold the name; CRLF sources, a text
+  stream that writes CRLF and a missing `fcntl` were simulated on Linux.
+  The claim holds only once both Windows jobs, 3.12 and 3.13, pass; a
+  failure is kept and repaired in a child, and the claim does not ship
+  before that.
+- **Residual risk.** DIR's ancestors, and DIR from its creation until the
+  writer holds it, are resolved by path, so someone who can delete entries
+  in DIR's parent can move the output elsewhere; the writer never replaces
+  an existing file. The owner-only access list does not keep out the
+  owner's other processes or Administrators, whose change to a file fails
+  the command except between a check and the rename or after the manifest.
+  The project CLI JSON v2 page states both. Derived, not run on Windows: on
+  a volume that keeps no access lists, such as FAT32 or exFAT, the
+  directories get none, so every local user is in that position; the
+  pages state it beside the access list.
+- **Owner answers (D81.02).** On 2026-11-18 the owner chose that the CLI's
+  text on stdout ends its lines with LF on Windows too, kept the residual
+  risk as stated above, and accepted `supported` in the Linux column of the
+  capability page's rows for the Python compile API and `pietto lsp`. Before
+  a command runs, `main` in `src/pietto/cli.py` sets a text stdout's
+  newline to LF; stderr keeps the platform's newline, CRLF on Windows, and
+  `--output` files, the batch directory and the bytes that the CLI writes
+  to stdout's buffer, `fmt`, `migrate` and `lsp` among them, are unchanged.
+  A detached stdout, or one whose pending output fails to flush at that
+  step, exits `2` as an unwritable stdout does. CLI JSON v1, project CLI JSON v2
+  and the release-note fragment state it; `tests/test_cli_output.py` gives
+  stdout and stderr text streams that write CRLF, as Windows' do, and
+  expects LF on stdout and CRLF on stderr, and gives `main` a closed and a
+  detached text stdout.
+- **Review repair.** The candidate's review found that DIR inherited its
+  parent's access, so another user could replace a staged manifest, which
+  was renamed without a later check, and that cleanup removed a directory
+  by path after its check. The repair creates the directories owner-only,
+  checks each staged file before and its installed name after the rename,
+  removes directories through a checked handle, and adds the parent,
+  swapped, changed, substituted, hard link and cleanup faults that the
+  review's surviving mutants asked for. It also corrects the capability
+  page, which claimed `pietto.compiler` and `lsp` on Windows but only
+  CI-tested them on Linux, and the roadmap's paragraph, which still
+  described the state before P05.
+
 ## P12 record
 
 P12 takes PL.44 (a) on the route's base `6fa66291`, with the scope that

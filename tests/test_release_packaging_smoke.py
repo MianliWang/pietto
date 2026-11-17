@@ -316,7 +316,8 @@ def test_project_declares_the_reviewed_classifiers_urls_and_keywords() -> None:
     assert contract.classifiers == (
         "Development Status :: 2 - Pre-Alpha",
         "Intended Audience :: Developers",
-        "Operating System :: OS Independent",
+        "Operating System :: Microsoft :: Windows",
+        "Operating System :: POSIX :: Linux",
         "Programming Language :: Python :: 3",
         "Programming Language :: Python :: 3 :: Only",
         "Programming Language :: Python :: 3.12",

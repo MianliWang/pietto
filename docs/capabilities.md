@@ -23,7 +23,8 @@ every rule and limit, and
 [Feature support by target](language.md#feature-support-by-target) gives the
 SQL of each function added after 0.1.8. Converting a result batch for pandas,
 Polars, NumPy, SciPy or Matplotlib is no `check` or `emit-sql` feature;
-[Python interoperability](interop.md) gives what each adapter admits.
+[Python interoperability](interop.md) gives what each adapter admits. A
+cell marked "not in `0.2.2`" is Phase81's, which no release carries yet.
 
 - **yes**: `check` accepts it, and `emit-sql` prints SQL (single file, exit 0)
   or a VERIFIED artifact (project, exit 0).
@@ -283,7 +284,8 @@ the legend above.
 This section gathers the platform claims that the other pages make, for each
 capability on Linux x86-64, Windows x86-64 and macOS. It adds no claim: the
 pages in the last column, and for CI-tested cells the CI workflow, state each
-one with its limits. Phase81 decides the Windows scope and the CPython matrix
+one with its limits. Phase81 sets the Windows scope, whose cells say "not in
+`0.2.2`", and decides the CPython matrix
 ([Phase81 scope](roadmap.md#phase81-scope)).
 
 - **qualified**: the page states that the capability was verified or
@@ -293,21 +295,25 @@ one with its limits. Phase81 decides the Windows scope and the CPython matrix
   and 3.13, and that is no support claim. On Linux, CI runs every test area;
   on Windows, it runs the parser, semantic, IR, plan, SQL, project, CLI and
   results tests and those of the SQLite file route, which there assert its
-  refusal, with no optional extra installed (the two Windows jobs of
-  the [CI workflow](../.github/workflows/ci.yml),
+  refusal, with no optional extra installed, and smoke-tests the installed
+  wheel (the two Windows jobs of the [CI workflow](../.github/workflows/ci.yml),
   [Phase81 scope](roadmap.md#phase81-scope)).
+- **supported**: the page claims that the capability works there, on the
+  evidence that CI gathers there: on Linux, CPython 3.12.14 and 3.13.15 with
+  every test area; on Windows, CPython 3.12.10 and 3.13.15, without an
+  optional extra.
 - **not claimed**: no page claims it; the cell says where a page states that
   it does not work.
 
 | Capability | Linux x86-64 | Windows x86-64 | macOS | Stated in |
 | --- | --- | --- | --- | --- |
-| Compiler and CLI: `check`, `emit-sql`, `fmt` and `explain` of single files and projects, with PostgreSQL and MySQL SQL | qualified: CPython 3.12 and 3.13 | CI-tested | not claimed | [Install](../README.md#install), [Installing a release](project-package.md#installing-a-release), the Windows row of the [0.1.10 decisions](decisions.md#0110-release--owner-decisions-2026-11-07) |
-| `emit-sql --project ROOT --all --output DIR` | qualified on supported Linux filesystems | not claimed: not supported; batch stdout, one `--output FILE` or `compile_all_sql(...)` instead | as Windows | [Project SQL emission](project-package.md#project-sql-emission), [What works now](../README.md#what-works-now), [Phase81 scope](roadmap.md#phase81-scope) |
-| Python compile API: `compile_sql`, `compile_all_sql` (alpha) | CI-tested | CI-tested | not claimed | [Python compile API](spec/python-compile-api-v1.md), the [CI workflow](../.github/workflows/ci.yml) |
-| `pietto lsp` (alpha) | CI-tested | CI-tested; a native Windows editor acceptance is Phase81 scope | not claimed | [Editor support](editor-lsp.md), [Phase81 scope](roadmap.md#phase81-scope), the [CI workflow](../.github/workflows/ci.yml) |
+| Compiler and CLI: `check`, `emit-sql`, `fmt` and `explain` of single files and projects, with PostgreSQL and MySQL SQL | qualified: CPython 3.12 and 3.13 | supported; not in `0.2.2` | not claimed | [Install](../README.md#install), [Installing a release](project-package.md#installing-a-release) |
+| `emit-sql --project ROOT --all --output DIR` | qualified on supported Linux filesystems | supported on CPython 3.12.4 or later: written by path into owner-only directories (with no access list on a volume that keeps none, such as FAT32 or exFAT), with DIR's ancestors resolved by path; not in `0.2.2` | not claimed: not supported; batch stdout, one `--output FILE` or `compile_all_sql(...)` instead | [Project SQL emission](project-package.md#project-sql-emission), [What works now](../README.md#what-works-now), [project CLI JSON v2](spec/project-cli-json-v2.md) |
+| Python compile API: `compile_sql`, `compile_all_sql` (alpha) | supported; not in `0.2.2` | supported; not in `0.2.2` | not claimed | [Python compile API](spec/python-compile-api-v1.md), [Install](../README.md#install), the [CI workflow](../.github/workflows/ci.yml) |
+| `pietto lsp` (alpha) | supported; not in `0.2.2` | supported, not in `0.2.2`; a native Windows editor acceptance is Phase81 scope | not claimed | [Editor support](editor-lsp.md), [Install](../README.md#install), [Phase81 scope](roadmap.md#phase81-scope), the [CI workflow](../.github/workflows/ci.yml) |
 | SQLite SQL text and goldens (`emit-sql FILE --dialect sqlite`) | CI-tested | CI-tested | not claimed | [SQLite single files](#sqlite-single-files) |
 | SQLite SQL text, as qualified by running it in process in the tests | qualified only on release `3.53.1` with the source id and the 46 compile options that `QUALIFIED_SQLITE_BUILD` in `src/pietto/sql/sqlite.py` records, under CPython 3.13.13 and 3.12.13; every other build, the SQLite of hosted CI included, is not qualified | not claimed: not qualified | not claimed: not qualified | [SQLite single files](#sqlite-single-files), [SQLite target validation](development.md#sqlite-target-validation) |
-| PostgreSQL and MySQL execution: `postgres_rows`, `postgres_adbc` and `mysql_rows`, with the workspace and saved-result calls (alpha) | qualified: CPython 3.13.13 with the lock's exact artifacts on the qualified integration host, PostgreSQL 18.6 and MySQL 8.4.12; the workspace and saved-result calls also need the job store's exact SQLite build and ext4 mounted read-write | not claimed: native execution is `NOTRUN`, and the workspace and saved-result calls raise `ModuleNotFoundError` for `fcntl` | not claimed: the workspace and saved-result calls are Linux-only | [Support matrix](execution.md#support-matrix), [Known limitations](execution.md#known-limitations), row 3 of [Validation runner acceptance](spec/validation-runner-acceptance-v1.md) |
+| PostgreSQL and MySQL execution: `postgres_rows`, `postgres_adbc` and `mysql_rows`, with the workspace and saved-result calls (alpha) | qualified: CPython 3.13.13 with the lock's exact artifacts on the qualified integration host, PostgreSQL 18.6 and MySQL 8.4.12; the workspace and saved-result calls also need the job store's exact SQLite build and ext4 mounted read-write | not claimed: not qualified, and not refused; the workspace and saved-result names raise `ModuleNotFoundError` for `fcntl` when read | not claimed: the workspace and saved-result calls are Linux-only | [Support matrix](execution.md#support-matrix), [Known limitations](execution.md#known-limitations), row 3 of [Validation runner acceptance](spec/validation-runner-acceptance-v1.md) |
 | `sqlite_file` route with the `arrow` extra (alpha) | runs only on release `3.53.1` with the measured source id and compile options, on x86-64; qualified in process under CPython 3.13.13 and 3.12.13 | not claimed: refused | not claimed: refused | [SQLite file route](execution.md#sqlite-file-route), [SQLite target validation](development.md#sqlite-target-validation) |
 | DuckDB emission (`--dialect duckdb`) | CI-tested | CI-tested | not claimed | [DuckDB local path](#duckdb-local-path) |
 | `duckdb_arrow` route with the `execute-duckdb` extra (alpha) | qualified: CPython 3.13.13 and 3.12.13 with `duckdb==2.0.1` (the published `0.2.2`: `2.0.0`) and `pyarrow==26.0.1`, glibc 2.28 or later; CI runs the request checks and seven real queries | not claimed: not qualified | not claimed: not qualified | [Support matrix](execution.md#support-matrix), [DuckDB native qualification](development.md#duckdb-native-qualification) |
@@ -320,5 +326,7 @@ one with its limits. Phase81 decides the Windows scope and the CPython matrix
   detect every directory race
   ([Trusted source identity](project-package.md#trusted-source-identity),
   [Formatting source](language.md#formatting-source)).
-- The package keeps its `Operating System :: OS Independent` classifier until
-  Phase81 decides the Windows scope.
+- The package's classifiers name Linux and Windows
+  (`Operating System :: POSIX :: Linux` and
+  `Operating System :: Microsoft :: Windows`) and no other operating system;
+  `0.2.2`'s is `Operating System :: OS Independent`.

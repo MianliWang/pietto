@@ -752,13 +752,17 @@ def _run_installed_cli(
     stage: str,
     environment: dict[str, str],
 ) -> subprocess.CompletedProcess[bytes]:
-    return _run_command(
+    result = _run_command(
         stage,
         (str(cli_path), *arguments),
         cwd=scratch_dir,
         capture_output=True,
         env=environment,
     )
+    if os.name == "nt":
+        # stdout ends lines with LF everywhere; Windows stderr ends them with CRLF.
+        result.stderr = result.stderr.replace(b"\r\n", b"\n")
+    return result
 
 
 def _smoke_installed_lsp(
@@ -1512,7 +1516,9 @@ def _smoke_project_emit_sql(
         env=environment,
     )
     batch_directory = scratch_dir / "batch"
-    supported_directory = sys.platform == "linux" and batch_output.returncode == 0
+    supported_directory = sys.platform == "win32" or (
+        sys.platform == "linux" and batch_output.returncode == 0
+    )
     if supported_directory:
         if (
             batch_output.stderr
@@ -1658,7 +1664,13 @@ def _installed_check(wheel: Path, extra: str) -> None:
             raise SmokeFailure("installed CLI failed")
     for member in _required_runtime_files("pietto"):
         if "/_project/project_" in member:
-            importlib.import_module(member[:-3].replace("/", "."))
+            try:
+                importlib.import_module(member[:-3].replace("/", "."))
+            except ModuleNotFoundError as error:
+                # The job and saved-result modules need POSIX fcntl; Windows
+                # execution is NOTRUN, neither claimed nor newly refused.
+                if os.name != "nt" or error.name != "fcntl":
+                    raise
     if any(name == "pyarrow" or name.startswith("pyarrow.") for name in sys.modules):
         raise SmokeFailure("public/CLI/private import eagerly loaded PyArrow")
     if any(name.split(".", 1)[0] in OPTIONAL_ROOTS for name in sys.modules):

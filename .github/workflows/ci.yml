@@ -813,6 +813,8 @@ jobs:
           uv run pytest -n 4 --dist=loadfile -rfEs --durations=20 --basetemp "$RUNNER_TEMP/pytest" \
             tests/test_{parser,semantic,ir,plan,sql,project,cli,results}_*.py \
             tests/test_execution_api_sqlite_file.py
+      - name: Smoke test installed package
+        run: uv run python scripts/package_smoke.py
 
   windows_thirteen:
     name: Windows 3.13
@@ -848,6 +850,8 @@ jobs:
           uv run pytest -n 4 --dist=loadfile -rfEs --durations=20 --basetemp "$RUNNER_TEMP/pytest" \
             tests/test_{parser,semantic,ir,plan,sql,project,cli,results}_*.py \
             tests/test_execution_api_sqlite_file.py
+      - name: Smoke test installed package
+        run: uv run python scripts/package_smoke.py
 
   target_conformance:
     name: Target ${{ matrix.target }}

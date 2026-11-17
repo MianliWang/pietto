@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import errno
+import io
 import os
 import stat
 import sys
@@ -133,6 +134,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     """Run Pietto developer tooling and return a process exit code."""
 
     try:
+        _end_stdout_lines_with_lf()
         exit_code = _main(argv)
         _flush_stdout()
     except UnicodeEncodeError:
@@ -1963,6 +1965,26 @@ def _write_stdout(output: str | bytes) -> None:
             buffer.write(output)
     except UnicodeEncodeError:
         raise
+    except (OSError, ValueError) as error:
+        raise _StdoutWriteError from error
+
+
+def _end_stdout_lines_with_lf() -> None:
+    """End the lines the CLI writes to stdout with LF on every platform.
+
+    --output files do the same; stderr keeps the platform's newline (CRLF on
+    Windows), and bytes written to stdout's buffer, such as fmt's and
+    migrate's source, keep their own. A closed stdout is left to the
+    command's write or flush; a detached one, or pending output that fails
+    to flush, raises _StdoutWriteError.
+    """
+
+    stream = sys.stdout
+    if not isinstance(stream, io.TextIOWrapper):
+        return
+    try:
+        if not stream.closed:
+            stream.reconfigure(newline="\n")
     except (OSError, ValueError) as error:
         raise _StdoutWriteError from error
 
