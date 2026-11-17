@@ -24,7 +24,8 @@ import stat
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any
+from types import SimpleNamespace
+from typing import Any, cast
 
 import pytest
 
@@ -239,7 +240,7 @@ def test_project_batch_emission_reuses_each_single_document_once(
 
 
 @pytest.mark.skipif(
-    not batch_output.supported(), reason="Linux descriptor publication required"
+    not batch_output.supported(), reason="Linux or Windows publication required"
 )
 @pytest.mark.parametrize("target", TARGETS)
 def test_project_batch_output_directory_has_artifacts_before_its_manifest(
@@ -359,7 +360,7 @@ def test_project_batch_keeps_each_owner_outcome_when_one_is_blocked(
 
 
 @pytest.mark.skipif(
-    not batch_output.supported(), reason="Linux descriptor publication required"
+    not batch_output.supported(), reason="Linux or Windows publication required"
 )
 def test_project_batch_output_input_drift_removes_its_manifest(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -376,7 +377,7 @@ def test_project_batch_output_input_drift_removes_its_manifest(
 
 
 @pytest.mark.skipif(
-    not batch_output.supported(), reason="Linux descriptor publication required"
+    not batch_output.supported(), reason="Linux or Windows publication required"
 )
 @pytest.mark.parametrize("presentation", ("json", "text"))
 def test_batch_limit_is_exact_and_refuses_before_directory_creation(
@@ -407,6 +408,8 @@ def test_batch_directory_platform_refuses_without_reading_or_creating(
 ):
     root, _ = batch_project(tmp_path, "postgres")
     monkeypatch.setattr(batch_output.os, "supports_dir_fd", set())
+    # Neither Windows nor a Linux with descriptor publication, as on macOS.
+    monkeypatch.setattr(batch_output, "supported", batch_output._descriptors_supported)
     output = tmp_path / "unsupported"
     code, out, _ = run(batch_argv(root, "postgres", output=str(output)))
     assert code == 2 and not output.exists()
@@ -418,7 +421,8 @@ def test_batch_directory_platform_refuses_without_reading_or_creating(
 
 
 @pytest.mark.skipif(
-    not batch_output.supported(), reason="Linux descriptor publication required"
+    not batch_output._descriptors_supported(),
+    reason="Linux descriptor publication required",
 )
 @pytest.mark.parametrize(
     "fault",
@@ -523,7 +527,7 @@ def test_batch_directory_faults_never_modify_foreign_names(
             return device, inode, 0, mtime, size
 
         monkeypatch.setattr(batch_output, "_file_identity", coarse_identity)
-    monkeypatch.setattr(batch_output, "supported", lambda: True)
+    monkeypatch.setattr(batch_output, "_descriptors_supported", lambda: True)
     monkeypatch.setattr(batch_output.os, "mkdir", mkdir)
     monkeypatch.setattr(batch_output.os, "link", link)
     monkeypatch.setattr(batch_output, "_write_new", write)
@@ -552,7 +556,8 @@ def test_batch_directory_faults_never_modify_foreign_names(
 
 
 @pytest.mark.skipif(
-    not batch_output.supported(), reason="Linux descriptor publication required"
+    not batch_output._descriptors_supported(),
+    reason="Linux descriptor publication required",
 )
 def test_batch_manifest_is_the_commit_point(tmp_path, monkeypatch):
     root, _ = batch_project(tmp_path, "postgres")
@@ -574,6 +579,307 @@ def test_batch_manifest_is_the_commit_point(tmp_path, monkeypatch):
     assert (output / "manifest.json").read_bytes() == out
     for item in batch_document(out)["items"]:
         assert (output / item["path"]).read_bytes() == probe.encoded(item["document"])
+
+
+# --- the Windows path writer; elsewhere its Windows calls are simulated -------
+
+PATH_ARTIFACTS = (b'{"item":0}\n', b'{"item":1}\n')
+PATH_MANIFEST = b'{"manifest":true}\n'
+
+
+def path_writer_calls():
+    """The Windows writer's pin, no-replace rename and checked removal: the
+    real ones on Windows; elsewhere an O_PATH descriptor, which like the
+    Windows handle opens a link itself but does not hold the name, a hard
+    link, which refuses an existing target as Windows does, and a removal
+    that checks the directory's identity first."""
+    if sys.platform == "win32":
+        return (
+            batch_output._pin_directory,
+            os.rename,
+            batch_output._remove_directory,
+        )
+
+    def pin(path):
+        return os.open(path, os.O_PATH | os.O_NOFOLLOW)
+
+    def rename(source, target):
+        os.link(source, target)
+        os.unlink(source)
+
+    def remove(path, identity):
+        state = os.lstat(path)
+        if not stat.S_ISDIR(state.st_mode) or (state.st_dev, state.st_ino) != identity:
+            raise OSError("batch directory changed")
+        os.rmdir(path)
+
+    return pin, rename, remove
+
+
+def listing(directory: Path) -> list[str]:
+    return sorted(
+        path.relative_to(directory).as_posix() for path in directory.rglob("*")
+    )
+
+
+def test_path_writer_installs_each_file_by_name_and_the_manifest_last(tmp_path):
+    pin, rename, remove = path_writer_calls()
+    output = tmp_path / "batch"
+    installed = []
+
+    def recording_rename(source, target):
+        assert Path(source).parent == Path(target).parent
+        assert (
+            Path(source).read_bytes()
+            == (PATH_ARTIFACTS + (PATH_MANIFEST,))[len(installed)]
+        )
+        rename(source, target)
+        installed.append(Path(target).relative_to(output).as_posix())
+
+    before = open_descriptors()
+    batch_output._publish_by_path(
+        output,
+        PATH_ARTIFACTS,
+        PATH_MANIFEST,
+        lambda: True,
+        pin,
+        recording_rename,
+        remove,
+    )
+    assert open_descriptors() == before
+    assert installed == [
+        "artifacts/000000.json",
+        "artifacts/000001.json",
+        "manifest.json",
+    ]
+    assert listing(output) == ["artifacts", *installed]
+    assert [(output / name).read_bytes() for name in installed] == [
+        *PATH_ARTIFACTS,
+        PATH_MANIFEST,
+    ]
+    if sys.platform != "win32":
+        # The mode that on Windows gives an owner-only protected DACL.
+        modes = {
+            stat.S_IMODE(os.stat(output / name).st_mode) for name in ("", "artifacts")
+        }
+        assert modes == {0o700}
+    # On Windows a handle left open would refuse this rename.
+    output.rename(tmp_path / "moved")
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows holds by handle")
+def test_path_writer_holds_its_new_directories_while_it_writes(tmp_path):
+    pin, rename, remove = path_writer_calls()
+    output = tmp_path / "batch"
+    refused = []
+
+    def moving_rename(source, target):
+        for directory in (output, output / "artifacts"):
+            with pytest.raises(PermissionError):
+                directory.rename(tmp_path / "moved")
+            refused.append(directory)
+        rename(source, target)
+
+    batch_output._publish_by_path(
+        output, PATH_ARTIFACTS, PATH_MANIFEST, lambda: True, pin, moving_rename, remove
+    )
+    assert len(refused) == 6 and listing(output)[-1] == "manifest.json"
+
+
+def test_path_writer_refuses_a_reparse_point_as_its_directory(tmp_path):
+    assert batch_output._plain_directory(os.lstat(tmp_path))
+    state = SimpleNamespace(
+        st_mode=stat.S_IFDIR | 0o700,
+        st_file_attributes=stat.FILE_ATTRIBUTE_REPARSE_POINT,
+    )
+    assert not batch_output._plain_directory(cast(os.stat_result, state))
+
+
+@pytest.mark.parametrize(
+    ("version", "expected"), (((3, 12, 3), False), ((3, 12, 4), True))
+)
+def test_path_writer_needs_an_owner_only_mkdir(monkeypatch, version, expected):
+    # Before 3.12.4 os.mkdir ignores the mode on Windows.
+    windows = SimpleNamespace(platform="win32", version_info=version)
+    monkeypatch.setattr(batch_output, "sys", windows)
+    assert batch_output.supported() is expected
+
+
+@pytest.mark.parametrize(
+    "fault",
+    (
+        "exists",
+        "link_before_pin",
+        *(
+            pytest.param(
+                fault,
+                marks=pytest.mark.skipif(
+                    sys.platform == "win32", reason="Windows refuses the rename"
+                ),
+            )
+            for fault in ("replaced", "relinked", "parent_replaced")
+        ),
+        "artifact_exists",
+        "manifest_exists",
+        "artifact_changed",
+        "artifact_swapped",
+        "manifest_swapped",
+        "manifest_changed",
+        "staged_substituted",
+        "foreign_hardlink",
+        "inputs_changed",
+        "late_failure",
+        "cleanup_replaced",
+    ),
+)
+def test_path_writer_faults_never_modify_foreign_names(tmp_path, monkeypatch, fault):
+    pin, rename, remove = path_writer_calls()
+    home, parked, foreign = (
+        tmp_path / "home",
+        tmp_path / "parked",
+        tmp_path / "foreign",
+    )
+    output = home / "batch"
+    home.mkdir()
+    foreign.mkdir()
+    (foreign / "000000.json").write_bytes(b"KEEP")
+    untouched = foreign.stat().st_mtime_ns
+    if fault == "exists":
+        output.mkdir()
+        (output / "keep.txt").write_bytes(b"KEEP")
+
+    def hooked_pin(path):
+        if fault == "link_before_pin" and path == output:
+            os.rmdir(path)
+            if sys.platform == "win32":
+                import _winapi
+
+                _winapi.CreateJunction(str(foreign), str(path))
+            else:
+                path.symlink_to(foreign, target_is_directory=True)
+        return pin(path)
+
+    installed = []
+
+    def substitute(path, data):
+        # A new file takes the name; the old one still exists, so its
+        # identity cannot be reused.
+        other = path.with_name("other")
+        other.write_bytes(data)
+        os.replace(other, path)
+
+    def hooked_rename(source, target):
+        name = Path(target).name
+        installed.append(name)
+        if (fault, name) in (
+            ("artifact_exists", "000000.json"),
+            ("manifest_exists", "manifest.json"),
+        ):
+            Path(target).write_bytes(b"KEEP")
+        if (fault, name) in (
+            ("artifact_swapped", "000000.json"),
+            ("manifest_swapped", "manifest.json"),
+        ):
+            substitute(Path(source), b"KEEP")
+        if (fault, name) == ("late_failure", "000001.json"):
+            raise OSError("later install failed")
+        rename(source, target)
+        if (fault, name) == ("replaced", "000000.json"):
+            output.rename(parked)
+            (output / "artifacts").mkdir(parents=True)
+            (output / "foreign.txt").write_bytes(b"KEEP")
+        if (fault, name) == ("relinked", "000000.json"):
+            output.rename(parked)
+            output.symlink_to(parked, target_is_directory=True)
+        if (fault, name) == ("parent_replaced", "000000.json"):
+            home.rename(parked)
+            home.mkdir()
+            (parked / "batch").rename(output)
+
+    def inputs_current():
+        if fault in ("artifact_changed", "manifest_changed"):
+            path = (
+                output / "artifacts/000000.json"
+                if fault == "artifact_changed"
+                else next(output.glob(".pietto-*.tmp"))
+            )
+            state = path.stat()
+            path.write_bytes(b"X" * state.st_size)
+            os.utime(path, ns=(state.st_atime_ns, state.st_mtime_ns))
+        if fault == "foreign_hardlink":
+            os.link(output / "artifacts/000000.json", tmp_path / "linked.json")
+        return fault not in ("inputs_changed", "cleanup_replaced")
+
+    def hooked_remove(path, identity):
+        if fault == "cleanup_replaced" and path == output:
+            output.rename(parked)
+            output.mkdir()
+        remove(path, identity)
+
+    if fault == "staged_substituted":
+        installed_file = batch_output._installed_file
+
+        def substituting(path):
+            if path.name.startswith(".pietto-"):
+                substitute(path, path.read_bytes())
+                monkeypatch.setattr(batch_output, "_installed_file", installed_file)
+            return installed_file(path)
+
+        monkeypatch.setattr(batch_output, "_installed_file", substituting)
+
+    before = open_descriptors()
+    with pytest.raises(OSError):
+        batch_output._publish_by_path(
+            output,
+            PATH_ARTIFACTS,
+            PATH_MANIFEST,
+            inputs_current,
+            hooked_pin,
+            hooked_rename,
+            hooked_remove,
+        )
+    assert open_descriptors() == before
+    assert listing(foreign) == ["000000.json"]
+    assert (foreign / "000000.json").read_bytes() == b"KEEP"
+    assert foreign.stat().st_mtime_ns == untouched  # not even entered
+    if fault in ("link_before_pin", "relinked"):
+        # Nothing is written once a held name no longer names its directory.
+        assert installed == (["000000.json"] if fault == "relinked" else [])
+    else:
+        remaining = [
+            re.sub(r"\.pietto-[0-9a-f]{8}\.tmp$", ".pietto-*.tmp", name)
+            for name in (listing(output) if output.exists() else [])
+        ]
+        assert remaining == {
+            "exists": ["keep.txt"],
+            "replaced": ["artifacts", "foreign.txt"],
+            "artifact_exists": ["artifacts", "artifacts/000000.json"],
+            "manifest_exists": ["manifest.json"],
+            "artifact_changed": ["artifacts", "artifacts/000000.json"],
+            "artifact_swapped": ["artifacts", "artifacts/000000.json"],
+            "manifest_swapped": ["manifest.json"],
+            "staged_substituted": ["artifacts", "artifacts/.pietto-*.tmp"],
+            "foreign_hardlink": ["artifacts", "artifacts/000000.json"],
+        }.get(fault, [])
+        content = {
+            "artifact_changed": b"X",
+            "staged_substituted": PATH_ARTIFACTS[0],
+            "foreign_hardlink": PATH_ARTIFACTS[0],
+        }.get(fault, b"KEEP")
+        for path in output.rglob("*") if output.exists() else ():
+            assert path.is_dir() or path.read_bytes().startswith(content)
+    if fault in ("replaced", "parent_replaced"):
+        assert installed == ["000000.json"]
+    if fault == "replaced":
+        assert listing(parked) == ["artifacts", "artifacts/000000.json"]
+    if fault == "foreign_hardlink":
+        assert (tmp_path / "linked.json").read_bytes() == PATH_ARTIFACTS[0]
+    if fault == "cleanup_replaced":
+        assert output.is_dir() and listing(parked) == []
+    # On Windows a handle left open would refuse these renames.
+    for directory in (output / "artifacts", output):
+        if directory.is_dir():
+            directory.rename(tmp_path / f"released-{directory.name}")
 
 
 @pytest.mark.parametrize("name", ("U1_cross", "U2_inner_true", "U4_left_true"))

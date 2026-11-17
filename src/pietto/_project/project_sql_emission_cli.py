@@ -1003,7 +1003,7 @@ def _validate_batch_output(output: Path) -> InputError | None:
     if not _batch_output.supported():
         return InputError(
             "batch_output_platform",
-            "Safe batch directory output requires supported Linux filesystem capabilities; use stdout instead.",
+            "Safe batch directory output requires Windows with CPython 3.12.4 or later or a supported Linux filesystem; use stdout instead.",
         )
     try:
         state = os.lstat(output)
@@ -1042,7 +1042,8 @@ def _publish_batch(
     manifest: bytes,
     protected: Sequence[tuple[Path, tuple[int, int]]],
 ) -> tuple[InputError, ...]:
-    """Publish the complete batch only into descriptor-bound, new owned names."""
+    """Publish the complete batch only into new owned names: pinned by
+    descriptor on Linux, held by handle and checked by path on Windows."""
     if not _protected_current(protected):
         return (
             InputError(
@@ -1057,7 +1058,7 @@ def _publish_batch(
         return (
             InputError(
                 "batch_output_platform",
-                "Safe batch directory output requires supported Linux filesystem capabilities; use stdout instead.",
+                "Safe batch directory output requires Windows with CPython 3.12.4 or later or a supported Linux filesystem; use stdout instead.",
             ),
         )
     except OSError:

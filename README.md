@@ -52,8 +52,11 @@ On Windows, activate the environment with `.venv\Scripts\activate`. With
 [uv](https://docs.astral.sh/uv/), `uv pip install pietto` installs into the
 active virtual environment, and `uv tool install --python 3.13 pietto` installs
 the `pietto` command in an environment of its own. The compiler and CLI are
-verified with CPython 3.12 and 3.13 on Linux x86-64, and CI also runs the
-platform-neutral tests on Windows x86-64. The version's
+verified with CPython 3.12 and 3.13 on Linux x86-64. On Windows x86-64 the CLI
+(`check`, `emit-sql`, `fmt`, `explain` and `lsp`) and `pietto.compiler` are
+supported with CPython 3.12 and 3.13, where CI runs their tests and
+smoke-tests the installed wheel; execution is not run on Windows and no extra
+is claimed there. The version's
 [GitHub release](https://github.com/MianliWang/pietto/releases) attaches the
 same wheel and sdist with `SHA256SUMS`
 ([checking them](https://github.com/MianliWang/pietto/blob/main/docs/project-package.md#installing-a-release)).
@@ -232,9 +235,9 @@ gives every rule and limit.
   and `unnest`.
 - `emit-sql --project` compiles one table or query, or all of them with
   `--all`, against an emission contract (see Project SQL emission below).
-  `--all --output DIR` writes files only on supported Linux filesystems, not
-  on Windows or macOS; there use batch stdout, a single `--output FILE` or
-  `pietto.compiler.compile_all_sql(...)`.
+  `--all --output DIR` writes files on Windows with CPython 3.12.4 or later
+  and on supported Linux filesystems, not on macOS; there use batch stdout, a
+  single `--output FILE` or `pietto.compiler.compile_all_sql(...)`.
 - `explain --project` lists the output columns of every table and query
   (alpha).
 

@@ -481,19 +481,16 @@ def test_terminal_encoding_failure_returns_safe_output_error(
         "        id\n",
     )
 
-    # A Windows pipe defaults to the ANSI code page, and text streams keep the
-    # platform's newline convention (docs/spec/cli-json-v1.md).
+    # A Windows pipe defaults to the ANSI code page; stdout ends lines with LF
+    # and stderr with the platform's newline (docs/spec/cli-json-v1.md).
     normal = _run_cli(
         ["emit-sql", str(path), "--dialect", "postgres"],
         encoding="utf-8" if sys.platform == "win32" else None,
     )
-    newline = os.linesep.encode("ascii")
-    encoding_error = _OUTPUT_ENCODING_ERROR.replace(b"\n", newline)
+    encoding_error = _OUTPUT_ENCODING_ERROR.replace(b"\n", os.linesep.encode("ascii"))
     assert normal.returncode == 0
     assert normal.stderr == b""
-    assert normal.stdout == _expected_emoji_sql().encode("utf-8").replace(
-        b"\n", newline
-    )
+    assert normal.stdout == _expected_emoji_sql().encode("utf-8")
     for encoding in ("gbk", "cp1252", "ascii"):
         failed = _run_cli(
             ["emit-sql", str(path), "--dialect", "postgres"],
@@ -536,6 +533,54 @@ def test_terminal_encoding_failure_returns_safe_output_error(
         assert b"Traceback" not in diagnostic.stderr
 
 
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        ("check",),
+        ("emit-sql", "--dialect", "postgres"),
+        ("emit-sql", "--dialect", "postgres", "--format", "json"),
+    ],
+)
+def test_stdout_ends_lines_with_lf_where_text_streams_write_crlf(
+    arguments: tuple[str, ...],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = _write(
+        tmp_path,
+        "warning.pietto",
+        "shape User:\n"
+        "    email: Text\n"
+        'source users: User = postgres.table("users")\n'
+        'source raw = postgres.table("raw")\n'
+        "table user_emails:\n"
+        "    from users\n"
+        "    select:\n"
+        "        email\n",
+    )
+    # A Windows text stream writes each "\n" as "\r\n", as newline="\r\n" does.
+    out, err = io.BytesIO(), io.BytesIO()
+    monkeypatch.setattr(
+        sys, "stdout", io.TextIOWrapper(out, encoding="utf-8", newline="\r\n")
+    )
+    monkeypatch.setattr(
+        sys, "stderr", io.TextIOWrapper(err, encoding="utf-8", newline="\r\n")
+    )
+
+    assert cli.main([arguments[0], str(path), *arguments[1:]]) == 0
+
+    assert out.getvalue().endswith(b"\n")
+    assert b"\r" not in out.getvalue()
+    if arguments[-1] == "postgres":
+        assert out.getvalue() == (
+            b'-- user_emails\nSELECT\n    "email" AS "email"\nFROM "users";\n'
+        )
+    # stderr keeps the platform's newline; JSON carries its warnings inside.
+    if arguments[-1] != "json":
+        assert b"PIE-S2303 warning:" in err.getvalue()
+        assert err.getvalue().count(b"\n") == err.getvalue().count(b"\r\n")
+
+
 class _FailingStdout:
     """Stubbed stream fault: stdout whose write or flush fails like a descriptor."""
 
@@ -563,6 +608,9 @@ class _FailingStdout:
         ("no-space", _STDOUT_NO_SPACE),
         # Python sets sys.stdout to None when descriptor 1 is closed.
         ("closed", _STDOUT_CLOSED),
+        # A caller of main() may install a closed or detached text stream.
+        ("closed-text", _STDOUT_CLOSED),
+        ("detached-text", _STDOUT_CLOSED),
     ],
 )
 @pytest.mark.parametrize(
@@ -599,10 +647,16 @@ def test_stdout_failure_is_a_handled_cli_error_in_every_command(
         'schema_version = 2\n\n[sources]\ninclude = ["*.pietto"]\n', encoding="utf-8"
     )
     _write(project, "main.pietto", SOURCE)
+    closed_text = io.TextIOWrapper(io.BytesIO())
+    closed_text.close()
+    detached_text = io.TextIOWrapper(io.BytesIO())
+    detached_text.detach()
     stdout = {
         "broken-pipe": _FailingStdout(BrokenPipeError(errno.EPIPE, "x"), "write"),
         "no-space": _FailingStdout(OSError(errno.ENOSPC, "localized"), "flush"),
         "closed": None,
+        "closed-text": closed_text,
+        "detached-text": detached_text,
     }[failure]
     monkeypatch.setattr(sys, "stdout", stdout)
     stderr = io.StringIO()

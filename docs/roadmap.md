@@ -328,15 +328,11 @@ only for the same immutable input (version, configuration and identity),
 with the trust evidence recorded. It holds the diagnostic review that was
 planned for Phase82. Natural CI has run the platform-neutral tests on
 Windows with Python 3.12 and 3.13 since the 2026-11-06 maintenance
-(`e961ddb6`). Batch `emit-sql --project ROOT --all --output DIR` writes only
-on supported Linux filesystems and is not supported on Windows or macOS, as
-the README and the project guide state; those platforms use batch stdout, a
-single `--output FILE`, or `pietto.compiler.compile_all_sql(...)` with their
-own code writing the files. The Windows scope covers a path-based batch
-directory writer, a claim of CLI and compile support with execution NOTRUN,
-and a native Windows editor acceptance, and that claim leaves out the extras
-(PL.40, D5); until then the package keeps its
-`Operating System :: OS Independent` classifier. Nullability v2 changes a
+(`e961ddb6`). Of the Windows scope, P05 landed the path-based batch
+directory writer and the CLI and compile claim with execution NOTRUN and the
+extras left out (PL.40, D5;
+[platforms and qualification](capabilities.md#platforms-and-qualification));
+a native Windows editor acceptance remains. Nullability v2 changes a
 public type contract, and the owner kept it out of Phase81 on 2026-11-17:
 the current rules freeze, and v2 goes to `0.3.0` as a breaking change
 ([P02 record](phases/phase-81/route.md#p02-record)).
