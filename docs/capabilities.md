@@ -11,7 +11,9 @@ their own ([SQLite single files](#sqlite-single-files),
 other pages claim for each platform.
 It describes `0.2.2`, whose
 [release notes](release-notes.md#sqlite-project-mode-duckdb-joins-and-mysql-catch-up-public-alpha-release-notes--022)
-give each change. Each row was recorded by running one
+give each change, and the range-proved `Int` arithmetic of SQLite projects
+([SQLite single files](#sqlite-single-files)) that no release carries yet.
+Each row was recorded by running one
 plain example of the family through these commands, with a project emission
 contract that declares every premise
 ([project SQL emission](project-package.md#project-sql-emission)). A cell
@@ -143,7 +145,12 @@ refused alike for every target.
   header parameters, `COLLATE BINARY` at each `Text` comparison, key and
   `count_distinct` argument, and `sum` of an `Int` field whose contract
   `int_range` lies on one side of zero; a mixed-sign range is PIE-B1004
-  `sum_int_aggregate_range_proof_missing`
+  `sum_int_aggregate_range_proof_missing`. `Int` `+`, `-`, `*`, unary `-`
+  and `abs` over `Int` fields and literals are admitted in `select` and
+  `where`, and all but `abs` in the argument of `avg` and `sum` (`check`
+  refuses `abs` there, PIE-S2315), when the contract's `int_range` bounds
+  keep every result inside signed 64 bits, else PIE-B1004
+  `int_arithmetic_range_proof_missing`
   ([SQLite projects](language.md#sqlite-projects), alpha). PostgreSQL, MySQL
   and DuckDB emission refuse such a source with PIE-B1001
   `source_family_mismatch`.
