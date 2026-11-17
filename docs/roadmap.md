@@ -333,8 +333,9 @@ out the extras (PL.40, D5).
 Phase81 follows the new route of the owner's draft plan for the later
 phases, which bundles several phases for parallel scheduling and which the
 lead reviewed, in its next revision, r17, which the lead drafted and the
-owner reviewed and dispatched on 2026-11-17; Phase81's Gate 0 could start,
-and its implementation ran beside `0.2.2` (PL.54, PL.58, PL.65, PL.66).
+owner reviewed and dispatched on 2026-11-17; the [Phase81
+route](phases/phase-81/route.md) binds its Gate 0 and positions, and its
+implementation ran beside `0.2.2` (PL.54, PL.58, PL.65, PL.66).
 On 2026-11-16 the owner answered the lead's
 Phase81 Gate 1 sheet (PL.50), taking every recommendation except that the
 release tools move into the repository, and later adopted every answer
@@ -473,7 +474,7 @@ before its owner's Gate 1 takes it.
 | MySQL `count` of a `Float` `+`, `-` or `*` in E4B's cells, and any E4B `count` under a WHERE, kept refused since MySQL may count a row without computing an argument it types non-nullable (a `NOT NULL` column under a nullable declaration), where PostgreSQL fails: first complete fix, MySQL SQL that computes the argument whatever the column's nullability | E4B's chain C owner, with new MySQL bytes and a chain C witness, before the Phase82 freeze (D77.78, MC.04, PL.58, PL.82) |
 | The same `count`: second complete fix, MySQL source admission that refuses a `NOT NULL` column under a nullable declaration for each field such a `count` reads, on every reader's route | the MySQL source admission owner with E4B's chain C owner, with a chain C witness of a nullable declaration over a `NOT NULL` column, before the Phase82 freeze (D77.78, MC.04, PL.58, PL.82) |
 | Every other position of PostgreSQL's E4 on MySQL, outside E4B's positions, such as two levels of nesting, `/` or an aggregate other than `count` of an operation, a `*` beside a header parameter or `Float` arithmetic in a JOIN `on` | no target (MC.04, MC.10, PL.68, PL.76) |
-| `verify_project_sql_plan` runs without a memo, 4 to 29 times per case | `_project/project_sql_plan_verification.py` and its emission callers, in Phase81 (PL.40, D15); a memo needs the owner ([Phase77 S26](phases/phase-77/route.md#s26-closure-record)) |
+| `verify_project_sql_plan` runs without a memo, 34 times in one `compile_sql` call on a one-relation fixture ([Phase81 P01](phases/phase-81/route.md#p01-record)) | `_project/project_sql_plan_verification.py` and its emission callers, in Phase81's P15, reused only inside one public call (PL.40, D15; PL.50 Q6) |
 
 ## Phase82 freeze ledger
 
