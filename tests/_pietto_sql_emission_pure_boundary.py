@@ -899,10 +899,18 @@ def _float_literal(doc, value) -> bool:
     """One direct, possibly signed, Float literal or bound literal value: the
     operand a static Float fold reads (never a let, field or parameter read)."""
 
+    return _float_literal_value(doc, value) is not None
+
+
+def _float_literal_value(doc, value) -> float | None:
+    """The signed value of such an operand, or None."""
+
+    negated = False
     while value.kind == "sql_unary":
+        negated ^= doc[value]["operator"] == "-"
         value = doc[value]["operand"]
     if value.kind != "sql_anchor":
-        return False
+        return None
     leaf = doc[value]["operand"]
     fixed = (
         doc[leaf]["value"]
@@ -911,7 +919,9 @@ def _float_literal(doc, value) -> bool:
         if leaf.kind == "sql_parameter"
         else None
     )
-    return fixed is not None and fixed.tag == "Float"
+    if fixed is None or fixed.tag != "Float":
+        return None
+    return -fixed.value if negated else fixed.value
 
 
 def _literal_text(doc, value):
@@ -3780,6 +3790,25 @@ class _Check:
                         },
                     ),
                     "MySQL division carrier",
+                )
+            folded = tuple(_float_literal_value(doc, child) for child in op["operands"])
+            if (
+                op["kind"] == "arithmetic"
+                and op["operator"] in {"+", "-", "*"}
+                and result["tag"] == "Float"
+                and len(folded) == 2
+                and None not in folded
+            ):
+                # The emitter's static fold: no infinity, and no product of two
+                # non-zero values that rounds to zero (PostgreSQL's 22003).
+                left, right = cast(tuple[float, float], folded)
+                value = {"+": left + right, "-": left - right, "*": left * right}[
+                    op["operator"]
+                ]
+                _require(
+                    math.isfinite(value)
+                    and (op["operator"] != "*" or value != 0.0 or 0.0 in folded),
+                    "Float literal fold",
                 )
             if family == "postgres" and result["tag"] == "Decimal":
                 operands = tuple(

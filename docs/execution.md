@@ -966,6 +966,11 @@ The values:
   a divisor slot takes only 2 or more and a dividend slot only 0 or more,
   whatever the contract's domains; any other value is `PIE-R1004`
   `BINDING_INVALID`. PostgreSQL binds it as before.
+- The two `Float` literal slots of one `+`, `-` or `*`, as in `1.5 * 2.0`,
+  take only a pair whose binary64 result is finite and, for a product of two
+  non-zero values, does not round to zero, on PostgreSQL and MySQL alike; any
+  other pair is `PIE-R1004` `BINDING_INVALID`. A subnormal product or a zero
+  factor binds.
 
 ## Parameters
 
