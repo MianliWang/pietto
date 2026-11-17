@@ -44,9 +44,9 @@ a `sqlite.table` source, these outputs change:
 - The suggestion of `sqlite_relation_shape_not_admitted` changes for every
   statement it refuses, a JOIN or `distinct` included, and scripts that
   match its text must follow. It now reads `SQLite emission admits one
-  source read with where, group by, having, order by, limit and select, and
-  windows over one source read without group by; JOINs, qualify, distinct,
-  set operations, relation lets and reads of another table or query are
-  not available on SQLite`.
+  source read, or INNER and LEFT JOINs of sources, with where, group by,
+  having, order by, limit and select, and windows over one source read
+  without group by; qualify, distinct, set operations, relation lets and
+  reads of another table or query are not available on SQLite`.
 - The `sqlite_file` route's authorizer also allows the functions
   `row_number`, `rank` and `dense_rank`.

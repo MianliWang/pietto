@@ -157,7 +157,10 @@ refused alike for every target.
   other than `exclude no others`; other windows are PIE-B1003
   `sqlite_window_not_admitted` or `sqlite_window_sum_frame_not_admitted`,
   and a window `sum` over a mixed-sign `int_range` is PIE-B1004
-  `sum_int_aggregate_range_proof_missing`
+  `sum_int_aggregate_range_proof_missing`. They also write INNER and LEFT
+  JOINs of `sqlite.table` sources on equalities of two `Int`, `Text` or
+  `Bool` fields joined with `and`, other JOINs being PIE-B1003
+  `sqlite_join_not_admitted`
   ([SQLite projects](language.md#sqlite-projects), alpha). PostgreSQL, MySQL
   and DuckDB emission refuse such a source with PIE-B1001
   `source_family_mismatch`.
@@ -165,7 +168,9 @@ refused alike for every target.
   compiles such a project query, and the `sqlite_file` route runs it
   read-only over one caller's file of `STRICT` tables, only on Linux x86-64
   with the measured build ([SQLite file route](execution.md#sqlite-file-route),
-  alpha). A single file is never run.
+  alpha), except a statement with a JOIN, which it refuses with PIE-R1003
+  `PUBLIC_ROUTE_UNAVAILABLE` before the file opens. A single file is never
+  run.
 - **Support.** The SQL text and its goldens are tested wherever CI runs
   (CPython 3.12 and 3.13). The native cells qualify the SQL in process on one
   measured SQLite library only: release `3.53.1`, source id `2026-05-05

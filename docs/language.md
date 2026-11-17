@@ -768,6 +768,17 @@ is left out; any other window is BLOCKED with PIE-B1003
 `sqlite_window_sum_frame_not_admitted`, and a window `sum` of an `Int`
 field whose `int_range` holds both signs with PIE-B1004
 `sum_int_aggregate_range_proof_missing`.
+A table or query may also join `sqlite.table` sources: `inner join x on ...`
+or `left join x on ...` of a source bound by `let x = source`, a self-join
+included, one after another, whose `on` is one or more equalities `a == b`
+joined with `and`, each of a field of `x` and a field of an earlier input,
+the two of one type, `Int`, `Text` or `Bool`. The forms above then read the
+fields of every input, arithmetic included, but for windows, which read one
+source and so are BLOCKED after a JOIN with PIE-B1003
+`sqlite_relation_shape_not_admitted`; an
+aggregate over rows that a JOIN may repeat stays PIE-S2333, as everywhere. RIGHT, FULL, CROSS and asof JOINs, a JOIN
+to a table, query or relation `let`, a relationship match and any other
+`on` are BLOCKED with PIE-B1003 `sqlite_join_not_admitted`.
 The emission contract gives the table as the `relation` `{"namespace":
 "main", "name": NAME}`, where NAME is the `sqlite.table` string exactly,
 and each field's storage ([emission contract values](project-package.md#emission-contract-values));
@@ -775,20 +786,22 @@ every other form, and a contract that does not fit, is BLOCKED with the
 details of the specification's
 [compile refusals](spec/sqlite-project-v1.md#compile-refusals).
 
-The SQL is one `SELECT` over `` `main`.`<table>` AS `s0` ``. It writes every
-field as `` `s0`.`<column>` ``, quotes every name in backticks, writes each
+The SQL is one `SELECT` over `` `main`.`<table>` AS `s0` ``, each JOIN adding
+`` INNER JOIN `main`.`<table>` AS `s1` ON ... `` or `LEFT JOIN`, with `s2`,
+`s3`, ... for later inputs. It writes every field as `` `sN`.`<column>` ``
+with its input's alias, quotes every name in backticks, writes each
 parameter read as `?N`, numbered from 1 by its first read, writes a `Bool`
 literal as `1` or `0`, and ends every ascending key with `NULLS LAST` and
 every descending key with `NULLS FIRST`, as single files do. It writes
 `abs(x)` as `ABS(x)` and a unary `-` before an `Int` literal as one signed
 literal, so `-9223372036854775808` is SQLite's `INTEGER` minimum. It keeps
 the single-file premises above except the collation: project SQL writes
-`COLLATE BINARY` at each `Text` comparison, `group by` key, `order by` key,
-window key and `count_distinct` argument, so a `COLLATE NOCASE` column
-still compares by its bytes, and the contract's `Text` collation `BINARY`
-names that comparison, not the column's. It writes each window inline as
-`OVER (...)`, with the frame the plan resolves written out.
-`compile_query(dialect="sqlite")` compiles
+`COLLATE BINARY` at each `Text` comparison, a JOIN's `on` included, `group
+by` key, `order by` key, window key and `count_distinct` argument, so a
+`COLLATE NOCASE` column still compares by its bytes, and the contract's
+`Text` collation `BINARY` names that comparison, not the column's. It writes
+each window inline as `OVER (...)`, with the frame the plan resolves written
+out. `compile_query(dialect="sqlite")` compiles
 such a query for the read-only
 [`sqlite_file` route](execution.md#sqlite-file-route).
 
