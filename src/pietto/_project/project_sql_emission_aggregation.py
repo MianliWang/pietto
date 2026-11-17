@@ -108,6 +108,10 @@ TARGET_CHECKED_BINARY64 = rows.TARGET_CHECKED_BINARY64
 DISTINCT_FUNCTIONS = frozenset({"count_distinct", "count_distinct_tuple"})
 COUNTING_FUNCTIONS = frozenset({"count", "count_distinct", "count_distinct_tuple"})
 EXTREMA_FUNCTIONS = frozenset({"min", "max"})
+# MySQL 8.4 keeps a MIN or MAX of a SMALLINT or INT base column that column's
+# type, but returns one over a column of a merged stage as BIGINT (G1, MC, run
+# 2026-11-17); over a materialized stage it keeps the column's type.
+MYSQL_WIDENED_EXTREMA = ({"kind": "my_smallint"}, {"kind": "my_int"})
 # COUNT publishes its own non-null result; R13 declares the signed64 premise, so
 # the domain is that premise's bound, never a guess about this input's row count.
 COUNT_STORAGE = {"postgres": "pg_int8", "mysql": "my_bigint"}
@@ -814,13 +818,30 @@ def result_value(source):
     return None if nullable is None else (value_type.resolved_type.name, nullable)
 
 
-def result_realization(family: str, function: str, argument, retained):
+def mysql_widened_extremum(family: str, function: str, argument, staged) -> bool:
+    """A MySQL MIN or MAX of a SMALLINT or INT that reads a stage, not the
+    source scan (``staged``): it is cast to SIGNED, a BIGINT however MySQL
+    runs that stage (MYSQL_WIDENED_EXTREMA)."""
+    return (
+        family == "mysql"
+        and staged
+        and function in EXTREMA_FUNCTIONS
+        and argument is not None
+        and argument.realization.tag == "Int"
+        and argument.realization.storage in MYSQL_WIDENED_EXTREMA
+    )
+
+
+def result_realization(
+    family: str, function: str, argument, retained, *, staged: bool = False
+):
     """One aggregate result's independently established physical realization.
 
     A counting result is the target's own non-null signed64 count, bounded by
     R13's declared premise rather than by the argument's value range. MIN and MAX
     retain their argument's representation and only gain the possibility of NULL,
-    because an empty or all-null input has no extreme value.
+    because an empty or all-null input has no extreme value; a MySQL one of a
+    SMALLINT or INT read through a stage (``staged``) is a my_signed_int.
     """
     tag, nullable = retained
     if function in ORDERED_VALUE_FUNCTIONS:
@@ -1011,7 +1032,9 @@ def result_realization(family: str, function: str, argument, retained):
     return (
         rows.Realization(
             carrier.tag,
-            carrier.storage,
+            {"kind": "my_signed_int"}
+            if mysql_widened_extremum(family, function, argument, staged)
+            else carrier.storage,
             True,
             carrier.domain,
             carrier.proven_int_range,
@@ -1607,12 +1630,17 @@ def argument_cast(family: str, function: str, argument) -> str | None:
     return "pg_catalog.float8" if family == "postgres" else "DOUBLE"
 
 
-def result_cast(family: str, function: str, argument) -> str | None:
+def result_cast(
+    family: str, function: str, argument, *, staged: bool = False
+) -> str | None:
     """Q1: PostgreSQL SUM(Int) accumulates exactly and its result is narrowed
     to bigint by a checked CAST, which refuses an out-of-range sum with
     SQLSTATE 22003 instead of returning a wrong value. A PostgreSQL VAR_SAMP
     or VAR_POP is cast to float8 once, under the fixed SQRT of a deviation; a
-    MySQL variance or deviation of a DOUBLE (S05) is not cast."""
+    MySQL variance or deviation of a DOUBLE (S05) is not cast. A MySQL MIN or
+    MAX of a SMALLINT or INT read through a stage is cast to SIGNED."""
+    if mysql_widened_extremum(family, function, argument, staged):
+        return "SIGNED"
     if function in SPREAD_FUNCTIONS:
         if family == "postgres" and argument is not None:
             return "pg_catalog.float8"
@@ -1869,10 +1897,12 @@ def build_stage(
     *,
     reference_type,
     symbol,
+    staged,
     ranked=False,
 ):
     """Realize one aggregation: its ordered determinants and its occurrences,
     or every problem refusing it: a determinant's first, or each occurrence's.
+    `staged` says it reads a stage, not the source scan (result_realization).
     `ranked` is a MySQL statement `ranked_statement` admits; it stays ranked
     only when every key and every `first` or `last` reads a qualified carrier
     (`ranked_inputs`), else each refusal is the one before Phase77 S13.
@@ -2196,7 +2226,9 @@ def build_stage(
                     location,
                 ),
             )
-        realization, problem = result_realization(family, function, argument, retained)
+        realization, problem = result_realization(
+            family, function, argument, retained, staged=staged
+        )
         if realization is None:
             assert problem is not None
             return None, (*problem, value.ref, location)
@@ -2247,7 +2279,7 @@ def build_stage(
             ),
             delimiter,
             order_by,
-            result_cast(family, function, argument),
+            result_cast(family, function, argument, staged=staged),
             extra_arguments,
         )
         return column, None
@@ -2636,6 +2668,8 @@ def build_compiled_stage(plan, record, arguments):
         else None
     )
     stage = CompiledAggregateSubject(plan.references[record.address])
+    # Whether it reads a stage, not the source scan (result_realization).
+    staged = record.get("input").kind != "source"
     # S02: the stage's MySQL sum cells, derived once and only beside a sum
     # (which compiled semantics admits in a cell's one aggregate alone).
     mysql_sums = (
@@ -2838,6 +2872,7 @@ def build_compiled_stage(plan, record, arguments):
                     fact.value_type.resolved_type.name,
                     rows.NULLABILITY[fact.value_type.nullability],
                 ),
+                staged=staged,
             )
             if (
                 problem is not None
@@ -2901,7 +2936,10 @@ def build_compiled_stage(plan, record, arguments):
                 else delimiters[0],
                 order_by,
                 result_cast(
-                    records[Address("target", 0)].get("family"), function, argument
+                    records[Address("target", 0)].get("family"),
+                    function,
+                    argument,
+                    staged=staged,
                 ),
                 tuple(delimiters) if function == "count_distinct_tuple" else (),
             )
