@@ -73,7 +73,13 @@ retained. For every partition the
 acceptance plan names an exact remote subset and its local complement; an empty
 side has an explicit no-op receipt. A gap, overlap, foreign node, changed
 resolved descriptor, changed collection/policy/input/context, failure, or
-remote `PIETTO_NOT_RUN` rejects the whole acceptance.
+remote `PIETTO_NOT_RUN` rejects the whole acceptance. The local complement
+declares the validator's `qualified` storage and SQLite classes, and a local
+`PIETTO_NOT_RUN` rejects the acceptance too, except the counted
+`PIETTO_NOT_RUN sqlite-native ARROW` skip of a
+`tests/test_execution_api_sqlite_file.py` node: that pytest environment is
+Arrow-free like the validator's, and Gate 2's arrow-ready run of the file
+stays host-owned work.
 
 Teach may run only the five `validate.GATES[:5]` static commands and nonempty
 remote plan subsets through the bounded `ci_validation --nodes-file` path. Its

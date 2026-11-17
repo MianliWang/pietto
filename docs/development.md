@@ -233,10 +233,15 @@ the six existing partitions and proves each remote/local complement is complete
 and disjoint. Teach runs only static gates and its nonempty subset using
 `scripts/ci_validation.py run --nodes-file`; the host keeps all local nodes,
 storage positives, native/database, generated, golden, package and installed
-consumer work, and accepts the final receipt. The accepted owner-controlled
-Teach account/scheduler is an execution trust premise; returned JSON and hashes
-bind bytes but do not independently prove execution. Natural CI still owns
-final Python 3.12 and 3.13 coverage.
+consumer work, and accepts the final receipt. Its local complement declares
+the validator's `qualified` storage and SQLite classes, and acceptance refuses
+any `PIETTO_NOT_RUN` skip in it except the counted
+`PIETTO_NOT_RUN sqlite-native ARROW` line of the SQLite file route's cells,
+which Gate 2's arrow-ready run qualifies on this host
+([SQLite target validation](#sqlite-target-validation)). The accepted
+owner-controlled Teach account/scheduler is an execution trust premise;
+returned JSON and hashes bind bytes but do not independently prove execution.
+Natural CI still owns final Python 3.12 and 3.13 coverage.
 
 ## Phase-end acquisition consolidation
 

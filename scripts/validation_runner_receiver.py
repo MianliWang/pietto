@@ -51,6 +51,11 @@ REMOTE_PARTITIONS = (
 STATIC_GATES = tuple(name for name, _command in validate.GATES[:5])
 TEACH_RUNNER_CATEGORY = "owner-controlled-teach"
 LOCAL_ACCEPTANCE_FILES = frozenset({"tests/test_harness_validation_runner_receiver.py"})
+# The one counted skip the Arrow-free local complement may report, as the
+# validator's pytest gate does; Gate 2's arrow-ready run of this file
+# qualifies those cells (docs/development.md, "SQLite target validation").
+ARROW_SKIP_FILE = "tests/test_execution_api_sqlite_file.py"
+ARROW_SKIP_TAIL = "'Skipped: PIETTO_NOT_RUN sqlite-native ARROW')"
 ACCEPTANCE_RULE_PATHS = (
     ".github/workflows/ci.yml",
     "ci/workloads.toml",
@@ -1317,13 +1322,20 @@ def verify_execution_tree(
 
 
 def qualified_storage_environment(repo: Path, temp_root: Path) -> dict[str, str]:
-    """Run the existing qualified-storage probe with the selected interpreter."""
+    """Declare the validator's qualified storage and SQLite classes, then run
+    the existing qualified-storage probe with the selected interpreter."""
 
     environment = dict(os.environ)
-    declared = environment.get("PIETTO_STORAGE_CLASS")
-    if declared is not None and declared != "qualified":
-        raise ValueError("host local complement storage class conflicts with qualified")
-    environment["PIETTO_STORAGE_CLASS"] = "qualified"
+    for variable, label in (
+        ("PIETTO_STORAGE_CLASS", "storage"),
+        ("PIETTO_SQLITE_CLASS", "SQLite"),
+    ):
+        declared = environment.get(variable)
+        if declared is not None and declared != "qualified":
+            raise ValueError(
+                f"host local complement {label} class conflicts with qualified"
+            )
+        environment[variable] = "qualified"
     environment["PYTHONDONTWRITEBYTECODE"] = "1"
     environment["PYTHONPATH"] = str(repo / "src")
     if temp_root.is_symlink() or not temp_root.is_dir():
@@ -1815,8 +1827,12 @@ def verify_acceptance_receipt(
         raise ValueError("remote acceptance report carries PIETTO_NOT_RUN")
     if any(
         "PIETTO_NOT_RUN" in reason
+        and not (
+            report["nodes"][index].split("::", 1)[0] == ARROW_SKIP_FILE
+            and reason.endswith(ARROW_SKIP_TAIL)
+        )
         for report in local
-        for _index, reason in report["skips"]
+        for index, reason in report["skips"]
     ):
         raise ValueError("local acceptance report carries PIETTO_NOT_RUN")
     return {

@@ -622,6 +622,40 @@ def test_acceptance_uses_only_explicit_core_and_requires_bootstrap(
     assert result["status"] == "VERIFIED_PENDING_HOST_ADOPTION"
     assert result["remote_nodes"] == 1
 
+    # The Arrow-free local complement may count only the route file's ARROW
+    # skip; a build skip, another tail, another file or a remote report keeps
+    # the refusal.
+    route = runner.ARROW_SKIP_FILE + "::test_cell"
+    arrow = (
+        f"('/host/{runner.ARROW_SKIP_FILE}', 9, "
+        "'Skipped: PIETTO_NOT_RUN sqlite-native ARROW')"
+    )
+    row = next(row for row in plan["local"] if row["partition"] == "shared-acquisition")
+    local = receipt["local"]["reports"]["shared-acquisition"]
+    for node, reason, accepted in (
+        (route, arrow, True),
+        (route, arrow.replace("ARROW", "SQLITE_BUILD_RELEASE"), False),
+        (route, arrow.replace("ARROW", "SQLITE_PLATFORM"), False),
+        (route, arrow.replace("ARROW'", "ARROW extra'"), False),
+        (NODES[0], arrow, False),
+    ):
+        row["nodes"] = local["nodes"] = [node]
+        local["skips"] = [[0, reason]]
+        if accepted:
+            assert runner.verify_acceptance_receipt(
+                receipt, manifest, plan, bootstrap, source, inventory
+            ) == {**result, "local_nodes": len(NODES) - 1}
+            continue
+        with pytest.raises(ValueError, match="local acceptance report carries"):
+            runner.verify_acceptance_receipt(
+                receipt, manifest, plan, bootstrap, source, inventory
+            )
+    receipt["remote"]["reports"]["general-runtime-2"]["skips"] = [[0, arrow]]
+    with pytest.raises(ValueError, match="remote acceptance report carries"):
+        runner.verify_acceptance_receipt(
+            receipt, manifest, plan, bootstrap, source, inventory
+        )
+
     receipt["runner"]["credential_env_names"] = ["GITHUB_TOKEN"]
     with pytest.raises(ValueError, match="trust boundary"):
         runner.verify_acceptance_receipt(
@@ -1395,6 +1429,13 @@ def test_local_producer_rejects_hosted_refusal_and_tree_drift(tmp_path, monkeypa
         )
 
     monkeypatch.delenv("PIETTO_STORAGE_CLASS")
+    monkeypatch.setenv("PIETTO_SQLITE_CLASS", "report")
+    with pytest.raises(ValueError, match="SQLite class conflicts"):
+        runner.produce_local_reports(
+            source, manifest, inventory, plan, tmp_path / "local-sqlite", 1
+        )
+
+    monkeypatch.delenv("PIETTO_SQLITE_CLASS")
     calls = []
     original_run = runner.subprocess.run
 
@@ -1402,6 +1443,7 @@ def test_local_producer_rejects_hosted_refusal_and_tree_drift(tmp_path, monkeypa
         if command[:2] == (runner.sys.executable, "-c"):
             calls.append((command, kwargs))
             assert kwargs["env"]["PIETTO_STORAGE_CLASS"] == "qualified"
+            assert kwargs["env"]["PIETTO_SQLITE_CLASS"] == "qualified"
             assert kwargs["env"]["PYTHONPATH"] == str(source / "src")
             assert kwargs["env"]["PYTEST_DEBUG_TEMPROOT"] == str(tmp_path.resolve())
             return SimpleNamespace(returncode=0)
