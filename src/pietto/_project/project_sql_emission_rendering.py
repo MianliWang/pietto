@@ -1131,6 +1131,14 @@ class _Writer:
             )
             self.enclose("binary", reference, start)
             return
+        if rows.mysql_guarded_product(self.request.family, value):
+            # MC.05: the operands x, y, x, y, x, y between the guard's tokens.
+            for position, (role, text) in enumerate(rows.MYSQL_PRODUCT_GUARD):
+                if position:
+                    self.operand(value, (position - 1) % 2, alias)
+                self.emit(text, "syntax", role, reference)
+            self.enclose("binary", reference, start)
+            return
         opening, operator, closing, role = OPERATORS[value.kind]
         self.emit("(", "syntax", opening, reference)
         self.operand(value, 0, alias)

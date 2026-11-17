@@ -3055,6 +3055,107 @@ def test_the_rendering_tables_restate_the_emitter():
             for function in aggregating.SPELLING
         }
     assert pure._MYSQL_SUM_GUARD == aggregating.MYSQL_SUM_GUARD
+    from pietto._project import project_sql_emission_rows as rows
+
+    assert pure._MYSQL_PRODUCT_GUARD == rows.MYSQL_PRODUCT_GUARD
+
+
+@pytest.mark.parametrize("form", ("EM1", "EM3", "EMQ"))
+def test_a_mysql_float_product_renders_its_guard_from_its_records(tmp_path, form):
+    """MC.05: a MySQL Float `*` in its E4 cell renders from its records under
+    the underflow guard, its operands in written order, with the binary64
+    evidence. Each forgery is refused end to end: the evidence dropped and
+    the result declared non-null, which the SQL does not show, by _Check
+    alone; the operands swapped under unchanged SQL, a guard token's text
+    changed, its role relabelled and the guard dropped for a bare `(x * y)`
+    also by the re-rendering alone."""
+    _, outcome = emission.float_world(tmp_path, "mysql", emission.E4_FORMS[form])
+    artifact = outcome.artifact
+    assert outcome.status == "VERIFIED" and artifact is not None
+    data = portable.export_emission_observation(
+        artifact, artifact.request
+    ).canonical_bytes
+    assert data is not None and b"CASE WHEN (" in data
+    assert _status(data) == (OK, None)
+    assert pure.rendering_refusal(data) is None
+
+    def dropped(document):
+        for requirement in _records(document, "generated_requirement"):
+            if requirement["kind"] == "arithmetic":
+                assert requirement["evidence"][-1] == BINARY64
+                requirement["evidence"] = requirement["evidence"][:-1]
+
+    def swapped(document):
+        for row in document["records"]:
+            if row["ref"][0] == "sql_operation" and row["fields"]["operator"] == "*":
+                row["fields"]["operands"].reverse()
+
+    def retexted(document):
+        (event,) = [e for e in _events(document) if e["role"] == "product_guard_then"]
+        _retexted(document, event, event_text(document, event).replace("<> 0", "<> 1"))
+
+    def relabelled(document):
+        (event,) = [e for e in _events(document) if e["role"] == "product_guard_zero"]
+        event["role"] = "binary_close"
+
+    def unguarded(document):
+        events = {e["role"]: e for e in _events(document) if "guard" in e["role"]}
+        opened, closed = events["product_guard_open"], events["product_guard_close"]
+        _cut(document, events["product_guard_zero"]["start"], closed["start"])
+        for event, role, text in (
+            (opened, "binary_open", "("),
+            (closed, "binary_close", ")"),
+        ):
+            _retexted(document, event, text)
+            event["role"] = role
+
+    def non_null(document):
+        for row in document["records"]:
+            if row["ref"][0] == "sql_operation" and row["fields"]["operator"] == "*":
+                _record(document, row["fields"]["realization"])["nullable"] = False
+
+    def event_text(document, event):
+        raw = _records(document, "rendered")[0]["sql"].encode("utf-8")
+        return raw[event["start"] : event["end"]].decode("utf-8")
+
+    assert _status(_mutated(data, dropped)) == (
+        pure.Status.INVALID_RELATION,
+        "target checked evidence",
+    )
+    assert pure.rendering_refusal(_mutated(data, dropped)) is None
+    forged = _mutated(data, non_null, recanonical=True)
+    assert _status(forged) == (
+        pure.Status.INVALID_RELATION,
+        "MySQL Float arithmetic carrier",
+    )
+    assert pure.rendering_refusal(forged) is None
+    for forgery, detail, recanonical in (
+        (swapped, "generated inventory entry", True),
+        (retexted, "syntax spelling", False),
+        (relabelled, "syntax spelling", False),
+        (unguarded, "rendering", True),
+    ):
+        forged = _mutated(data, forgery, recanonical=recanonical)
+        assert _status(forged) == (pure.Status.INVALID_RELATION, detail)
+        assert pure.rendering_refusal(forged) == "token"
+
+
+def _cut(document, start, end):
+    """Delete the SQL bytes from start to end and the tokens and ranges
+    within them, moving every later offset."""
+    rendered = _records(document, "rendered")[0]
+    raw = rendered["sql"].encode("utf-8")
+    rendered["sql"] = (raw[:start] + raw[end:]).decode("utf-8")
+    for key in ("events", "expression_ranges"):
+        kept = []
+        for ref in rendered[key]:
+            row = _record(document, ref)
+            if start <= row["start"] and row["end"] <= end:
+                continue
+            for name in ("start", "end"):
+                row[name] -= end - start if row[name] >= end else 0
+            kept.append(ref)
+        rendered[key] = kept
 
 
 def _retexted(document, event, text):
