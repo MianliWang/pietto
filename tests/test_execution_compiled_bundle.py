@@ -2983,6 +2983,23 @@ _NUMERIC_UNFORGEABLE = {
     "R1": "PIE-B1002",
     "R2": "PIE-B1004",
     "X1": "PIE-B1002",
+    # MC G2's: a label too long, a sum outside every cell, and aggregates
+    # MySQL refuses on their own.
+    "G2_R1": "PIE-B1002",
+    "G2_R2": "PIE-B1004",
+    "G2_X1": "PIE-B1003",
+    "G2_X2": "PIE-B1003",
+    "G2_X3": "PIE-B1003",
+    "G2_X4": "PIE-B1003",
+    "G2_variance": "PIE-B1003",
+    "G2_pvariance": "PIE-B1003",
+    "G2_pstdev": "PIE-B1003",
+    "G2_median": "PIE-B1003",
+    "G2_quantile": "PIE-B1003",
+    "G2_any": "PIE-B1003",
+    "G2_all": "PIE-B1003",
+    # A conditional sum outside S03's forms, which its own law refuses.
+    "G2_conditional_sum": "PIE-B1004",
 }
 
 
@@ -3003,8 +3020,9 @@ def _numeric_cells_opened(patch):
 
 
 # Each refused S01/S02 body, a WHERE cell whose literal a bind-safe `?`
-# replaces, each MC G1 neighbour under a policy that refuses it, and each
-# SMALLINT read that G1 leaves in S02's cell (`G1S_` before its name).
+# replaces, each MC G1 and G2 (`G2_` before its name) neighbour under a
+# policy that refuses it, and each SMALLINT read that G1 and G2 leave in
+# S02's cell (`G1S_` and `G2K_` before its name).
 _NUMERIC_FORGED = [
     *(
         (shape, "preserve_literals")
@@ -3022,28 +3040,52 @@ _NUMERIC_FORGED = [
         for shape in sorted(_pietto_sql_emission.G1_REFUSALS)
     ),
     *(
+        (
+            "G2_" + shape,
+            _pietto_sql_emission.G2_REFUSAL_POLICIES.get(shape, ("preserve_literals",))[
+                0
+            ],
+        )
+        for shape in sorted(_pietto_sql_emission.G2_REFUSALS)
+    ),
+    *(
         ("G1S_" + shape, "preserve_literals")
         for shape in sorted(_pietto_sql_emission.G1_SMALLINT_REFUSALS)
     ),
+    *(
+        ("G2K_" + shape, "preserve_literals")
+        for shape in sorted(_pietto_sql_emission.G2_S02_KEY_REFUSALS)
+    ),
 ]
 # A relation alias or an unread window leaves G1's neighbours X6 and
-# let_window the records and document of L2.
+# let_window the records and document of L2, and G2's R6 those of the same
+# body read directly.
 _NUMERIC_ALIASES = {
     **_pietto_sql_emission.NUMERIC_ALIASES,
     "X6": _pietto_sql_emission.G1_FORMS["L2"],
     "let_window": _pietto_sql_emission.G1_FORMS["L2"],
+    "G2_R6": "query result:\n    from rows\n    group by k, note\n    select:\n"
+    "        k\n        note\n        s = sum(n)\n",
 }
 
 
 def _numeric_forged_world(shape):
-    """The world, keywords and body of a forged numeric shape: a SMALLINT
-    read beside G1 (`G1S_` before its name) over division_world."""
-    if shape.startswith("G1S_"):
+    """The world, keywords and body of a forged numeric shape: a G2
+    neighbour (`G2_` before its name) over grouping_world, or a SMALLINT
+    read beside G1 or G2 (`G1S_`, `G2K_`) over division_world."""
+    if shape.startswith("G2_"):
         return (
-            _pietto_sql_emission.division_world,
-            {},
-            _pietto_sql_emission.G1_SMALLINT_REFUSALS[shape[4:]][0],
+            _pietto_sql_emission.grouping_world,
+            _pietto_sql_emission.G2_REFUSAL_WORLDS.get(shape[3:], {}),
+            _pietto_sql_emission.G2_REFUSALS[shape[3:]],
         )
+    if shape.startswith(("G1S_", "G2K_")):
+        table = (
+            _pietto_sql_emission.G1_SMALLINT_REFUSALS
+            if shape.startswith("G1S_")
+            else _pietto_sql_emission.G2_S02_KEY_REFUSALS
+        )
+        return _pietto_sql_emission.division_world, {}, table[shape[4:]][0]
     return (
         _pietto_sql_emission.numeric_world,
         _pietto_sql_emission.G1_REFUSAL_WORLDS.get(shape, {}),
@@ -3097,7 +3139,7 @@ def test_forged_mysql_numeric_cells_fail_every_reader(
         assert artifact is not None, outcome.blockers
         observed = portable.export_emission_observation(artifact, artifact.request)
         loaded = _numeric_loaded(artifact)
-    summed = shape.startswith(("sum_", "s02", "G1S_")) or shape in (
+    summed = shape.startswith(("sum_", "s02", "G1S_", "G2_", "G2K_")) or shape in (
         _pietto_sql_emission.G1_REFUSALS
     )
     assert not verify_project_sql_emission(artifact, artifact.request).verified
@@ -3538,10 +3580,11 @@ _NUMERIC_LAW_S01 = (
 )
 
 
-def _numeric_records(tmp_path, body):
+def _numeric_records(tmp_path, body, world=None):
     from pietto._project.project_compiled_build import build_compiled
 
-    _, outcome = _pietto_sql_emission.numeric_world(tmp_path, "mysql", body)
+    world = world or _pietto_sql_emission.numeric_world
+    _, outcome = world(tmp_path, "mysql", body)
     assert outcome.artifact is not None, outcome.blockers
     description = wire.decode(build_compiled(outcome.artifact).payload)
     return {record.address: record for record in description.records}, (
@@ -3573,6 +3616,10 @@ def _slot_added(records):
     return {**records, slot: wire.Record(slot, (None, _A("literal", 0), "Int"))}
 
 
+_SMALLINT_PHYSICAL = (
+    '{"domain":{"kind":"int_range","max":"32767","min":"-32768"},'
+    '"nullable":false,"storage":{"kind":"my_smallint"}}'
+)
 # D77.24: each edit of a native bundle that only one check of the compiled
 # S01/S02 law refuses (the S01 cell is operation 1, the S02 one value 0).
 _COMPILED_LAW_EDITS = {
@@ -3596,6 +3643,24 @@ _COMPILED_LAW_EDITS = {
     "s02_unmarked_argument": _record_edit(
         _A("aggregate_value", 0), arguments=(_A("read", 4),)
     ),
+    # MC G2, over G2_FORMS' A3: its INT key reads field 3; beside its two
+    # sums, value 3 is count_distinct(c), 5 avg(c) and 6 max(c). A non-null
+    # SMALLINT key is S02's beside sums, counts and mins alone.
+    "g2_key_storage": _record_edit(_A("field", 3), physical=_SMALLINT_PHYSICAL),
+    # Over A4, whose key `n` (field 4) and `max(k)` (field 3) read through
+    # its WHERE and `let` rows' carries.
+    "g2_carried_key_storage": _record_edit(_A("field", 4), physical=_SMALLINT_PHYSICAL),
+    "g2_carried_beside_storage": _record_edit(
+        _A("field", 3), physical=_SMALLINT_PHYSICAL
+    ),
+    "g2_beside_function": _record_edit(_A("aggregate_value", 6), function="stddev"),
+    "g2_beside_unmarked": _record_edit(
+        _A("aggregate_value", 5), arguments=(_A("read", 7),)
+    ),
+    "g2_beside_two_arguments": _record_edit(
+        _A("aggregate_value", 3), arguments=(_A("read", 3), _A("read", 2))
+    ),
+    "g2_avg_text": _record_edit(_A("read", 5), port=_A("port", 7)),
 }
 
 
@@ -3607,21 +3672,32 @@ def test_the_mysql_compiled_cell_law_refuses_each_edited_record(tmp_path, edit):
     another declaration, a row outside the chain, an operand or key read of
     a port that carries no source field, an operation without operands, a
     terminal value that reads no aggregate port, or a sum over two or no
-    source-field arguments."""
+    source-field arguments; or (MC G2) a key of a SMALLINT field beside
+    G2's aggregates, or an aggregate beside the sums other than a
+    `count_distinct`, `max` or `avg` of one source-field read of its
+    storages, also where the read follows WHERE and `let` carries."""
     from pietto._project import project_sql_emission_rows as rows
 
+    g2, carried = edit.startswith("g2"), edit.startswith("g2_carried")
     body = (
         _NUMERIC_LAW_S01
         if edit.startswith("s01")
+        else _pietto_sql_emission.G2_FORMS["A4" if carried else "A3"]
+        if g2
         else _pietto_sql_emission.NUMERIC_CELLS["s02_beside_count"]
     )
-    records, query = _numeric_records(tmp_path, body)
+    records, query = _numeric_records(
+        tmp_path, body, _pietto_sql_emission.grouping_world if g2 else None
+    )
     native = (
         (frozenset({_A("operation", 1)}), frozenset(), frozenset(), frozenset())
         if edit.startswith("s01")
         else (
             frozenset(),
-            frozenset({_A("aggregate_value", 0)}),
+            frozenset(
+                _A("aggregate_value", index)
+                for index in ((0, 1) if g2 and not carried else (0,))
+            ),
             frozenset(),
             frozenset(),
         )
@@ -3738,12 +3814,14 @@ _PURE_LAW_EDITS = {
         ),
     )(records),
     "s02_key_not_field": _doc_column_edit("aggregate_key_column", 0, "read", literal=0),
-    "s02_key_tag": lambda records: _doc_edit(
+    # A nullable SMALLINT key, which neither S02's law nor MC G2's takes.
+    "s02_key_storage": lambda records: _doc_edit(
         "realization",
         records[records[_doc_ref("aggregate_key_column", 0)].fields["read"]]
         .fields["realization"]
         .index,
-        tag="Text",
+        storage={"kind": "my_smallint"},
+        nullable=True,
     )(records),
     "s02_argument_not_field": _doc_column_edit(
         "sql_stage_reference", 0, "column", literal=0
@@ -3781,6 +3859,29 @@ _PURE_LAW_EDITS = {
     "g1_let_keyed": _doc_edit(
         "aggregate_key_column", 0, read=_doc_ref("stage_column", 15)
     ),
+    # MC G2, over G2_FORMS' A3, whose values beside its two sums are
+    # aggregate_value_column 2-6 (count(), count_distinct(c), count(note),
+    # avg(c), max(c)) and whose count_distinct, avg and max read
+    # sql_stage_reference 2, 4 and 5.
+    # A non-null SMALLINT key is S02's beside sums, counts and mins alone.
+    "g2_key_storage": lambda records: _doc_edit(
+        "realization",
+        records[records[_doc_ref("aggregate_key_column", 0)].fields["read"]]
+        .fields["realization"]
+        .index,
+        storage={"kind": "my_smallint"},
+    )(records),
+    "g2_beside_function": _doc_edit("aggregate_value_column", 6, function="stddev"),
+    "g2_beside_not_field": _doc_column_edit(
+        "sql_stage_reference", 4, "column", literal=0
+    ),
+    "g2_avg_storage": _doc_realization_edit(4, storage={"kind": "my_smallint"}),
+    "g2_max_text": _doc_realization_edit(
+        5, storage={"kind": "my_varchar", "length": 64}
+    ),
+    "g2_count_distinct_storage": _doc_realization_edit(
+        2, storage={"kind": "my_double"}
+    ),
 }
 
 
@@ -3793,22 +3894,33 @@ def test_the_mysql_pure_cell_law_refuses_each_edited_record(tmp_path, edit):
     S01 query, a column or operation named twice, an operation without
     operands, an operand, key or argument that is no source field, an
     operand carrier other than a nullable BIGINT, an argument carrier other
-    than a BIGINT or INT, a key that is no Int, a final column that
+    than a BIGINT or INT, a final column that
     projects no aggregate column, or (MC G1) a `let` body whose value is not
     its last column or that carries a value, a `let` read by a count or by
-    the GROUP BY key, or a `let` that no sum reads."""
+    the GROUP BY key, or a `let` that no sum reads, or a nullable SMALLINT
+    key, or (MC G2) a SMALLINT key beside G2's aggregates, or an aggregate
+    beside the sums other than a `count`,
+    `min`, `count_distinct`, `max` or `avg` of one source field of its
+    storages."""
     import _pietto_sql_emission_portable as portable
     import _pietto_sql_emission_pure_boundary as pure
 
-    s01 = edit.startswith("s01")
+    s01, g2 = edit.startswith("s01"), edit.startswith("g2")
     body = (
         _NUMERIC_LAW_S01
         if s01
         else _pietto_sql_emission.G1_CELLS["let_beside_count"]
         if edit.startswith("g1")
+        else _pietto_sql_emission.G2_FORMS["A3"]
+        if g2
         else _pietto_sql_emission.NUMERIC_CELLS["s02_beside_count"]
     )
-    _, outcome = _pietto_sql_emission.numeric_world(tmp_path, "mysql", body)
+    world = (
+        _pietto_sql_emission.grouping_world
+        if g2
+        else _pietto_sql_emission.numeric_world
+    )
+    _, outcome = world(tmp_path, "mysql", body)
     artifact = outcome.artifact
     assert artifact is not None, outcome.blockers
     exported = portable.export_emission_observation(artifact, artifact.request)
@@ -3826,7 +3938,10 @@ def test_the_mysql_pure_cell_law_refuses_each_edited_record(tmp_path, edit):
         if s01
         else (
             frozenset(),
-            frozenset({pure.Ref("aggregate_value_column", 0)}),
+            frozenset(
+                pure.Ref("aggregate_value_column", index)
+                for index in ((0, 1) if g2 else (0,))
+            ),
             frozenset(),
             frozenset(),
         )

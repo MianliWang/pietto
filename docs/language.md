@@ -4563,6 +4563,33 @@ guarded `SUM` over the field, read through the `let`'s stage where there is
 one, as the PostgreSQL SQL of the same query reads it, and its result is
 the same nullable `Int` whatever the field's width.
 
+Since `0.2.2` (MC G2), the S02 cell's aggregation may also hold any number
+of sums, the same argument more than once included, and beside them a
+`count_distinct` of one direct read of a `BIGINT`, `INT` or `VARCHAR` field
+and a `max` or `avg` of one direct read of a `BIGINT` or `INT` field, each
+the whole value of a SELECT item (parentheses and an identity `def` count as
+above); `count` and `min` stay as above, never of a `let` name. It may group
+by any number of fields of `BIGINT`, `INT` or `VARCHAR` storage, nullable or
+not, each selected under any names, more than once, or not at all. S02's own
+key stays as above: one non-null `Int` field of any storage, beside sums,
+counts and mins only, and S02's own `SMALLINT` reads, that key of `SMALLINT`
+storage or a `count` or `min` of a `SMALLINT` field, only in the S02 cell
+as the paragraph before the G1 one states it, which no G2 form widens: no
+`let`, every `sum` of a nullable `BIGINT` field, one key at most. Another
+aggregate beside a sum (`stddev`, `variance`, `pvariance`, `pstdev`,
+`median`, `quantile`, `string_agg`, a conditional `sum` or count, `any`,
+`all`, a `count_distinct` of two fields), a `max`, `avg` or
+`count_distinct` of an expression, a `let` name or a field of another
+storage, a GROUP BY key of another storage (a `Bool` included) and
+everything the paragraphs above exclude keep the blockers they have
+without G2, object for object: `avg(k * 2)` beside a sum keeps the sum's
+PIE-B1004 `sum_int_aggregate_range_proof_missing`. Each `sum` is the cell's
+guarded `SUM`; the keys, the other aggregates, FROM, WHERE and GROUP BY are
+the MySQL SQL of the same query with each `sum` written `max`. A `min` or
+`max` of an `INT` field among them is the cast `my_signed_int` that the
+paragraph above on `min` and `max` states, whether it reads the source
+directly or through a stage.
+
 Since `0.1.12` (Phase77 S03), MySQL project SQL also emits each `sum` of an
 `Int` of a statement that is, names aside, one of nine forms its
 qualification ran on both databases, the selected definition's SELECT items
@@ -4789,7 +4816,7 @@ VERIFIED, without its sum blockers. `per_order`, which holds no sum,
 reports only the premise's blocker.
 
 Any other MySQL project `sum` of an `Int`, outside these forms and S02's
-cell as G1 widens it, is BLOCKED with PIE-B1004
+cell as G1 and G2 widen it, is BLOCKED with PIE-B1004
 `sum_int_aggregate_range_proof_missing`.
 This refusal is by design, not a defect: MySQL sums a `BIGINT` as a
 `DECIMAL`, which `CAST(... AS SIGNED)` would clamp, so a MySQL project emits

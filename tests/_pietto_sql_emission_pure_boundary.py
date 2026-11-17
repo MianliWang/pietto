@@ -2127,11 +2127,15 @@ def _mysql_cells(doc) -> tuple[frozenset, frozenset, frozenset, frozenset]:
     most, over a source scan, with no window. An S01 operation is the whole
     value of a column of that body, named once, over reads of nullable
     BIGINT source fields; an S02 sum reads a BIGINT or INT source field
-    (MC G1), its aggregate has one non-null Int source field key at most and
-    sums, counts and mins only, and the final body only projects the
-    aggregate's columns. Below a WHERE an S02 chain may start with one body
-    per value `let` (_mysql_sum_lets), and a SMALLINT read keeps S02's own
-    cell (_mysql_sum_smallint). S15 cells need one projection body straight over the scan,
+    (MC G1), its aggregate keeps S02's own law (one non-null Int source
+    field key at most, and sums, counts and mins only) or MC G2's (BIGINT,
+    INT or VARCHAR source field keys, and values that are sums, counts, mins
+    or a `count_distinct`, `max` or `avg` of one source field of its
+    _MYSQL_SUM_BESIDE storage), and the
+    final body only projects the aggregate's columns. Below a WHERE an S02
+    chain may start with one body per value `let` (_mysql_sum_lets), and a
+    SMALLINT read keeps S02's own cell (_mysql_sum_smallint). S15
+    cells need one projection body straight over the scan,
     each of whose columns is a read of a source field of its tag's carrier
     (_mysql_remainder_carrier) or a `%` named once over two such reads of
     its own tag; any other column closes them. R08 cells need the same body,
@@ -2292,27 +2296,36 @@ def _mysql_cells(doc) -> tuple[frozenset, frozenset, frozenset, frozenset]:
     stage = doc[doc[aggregate]["aggregation"]]
     if lets and not _mysql_sum_lets(doc, chain[:1:-1], stage):
         return empty
-    if (
-        len(stage["keys"]) > 1
-        or any(
-            column.kind != "aggregate_projection_column" for column in final["columns"]
+    reads = [doc[key]["read"] for key in stage["keys"]]
+    s02 = (
+        len(reads) <= 1
+        and all(
+            _mysql_field_column(doc, read)
+            and doc[doc[read]["realization"]]["tag"] == "Int"
+            and doc[doc[read]["realization"]]["nullable"] is False
+            for read in reads
         )
-        or any(
-            doc[value]["function"] not in ("sum", "count", "min")
+        and all(
+            doc[value]["function"] in ("sum", "count", "min")
             for value in stage["values"]
         )
+    )
+    g2 = all(
+        _mysql_field_column(doc, read)
+        and _mysql_storage_kind(doc, read) in _MYSQL_SUM_KEY_KINDS
+        for read in reads
+    ) and all(
+        doc[value]["function"] in ("sum", "count", "min")
+        or _mysql_field_read(doc, doc[value]["argument"])
+        and _mysql_storage_kind(doc, doc[value]["argument"])
+        in _MYSQL_SUM_BESIDE.get(doc[value]["function"], ())
+        for value in stage["values"]
+    )
+    if not (s02 or g2) or any(
+        column.kind != "aggregate_projection_column" for column in final["columns"]
     ):
         return empty
-    for key in stage["keys"]:
-        read = doc[key]["read"]
-        realization = doc[doc[read]["realization"]]
-        if not (
-            _mysql_field_column(doc, read)
-            and realization["tag"] == "Int"
-            and realization["nullable"] is False
-        ):
-            return empty
-    if not _mysql_sum_smallint(doc, stage, lets):
+    if not _mysql_sum_smallint(doc, stage, lets, s02):
         return empty
     return (
         frozenset(),
@@ -2328,12 +2341,13 @@ def _mysql_cells(doc) -> tuple[frozenset, frozenset, frozenset, frozenset]:
     )
 
 
-def _mysql_sum_smallint(doc, stage, lets) -> bool:
+def _mysql_sum_smallint(doc, stage, lets, own) -> bool:
     """MC G1-G3 (lead ruling of 2026-11-21, S02-SMALLINT), restated: beside
     a source field key column, or a `count` or `min` of one source field
-    read, of `my_smallint` storage,
-    ``stage`` stands over no `let` body (``lets`` counts them) and its every
-    sum reads a nullable BIGINT source field (_mysql_checked_carrier)."""
+    read, of `my_smallint` storage, S02's own law holds of ``stage``
+    (``own``), which stands over no `let` body (``lets`` counts them), and
+    its every sum reads a nullable BIGINT source field
+    (_mysql_checked_carrier)."""
 
     reads = [
         doc[key]["read"]
@@ -2347,18 +2361,16 @@ def _mysql_sum_smallint(doc, stage, lets) -> bool:
     ]
     if all(_mysql_storage_kind(doc, read) != "my_smallint" for read in reads):
         return True
-    return not lets and all(
-        doc[value]["function"] != "sum"
-        or _mysql_field_read(doc, doc[value]["argument"])
-        and _mysql_checked_carrier(doc, doc[value]["argument"])
-        for value in stage["values"]
+    return (
+        own
+        and not lets
+        and all(
+            doc[value]["function"] != "sum"
+            or _mysql_field_read(doc, doc[value]["argument"])
+            and _mysql_checked_carrier(doc, doc[value]["argument"])
+            for value in stage["values"]
+        )
     )
-
-
-def _mysql_storage_kind(doc, ref) -> object:
-    """The storage kind of a stage column or reference's realization."""
-
-    return dict(doc[doc[ref]["realization"]]["storage"]).get("kind")
 
 
 def _mysql_sum_lets(doc, bodies, stage) -> bool:
@@ -2682,6 +2694,22 @@ def _mysql_s03(doc) -> frozenset:
         return frozenset()
     levels = (top[0],) if top[2] is None else (top[2][0], top[0])
     return frozenset(sums) if sum_forms.paired(levels, preserve) else frozenset()
+
+
+# MC G2, restated: the storage kinds of an S02 cell's GROUP BY key fields,
+# and of the one field each other aggregate beside its sums reads.
+_MYSQL_SUM_KEY_KINDS = frozenset({"my_bigint", "my_int", "my_varchar"})
+_MYSQL_SUM_BESIDE = {
+    "count_distinct": _MYSQL_SUM_KEY_KINDS,
+    "max": frozenset({"my_bigint", "my_int"}),
+    "avg": frozenset({"my_bigint", "my_int"}),
+}
+
+
+def _mysql_storage_kind(doc, ref) -> object:
+    """The storage kind of a stage column or reference's realization."""
+
+    return dict(doc[doc[ref]["realization"]]["storage"]).get("kind")
 
 
 def _mysql_sum_carrier(doc, ref) -> bool:
