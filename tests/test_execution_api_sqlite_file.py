@@ -1375,6 +1375,27 @@ def test_a_sum_overflow_is_named_by_its_code_and_message(tmp_path: Path) -> None
     assert failed.outcome.transaction == "ROLLBACK_ACK"
 
 
+@NATIVE
+def test_a_computed_column_that_check_leaves_unknown_delivers_its_null(
+    tmp_path: Path,
+) -> None:
+    # A comparison of the nullable `note` is NULL for order 2, and so are a
+    # `not` of one and `0 OR NULL`. Declared non-null, such a column failed
+    # its NULL with PIE-R3005 SQLITE_RESULT_CHECK.
+    body = (
+        "query result:\n    from orders\n    select:\n        id\n"
+        '        m = note == "a"\n        n = not (note == "a")\n'
+        '        o = ok or note == "b"\n'
+    )
+    _judged(
+        _handle(
+            _compiled(tmp_path / "p", body), _database(tmp_path / "o.db"), parameters={}
+        ),
+        [(1, True, False, True), (2, None, None, None), (3, False, True, True)],
+        (("id", "int64", False), *((name, "bool", True) for name in "mno")),
+    )
+
+
 def _armed(monkeypatch: pytest.MonkeyPatch, react: Any) -> None:
     """Every SQLite step calls the progress handler, and `react` runs as the
     deadline check once the session holds its snapshot."""

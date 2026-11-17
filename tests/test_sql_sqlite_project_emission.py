@@ -282,11 +282,12 @@ def test_the_document_numbers_and_describes_each_value(tmp_path: Path) -> None:
             },
         ),
         (
+            # A comparison's nullability `check` leaves unknown: nullable.
             "f",
             "Bool",
             {
                 "storage": {"kind": "sqlite_bool01"},
-                "nullable": False,
+                "nullable": True,
                 "domain": {"kind": "bool01"},
             },
         ),
