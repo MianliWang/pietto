@@ -2753,6 +2753,56 @@ def test_decimal_aggregate_composition_rejects_non_null_graft(
     assert _status(_encode(document))[0] is pure.Status.INVALID_RELATION
 
 
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+@pytest.mark.parametrize(
+    "expression,operator,nullable,forged",
+    (
+        ("id + 1", "+", "unknown", False),
+        ("id + None", "+", True, "unknown"),
+        ("-id", "-", False, "unknown"),
+        ("Float(id)", "int_to_float", False, True),
+        ("same_value(id, id)", "same_value", False, True),
+        ("nullif(id, 1)", "nullif", True, False),
+        ("coalesce(None, id)", "coalesce", False, True),
+        ("coalesce(id + 1, id + 2)", "coalesce", "unknown", False),
+        ("lower(text)", "lower", False, True),
+    ),
+)
+def test_an_operation_is_as_nullable_as_its_operands_make_it(
+    tmp_path, target, expression, operator, nullable, forged
+):
+    """The semantic rules give an arithmetic, sign, cast or call result its
+    nullability from its operands, and the emitter keeps it. A result that
+    declares another, such as a non-null `id + 1`, is refused end to end as
+    `operation nullability`; the re-rendering, which never reads an
+    operation result's nullability, renders the forgery."""
+    base = emission.fixture(target, "T_row_direct", "table_preserve")
+    head = base["source"].split("table result:", 1)[0]
+    _, outcome = emission.build_case(
+        tmp_path,
+        head + f"table result:\n    from rows\n    select:\n        x = {expression}\n",
+        base["contract"],
+    )
+    artifact = outcome.artifact
+    assert artifact is not None
+    data = portable.export_emission_observation(
+        artifact, artifact.request
+    ).canonical_bytes
+    assert data is not None and _status(data) == (OK, None)
+    document = json.loads(data)
+    (operation,) = (
+        node
+        for node in _records(document, "sql_operation")
+        if node["operator"] == operator
+    )
+    realization = _record(document, operation["realization"])
+    assert realization["nullable"] == nullable
+    realization["nullable"] = forged
+    forgery = _encode(document)
+    assert _status(forgery) == (pure.Status.INVALID_RELATION, "operation nullability")
+    assert _rendering(forgery) is None
+
+
 def test_pure_composition_rejects_external_scalar_read(tmp_path):
     item = emission.aggregate_fixture("postgres", "X_aggregate_global", "bag")
     source = item["source"].split("query result:", 1)[0] + (
