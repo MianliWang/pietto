@@ -312,14 +312,14 @@ diagnostic without a path (PL.44 (c), PL.66), and the
 classifiers name Linux and Windows. A verification result is reused only
 inside one public call, and a stored or cross-process result is verified
 again when loaded. The diagnostic review fixes texts, hints, positions, order
-and severity within the existing codes. Nullability v2 gets a read-only
-review first, reported to the owner at the midpoint. The assurance work uses
-a bounded, seeded generator and shrinker with no new dependency and no
-network. The release tools move into `scripts/`, where CI runs only their
-dry run and self-tests. Phase81 keeps the sheet's ledger,
-`C206/F618/D11,950/S14`, under PL.15, and PL.52's push authorization
-applies to its batches once the `0.2.2` release commit is pushed, before
-which no Phase81 commit is pushed (PL.57, PL.58).
+and severity within the existing codes. The read-only review of
+Nullability v2 found a public type contract change, and v2 goes to
+`0.3.0`. The assurance work uses a bounded, seeded generator and shrinker
+with no new dependency and no network. The release tools move into
+`scripts/`, where CI runs only their dry run and self-tests. Phase81 keeps
+the sheet's ledger, `C206/F618/D11,950/S14`, under PL.15, and PL.52's push
+authorization applies to its batches once the `0.2.2` release commit is
+pushed, before which no Phase81 commit is pushed (PL.57, PL.58).
 
 Phase81 decides the CPython matrix (3.14 into CI and the verified profile;
 until then 3.12 and 3.13, with no upper bound on `requires-python`), the
@@ -336,8 +336,10 @@ own code writing the files. The Windows scope covers a path-based batch
 directory writer, a claim of CLI and compile support with execution NOTRUN,
 and a native Windows editor acceptance, and that claim leaves out the extras
 (PL.40, D5); until then the package keeps its
-`Operating System :: OS Independent` classifier. Nullability v2 goes to
-Phase81 if it changes a public type contract, otherwise to `0.3.0`.
+`Operating System :: OS Independent` classifier. Nullability v2 changes a
+public type contract, and the owner kept it out of Phase81 on 2026-11-17:
+the current rules freeze, and v2 goes to `0.3.0` as a breaking change
+([P02 record](phases/phase-81/route.md#p02-record)).
 
 From the `0.2.1` lanes (PL.44), Phase81's diagnostic review also drops,
 by Q7 (d) (a) of PL.50, the PIE-B1004 `identifier_case_declaration_missing`
@@ -456,11 +458,11 @@ each completion audit adds the freeze inputs of its phase here.
 | The PostgreSQL TLS profile of `PostgresAccess.ca_file` | a support-matrix row | D76.07 |
 | Single files and projects | `language.md` states the rule before the freeze: single files open project-only forms one at a time, DISTINCT first, with no promise that they stay a subset of projects | owner, 2026-11-07 |
 | Bundles and saved jobs across versions; an upgrade-impact tool | the Phase82 compatibility and migration policy, and whether the tool comes before the freeze | D76.13, Phase76 reminder 7, PL.51 |
-| Nullability v2 | Phase81 if it changes a public type contract, otherwise `0.3.0` | D73.13, owner, 2026-11-07, PL.50, PL.51 |
+| Nullability v2 | the current rules freeze; v2 changes a public type contract and goes to `0.3.0` as a breaking change | D73.13, owner, 2026-11-07 and 2026-11-17, PL.50, PL.51; [P02 record](phases/phase-81/route.md#p02-record) |
 | The CPython matrix and the Windows claim | frozen as Phase81 decides them | owner, 2026-11-07 |
 | The release notes' history before the freeze, which keeps its file layout until then | archived by the Phase82 freeze | PL.40 (D10), PL.51 |
 | Compiled replay and live analysis give different JOIN key and grain facts for equal SQL bytes | decided (PL.61): live semantic analysis is the only authority, and adapters read the facts only from the verified plan; JF's J2 aligns the compiled replay with the same law before Phase82's Gate 1, and Phase82 audits the closed decision | Phase74 handoff, Phase76 reminder 8, PL.61, PL.62 |
-| A forged compiled `median(id * 2)` loads with consistent SQL | a trust decision of the compiled and verifier owner, coordinated by the lead, before the first new consumer of compiled admission and at the latest before `compile_queries(...)` | Phase74 handoff, Phase76 reminder 8 |
+| A forged compiled `median(id * 2)` loads with consistent SQL | decided (owner, 2026-11-17): the replay restates the source's aggregate argument law and refuses an aggregate argument that `compile_query` refuses (PIE-S2315) with PIE-R1004 and its existing details, a repair for `0.2.2` or, if not ready, in Phase81; a bundle another consistent project would produce stays the trust boundary the execution guide states; Phase82 audits the closed decision | Phase74 handoff, Phase76 reminder 8, owner, 2026-11-17; [P02 record](phases/phase-81/route.md#p02-record) |
 | The VS Code extension's sync script imports the generated lexer and parser from `pietto.generated` and two functions from `pietto.indentation`, modules that no public contract names | whether the script must stop importing them, and which public entry point replaces them if so | PL.38, PL.44 |
 | The fixed civil `Timestamp` meaning of a `now()` output; the statement time that R2 records and `recover` binds | each freezes with the result contract and the R2 workspace, or changes before the freeze | D77.42, D77.49; [Phase77 audit](phases/phase-77/completion-audit.md) |
 | MySQL R2 refuses every form that `0.1.11` refused (`PUBLIC_R2_UNQUALIFIED_FORM`, by rule two) and every paired form (`PUBLIC_R2_PAIRED_FORM`) | a support-matrix row for R2 by target, or narrowed by forms that a native R2 qualification covers | D77.46, D77.67, D77.68 |

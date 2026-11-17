@@ -196,15 +196,13 @@ Rust rewrite, as its owner.
 
 The midpoint comes after P02, P03 and one real platform end-to-end sample,
 and no later than half the expected use. The lane workflows stop there and
-the lead reports to the owner: S/H/L/K, then Q; whether Nullability changes
-a public type contract (PL.50 Q8 A); H3's real size; platform cost; shared
-write sets; whether P15 is still worth doing; the ledger; whether the CI
-evidence applies; and Phase79's completion audit if it has landed. If the
-Nullability report says a public type contract changes, that change enters
-Phase81 only with the semantics and budget the owner then approves, in a
-position of its own with acceptance and regression before P16; otherwise it
-waits for `0.3.0`. A real bug found in an existing contract is handled
-before the freeze either way.
+the lead reports to the owner: S/H/L/K, then Q; H3's real size; platform
+cost; shared write sets; whether P15 is still worth doing; the ledger;
+whether the CI evidence applies; and Phase79's completion audit if it has
+landed. The owner answered the Nullability question (PL.50 Q8 A) before the
+midpoint: v2 changes a public type contract and goes to `0.3.0`, and
+Phase81 opens no Nullability position ([P02 record](#p02-record)). A real
+bug found in an existing contract is still handled before the freeze.
 
 P15 may leave without failing the line; diagnostic errors and invalid
 qualification evidence may not. A position that grows beyond one
@@ -407,6 +405,101 @@ is stop point 5. MC's PL.49 item also changes
 `project_completed_semantics.py`, so the refusal goes after MC on `main`,
 and P15 after it if both write `project_sql_plan_verification.py`. P02
 binds the final write set when it decides.
+
+## P02 record
+
+P02 ran on 2026-11-17 on Gate 0's head `900e8915` with this route on
+top, which changes only documentation, in a fresh worktree synced offline
+from `uv.lock` (CPython 3.13.13, `pietto` editable from that worktree),
+with no database. It changed no tracked file; its probes built bundles
+with the test owners' helpers and changed their records in memory. It
+stopped at stop point 4 on Nullability v2 and on row 20, and the owner
+answered both in a dialog on 2026-11-17, ahead of the
+[midpoint](#midpoint), which therefore no longer carries the Nullability
+question; the decision row is the lead's to record.
+
+- **Nullability v2.** With no proposal text (P01), the review read the
+  Phase72 handoff's item, "the external nullability v2 proposal and
+  general narrowing after `x is not None`", against the current rules: a
+  bare type is never None, `T | None` may be None and a field of a source
+  without a shape is unknown; an INNER JOIN proves the direct field
+  leaves of its `on`'s top-level `and` operands non-null; WHERE does not
+  refine, OR gives no proof, and arithmetic outside a `def` body's check
+  has unknown nullability ([language](../../language.md), [nullability
+  contract](../../spec/nullability-propagation-contract-v1.md)). On
+  `900e8915`, `explain --project` reports `amount` after `where amount is
+  not None` as `nullable`, `amount if amount is not None else 0` as
+  `nullable`, `id + 1` over a non-null `id` as `unknown`,
+  `coalesce(amount, 0)` as `non_null` and a field that an INNER JOIN's
+  `on` tests with `is not None` as `non_null`, and passing that `amount`
+  to a `def` parameter of type `Int` is PIE-S2395. Any narrowing after
+  `x is not None` therefore changes, for sources accepted today, the
+  nullability that the relation column view, the semantic metadata
+  artifact, project JSON v2's emission columns, the result schema,
+  `pietto.interop`'s admission and compiled records carry, and which
+  `def` arguments and relationship rows bind: it changes a public type
+  contract (PL.50 Q8 A). The owner chose not to take it before the
+  freeze: Phase82 freezes the current rules, and Nullability v2 goes to
+  `0.3.0` as a breaking change (PL.51). Phase81 opens no Nullability
+  position, and P07 generates nullability by the current rules.
+- **Row 20.** A forged compiled bundle still loads through `load_bundle`
+  when its records give an aggregate an argument that `compile_query`
+  refuses with PIE-S2315: `median`, `stddev`, `variance`, `pstdev`, `min`,
+  `max` or `count_distinct` of a row expression, or `sum` of `value % 2`
+  or `value / 2`, each written into a VERIFIED PostgreSQL bundle with the
+  result type kept. The replay restates emission's carrier law for such an
+  argument but not the source's argument law, while the [execution
+  guide](../../execution.md) says that only queries `compile_query` can
+  produce are loaded. A bundle that another consistent project would
+  produce, such as one whose declared key was changed (JF's J0), is the
+  trust boundary the guide already states. The owner decided to refuse the
+  first kind: the replay restates the source's argument law by function
+  and shape (`sum` and `avg` of fields under `+`, `-`, `*` and unary
+  signs, alone or with an `Int` or `Float` literal or parameter, `count`
+  of its counting shapes, `count_distinct` of a `lower` and `trim` chain
+  over `Text`, `string_agg` of `Text`, a direct read for every other
+  function) and refuses what that law does not admit with PIE-R1004 and
+  its existing details, so no PIE code, detail, JSON shape, compiled
+  record or `VERSIONS` changes, and valid bundles keep their bytes. The
+  second kind stays the guide's trust boundary. The refusal repairs an
+  existing defect on its own (D77.63), in a repair commit outside P02 that
+  is pushed under PL.13 (b) and ships in `0.2.2`; if it is not ready for
+  `0.2.2`'s final assembly, it stays in Phase81 and is pushed after the
+  `0.2.2` release commit. This placement supersedes r17's "P02 implements
+  row 20's refusal" and the P02 position's "with its implementation"; the
+  answer names no ledger, so the repair's cost stays on row 20's reserve
+  in Phase81's ledger ([Budget](#budget)), and if the repair falls back to
+  Phase81 it returns to P02. Reading the code narrows [its write
+  set](#row-20s-write-set) to the derivation and the independent
+  verification in `project_completed_semantics.py`, cases in
+  `tests/test_execution_compiled_families.py` and a release-note fragment;
+  the repair commit binds the final one after probing the windowed
+  aggregates' arguments and MySQL's forgeries of the same kind, which P02
+  did not probe. When P09 widens the source law, the replay's restatement
+  changes with it, with a compiled case.
+- **L113.** The JOIN-then-WHERE, ON and QUALIFY forms have been refused
+  since `0.2.1` (`4553fa1a`), and their tests pass on `900e8915`. A
+  bundle built past emission's law with an inclusive chain, a
+  conditional, `abs`, a cast or a membership test in a `let` after a
+  JOIN is refused on both targets with PIE-R1004 `COMPILED_OPERATOR`,
+  except MySQL's `abs`, which emission refuses before any bundle exists.
+  A forged bundle with no columns stays a known low and was not probed
+  again.
+- **Row 19.** The freeze ledger row, PL.61, PL.62 and J1 (`a5bd2c8e`)
+  agree, and the adapters' fence passes. Row 20's refusal reads no JOIN
+  fact. P01, P07 and P15 consume none as long as P07 and P08 compare only
+  public outputs; P15 adds no reader, but the plan's verification calls
+  the compiled aggregate evidence, so P15 and J2 rebase in the order they
+  reach `main`. This part closes with JF's J3, which follows the `0.2.2`
+  release commit (PL.61 (4)), and P16 waits for J3 only through P02.
+- **A known low.** An aggregate argument's `operation` record whose
+  `operator` is a string of other than two characters, such as `"%"`,
+  instead of a role and a token, makes `load_compiled` raise an unnamed
+  `ValueError`, which `load_bundle` reports as PIE-R1999 instead of
+  PIE-R1008; a string of two characters unpacks and is refused with
+  PIE-R1008, and any string in an `operation` record elsewhere is refused
+  with PIE-R1008 `COMPILED_OPERATOR`. The load still fails closed; the
+  misclassification is recorded as a known low.
 
 ## Single writers and the other lines
 
