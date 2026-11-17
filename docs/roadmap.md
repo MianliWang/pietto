@@ -369,9 +369,10 @@ Windows with Python 3.12 and 3.13 since the 2026-11-06 maintenance
 directory writer and the CLI and compile claim, with execution not claimed
 and the extras left out (PL.40, D5;
 [platforms and qualification](capabilities.md#platforms-and-qualification));
-a native Windows editor acceptance remains. Nullability v2 changes a
-public type contract, as Phase81's review found, so the freeze keeps the
-v1 rules and v2 waits for `0.3.0` as a breaking item (PL.69).
+P06 landed the editor acceptance, the extension's `windows-latest` job on
+PyPI's `0.2.2` wheel, and nothing of the scope remains. Nullability v2
+changes a public type contract, as Phase81's review found, so the freeze
+keeps the v1 rules and v2 waits for `0.3.0` as a breaking item (PL.69).
 
 From the `0.2.1` lanes (PL.44), Phase81's editor work takes the rest of
 the fault tolerance of `pietto lsp` and the overlap diagnostic for a

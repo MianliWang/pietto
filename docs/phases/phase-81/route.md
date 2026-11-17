@@ -224,7 +224,7 @@ binds its exact inputs, write set, commands, acceptance and cost.
 | P03 | The diagnostic review: H3 (2), D6's MySQL half, the order of PIE-S2333 against PIE-S2104 and PIE-S2334, the null-safe JOIN premise error, the extra PIE-S2104 of `round(avg(x), 2)`, PIE-B1004 by (d) (a), and a catalog of the five editor messages; no code added or removed, no JSON shape changed | P01; a window of its own on `docs/spec/diagnostics.md` |
 | P04 | CPython 3.14 in full CI (30 jobs), the verified profile, classifiers and badge; 3.14 extras, SQLite build, `save` and R2 declared as measured | P01 |
 | P05 | The Windows directory writer and the CLI and compiler claim; execution NOTRUN; Windows classifiers | P01; the output contract locked |
-| P06 | The extension repository: a `windows-latest` job on an installed wheel, D11 A's small fixes and PL.44 (c), one authorization and one push | P01; the core contracts it calls stable |
+| P06 | The extension repository: a `windows-latest` job on an installed wheel, D11 A's small fixes and PL.44 (c), one authorization and one push, and the one repair push the owner authorized in advance on 2026-11-18 if its Windows job fails in that push's first natural CI ([P06 record](#p06-record)) | P01; the core contracts it calls stable |
 | P07 | A bounded deterministic generator and independent oracles (standard library) over the opened single-file and project forms | P01; P02's decisions that bound the generated range |
 | P08 | The shrinker, the two-database differential, the in-process DuckDB and SQLite oracles, metamorphic relations, the compile-time benchmark and the ten-node profile | P07; the applicable qualification profiles; the Docker Engine |
 | P09 | H3 (1): a `let` inside an aggregate's argument, read by value in both modes, inlined in single files, verified on both databases | P01; the Docker Engine |
@@ -889,6 +889,101 @@ and Q4 A.
   CI-tested them on Linux, and the roadmap's paragraph, which still
   described the state before P05.
 
+## P06 record
+
+P06's one change of the extension repository,
+`MianliWang/pietto-vscode-extension`, is
+`3487d9a1564ea237f10cf89c23687a787a367c06` (tree
+`9acba450c3b962965ef8925f07c2771ee62a2aa7`), one commit on its `main`
+`680e4a72e3a837633148a2073353f0bdd538a683`, the `0.4.0` release commit,
+which `git ls-remote` gave at 16:24:47Z on 2026-11-27. It redoes from this
+record's earlier text the candidate `6eed3c14` of 2026-11-17, which was
+lost with the old host before its push, and adds core `0.2.2`, as the
+owner decided on 2026-11-21 (PL.87 (2)). It was pushed on 2026-11-28,
+after `0.2.2` was on PyPI, as PL.50 Q5 A's one push with D11 A's small
+fixes (PL.40) and PL.44 (c) (PL.66 (2)); there was no tag and no
+Marketplace release. Its natural CI, run `46095112598`, completed with
+success at 01:54:19Z. No repair push was needed, so the owner's advance
+authorization of 2026-11-18, one repair push of the extension repository
+with no tag and no Marketplace release if the Windows job failed in this
+first natural CI, went unused. The core is unchanged, and so is the
+extension's sync script, which waits for Phase82's P05.
+
+- **CI.** The Ubuntu matrix adds core `0.1.12`, `0.2.0`, `0.2.1` and
+  `0.2.2` to `0.1.10` and `0.1.11`. A new `windows-latest` job, with the
+  same pinned actions and a 30-minute limit, installs the `0.2.2` wheel
+  from PyPI (`--only-binary=pietto`) with a native CPython 3.13 into
+  `.local/pietto-venv`, the tests' default interpreter, and runs the
+  build, `node --test`, `test:host` and `test:restricted`. Since `0.2.2`
+  announces every editor feature, it fails when the `test:host` results
+  file lists a step skipped for a capability.
+- **`.gitattributes`.** `* text=auto eol=lf`. Renormalizing with it
+  changes no tracked file, and `vsce` leaves it out of the package.
+- **PL.44 (c).** The project preview's failure report leaves out a
+  location without a path, as the core's text output does since `0.2.1`
+  (`da157e03`): `CODE severity: message` instead of `None:1:1 ...`. The
+  unit test of `parseProjectPreview`, which the preview shows, covers a
+  null path and a null location; on the old source it fails with
+  `None:1:1` and `None:None:None`. Like the core's own test of that
+  commit, it supplies such a diagnostic itself.
+- **`node --test` on Windows (the lead's plan's item L054).** The real-CLI
+  preview test compared its reports byte for byte with what
+  `--format=text` writes to stderr, and Python's text mode ends those
+  lines with CRLF on Windows. So that one test of 56 failed there, which
+  with a test that skips on Windows is the external audit's 54 of 56. The
+  test now reads that stderr with LF line ends. With a stand-in
+  interpreter that writes pietto's stderr with CRLF line ends, the earlier
+  test fails and the candidate's passes. The fix is in the candidate's one
+  commit, so the one push carries it.
+- **Windows host steps.** The extension resolves project roots from the
+  workspace folder's `fsPath`, whose Windows drive letter VS Code writes
+  in lower case, but two host steps built their expected roots from the
+  runner's path: the two-roots message, the inferred cause of the
+  external audit's Windows timeout, and the Pietto Models root. Both now
+  use `fsPath`, which on Linux is the same path.
+- **Next version's items.** The CHANGELOG's `0.3.0 (candidate)` heading
+  now says that `0.3.0` was not released and first shipped in `0.4.0`,
+  and an `Unreleased` entry names the preview fix. The README's hover
+  sentence adds the parameter and result types of a single file's
+  `constraint` and `derive`, and names the parameter and result types of
+  a `def` and the parameter types of a relationship or query header
+  among the uses with neither a hover nor a definition. `pietto lsp`
+  sessions of `0.1.11` and of `0.2.1` showed both: a single file for
+  `constraint`, `derive`, `def` and relationship, and a module of a
+  `schema_version = 2` root, without diagnostics, for `def`,
+  relationship and query header, where a shape field's alias type keeps
+  its hover. A single file cannot show a query header, since
+  `PIE-S2346` refuses its parameters there. The README describes the
+  new CI. The results files of `test:host` and `test:restricted` list
+  each run's `SKIP` lines. `docs/verification.md` says that step 17 is
+  not capability-gated, and that a capability `SKIP` was not written
+  to the results file in its `0.4.0` runs.
+- **Checks.** On the integration host (Linux x86-64 WSL2, Node 22.23.5,
+  npm 10.9.9, CPython 3.13.13, VS Code 1.148.0, commit `661626d0`,
+  through WSLg), with each core installed from PyPI's wheel in its own
+  virtual environment (`0.2.2`'s wheel is `bc33fef7…`, the published
+  file): `npm ci --ignore-scripts`, the build and the lint pass;
+  `node --test` passes 56 of 56 with each of `0.1.10`, `0.1.11`,
+  `0.1.12`, `0.2.0`, `0.2.1` and `0.2.2`, and with a CRLF stand-in on
+  `0.2.2`, where the base fails only the real-CLI preview test.
+  `test:host` passes 35 steps with `0.2.2` and `PIETTO_TEST_OLD_PYTHON`
+  on `0.1.9`, with no `SKIP`; 34 with `0.2.2` alone, with one `SKIP` (no
+  `PIETTO_TEST_OLD_PYTHON`), whose first run on 2026-11-27 ended during
+  the silent-server step with no `FAIL` line at a load of about 11 and is
+  kept, and the next run passed; and 28 with `0.1.10`, with
+  the seven of the capabilities that `0.1.10` does not announce, each
+  listed in the results file. The Windows job's capability check passes
+  on the `0.2.2` results files and fails on the `0.1.10` one, naming
+  those seven. `test:restricted` passes with `0.2.2`, with no `SKIP`.
+  `pietto lsp` hover and definition sessions give the same answers with
+  `0.1.11`, `0.2.1` and `0.2.2`.
+- **Natural CI.** All seven jobs passed; on Windows `node --test` passed
+  55 of its 56 tests with one skipped, and `test:host` passed 30 steps,
+  the two-roots step among them, with four `SKIP` lines for `/proc` or the
+  POSIX stand-in and one for the unset `PIETTO_TEST_OLD_PYTHON`.
+- **Not run.** macOS, VS Code 1.90.0 (the `engines` minimum),
+  `npm run package` and `test:vsix`.
+
 ## P12 record
 
 P12 takes PL.44 (a) on the route's base `6fa66291`, with the scope that
@@ -1267,7 +1362,7 @@ one-minute load below 24 and 8 workers per lane.
 | 24 | Differential and fuzz | P07 and P08: valid corpora within the opened forms, seeds in the repository, each campaign registered before it runs, independent oracles and metamorphic relations; a reduction that changes the failure class or premise is not a minimal case. |
 | 25 | Packaging | P04's classifiers, lock and cp314 wheels in one commit; P05's Windows classifiers; P14's tools outside the wheel; no generated file and no new dependency. |
 | 26 | Support matrix | Now Linux x86-64 on CPython 3.12 and 3.13, with platform-neutral tests on Windows; after Phase81 also 3.14, and Windows x86-64 CLI and compiler with execution NOTRUN and no extras; macOS not claimed. |
-| 27 | Release | Pushes under PL.52 after `0.2.2`'s D2 (PL.57 (2), PL.58 (2)); `0.2.3` at the earliest, and not before Phase81 is done (PL.94), after P16 closes and before the Phase82 freeze (PL.98 (3)); each release asked of the owner; P06's one push of the extension repository and no Marketplace release. |
+| 27 | Release | Pushes under PL.52 after `0.2.2`'s D2 (PL.57 (2), PL.58 (2)); `0.2.3` at the earliest, and not before Phase81 is done (PL.94), after P16 closes and before the Phase82 freeze (PL.98 (3)); each release asked of the owner; P06's one push of the extension repository, with the one repair push the owner authorized in advance on 2026-11-18 if its Windows job fails in that push's first natural CI ([P06 record](#p06-record)), and no Marketplace release. |
 | 28 | Readiness and deferrals | Closed: r17's dispatch (PL.66 (1)), JF's J1 on `main` (`a5bd2c8e`), Phase79's completion audit (D79.23), SQLite B2's second tier, the Nullability question (PL.69), the midpoint (PL.87) and the green natural CI `46096387561` of Gate 0's head `d2298193`. Deferred: JF's J3 for P02's row 19 part; P15's memo to `0.3.0` if not done; the MC audit's loadfile cost estimates of four test owners to P16's acquisition review; the owed ten-node profile to P16. |
 | 29 | Slice route | P01, then P02–P07, P12, P14 and P17 as their dependencies allow; P08 after P07; P09–P11 and P12–P13 in turn; P15 after its profile; P16 last. Ready positions are batched: one Gate 2, one push, one natural CI, one commit each. |
 | 30 | Repair and stop | The budget above under PL.15; the stop points above; a failed natural CI is kept and repaired in a new child, never rerun; failed runs and their evidence are kept. |
