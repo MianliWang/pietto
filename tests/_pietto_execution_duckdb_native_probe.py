@@ -1,5 +1,5 @@
 """The producer and runner of the Phase79 DuckDB native qualification
-(preregistration v6, sections 6 to 8).
+(preregistration v7, sections 6 to 8).
 
 `unit` runs one installation unit in the preregistered order: the run-start
 check, the run's frozen.sha256, the checker's self-test, the oracle's
@@ -14,6 +14,7 @@ import argparse
 import base64
 import contextlib
 import functools
+import gc
 import hashlib
 import importlib
 import importlib.metadata
@@ -47,7 +48,7 @@ NAMES = {
 }
 SPEC = Path("docs/spec/duckdb-arrow-route-v1.md")
 ALLOWLIST = Path("ci/phase67-arrow-compatibility-requirements.txt")
-CHILD_SHA256 = "e88dafbbc7e4a06a442bc61f5c1ca4c5ea2909398d019f404861143bd600db77"
+CHILD_SHA256 = "f8c040460b3abb55d7563cffbe754b98afc7cac3ab6c726cbf5bf81fa5cdf1a7"
 UNIT_SECONDS = 30 * 60
 RUN = (
     "import importlib, sys; sys.path.insert(0, sys.argv[1]); "
@@ -108,8 +109,8 @@ def _start(frozen: Path, evidence: Path, erratum: str | None) -> list[str]:
     start = evidence / "start"
     start.mkdir()
     sources = {
-        "frozen-preregistration-v6.md": frozen / "preregistration-v6.md",
-        "working-preregistration-v6.md": frozen.parent / "preregistration-v6.md",
+        "frozen-preregistration-v7.md": frozen / "preregistration-v7.md",
+        "working-preregistration-v7.md": frozen.parent / "preregistration-v7.md",
         "freeze-record.md": frozen / "freeze-record.md",
         "FROZEN.sha256": frozen / "FROZEN.sha256",
     }
@@ -125,25 +126,25 @@ def _start(frozen: Path, evidence: Path, erratum: str | None) -> list[str]:
     )
     entry = _first_entry(start / "freeze-record.md")
     voids = [
-        f"{name} is not the v6 of the freeze record's first entry"
-        for name in ("frozen-preregistration-v6.md", "working-preregistration-v6.md")
-        if digests[name] != entry.get("preregistration-v6.md")
+        f"{name} is not the v7 of the freeze record's first entry"
+        for name in ("frozen-preregistration-v7.md", "working-preregistration-v7.md")
+        if digests[name] != entry.get("preregistration-v7.md")
     ]
     if digests["FROZEN.sha256"] != entry.get("FROZEN.sha256"):
         voids.append("FROZEN.sha256 is not the one of the freeze record's first entry")
     if voids:
         return voids
     try:
-        child = _child(start / "frozen-preregistration-v6.md")
+        child = _child(start / "frozen-preregistration-v7.md")
     except StopIteration:
-        return ["no C02a child in the frozen v6"]
+        return ["no C02a child in the frozen v7"]
     (evidence / "c02a-child.py").write_bytes(child)
     files = {NAMES[role]: TESTS / NAMES[role] for role in NAMES}
     files.update(
         {
             "expected.json": frozen / "expected.json",
             "c02a-child.py": evidence / "c02a-child.py",
-            "preregistration-v6.md": start / "frozen-preregistration-v6.md",
+            "preregistration-v7.md": start / "frozen-preregistration-v7.md",
         }
     )
     sums = {name: _sha(path) for name, path in files.items()}
@@ -604,7 +605,7 @@ class Context:
         self.argv1 = json.loads(args.argv1)
         self.work = self.evidence / "work" / f"{args.cell}-{os.getpid()}"
         self.work.mkdir(parents=True)
-        self._queries: dict[tuple[str, str], Any] = {}
+        self._queries: dict[tuple[str, str, str], Any] = {}
         self._tables: dict[Any, Any] = {}
         self._made = 0
 
@@ -618,12 +619,15 @@ class Context:
     def pa(self) -> Any:
         return importlib.import_module("pyarrow")
 
-    def query(self, project: str, body: str) -> Any:
-        if (project, body) not in self._queries:
+    def query(self, project: str, body: str, namespace: Any = None) -> Any:
+        key = (project, body, json.dumps(namespace))
+        if key not in self._queries:
             # A refused compile leaves its directory, so each try has its own.
             self._made += 1
-            root = cases.write_project(self.work / f"q{self._made}", project, body)
-            self._queries[(project, body)] = self.execution.compile_query(
+            root = cases.write_project(
+                self.work / f"q{self._made}", project, body, namespace
+            )
+            self._queries[key] = self.execution.compile_query(
                 root,
                 module="main.pietto",
                 kind="query" if body.startswith("query") else "table",
@@ -631,16 +635,19 @@ class Context:
                 dialect="duckdb",
                 emission_contract="contract.json",
             )
-        return self._queries[(project, body)]
+        return self._queries[key]
 
     def handle(self, query: Any, table: Any, **arguments: Any) -> Any:
         arguments.setdefault(
             "parameters", {"min_amount": 10} if query.parameters else None
         )
+        access = arguments.pop("access", None)
         return self.execution.execute(
             query,
             route="duckdb_arrow",
-            access=self.execution.DuckDBArrowInput("orders", table),
+            access=self.execution.DuckDBArrowInput("orders", table)
+            if access is None
+            else access,
             premise=None,
             **arguments,
         )
@@ -704,18 +711,21 @@ def _attempt(
     ctx: Context, handle: Any, schema: bool = False, digest: bool = False
 ) -> dict[str, Any]:
     """Enter the handle and read every batch: rows as typed values (or their
-    count and digest), the batches' schemas, the AttemptFailed and O."""
+    count and digest), each batch's row count, the batches' schemas, the
+    AttemptFailed and O."""
     pa = ctx.pa
     facts: dict[str, Any] = {}
     if schema:
         facts["schema"] = _schema(pa.schema(handle))
     rows: list[Any] = []
+    sizes: list[int] = []
     schemas: list[Any] = []
     raised = None
     try:
         with handle as result:
             for batch in result:
                 record = pa.record_batch(batch)
+                sizes.append(record.num_rows)
                 if _schema(record.schema) not in schemas:
                     schemas.append(_schema(record.schema))
                 rows += [cases.encode_row(row.values()) for row in record.to_pylist()]
@@ -726,6 +736,7 @@ def _attempt(
         raised=raised,
         O=_outcome(handle),
         rows=cases.digest(rows) if digest else rows,
+        batch_sizes=sizes,
         batch_schemas=schemas,
         recorded=_recorded(handle),
     )
@@ -1206,6 +1217,22 @@ def c10(ctx: Context, sub: str) -> dict:
     return facts
 
 
+class _BreakingReader:
+    """The route's record batch reader, whose close is recorded among the
+    connection's calls and then fails."""
+
+    def __init__(self, reader: Any, recorder: _Recorder) -> None:
+        self._reader, self._recorder = reader, recorder
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._reader, name)
+
+    def close(self) -> None:
+        self._recorder.calls.append(["reader close"])
+        self._reader.close()
+        raise RuntimeError("reader")
+
+
 class _Breaking:
     """J7: close() closes the real connection, then raises."""
 
@@ -1508,15 +1535,13 @@ def c16(ctx: Context, sub: str) -> dict:
     }
 
 
-def b2(cell: str, ctx: Context, sub: str) -> dict:
-    """One B2 statement (sections 4f-4k): its compile refusal, or one attempt
-    over the sub-case's table in its order with its parameters."""
-    spec = cases.B2[cell][sub]
+def _compiled(ctx: Context, spec: dict) -> tuple[Any, Any]:
+    """(the compiled query, None), or (None, the refusal's facts)."""
     try:
-        query = ctx.query(spec["project"], cases.body(spec))
+        return ctx.query(spec["project"], cases.body(spec), spec["namespace"]), None
     except ctx.execution.CompileRejected as error:
         document = json.loads(error.emission)
-        return {
+        return None, {
             "compile": error.status,
             "blockers": [
                 [
@@ -1530,17 +1555,343 @@ def b2(cell: str, ctx: Context, sub: str) -> dict:
                 for b in document.get("blockers") or []
             ],
         }
-    if spec["table"] == "CAPACITY":
+
+
+def _inputs(ctx: Context, spec: dict, order: str) -> Any:
+    """A tier 2 statement's access: one DuckDBArrowInput for one key, else a
+    tuple of them in the spec's order (reversed when it swaps)."""
+    made = []
+    for key, name in spec["inputs"].items():
+        shape = cases.T2_TABLES[name][0]
+        table = cases.shaped(ctx.pa, shape, cases.t2_rows(name, order))
+        made.append(ctx.execution.DuckDBArrowInput(key, table))
+    if len(made) == 1:
+        return made[0]
+    return tuple(made[::-1] if spec["swap"] else made)
+
+
+def b2(cell: str, ctx: Context, sub: str) -> dict:
+    """One B2 or tier 2 statement (sections 4f-4n, 4p): its compile refusal,
+    its request refusal, or one attempt over the sub-case's inputs in its
+    order with its parameters and limits."""
+    spec = (cases.B2 if cell in cases.B2 else cases.T2)[cell][sub]
+    query, refused = _compiled(ctx, spec)
+    if refused is not None:
+        return refused
+    arguments: dict[str, Any] = {"parameters": spec["values"]}
+    if spec["limits"]:
+        arguments["limits"] = ctx.execution.ExecutionLimits(**spec["limits"])
+    # C21's sub-cases name no order; they read CAPACITY.
+    order = sub.rsplit(" ", 1)[-1]
+    if spec["inputs"] is not None:
+        arguments["access"] = _inputs(ctx, spec, order)
+        table = None
+    elif spec["table"] == "CAPACITY":
         table = ctx.cached("capacity", lambda: cases.capacity(ctx.pa))
     else:
-        rows = cases.rows_of(spec["table"], sub.rsplit(" ", 1)[1])
-        table = cases.table(ctx.pa, rows)
+        table = cases.table(ctx.pa, cases.rows_of(spec["table"], order))
     with _Recorder(ctx.route) as recorder:
-        handle = ctx.handle(query, table, parameters=spec["values"])
+        handle, raised = _execute(ctx, query, table, **arguments)
+        if handle is None:
+            return {"raised": raised, "calls": recorder.calls}
         began = time.monotonic()
         facts = _attempt(ctx, handle, schema=True, digest=spec["digest"])
     facts.update(elapsed=time.monotonic() - began, calls=recorder.calls)
     return facts
+
+
+def c25(ctx: Context, sub: str) -> dict:
+    """Batch reading at its boundaries (section 4o)."""
+    x, route, pa = ctx.execution, ctx.route, ctx.pa
+    query, t5 = ctx.query("P0", cases.P_BODY), cases.table(pa, cases.T5)
+    if sub == "sum in a later chunk":
+        query = ctx.query("P0", cases.body(cases.LATER))
+        with _Recorder(route) as recorder:
+            handle = ctx.handle(query, cases.table(pa, cases.later_rows()))
+            facts = _attempt(ctx, handle, schema=True)
+        facts["calls"] = recorder.calls
+        return facts
+    if sub == "reader close fails":
+        rows: list[Any] = []
+        raised = None
+        with _Recorder(route) as recorder:
+            handle = ctx.handle(query, t5)
+            try:
+                with handle as result:
+                    owner = handle._owner
+                    owner._reader = _BreakingReader(owner._reader, recorder)
+                    for batch in result:
+                        record = pa.record_batch(batch)
+                        rows += [
+                            cases.encode_row(r.values()) for r in record.to_pylist()
+                        ]
+            except x.AttemptFailed as error:
+                raised = _raised(error)
+        return {
+            "raised": raised,
+            "O": _outcome(handle),
+            "rows": rows,
+            "cleanup_failures": [
+                [f.code, f.phase, f.cause] for f in handle.outcome.cleanup_failures
+            ],
+            "calls": recorder.calls,
+        }
+    limits = {
+        "bytes at the limit": {"max_bytes": cases.T5_CHARGE},
+        "bytes one below": {"max_bytes": cases.T5_CHARGE - 1},
+        "batch bytes one below": {"batch_bytes": cases.T5_CHARGE - 1},
+        "bytes in many batches": {},
+        "rows cut": {"batch_rows": 2, "max_rows": 4},
+        "bytes cut after two batches": {"batch_rows": 2, "max_bytes": cases.BYTES_CUT},
+    }
+    if sub in limits:
+        many = sub == "bytes in many batches"
+        table = cases.table(pa, cases.TN * 500) if many else t5
+        with _Recorder(route) as recorder:
+            handle = ctx.handle(query, table, limits=x.ExecutionLimits(**limits[sub]))
+            facts = _attempt(ctx, handle, schema=True)
+        facts.update(calls=recorder.calls, bytes=handle.outcome.bytes)
+        return facts
+    # The step of the iteration after the last batch reads the reader's end;
+    # these stop just before it.
+    offset = [0.0]
+    clock = SimpleNamespace(monotonic=lambda: time.monotonic() + offset[0])
+    rows: list[Any] = []
+    raised = None
+    with _Recorder(route) as recorder, _patched(route, time=clock):
+        handle = ctx.handle(query, t5)
+        try:
+            with handle as result:
+                steps = iter(result)
+                record = pa.record_batch(next(steps))
+                rows += [cases.encode_row(r.values()) for r in record.to_pylist()]
+                if sub == "cancel after the last batch":
+                    handle.cancel()
+                    next(steps)
+                elif sub == "deadline after the last batch":
+                    offset[0] = 3600.0
+                    next(steps)
+        except x.AttemptFailed as error:
+            raised = _raised(error)
+    return {
+        "raised": raised,
+        "O": _outcome(handle),
+        "rows": rows,
+        "calls": recorder.calls,
+        "recorded": _recorded(handle),
+    }
+
+
+def _admission(ctx: Context, query: Any, access: Any, sizes: dict) -> dict:
+    """An execute() that must be refused or return an unentered handle,
+    which is then closed: no session, no DuckDB."""
+    with _Recorder(ctx.route) as recorder:
+        handle, raised = _execute(ctx, query, None, access=access, parameters=None)
+        facts: dict[str, Any] = {"raised": raised}
+        if handle is not None:
+            facts["end"] = handle.outcome.end
+            handle.close()
+    facts.update(
+        calls=recorder.calls, modules=_modules("duckdb", "_duckdb"), sizes=sizes
+    )
+    return facts
+
+
+def c27(ctx: Context, sub: str) -> dict:
+    """Typed inputs, input names, and the limits over several inputs
+    (section 4q)."""
+    pa, x = ctx.pa, ctx.execution
+    kind, name = sub.split(":", 1)
+    Input = x.DuckDBArrowInput
+
+    def made(key: str, rows: Any = None) -> Any:
+        shape, fixed = cases.T2_TABLES[key]
+        return cases.shaped(pa, shape, fixed if rows is None else rows)
+
+    if kind == "typed" or name == "one in a tuple":
+        query = ctx.query("PT", cases.body(cases.C23["read forward"]))
+        if kind == "typed":
+            return _admission(
+                ctx, query, Input("orders", cases.forged_typed(pa, name)), {}
+            )
+        return _admission(ctx, query, (Input("orders", made("TT")),), {})
+    spec = cases.C26[
+        {
+            "shared input once": "shared input forward",
+            "self join once": "self join forward",
+        }.get(name, "inner forward")
+    ]
+    query = ctx.query("PJ", cases.body(spec))
+    orders, customers = Input("orders", made("JO")), Input("customers", made("JC"))
+    sizes: dict[str, Any] = {}
+    access: Any
+    if kind == "names":
+        access = {
+            "list": [orders, customers],
+            "repeated": (orders, orders, customers),
+            "missing": (orders,),
+            "extra": (orders, customers, Input("rates", made("JR"))),
+            "case": (orders, Input("Customers", customers.table)),
+        }[name]
+    elif kind == "rows":
+        many = cases.MAX_ROWS + (name == "one input beyond")
+        if name == "one input beyond":
+            access = (orders, Input("customers", cases.wide_customers(pa, many, 1)))
+        else:
+            rows = [(k, 5, None, True, 0.0) for k in range(many)]
+            access = (
+                Input("orders", made("JO", rows)),
+                Input("customers", cases.wide_customers(pa, many, 1)),
+            )
+        sizes = {key.name: key.table.num_rows for key in access}
+    elif name == "over all inputs":
+        table = ctx.cached(cases.MAX_BYTES, lambda: cases.sized(pa, cases.MAX_BYTES))
+        sizes = {"orders": table.nbytes}
+        if table.nbytes != cases.MAX_BYTES:
+            return {"fixture_miss": sizes}
+        access = (Input("orders", table), customers)
+    elif name == "self join once":
+        # orders read twice: one input of about 160 MiB, counted once.
+        table = cases.wide_orders(pa, cases.MAX_ROWS, cases.SHARED_NAME_BYTES)
+        sizes = {"orders": table.nbytes}
+        if not cases.MAX_BYTES < 2 * table.nbytes < 2 * cases.MAX_BYTES:
+            return {"fixture_miss": sizes}
+        access = Input("orders", table)
+    else:
+        table = cases.wide_customers(pa, cases.MAX_ROWS, cases.SHARED_NAME_BYTES)
+        sizes = {"customers": table.nbytes, "orders": orders.table.nbytes}
+        if (
+            not cases.MAX_BYTES
+            < 2 * table.nbytes
+            < 2 * (cases.MAX_BYTES - orders.table.nbytes)
+        ):
+            return {"fixture_miss": sizes}
+        access = (orders, Input("customers", table))
+    return _admission(ctx, query, access, sizes)
+
+
+def _peak_reset() -> int | None:
+    """Reset the process's peak RSS to its current RSS (Linux clear_refs 5);
+    its current RSS in KiB, or None when it cannot be reset."""
+    try:
+        Path("/proc/self/clear_refs").write_text("5", encoding="ascii")
+    except OSError:
+        return None
+    return _status("VmRSS")
+
+
+def _status(name: str) -> int | None:
+    for line in Path("/proc/self/status").read_text(encoding="ascii").splitlines():
+        if line.startswith(name + ":"):
+            return int(line.split()[1])
+    return None
+
+
+def c28(ctx: Context, sub: str) -> dict:
+    """The declared key check's peak at 1,048,576 rows (section 4r): RSS
+    above its value before execute() while execute() captures and checks,
+    then above its value before the attempt while the attempt runs."""
+    pa, x = ctx.pa, ctx.execution
+    if sub == "memory margin":
+        return _margin(ctx)
+    spec = cases.PEAK[sub]
+    query = ctx.query("PJ", cases.body(spec))
+    if sub == "sorted read":
+        access = x.DuckDBArrowInput("accounts", cases.peak_table(pa, "accounts"))
+    else:
+        big = "accounts" if sub == "int key" else "handles"
+        orders = cases.shaped(pa, "Order", cases.T2_TABLES["JO"][1])
+        access = (
+            x.DuckDBArrowInput("orders", orders),
+            x.DuckDBArrowInput(big, cases.peak_table(pa, big)),
+        )
+    gc.collect()
+    peaks: dict[str, Any] = {}
+    with _Recorder(ctx.route) as recorder:
+        base = _peak_reset()
+        handle = ctx.handle(query, None, access=access, parameters=None)
+        high = _status("VmHWM")
+        peaks["capture_peak_kib"] = (
+            None if base is None or high is None else high - base
+        )
+        gc.collect()
+        base = _peak_reset()
+        if sub == "sorted read":
+            facts = _counted(ctx, handle)
+        else:
+            facts = _attempt(ctx, handle, schema=True)
+        high = _status("VmHWM")
+        peaks["run_peak_kib"] = None if base is None or high is None else high - base
+    facts.update(peaks, calls=recorder.calls, rss_base_kib=base)
+    return facts
+
+
+def _counted(ctx: Context, handle: Any) -> dict[str, Any]:
+    """`_attempt` for a result too large to keep: the rows' count and
+    whether their ids fall by one from MAX_ROWS - 1 to 0, in place of rows."""
+    pa = ctx.pa
+    facts: dict[str, Any] = {"schema": _schema(pa.schema(handle))}
+    sizes: list[int] = []
+    schemas: list[Any] = []
+    seen, ordered, raised = 0, True, None
+    try:
+        with handle as result:
+            for batch in result:
+                record = pa.record_batch(batch)
+                sizes.append(record.num_rows)
+                if _schema(record.schema) not in schemas:
+                    schemas.append(_schema(record.schema))
+                for value in record.column(0).to_pylist():
+                    ordered = ordered and value == cases.MAX_ROWS - 1 - seen
+                    seen += 1
+    except ctx.execution.AttemptFailed as error:
+        raised = _raised(error)
+    facts.update(
+        raised=raised,
+        O=_outcome(handle),
+        rows_seen=[seen, ordered],
+        batch_sizes=sizes,
+        batch_schemas=schemas,
+        recorded=_recorded(handle),
+    )
+    return facts
+
+
+def _margin(ctx: Context) -> dict[str, Any]:
+    """L13's statement under each of MARGIN_LIMITS as `memory_limit` (its
+    read-back unchecked but at 1 GiB, which runs as L13 does): the 1 GiB
+    attempt's raised fact, and for each limit the failure's code and cause
+    and the attempt's peak above its start in KiB, recorded."""
+    route = ctx.route
+    query, t5 = ctx.query("P0", cases.P_BODY), cases.table(ctx.pa, cases.T5)
+    unchecked = tuple(
+        row for row in route.READ_BACK if row[0] not in ("memory_limit", "max_memory")
+    )
+    margin: dict[str, Any] = {}
+    raised = None
+    for limit in cases.MARGIN_LIMITS:
+        settings = tuple(
+            ("memory_limit", f"'{limit}'", None) if row[0] == "memory_limit" else row
+            for row in route.SETTINGS
+        )
+        patch = (
+            {} if limit == "1GiB" else {"SETTINGS": settings, "READ_BACK": unchecked}
+        )
+        gc.collect()
+        with _patched(route, **patch):
+            base = _peak_reset()
+            handle = ctx.handle(query, t5)
+            handle._owner._sql = cases.OOM_SQL
+            fact = _attempt(ctx, handle)["raised"]
+            high = _status("VmHWM")
+        if limit == "1GiB":
+            raised = fact
+        margin[limit] = [
+            None if fact is None else fact.get("code"),
+            None if fact is None else fact.get("cause"),
+            None if base is None or high is None else high - base,
+        ]
+    return {"raised": raised, "margin": margin}
 
 
 CELLS = {
@@ -1561,7 +1912,10 @@ CELLS = {
     "C14": c14,
     "C15": c15,
     "C16": c16,
-    **{cell: functools.partial(b2, cell) for cell in cases.B2},
+    **{cell: functools.partial(b2, cell) for cell in (*cases.B2, *cases.T2)},
+    "C25": c25,
+    "C27": c27,
+    "C28": c28,
 }
 
 

@@ -1,18 +1,20 @@
 """The checker of the Phase79 DuckDB native qualification (preregistration
-v6, section 6). `check(report, expected)` returns ACCEPTED, DEGRADED (law 7
+v7, section 6). `check(report, expected)` returns ACCEPTED, DEGRADED (law 7
 only), VOID (a fixture size miss, or an L6 setup above its bound: that
 sub-cell only) or the first law that refused; `self_test(expected)` accepts
 the honest literal report of every unit and refuses each fabricated shape.
-Rows compare as bags, as sequences of tie classes under `order by`, and as
-sub-multisets of the boundary class at a `limit`; a value of a class that
-holds both zeros may show either. Standard library only: it reads saved
-facts and judges them."""
+Rows compare as bags, as sequences of tie classes under `order by`, as
+sub-multisets of the boundary class at a `limit`, and as sub-multisets of
+the whole result where a statement fails after whole batches; a value of a
+class that holds both zeros may show either. Standard library only: it
+reads saved facts and judges them."""
 
 from __future__ import annotations
 
 import copy
 import json
 import re
+from collections import Counter
 import sys
 from pathlib import Path
 from typing import Any
@@ -27,6 +29,7 @@ LAWS = {
     "schema": 4,
     "batch_schemas": 4,
     "capture_c2": 4,
+    "bytes": 3,
 }
 SITE = "/s06/probe/lib/python3.13/site-packages"
 
@@ -183,6 +186,54 @@ def _inject(got: Any, want: list) -> bool:
     return place(0)
 
 
+def _sub_bag(got: list, want: list) -> bool:
+    """`got` is a sub-multiset of `want`, by literal values or by `$any`."""
+    if any(isinstance(v, dict) for row in want for v in row):
+        return _inject(got, want)
+    return not Counter(map(_text, got)) - Counter(map(_text, want))
+
+
+def _sub(arg: Any, got: Any, unit: str, identity: dict) -> bool:
+    """`count` delivered rows, or from its first to its second, each a row
+    of the whole result at most once."""
+    count = arg["count"]
+    low, high = count if isinstance(count, list) else (count, count)
+    return (
+        isinstance(got, list)
+        and low <= len(got) <= high
+        and all(isinstance(row, list) for row in got)
+        and _sub_bag(got, arg["rows"])
+    )
+
+
+def _outcome(arg: Any, got: Any, facts: Any) -> bool:
+    """O with its batches from the first to the second of `batches`; with
+    `most`, also one row count in `batch_sizes` for each batch, each from 1
+    to `most`, together the delivered rows (section 4n)."""
+    low, high = arg["batches"]
+    if not (
+        isinstance(got, list)
+        and len(got) == 8
+        and _same(got[:7], arg["fixed"])
+        and _number(got[7])
+        and isinstance(got[7], int)
+        and low <= got[7] <= high
+    ):
+        return False
+    if "most" not in arg:
+        return True
+    sizes = facts.get("batch_sizes") if isinstance(facts, dict) else None
+    rows = facts.get("rows") if isinstance(facts, dict) else None
+    return (
+        isinstance(sizes, list)
+        and isinstance(rows, list)
+        and len(sizes) == got[7]
+        and all(_number(s) and isinstance(s, int) for s in sizes)
+        and all(1 <= s <= arg["most"] for s in sizes)
+        and sum(sizes) == len(rows)
+    )
+
+
 def _bag_any(arg: Any, got: Any, unit: str, identity: dict) -> bool:
     return isinstance(got, list) and len(got) == len(arg) and _inject(got, arg)
 
@@ -208,6 +259,7 @@ def _ordered(arg: Any, got: Any, unit: str, identity: dict) -> bool:
 MATCHERS = {
     "$bag": _bag,
     "$bag_any": _bag_any,
+    "$sub": _sub,
     "$ordered": _ordered,
     "$interrupted": _interrupted,
     "$settings": _settings,
@@ -229,8 +281,13 @@ def _matcher(want: Any) -> tuple[str, Any] | None:
     return None
 
 
-def _matches(key: str, want: Any, got: Any, unit: str, identity: dict) -> bool:
+def _matches(
+    key: str, want: Any, got: Any, unit: str, identity: dict, facts: Any = None
+) -> bool:
+    """`got`, the value of `key` in a record's `facts`, against `want`."""
     matcher = _matcher(want)
+    if matcher is not None and matcher[0] == "$outcome":
+        return _outcome(matcher[1], got, facts)
     if matcher is not None:
         return MATCHERS[matcher[0]](matcher[1], got, unit, identity)
     if key in PARTIAL and isinstance(want, dict):
@@ -238,6 +295,39 @@ def _matches(key: str, want: Any, got: Any, unit: str, identity: dict) -> bool:
             name in got and _same(got[name], value) for name, value in want.items()
         )
     return _same(got, want)
+
+
+def _later(spec: dict, got: dict) -> bool:
+    """A statement that fails while a batch is read (section 4o): the raised
+    fact, O but its batches, at least `first` batches of exactly
+    `batch_rows` rows, each a row of the whole result at most once, and
+    the schema of each batch."""
+    o, rows = got.get("O"), got.get("rows")
+    if not (isinstance(o, list) and len(o) == 8 and isinstance(rows, list)):
+        return False
+    batches = o[7]
+    return (
+        _matches("raised", spec["raised"], got.get("raised"), "", {})
+        and _same(o[:7], spec["O"][:7])
+        and _number(batches)
+        and isinstance(batches, int)
+        and batches >= spec["first"]
+        and len(rows) == spec["batch_rows"] * batches
+        and all(isinstance(row, list) for row in rows)
+        and _sub_bag(rows, spec["rows"])
+        and _same(got.get("schema"), spec["schema"])
+        and _same(got.get("batch_schemas"), [spec["schema"]] if batches else [])
+    )
+
+
+def _holds(want: dict, got: dict, unit: str, identity: dict) -> bool:
+    """Every judged field of one admitted outcome."""
+    if "later" in want:
+        return _later(want["later"], got)
+    return all(
+        key in got and _matches(key, value, got[key], unit, identity, got)
+        for key, value in want.items()
+    )
 
 
 def declared(expected: dict, unit: str) -> list[tuple[str, str]]:
@@ -385,13 +475,14 @@ def check(report: Any, expected: dict) -> dict[str, Any]:
         want = expected["cells"][cell][sub]
         if "either" in want:
             if not any(
-                all(
-                    key in got and _matches(key, value, got[key], unit, identity)
-                    for key, value in alternative.items()
-                )
+                _holds(alternative, got, unit, identity)
                 for alternative in want["either"]
             ):
                 return _refused(unit, 3, f"{where}: neither outcome")
+            continue
+        if "later" in want:
+            if not _later(want["later"], got):
+                return _refused(unit, 3, f"{where}: not a later failure")
             continue
         if "setup" in want:
             setup = got.get("setup")
@@ -404,7 +495,7 @@ def check(report: Any, expected: dict) -> dict[str, Any]:
             found = got.get(key, MISSING)
             if found is MISSING:
                 return _refused(unit, _law(key), f"{where}: no {key}")
-            if not _matches(key, value, found, unit, identity):
+            if not _matches(key, value, found, unit, identity, got):
                 return _refused(unit, _law(key), f"{where}: {key}")
     if voids:
         return _verdict(unit, "VOID", void=voids)
@@ -501,6 +592,12 @@ def _satisfying(key: str, want: Any, unit: str, identity: dict) -> Any:
     return {
         "$bag": lambda: copy.deepcopy(arg),
         "$bag_any": lambda: resolved(arg),
+        "$sub": lambda: resolved(
+            arg["rows"][
+                : arg["count"][0] if isinstance(arg["count"], list) else arg["count"]
+            ]
+        ),
+        "$outcome": lambda: [*copy.deepcopy(arg["fixed"]), arg["batches"][0]],
         "$ordered": ordered,
         "$interrupted": lambda: arg[0] + [["interrupt"]] + arg[1],
         "$settings": lambda: [["threads", "1"], *copy.deepcopy(arg)],
@@ -542,12 +639,40 @@ def honest(
             want = expected["cells"][cell][sub]
             if "either" in want:
                 want = want["either"][alternative]
-            facts = {
-                key: _satisfying(key, value, unit, identity)
-                for key, value in want.items()
-            }
+            if "later" in want:
+                facts = _later_facts(want["later"])
+            else:
+                facts = {
+                    key: _satisfying(key, value, unit, identity)
+                    for key, value in want.items()
+                }
+                outcome = _matcher(want.get("O"))
+                if outcome is not None and "most" in outcome[1]:
+                    facts["batch_sizes"] = _sizes(facts, outcome[1]["most"])
         records.append({"unit": unit, "cell": cell, "sub": sub, "facts": facts})
     return {"unit": unit, "identity": identity, "records": records}
+
+
+def _sizes(facts: dict, most: int) -> list[int]:
+    """The honest row count of each batch: `most` each, the last the rest."""
+    count = len(facts["rows"])
+    sizes = [min(most, count - at) for at in range(0, count, most)]
+    assert len(sizes) == facts["O"][7], (sizes, facts["O"])
+    return sizes
+
+
+def _later_facts(spec: dict) -> dict[str, Any]:
+    """The honest facts of a later failure: one batch more than `first`."""
+    batches = spec["first"] + 1
+    o = copy.deepcopy(spec["O"])
+    o[7] = batches
+    return {
+        "raised": copy.deepcopy(spec["raised"]),
+        "O": o,
+        "rows": copy.deepcopy(spec["rows"][: spec["batch_rows"] * batches]),
+        "schema": copy.deepcopy(spec["schema"]),
+        "batch_schemas": [copy.deepcopy(spec["schema"])],
+    }
 
 
 def _facts(report: dict, cell: str, sub: str) -> dict:
@@ -567,6 +692,20 @@ def _edit(cell: str, sub: str, key: str, edit: Any) -> Any:
     def change(report: dict) -> None:
         facts = _facts(report, cell, sub)
         facts[key] = edit(copy.deepcopy(facts[key]))
+
+    return change
+
+
+def _rows(cell: str, sub: str, key: str, edit: Any) -> Any:
+    """`_edit` of a JOIN cell's rows that keeps its batches honest: 256 rows
+    each, the last the rest, as many as O states."""
+
+    def change(report: dict) -> None:
+        facts = _facts(report, cell, sub)
+        facts[key] = edit(copy.deepcopy(facts[key]))
+        count = len(facts[key])
+        facts["batch_sizes"] = [min(256, count - at) for at in range(0, count, 256)]
+        facts["O"] = [*facts["O"][:7], len(facts["batch_sizes"])]
 
     return change
 
@@ -677,9 +816,10 @@ def _shapes() -> list[tuple[str, str, Any, Any]]:
             3,
         ),
         (
-            "UNKNOWN in L7",
+            # v7: the deadline is seen before the reader's end (D79.27).
+            "COMMIT_ACK in L7",
             "U1",
-            _edit("C11", "L7", "O", lambda o: _replaced(o, 1, "UNKNOWN")),
+            _edit("C11", "L7", "O", lambda o: _replaced(o, 1, "COMMIT_ACK")),
             3,
         ),
         (
@@ -1274,7 +1414,7 @@ def _shapes() -> list[tuple[str, str, Any, Any]]:
             2,
         ),
     ]
-    return shapes + _b2_shapes()
+    return shapes + _b2_shapes() + _t2_shapes()
 
 
 def _b2_shapes() -> list[tuple[str, str, Any, Any]]:
@@ -1568,6 +1708,638 @@ def _b2_shapes() -> list[tuple[str, str, Any, Any]]:
     ]
 
 
+def _t2_shapes() -> list[tuple[str, str, Any, Any]]:
+    """v7: the shapes of tier 2's cells (section 6)."""
+    inf = ["Float", "7ff0000000000000"]
+    zero = ["Float", "0000000000000000"]
+    lived = [
+        ["connect", ":memory:"],
+        ["register", "pietto_arrow_0"],
+        ["unregister", "pietto_arrow_0"],
+        ["close"],
+    ]
+    limit = {
+        "class": "RequestRejected",
+        "code": "PIE-R1002",
+        "detail": "DUCKDB_ARROW_CAPTURE_LIMIT",
+    }
+
+    def value(rows: list, old: Any, new: Any) -> list:
+        return [[new if v == old else v for v in row] for row in rows]
+
+    def returned(cell: str, sub: str, rows: list) -> Any:
+        def change(report: dict) -> None:
+            facts = _facts(report, cell, sub)
+            o = ["COMPLETE", "COMMIT_ACK", "LOCAL_CLOSED_REMOTE_UNOBSERVED"]
+            facts.update(raised=None, O=[*o, False, False, False, False, 1], rows=rows)
+
+        return change
+
+    def later(change: Any) -> Any:
+        def edit(report: dict) -> None:
+            want = report.pop("expected")["cells"]["C25"]["sum in a later chunk"]
+            facts = _facts(report, "C25", "sum in a later chunk")
+            facts.clear()
+            facts.update(_later_facts(want["either"][1]["later"]))
+            change(facts)
+
+        return edit
+
+    def above(report: dict) -> None:
+        want = report.pop("expected")["cells"]["C28"]["text key"]
+        bound = want["capture_peak_kib"]["$range"][1]
+        _facts(report, "C28", "text key")["capture_peak_kib"] = bound
+
+    def wrong_total(facts: dict) -> None:
+        facts["rows"] = [[*facts["rows"][0][:2], ["Int", "0"]], *facts["rows"][1:]]
+
+    def whole(facts: dict) -> None:
+        facts.update(raised=None, O=[*facts["O"][:7], 1])
+        facts["O"][0], facts["O"][1] = "COMPLETE", "COMMIT_ACK"
+
+    def short(facts: dict) -> None:
+        facts["rows"] = facts["rows"][:-1]
+
+    def fan_out(rows_of: Any, size: int = 256) -> Any:
+        """fan-out cut delivering `rows_of` the whole result in batches of
+        `size` rows."""
+
+        def change(report: dict) -> None:
+            want = report["expected"]["cells"]["C26"]["fan-out cut forward"]
+            rows = rows_of(copy.deepcopy(want["rows"]["$sub"]["rows"]))
+            sizes = [min(size, len(rows) - at) for at in range(0, len(rows), size)]
+            facts = _facts(report, "C26", "fan-out cut forward")
+            facts.update(rows=rows, batch_sizes=sizes, O=[*facts["O"][:7], len(sizes)])
+
+        return change
+
+    def batches(cell: str, sub: str, sizes: list) -> Any:
+        def change(report: dict) -> None:
+            facts = _facts(report, cell, sub)
+            facts.update(batch_sizes=sizes, O=[*facts["O"][:7], len(sizes)])
+
+        return change
+
+    def run_above(report: dict) -> None:
+        want = report.pop("expected")["cells"]["C28"]["sorted read"]
+        bound = want["run_peak_kib"]["$range"][1]
+        _facts(report, "C28", "sorted read")["run_peak_kib"] = bound + 1
+
+    def none_before(report: dict) -> None:
+        facts = _facts(report, "C24", "overflow after batches forward")
+        facts.update(O=[*facts["O"][:7], 0], rows=[], batch_schemas=[])
+
+    return [
+        (
+            "a Decimal at another scale",
+            "U1",
+            _edit(
+                "C23",
+                "read forward",
+                "rows",
+                lambda r: value(r, ["Decimal", "0.13"], ["Decimal", "0.130"]),
+            ),
+            4,
+        ),
+        (
+            "a Date a day off",
+            "U2",
+            _edit(
+                "C23",
+                "read forward",
+                "rows",
+                lambda r: value(r, ["Date", "2024-02-29"], ["Date", "2024-03-01"]),
+            ),
+            4,
+        ),
+        (
+            "a Timestamp's microsecond dropped",
+            "U3",
+            _edit(
+                "C23",
+                "read forward",
+                "rows",
+                lambda r: value(
+                    r,
+                    ["Timestamp", "1970-01-01 00:00:00.000001"],
+                    ["Timestamp", "1970-01-01 00:00:00.000000"],
+                ),
+            ),
+            4,
+        ),
+        (
+            "a typed NULL last in a descending order",
+            "U1",
+            _edit("C23", "day desc forward", "rows", lambda r: r[2:] + r[:2]),
+            4,
+        ),
+        (
+            "a Decimal literal compared by its scale",
+            "U1",
+            _edit("C23", "cost == literal forward", "rows", lambda r: r[1:]),
+            4,
+        ),
+        (
+            "a Date bound as a datetime",
+            "U1",
+            _set("C23", "bind date as datetime forward", "raised", None),
+            3,
+        ),
+        (
+            "a typed date schema as a timestamp",
+            "U1",
+            _edit(
+                "C23",
+                "read forward",
+                "schema",
+                lambda c: [c[0], [c[1][0], "timestamp[us]", c[1][2]], *c[2:]],
+            ),
+            4,
+        ),
+        (
+            "an Int extreme wrapped",
+            "U1",
+            _edit(
+                "C24",
+                "all forward",
+                "rows",
+                lambda r: value(
+                    r, ["Int", "9223372036854775807"], ["Int", "-9223372036854775808"]
+                ),
+            ),
+            4,
+        ),
+        (
+            "+(-0.0) shown as 0.0",
+            "U1",
+            _edit(
+                "C24",
+                "all forward",
+                "rows",
+                lambda r: [
+                    [*x[:10], zero, x[11]] if x[0] == ["Int", "2"] else x for x in r
+                ],
+            ),
+            4,
+        ),
+        (
+            "an overflow returned as an infinity",
+            "U1",
+            returned("C24", "overflow + forward", [[["Int", "1"], inf]]),
+            3,
+        ),
+        (
+            "an underflow returned as zero",
+            "U2",
+            returned("C24", "underflow forward", [[["Int", "1"], zero]]),
+            3,
+        ),
+        (
+            "an overflow under the underflow's detail",
+            "U1",
+            _edit(
+                "C24",
+                "overflow * forward",
+                "raised",
+                _raised(detail="DUCKDB_FLOAT_UNDERFLOW"),
+            ),
+            3,
+        ),
+        (
+            "a later overflow at the reader's creation",
+            "U1",
+            _edit(
+                "C24",
+                "overflow later forward",
+                "raised",
+                _raised(cause="InvalidInputException"),
+            ),
+            3,
+        ),
+        (
+            "a later overflow's batches cut short",
+            "U1",
+            _edit("C24", "overflow later forward", "rows", lambda r: r[:-1]),
+            3,
+        ),
+        (
+            "a later overflow committed",
+            "U1",
+            _edit(
+                "C24",
+                "overflow later forward",
+                "O",
+                lambda o: _replaced(o, 1, "COMMIT_ACK"),
+            ),
+            3,
+        ),
+        (
+            "a later overflow's schema of another type",
+            "U1",
+            _edit(
+                "C24",
+                "overflow later forward",
+                "schema",
+                lambda c: [c[0], [c[1][0], "int64", c[1][2]]],
+            ),
+            3,
+        ),
+        (
+            "a later overflow's batch schemas one more",
+            "U1",
+            _edit("C24", "overflow later forward", "batch_schemas", lambda s: s + s),
+            3,
+        ),
+        ("a later overflow with no batch before it", "U1", none_before, 3),
+        (
+            "inf - inf admitted",
+            "U3",
+            _set("C24", "inf minus inf forward", "compile", "VERIFIED"),
+            3,
+        ),
+        (
+            "a range refusal as rule 7",
+            "U1",
+            _edit(
+                "C24",
+                "range forward",
+                "blockers",
+                lambda b: [[*b[0][:2], "duckdb_projection_not_admitted", *b[0][3:]]],
+            ),
+            3,
+        ),
+        (
+            "an infinite parameter bound",
+            "U1",
+            _set("C24", "inf parameter forward", "raised", None),
+            3,
+        ),
+        (
+            "a JOIN that keeps -0.0 apart from 0.0",
+            "U1",
+            _rows(
+                "C26",
+                "float key forward",
+                "rows",
+                lambda r: [x for x in r if x[0] != ["Int", "2"]],
+            ),
+            4,
+        ),
+        (
+            "a NULL key matched",
+            "U1",
+            _rows(
+                "C26",
+                "float key forward",
+                "rows",
+                lambda r: [*r, [["Int", "5"], ["Text", "6e31"]]],
+            ),
+            4,
+        ),
+        (
+            "a left join's row lost",
+            "U2",
+            _rows("C26", "left forward", "rows", lambda r: [x for x in r if x[1]]),
+            4,
+        ),
+        (
+            "a left-joined field declared non-null",
+            "U1",
+            _edit(
+                "C26",
+                "left forward",
+                "schema",
+                lambda c: [c[0], [*c[1][:2], False], c[2]],
+            ),
+            4,
+        ),
+        (
+            "a self-join refused",
+            "U1",
+            _edit(
+                "C26",
+                "self join forward",
+                "raised",
+                lambda _r: {"class": "CompileRejected"},
+            ),
+            3,
+        ),
+        (
+            "a left self-join's other read made nullable",
+            "U1",
+            _edit(
+                "C26",
+                "left self join forward",
+                "schema",
+                lambda c: [[*c[0][:2], True], *c[1:]],
+            ),
+            4,
+        ),
+        (
+            "an inner key read nullable",
+            "U2",
+            _edit(
+                "C26",
+                "inner key read forward",
+                "schema",
+                lambda c: [[*c[0][:2], True], *c[1:]],
+            ),
+            4,
+        ),
+        (
+            "a broken key admitted under a self-join",
+            "U1",
+            _set("C26", "self join key repeated forward", "raised", None),
+            3,
+        ),
+        (
+            "a Text key's case taken as repeated",
+            "U1",
+            _set(
+                "C26",
+                "text key distinct forward",
+                "raised",
+                {"class": "RequestRejected", "code": "PIE-R1002"},
+            ),
+            3,
+        ),
+        (
+            "a refused JOIN without its parameter's blocker",
+            "U3",
+            _edit("C26", "right join parameter forward", "blockers", lambda b: b[:1]),
+            3,
+        ),
+        (
+            "rule 10 without the representation's blocker",
+            "U1",
+            _edit("C23", "field beyond 38 digits forward", "blockers", lambda b: b[:1]),
+            3,
+        ),
+        (
+            "a refused JOIN at another site",
+            "U3",
+            _edit(
+                "C26",
+                "right join forward",
+                "blockers",
+                lambda b: [[*b[0][:3], {**b[0][3], "column": 1}, *b[0][4:]]],
+            ),
+            3,
+        ),
+        (
+            "a broken declared key admitted",
+            "U1",
+            _set("C26", "key repeated forward", "raised", None),
+            3,
+        ),
+        (
+            "a key checked after connecting",
+            "U1",
+            _set(
+                "C26",
+                "key zeros forward",
+                "calls",
+                [["connect", ":memory:"], ["close"]],
+            ),
+            5,
+        ),
+        (
+            "NULL keys taken as repeated",
+            "U1",
+            _set(
+                "C26",
+                "key nulls forward",
+                "raised",
+                {"class": "RequestRejected", "code": "PIE-R1002"},
+            ),
+            3,
+        ),
+        (
+            "swapped inputs that differ",
+            "U1",
+            _rows("C26", "inner swapped reversed", "rows", lambda r: r[1:]),
+            4,
+        ),
+        ("a fan-out beyond max_rows delivered", "U1", fan_out(lambda r: r[:501]), 4),
+        (
+            "a fan-out row delivered twice",
+            "U1",
+            fan_out(lambda r: r[:244] + r[:1]),
+            4,
+        ),
+        (
+            "a JOIN batch above batch_rows",
+            "U1",
+            fan_out(lambda r: r[:300], 300),
+            3,
+        ),
+        (
+            "more JOIN batches than rows",
+            "U1",
+            _edit("C26", "inner forward", "O", lambda o: _replaced(o, 7, 5)),
+            3,
+        ),
+        (
+            "an empty JOIN batch within the bounds",
+            "U1",
+            batches("C26", "left forward", [6, 0]),
+            3,
+        ),
+        (
+            "JOIN batches that miss a row",
+            "U2",
+            batches("C26", "left forward", [5]),
+            3,
+        ),
+        (
+            "fewer JOIN batch sizes than batches",
+            "U1",
+            _edit("C26", "left forward", "O", lambda o: _replaced(o, 7, 2)),
+            3,
+        ),
+        (
+            "a JOIN's fixed outcome changed",
+            "U1",
+            _edit("C26", "inner forward", "O", lambda o: _replaced(o, 1, "UNKNOWN")),
+            3,
+        ),
+        (
+            "a self join's bytes counted twice",
+            "U1",
+            _set("C27", "bytes:self join once", "raised", limit),
+            3,
+        ),
+        (
+            "a charge without validity bitmaps",
+            "U1",
+            _set("C25", "bytes at the limit", "bytes", 65),
+            3,
+        ),
+        (
+            "bytes cut before the second batch",
+            "U1",
+            _edit(
+                "C25",
+                "bytes cut after two batches",
+                "O",
+                lambda o: _replaced(o, 7, 1),
+            ),
+            3,
+        ),
+        (
+            "a reader close failure under the close step",
+            "U1",
+            _edit(
+                "C25",
+                "reader close fails",
+                "cleanup_failures",
+                lambda f: [[f[0][0], "close", f[0][2]]],
+            ),
+            5,
+        ),
+        (
+            "the reader closed after unregister",
+            "U2",
+            _edit(
+                "C25",
+                "reader close fails",
+                "calls",
+                lambda c: [c[0], c[1], c[3], c[2], c[4]],
+            ),
+            5,
+        ),
+        (
+            "the first tier's byte boundary kept",
+            "U2",
+            returned("C25", "bytes one below", [[["Int", "1"], ["Text", "61"]]]),
+            3,
+        ),
+        (
+            "a close after the last batch committed",
+            "U1",
+            _edit(
+                "C25",
+                "close after the last batch",
+                "O",
+                lambda o: _replaced(o, 1, "COMMIT_ACK"),
+            ),
+            3,
+        ),
+        (
+            "a cancel after the last batch committed",
+            "U3",
+            _edit(
+                "C25",
+                "cancel after the last batch",
+                "O",
+                lambda o: _replaced(o, 1, "COMMIT_ACK"),
+            ),
+            3,
+        ),
+        (
+            "a deadline after the last batch never sent",
+            "U1",
+            _set("C25", "deadline after the last batch", "calls", lived),
+            5,
+        ),
+        ("a later sum's group with a wrong total", "U1", later(wrong_total), 3),
+        ("a later sum delivered whole", "U1", later(whole), 3),
+        ("a later sum's batch cut short", "U2", later(short), 3),
+        (
+            "L2 committed",
+            "U1",
+            _edit("C11", "L2", "O", lambda o: _replaced(o, 1, "COMMIT_ACK")),
+            3,
+        ),
+        (
+            "L8 before its batch",
+            "U1",
+            _edit("C11", "L8", "O", lambda o: _replaced(o, 7, 0)),
+            3,
+        ),
+        ("L7 without an interrupt", "U1", _set("C11", "L7", "calls", lived), 5),
+        (
+            "L12 committed",
+            "U3",
+            _edit("C11", "L12", "O", lambda o: _replaced(o, 1, "COMMIT_ACK")),
+            3,
+        ),
+        (
+            "a nanosecond timestamp admitted",
+            "U1",
+            _set("C27", "typed:timestamp ns", "raised", None),
+            3,
+        ),
+        (
+            "a list taken as inputs",
+            "U2",
+            _set("C27", "names:list", "raised", None),
+            3,
+        ),
+        (
+            "the rows of two inputs added",
+            "U1",
+            _set("C27", "rows:each input at the limit", "raised", limit),
+            3,
+        ),
+        (
+            "a shared input's bytes counted twice",
+            "U1",
+            _set("C27", "bytes:shared input once", "raised", limit),
+            3,
+        ),
+        ("a key check above its peak bound", "U1", above, 5),
+        ("a sorted read above its peak bound", "U1", run_above, 5),
+        (
+            "a sorted read out of order",
+            "U2",
+            _edit("C28", "sorted read", "rows_seen", lambda r: [r[0], False]),
+            4,
+        ),
+        (
+            "the 1 GiB margin attempt completed",
+            "U1",
+            _set("C28", "memory margin", "raised", None),
+            3,
+        ),
+        (
+            "a Float min having that loses a zero's group",
+            "U1",
+            _edit("C18", "low == param forward", "rows", lambda r: r[:-1]),
+            4,
+        ),
+        (
+            "a peak not measured",
+            "U2",
+            _set("C28", "int key", "capture_peak_kib", None),
+            5,
+        ),
+        (
+            "a tier 2 rule-two form with a blocker more",
+            "U0",
+            _edit(
+                "C22",
+                "T3",
+                "blockers",
+                lambda b: [*b, [*b[0][:2], "duckdb_filter_not_admitted", None, []]],
+            ),
+            3,
+        ),
+        (
+            "an empty tuple of inputs taken",
+            "U0",
+            _edit("C02a", "", "seen", lambda s: s[:-1]),
+            5,
+        ),
+        (
+            "a shared input of another size",
+            "U1",
+            _set("C27", "bytes:shared input once", "fixture_miss", {"nbytes": 1}),
+            "VOID",
+        ),
+    ]
+
+
 def _wrong_total(report: dict) -> None:
     """The completed outcome of an out-of-range group's statement with a
     wrong total, which neither admitted outcome allows."""
@@ -1594,7 +2366,9 @@ def self_test(expected: dict) -> list[tuple[str, dict[str, Any]]]:
     assert verdict["verdict"] == "REFUSED" and verdict["law"] == 3, verdict
     for name, unit, change, wanted in _shapes():
         report = honest(expected, unit)
+        report["expected"] = expected
         change(report)
+        report.pop("expected", None)
         if report.pop("honest_unobserved", False):
             report = honest(expected, unit, observed=False)
         verdict = check(report, expected)

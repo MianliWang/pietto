@@ -459,12 +459,18 @@ cells: dependency identity, the request checks, the capture's caps, types
 and values, every comparison operator, caller mutation after the call, the
 read-back of each session setting, close, cancellation, deadline and setup
 failure, the absence of any extension, file or network effect, and result
-labels and multiplicity; and for B2 grouping and aggregates with the `sum`
+labels and multiplicity; for B2 grouping and aggregates with the `sum`
 boundaries, `having`, order and limit, predicates, literals and
 parameters, labels named like capture columns, the capture and memory
-bounds at the limits, every other entry point, and rule two.
+bounds at the limits, every other entry point, and rule two; and for the
+second tier (preregistration v7) `Date`, `Timestamp` and `Decimal` values,
+literals, parameters and their refusals, `Int` and `Float` arithmetic with
+its checked failures, batch reading at the byte and row boundaries, around
+the reader's end and at its peak, several inputs and JOINs, one source read
+twice, the declared key check and its peak, and refused JOIN forms.
 `_pietto_execution_duckdb_native_oracle.py` writes the expected values
-without DuckDB or PyArrow, evaluating B2's statements by Pietto's own laws.
+without DuckDB or PyArrow, evaluating B2's and the second tier's statements
+by Pietto's own laws.
 `_pietto_execution_duckdb_native_probe.py unit` runs one installation unit:
 U0 without the extra, which runs only the refusals and records a skip line
 for every other cell; U1 the tree's code with the pinned `duckdb` and
@@ -473,24 +479,27 @@ locked `[arrow,execute-duckdb]` closure by `scripts/package_smoke.py
 --extra-env`, on CPython 3.13.13 and 3.12.13. A unit records its runtime
 and package identity, checks the frozen copies and the specification
 digest, runs the checker's self-test and regenerates the oracle, then runs
-each cell in a fresh `-I -B` interpreter, the no-effect cell in a network
-namespace with empty `HOME`, `TMPDIR` and working directory.
+each cell in a fresh `-I -B` interpreter, each peak cell in its own, the
+no-effect cell in a network namespace with empty `HOME`, `TMPDIR` and
+working directory.
 `_pietto_execution_duckdb_native_check.py` judges only the saved outputs,
-rows as bags, as tie classes under `order by` and as sub-multisets of the
-boundary class at a `limit`: ACCEPTED, DEGRADED, the first law that
-refused, or VOID, which keeps every output; a void or failed attempt is
-never rerun under its run id. No Docker, engine lock or network access is
-used.
+rows as bags, as tie classes under `order by`, as sub-multisets of the
+boundary class at a `limit` and as sub-multisets of the whole result where
+a statement fails after whole batches: ACCEPTED, DEGRADED, the first law
+that refused, or VOID, which keeps every output; a void or failed attempt
+is never rerun under its run id. No Docker, engine lock or network access
+is used.
 
 On every runner, `tests/test_harness_execution_api.py` regenerates the
 oracle in a fresh interpreter with no DuckDB and requires the checker to
 accept each unit's honest report and refuse every fabricated shape. The
-four helpers are the bytes the accepted run froze: a change to one of them,
-to the specification or to a pin needs a new preregistration and a new
-run. The route's pytest owner `tests/test_execution_api_duckdb_arrow.py`
-skips its cells that need PyArrow or the pinned `duckdb` without the extra,
-as on every CI job, whose pytest environments install no extra, so B2's
-acceptance counts those skips beside the passes on the integration host;
+four helpers are the bytes that a preregistration freezes and its run
+runs: a change to one of them, to the specification or to a pin needs a new
+preregistration and a new run. The route's pytest owner
+`tests/test_execution_api_duckdb_arrow.py` skips its cells that need
+PyArrow or the pinned `duckdb` without the extra, as on every CI job,
+whose pytest environments install no extra, so B2's acceptance counts
+those skips beside the passes on the integration host;
 natural CI's arrow-ready cell runs four real `duckdb_arrow` queries
 instead: B1's filter, and B2's grouped aggregate with `having`, `order by`
 with `limit`, and filter with a literal and two parameters.

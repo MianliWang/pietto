@@ -44,7 +44,7 @@ DUCKDB_ORACLE = (
 def test_the_duckdb_native_checker_accepts_honest_units_and_refuses_each_fabricated_shape(
     tmp_path,
 ):
-    """The Phase79 DuckDB native checker (preregistration v6) before any
+    """The Phase79 DuckDB native checker (preregistration v7) before any
     native output is read: the oracle, in a fresh interpreter with no DuckDB
     loaded, writes the expected values; each unit's honest literal report is
     ACCEPTED, with either admitted outcome where a sub-case has two, and
