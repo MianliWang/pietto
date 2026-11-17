@@ -1629,10 +1629,11 @@ file or certificate supplies a connection setting.
   `PIE-R2003` before the driver is loaded. Pietto checks the names in
   `os.environ` only and never reads their values; a variable that C code or
   `os.putenv()` sets after startup is not in `os.environ` and is not seen.
-  `import pietto.execution` itself imports `hashlib`, so CPython's OpenSSL has
-  already read `OPENSSL_CONF` or the system `openssl.cnf` (and may have loaded
-  the modules it names) before any refusal; the refusal keeps libpq's OpenSSL
-  from connecting under them. PyArrow reads `OPENSSL_CONF` and creates the
+  Reading `compile_query`, `load_bundle` or `execute` imports `hashlib`, so
+  CPython's OpenSSL has already read `OPENSSL_CONF` or the system
+  `openssl.cnf` (and may have loaded the modules it names) before any
+  refusal; the refusal keeps libpq's OpenSSL from connecting under them.
+  PyArrow reads `OPENSSL_CONF` and creates the
   `SSLKEYLOGFILE` file when it is imported, so a program that imports PyArrow
   earlier has done so before Pietto can refuse the variables. `PSYCOPG_IMPL`
   other than `binary` is refused with `PIE-R2002` before psycopg is imported,
@@ -1735,7 +1736,7 @@ the no-state statement below.
 
 | Call | Database and network | Reads | Threads | Imports |
 | --- | --- | --- | --- | --- |
-| `import pietto.execution` | none | Python modules; importing `hashlib` lets CPython's OpenSSL read `OPENSSL_CONF` or the system `openssl.cnf` | none | no driver, no PyArrow, no saved-result job module (reading a saved-result name such as `save` or `create_workspace` first imports its owner) |
+| `import pietto.execution` | none | Python modules; reading any name but `PostgresAccess`, `MySQLAccess`, `DuckDBArrowInput`, `SQLiteFileInput`, `PostgresDeploymentPremise`, `MySQLDeploymentPremise` and `ExecutionLimits` first imports its owner and `hashlib`, which lets CPython's OpenSSL read `OPENSSL_CONF` or the system `openssl.cnf` | none | no driver, no PyArrow, no saved-result job module (reading a saved-result name such as `save` or `create_workspace` first imports its owner) |
 | `compile_query(...)` | none; no schema is read | `pietto.toml`, the selected sources and the contract under the project root; the installed Pietto and ANTLR runtime `.py` files; the ANTLR distribution's `METADATA` and `RECORD` | none | none |
 | attributes, `repr()` of the value objects, `CompiledQuery`, `QueryBundle` and an unopened handle | none | none | none | none |
 | `export_bundle(...)` | none | none; the bytes are encoded in memory | none | none |

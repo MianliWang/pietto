@@ -815,6 +815,81 @@ benefit is the paired measure's below.
   the post-Phase68 interlude record, which still counts seven memoized
   checks.
 
+## P17 record
+
+P17 ran on 2026-11-17 on this route's commit `6fa66291` (Gate 0's head
+`900e8915` with the route). The fix was made and measured in a fresh
+worktree, and the base in a second fresh worktree of `6fa66291`, each with
+its own environment synced offline from `uv.lock` with every extra
+(CPython 3.13.13, `antlr4-python3-runtime` 4.13.2, `pietto` editable from
+that worktree). The measuring script and its output are working records
+outside Git.
+
+- **Cause.** `pietto/execution/__init__.py` imported `_errors`, `_handle`
+  and `_query` at module level, and with them the project compiler:
+  `import pietto.execution` loaded 224 `pietto` modules and `hashlib`.
+- **Fix.** The package imports those three owners when one of their 16
+  names is first read, as it already did for the saved-result names. Only
+  `_access`'s seven access, input, premise and limit classes are imported
+  with it, and the import now loads three `pietto` modules. No other
+  product module changed: `_errors`, `_handle`, `_query`, `_sqlite` and
+  `_duckdb`, the write set named
+  [below](#single-writers-and-the-other-lines), were not written, so the
+  second tiers' changes to them need no order with P17. DuckDB B2's JOIN
+  candidate changes only the docstring of `__init__.py`, in another hunk.
+- **Surface (T3).** On both trees `__all__` is the same list, each name
+  reads as an object of the same module and qualified name, and `dir()`
+  lists every name; the docstring's statement holds unchanged. Each of the
+  47 names imported on first read, these 16 and the saved-result names,
+  imports `hashlib` then (one process each), so the [execution guide](../../execution.md#effects)'s
+  effects table and its refused-environment paragraph now place `hashlib`
+  there; it is still imported before any refusal of `execute`. The
+  existing test of the job subsystem now also asserts that importing loads
+  only `pietto`, `pietto.execution` and `_access`, not `hashlib`, and that
+  `dir()` lists every public name; it already checked that every public
+  name resolves to its owner.
+- **Measure.** P01's: a new `python -I -c` process per run, with
+  `time.perf_counter` around one import statement; one discarded warm run
+  per tree and import, then 21 rounds in each of which the base and the
+  fix ran once, the first of the two alternating; P01's validity rule; and
+  one cold run per tree with `-X pycache_prefix` set to a new empty
+  directory. It started only with no Gate 2 running and a one-minute load
+  below 4; the shared host's load had been 12 to 20 for the 25 minutes
+  before.
+
+| Import, warm, 21 runs (s) | Base median | Minimum | Maximum | Fix median | Minimum | Maximum | End load |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `pietto.execution`, from 21:14:08Z | 0.4945 | 0.4864 | 0.5087 | 0.0091 | 0.0085 | 0.0094 | 3.40 |
+| `pietto.compiler`, from 21:14:21Z | 0.4733 | 0.4500 | 0.4912 | 0.4729 | 0.4583 | 0.4835 | 3.59 |
+
+The first `pietto.execution` pair, from 21:08:38Z, is void and kept: it
+ended at a load of 4.44 (medians 0.5257 s on the base and 0.0093 s on the
+fix). The cold runs took 2.5407 s on the base, writing 363 bytecode files,
+and 0.0613 s on the fix, writing 37. `import pietto` loads no `pietto.*`
+submodule on either tree (0.0008 s and 0.0006 s, observed only). One
+`-X importtime` run of the fix puts 7.9 ms of its 9.3 ms under `_access`,
+through `dataclasses` and `inspect`.
+
+- **Verdict.** T1 PASS: the fix's median is 0.0091 s, at most 0.100 s,
+  and its maximum 0.0094 s, at most 0.150 s. T2 PASS: `pietto.compiler`'s
+  median on the fix is 0.08% below its base's, within 5% above it, and
+  `import pietto` loads no `pietto.*` submodule. T3 PASS, as above. So P17
+  is PASS on this host and measure; other interpreters and platforms were
+  not measured. The time the import no longer spends is spent when a name
+  such as `compile_query` is first read.
+- **Checks.** Ruff format and lint over the tree, both `pyright` runs of
+  `scripts/validate.py` with no error, and `scripts/release_notes.py check`.
+  Pytest with 8 workers on the fix: the execution API, interop, docs and
+  release-notes owners, 940 passed; the other execution, results, IR, plan
+  and compiled-project owners, 7,018 passed and 60 failed. Of those, 59
+  assert that PyArrow is not installed and fail the same way on the base in
+  the same environment, and the 60th,
+  `test_order_witness_is_at_existing_descriptor_layer`, asserts that its
+  worker has not loaded PyArrow and passes alone on both trees. The results
+  and execution API owners in an environment without extras: 1,390 passed,
+  138 skipped. Not run: the authoritative Gate 2, databases, Windows and
+  CPython 3.12.
+
 ## Single writers and the other lines
 
 The lead sets the order and a later arrival rebases. At the first

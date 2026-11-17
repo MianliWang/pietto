@@ -282,7 +282,8 @@ def jobs():
     return sorted(m for m in sys.modules
         if m.startswith(("pietto._project.project_job", "pietto._project.project_public_jobs")))
 import pietto.execution as pe
-facts = {"import": jobs()}
+facts = {"import": sorted(m for m in sys.modules if m.split(".")[0] == "pietto"),
+    "hashlib": "hashlib" in sys.modules, "dir": set(pe.__all__) <= set(dir(pe))}
 query = pe.compile_query(sys.argv[2], module="main.pietto", kind="table",
     name="active_items", dialect="postgres", emission_contract="contract.json")
 bundle = pe.export_bundle(query)
@@ -307,10 +308,11 @@ print(json.dumps(facts))
 
 
 def test_direct_execution_never_loads_the_job_subsystem(example, sentinel, tmp_path):
-    """Importing `pietto.execution`, compiling, exporting, loading and an
-    unopened execute() import no saved-result job module; the saved-result
-    names still resolve to their owners and, on a qualified storage profile,
-    create and open a workspace."""
+    """Importing `pietto.execution` loads only its `_access` module and not
+    `hashlib`, and `dir()` lists every public name; compiling, exporting,
+    loading and an unopened execute() import no saved-result job module;
+    every public name still resolves to its owner and, on a qualified
+    storage profile, the saved-result names create and open a workspace."""
     qualified = workspace_probe.qualified(tmp_path)
     result = subprocess.run(
         [
@@ -352,7 +354,9 @@ def test_direct_execution_never_loads_the_job_subsystem(example, sentinel, tmp_p
         )
     )
     assert facts == {
-        "import": [],
+        "import": ["pietto", "pietto.execution", "pietto.execution._access"],
+        "hashlib": False,
+        "dir": True,
         "direct": [],
         "saved": (["WorkspaceRef", True, None] if qualified else []) + [owners],
         "loaded": True,
