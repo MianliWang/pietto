@@ -2803,6 +2803,40 @@ def test_an_operation_is_as_nullable_as_its_operands_make_it(
     assert _rendering(forgery) is None
 
 
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+@pytest.mark.parametrize("field", ("storage", "domain"))
+def test_an_extreme_of_the_source_scan_keeps_its_argument_carrier(
+    tmp_path, target, field
+):
+    """A `min` read straight from the source keeps its INT argument's storage
+    and range; only a MySQL one over a stage is a cast my_signed_int. An
+    uncast one that declares a wider storage or another range is refused."""
+    _, outcome = emission.numeric_world(
+        tmp_path,
+        target,
+        "query result:\n    from rows\n    group by k\n    select:\n"
+        "        lo = min(c)\n",
+    )
+    artifact = outcome.artifact
+    assert artifact is not None
+    data = portable.export_emission_observation(
+        artifact, artifact.request
+    ).canonical_bytes
+    assert data is not None and _status(data) == (OK, None)
+    document = json.loads(data)
+    (column,) = _records(document, "aggregate_value_column")
+    assert column["result_cast"] is None
+    realization = _record(document, _record(document, column["column"])["realization"])
+    realization[field] = {
+        "storage": {"kind": "my_signed_int" if target == "mysql" else "pg_int8"},
+        "domain": {"kind": "int_range", "max": "1", "min": "-1"},
+    }[field]
+    assert _status(_encode(document)) == (
+        pure.Status.INVALID_RELATION,
+        "extreme result",
+    )
+
+
 def test_pure_composition_rejects_external_scalar_read(tmp_path):
     item = emission.aggregate_fixture("postgres", "X_aggregate_global", "bag")
     source = item["source"].split("query result:", 1)[0] + (

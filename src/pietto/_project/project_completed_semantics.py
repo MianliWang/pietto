@@ -3852,6 +3852,13 @@ def derive_compiled_semantics(root, values, parameters=None):
                             typed.resolved_type.name,
                             physical.NULLABILITY[typed.nullability],
                         ),
+                        # Its aggregation reads a stage, not the source scan.
+                        staged=any(
+                            item.address.kind == "aggregate"
+                            and ref in item.get("values")
+                            and item.get("input").kind != "source"
+                            for item in records.values()
+                        ),
                     )
                     if realized is None or problem is not None:
                         raise CompiledError("COMPILED_AGGREGATE_DOMAIN")
@@ -5323,6 +5330,13 @@ def verify_compiled_semantics(value):
                         function,
                         argument,
                         (typed.resolved_type.name, NULLABILITY[typed.nullability]),
+                        # Its aggregation reads a stage, not the source scan.
+                        staged=any(
+                            item.address.kind == "aggregate"
+                            and current in item.get("values")
+                            and item.get("input").kind != "source"
+                            for item in records.values()
+                        ),
                     )
                 else:
                     realization = None

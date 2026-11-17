@@ -2762,6 +2762,24 @@ def _aggregate_casts(
     return None, None
 
 
+def _staged_extremum(doc, ref, family: str, function: str, argument) -> bool:
+    """A MySQL MIN or MAX of a SMALLINT or INT whose body reads a stage, not
+    the source scan: MySQL returns it as BIGINT, so it is cast to SIGNED."""
+    return (
+        family == "mysql"
+        and function in {"min", "max"}
+        and argument is not None
+        and argument.get("tag") == "Int"
+        and argument.get("storage") in ({"kind": "my_smallint"}, {"kind": "my_int"})
+        and any(
+            doc[body]["aggregation"] is not None
+            and doc[body]["scan"].kind != "row_scan"
+            and ref in doc[doc[body]["aggregation"]]["values"]
+            for body in doc.all("row_body")
+        )
+    )
+
+
 def _decimal_sum_cast(family: str, function: str, argument, result) -> str | None:
     """The E10 result cast is derived from two retained Decimal carriers."""
 
@@ -4213,6 +4231,23 @@ class _Check:
             argument_cast, result_cast = _aggregate_casts(
                 family, column["function"], argument_tag
             )
+            if _staged_extremum(doc, ref, family, column["function"], argument):
+                # A my_signed_int with its argument's own range.
+                result_cast = "SIGNED"
+                _require(
+                    argument is not None
+                    and dict(result["storage"]) == {"kind": "my_signed_int"}
+                    and dict(result["domain"]) == dict(argument["domain"]),
+                    "staged extreme result",
+                )
+            elif column["function"] in {"min", "max"} and argument is not None:
+                # Any other extreme keeps its argument's carrier and range; one
+                # with no argument is the re-rendering's aggregate signature.
+                _require(
+                    dict(result["storage"]) == dict(argument["storage"])
+                    and dict(result["domain"]) == dict(argument["domain"]),
+                    "extreme result",
+                )
             decimal_cast = _decimal_sum_cast(
                 family, column["function"], argument, result
             )
@@ -9151,6 +9186,8 @@ class _Render:
         argument_tag = None if argument is None else argument.get("tag")
         result = self[self[c["column"]]["realization"]]
         argument_cast, result_cast = _aggregate_casts(family, function, argument_tag)
+        if _staged_extremum(self.doc, ref, family, function, argument):
+            result_cast = "SIGNED"
         decimal = _decimal_sum_cast(family, function, argument, result)
         if decimal is not None:
             argument_cast, result_cast = None, decimal

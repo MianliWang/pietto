@@ -2724,6 +2724,204 @@ def test_mysql_sum_int_cells_emit_the_guarded_sum(tmp_path, cell, target):
     )
 
 
+# A MIN or MAX of an INT field over a stage (a WHERE, a let, an upstream
+# query), each with the MySQL SQL of its aggregate: MySQL returns such an
+# extreme as BIGINT (G1's WHERE, group by, sum and min form failed PIE-R3005
+# on every MySQL route, 2026-11-17), so it is cast to SIGNED and declared
+# my_signed_int.
+STAGED_EXTREMA = {
+    "s02_where_min": (
+        "query result:\n    from rows\n    where id > 3\n    group by k\n"
+        "    select:\n        x = sum(a)\n        lo = min(c)\n",
+        "CAST(MIN(`t1`.`c5`) AS SIGNED)",
+    ),
+    "where_scalar_max_key": (
+        "query result:\n    from rows\n    where id > 3\n    select:\n"
+        "        lo = max(k)\n",
+        "CAST(MAX(`t1`.`c3`) AS SIGNED)",
+    ),
+    "let_min": (
+        "query result:\n    from rows\n    let t = c\n    group by k\n"
+        "    select:\n        k\n        lo = min(t)\n",
+        "CAST(MIN(`t1`.`c6`) AS SIGNED)",
+    ),
+    "upstream_min": (
+        "query base:\n    from rows\n    group by k\n    select:\n        k\n"
+        "        lo = min(c)\n"
+        "query result:\n    from base\n    select:\n        m = min(lo)\n",
+        "CAST(MIN(`s1`.`c1`) AS SIGNED)",
+    ),
+}
+
+
+@pytest.mark.parametrize("shape", sorted(STAGED_EXTREMA))
+def test_a_mysql_int_extreme_over_a_stage_is_cast_to_signed(tmp_path, shape):
+    """MySQL keeps a MIN or MAX of an INT base column INT, but returns one
+    over a stage's column as BIGINT (over a merged stage; a materialized one
+    keeps INT). Over a stage it is therefore cast to SIGNED, a BIGINT either
+    way, and declared my_signed_int with the field's own range; every reader
+    accepts it. PostgreSQL's SQL and int4 carrier are unchanged."""
+    body, extreme = STAGED_EXTREMA[shape]
+    _, mysql = probe.numeric_world(tmp_path / "mysql", "mysql", body)
+    probe.numeric_readers_accept(mysql)
+    assert mysql.artifact is not None
+    assert extreme in mysql.artifact.rendered.sql.decode()
+    column = json.loads(serialize_project_sql_emission(mysql))["columns"][-1]
+    assert column["representation"]["storage"] == {"kind": "my_signed_int"}
+    assert column["representation"]["domain"] == {
+        "kind": "int_range",
+        "min": "-2147483648",
+        "max": "2147483647",
+    }
+    _, postgres = probe.numeric_world(tmp_path / "postgres", "postgres", body)
+    probe.numeric_readers_accept(postgres)
+    assert postgres.artifact is not None
+    assert "CAST(M" not in postgres.artifact.rendered.sql.decode()
+    column = json.loads(serialize_project_sql_emission(postgres))["columns"][-1]
+    assert column["representation"]["storage"] == {"kind": "pg_int4"}
+
+
+@pytest.mark.parametrize("function", ["min", "max"])
+def test_a_mysql_int_extreme_of_the_source_scan_keeps_its_carrier(tmp_path, function):
+    """Read straight from the source, the extreme stays an uncast INT."""
+    body = (
+        "query result:\n    from rows\n    group by k\n    select:\n"
+        f"        lo = {function}(c)\n"
+    )
+    _, outcome = probe.numeric_world(tmp_path, "mysql", body)
+    probe.numeric_readers_accept(outcome)
+    assert outcome.artifact is not None
+    sql = outcome.artifact.rendered.sql.decode()
+    assert f"{function.upper()}(`s0`.`narrow`) AS `c1`" in sql
+    assert "AS SIGNED" not in sql
+    column = json.loads(serialize_project_sql_emission(outcome))["columns"][-1]
+    assert column["representation"]["storage"] == {"kind": "my_int"}
+
+
+# The my_smallint branch of MYSQL_WIDENED_EXTREMA over the R08 world's
+# nullable SMALLINT `s` (numeric_world declares no SMALLINT): through a
+# WHERE the MIN is cast, straight from the source it is not.
+SMALLINT_EXTREMA = {
+    "where": (
+        "    where id > 3\n",
+        "CAST(MIN(`t1`.`c3`) AS SIGNED) AS `c1`",
+        "my_signed_int",
+    ),
+    "source": ("", "MIN(`s0`.`s`) AS `c1`", "my_smallint"),
+}
+
+
+@pytest.mark.parametrize("shape", sorted(SMALLINT_EXTREMA))
+def test_a_mysql_smallint_extreme_is_cast_only_over_a_stage(tmp_path, shape):
+    """A MySQL MIN of a SMALLINT read through a WHERE is cast to SIGNED and
+    declared my_signed_int with the field's own range; read straight from
+    the source it stays an uncast my_smallint. Every reader accepts both."""
+    where, extreme, storage = SMALLINT_EXTREMA[shape]
+    body = (
+        f"query result:\n    from nums\n{where}    group by j\n    select:\n"
+        "        lo = min(s)\n"
+    )
+    _, outcome = probe.division_world(tmp_path, "mysql", body)
+    probe.numeric_readers_accept(outcome)
+    assert outcome.artifact is not None
+    assert extreme in outcome.artifact.rendered.sql.decode()
+    column = json.loads(serialize_project_sql_emission(outcome))["columns"][-1]
+    assert column["representation"]["storage"] == {"kind": storage}
+    assert column["representation"]["domain"] == {
+        "kind": "int_range",
+        "min": "-32768",
+        "max": "32767",
+    }
+
+
+# Query `a` of an R08 `nums` world: an INT `i` or SMALLINT `s` MIN read
+# through a WHERE or a query that ends in limit (which MySQL materializes),
+# a MySQL my_signed_int with the field's range, and its width in bits.
+STAGED_MINS = {
+    "where_int": (
+        "query a:\n    from nums\n    where id > 3\n    group by j\n"
+        "    select:\n        lo = min(i)\n",
+        32,
+    ),
+    "where_smallint": (
+        "query a:\n    from nums\n    where id > 3\n    group by j\n"
+        "    select:\n        lo = min(s)\n",
+        16,
+    ),
+    "limit_int": (
+        "query l:\n    from nums\n    select:\n        i\n    limit 5\n"
+        "query a:\n    from l\n    select:\n        lo = min(i)\n",
+        32,
+    ),
+}
+# Query `b`'s body over `nums`: an INT, SMALLINT or BIGINT field, or the INT
+# MIN read straight from the source, and its width in bits.
+UNION_OPERANDS = {
+    "int_field": ("    select:\n        lo = i\n", 32),
+    "smallint_field": ("    select:\n        lo = s\n", 16),
+    "bigint_field": ("    select:\n        lo = b\n", 64),
+    "source_min": ("    group by j\n    select:\n        lo = min(i)\n", 32),
+}
+
+
+@pytest.mark.parametrize("swapped", (False, True))
+@pytest.mark.parametrize("other", sorted(UNION_OPERANDS))
+@pytest.mark.parametrize("staged", sorted(STAGED_MINS))
+def test_a_mysql_staged_int_extreme_unions_as_signed_in_either_order(
+    tmp_path, staged, other, swapped
+):
+    """R22 (owner 2026-11-18): on MySQL a UNION ALL of a staged INT or
+    SMALLINT extreme, a my_signed_int, and a SMALLINT, INT or BIGINT column
+    is a my_signed_int over both ranges, in either operand order, and every
+    reader accepts it. On PostgreSQL that extreme keeps its width, so such a
+    union is VERIFIED only beside a column of that width."""
+    first, bits = STAGED_MINS[staged]
+    second, other_bits = UNION_OPERANDS[other]
+    operands = ("b", "a") if swapped else ("a", "b")
+    body = (
+        f"{first}query b:\n    from nums\n{second}query result:\n    union all:\n"
+        + "".join(f"        from {name}\n" for name in operands)
+    )
+    _, mysql = probe.division_world(tmp_path / "mysql", "mysql", body)
+    probe.numeric_readers_accept(mysql)
+    column = json.loads(serialize_project_sql_emission(mysql))["columns"][-1]
+    widest = max(bits, other_bits)
+    assert column["representation"]["storage"] == {"kind": "my_signed_int"}
+    assert column["representation"]["domain"] == {
+        "kind": "int_range",
+        "min": str(-(1 << (widest - 1))),
+        "max": str((1 << (widest - 1)) - 1),
+    }
+    _, postgres = probe.division_world(tmp_path / "postgres", "postgres", body)
+    if bits == other_bits:
+        probe.numeric_readers_accept(postgres)
+    else:
+        assert [(b.code, b.detail) for b in postgres.blockers] == [
+            ("PIE-B1002", "set_column_physical_representation_mismatch")
+        ]
+
+
+@pytest.mark.parametrize(
+    "operands", (("i", "b"), ("s", "i"), ("a", "i", "b"), ("b", "a", "s"))
+)
+def test_other_mysql_int_widths_still_do_not_union(tmp_path, operands):
+    """Only a my_signed_int joins another MySQL width: an INT beside a
+    BIGINT or SMALLINT field, and `a`, a staged INT extreme, beside two
+    other widths, stay BLOCKED in any order."""
+    body = STAGED_MINS["where_int"][0] + "".join(
+        f"query f{name}:\n    from nums\n    select:\n        lo = {name}\n"
+        for name in operands
+        if name != "a"
+    )
+    body += "query result:\n    union all:\n" + "".join(
+        f"        from {'a' if name == 'a' else 'f' + name}\n" for name in operands
+    )
+    _, outcome = probe.division_world(tmp_path, "mysql", body)
+    assert [(b.code, b.detail) for b in outcome.blockers] == [
+        ("PIE-B1002", "set_column_physical_representation_mismatch")
+    ]
+
+
 @pytest.mark.parametrize(
     "spelling", [name for name in probe.NUMERIC_SPELLINGS if name.startswith("s02")]
 )

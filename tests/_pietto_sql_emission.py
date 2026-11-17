@@ -11315,7 +11315,10 @@ def _decode_fixed_public(document, limits):
         closed, _ = take("syntax", "aggregate_close", ")", subject)
         if result_cast is not None:
             _need(
-                family == "postgres" and spelling in {"SUM(", "VAR_SAMP(", "VAR_POP("},
+                family == "postgres"
+                and spelling in {"SUM(", "VAR_SAMP(", "VAR_POP("}
+                or family == "mysql"
+                and spelling in {"MIN(", "MAX("},
                 "sum result cast",
             )
             closed, token = take(
@@ -11369,10 +11372,22 @@ def _decode_fixed_public(document, limits):
         order_by=(),
         result_cast=None,
         grouped=True,
+        staged=False,
     ):
-        """This result's own domain: a count is not its argument's value range."""
+        """This result's own domain: a count is not its argument's value range.
+        ``staged``: the aggregation reads a stage, not the source scan."""
         floating = argument is not None and argument["tag"] == "Float"
         decimal_sum = argument is not None and argument["tag"] == "Decimal"
+        # MySQL returns a MIN or MAX of a SMALLINT or INT over a stage as
+        # BIGINT, so it is cast to SIGNED there.
+        widened = (
+            family == "mysql"
+            and staged
+            and function in {"min", "max"}
+            and argument is not None
+            and argument["tag"] == "Int"
+            and argument["storage"] in ({"kind": "my_smallint"}, {"kind": "my_int"})
+        )
         _need(
             (result_cast is not None)
             is (
@@ -11381,7 +11396,9 @@ def _decode_fixed_public(document, limits):
                 or function in {"sum", "filtered_sum"}
                 and not floating
                 and family == "postgres"
-            ),
+                or widened
+            )
+            and (not widened or result_cast == "SIGNED"),
             "sum result cast",
         )
         if function in {"group_any", "group_all"}:
@@ -11643,7 +11660,7 @@ def _decode_fixed_public(document, limits):
         # nullable even over a non-null source column.
         result = {
             "tag": argument["tag"],
-            "storage": argument["storage"],
+            "storage": {"kind": "my_signed_int"} if widened else argument["storage"],
             "nullable": True,
             "domain": argument["domain"],
         }
@@ -12933,8 +12950,10 @@ def _decode_fixed_public(document, limits):
                             for i in statements
                             if premises[i]["key"] == "operator_environment"
                         ],
+                        # A MySQL extreme's SIGNED cast widens, never narrows.
                         None
                         if node["result_cast"] is None
+                        or node["function"] in {"min", "max"}
                         else [{"overflow": TARGET_CHECKED}],
                     )
                 )
@@ -13064,6 +13083,7 @@ def _decode_fixed_public(document, limits):
                     order_by,
                     node["result_cast"],
                     grouped=mode == "grouped",
+                    staged=scan["kind"] != "scan",
                 )
                 if node["function"] in {"sum", "avg", *SPREAD_FUNCTIONS.values()}:
                     # Evidence follows the function and argument tag: only a
@@ -14036,9 +14056,19 @@ def _decode_fixed_public(document, limits):
             "my_signed_int": 64,
         }
         if tag == "Int":
+            kinds = {r["realization"]["storage"]["kind"] for r in reads}
+            # A MySQL my_signed_int joins SMALLINT, INT or BIGINT operands of
+            # one width as itself, whatever the order: MySQL types it BIGINT.
+            if "my_signed_int" in kinds and kinds <= {
+                "my_signed_int",
+                "my_smallint",
+                "my_int",
+                "my_bigint",
+            }:
+                kinds.discard("my_signed_int")
+                storage = {"kind": "my_signed_int"}
             _need(
-                len({widths.get(r["realization"]["storage"]["kind"]) for r in reads})
-                == 1
+                len({widths.get(kind) for kind in kinds}) <= 1
                 and all(
                     r["realization"]["domain"]["kind"] == "int_range" for r in reads
                 ),

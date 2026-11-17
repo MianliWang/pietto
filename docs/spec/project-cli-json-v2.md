@@ -448,6 +448,29 @@ CAST(-9223372036854775808 AS SIGNED) - CAST(1 AS SIGNED) ELSE CAST(SUM(`) and
 `aggregate` range in place of `aggregate_open` and `aggregate_close`, with
 the field read between each two.
 
+On MySQL, a `min` or `max` of a `SMALLINT` or `INT` field that its
+aggregation reads through a stage (a WHERE, a `let`, another query or a
+JOIN), not straight from the source, is written `CAST(MIN(x) AS SIGNED)` or
+`CAST(MAX(x) AS SIGNED)`, as MySQL returns such an extreme over a stage it
+merges as `BIGINT`; over one it materializes, such as a query that ends in
+`limit`, it keeps the column's type, and the cast makes both `BIGINT`. Its
+aggregate column has the `spelling` `MIN` or `MAX`, no `argument_cast` and
+the `result_cast` `SIGNED`, and its additive `ranges` roles are the `syntax`
+roles `aggregate_result_cast_open` (`CAST(`) and
+`aggregate_result_cast_close` (` AS SIGNED)`) around `aggregate_open` and
+`aggregate_close`. Its storage is `my_signed_int` with the field's own
+`int_range`, and its R13 `aggregate` requirement carries no evidence, as
+the cast only widens. Every other MySQL `min` or `max`, one read
+straight from the source included, keeps its argument's carrier and has no
+`result_cast`; a MySQL `first` or `last`, spelled `MAX`, admits no
+`SMALLINT` or `INT` value and has no `result_cast`.
+
+A set column's `Int` operands have one width, and its storage is that
+width's, except on MySQL: when they include a `my_signed_int` and are
+otherwise `my_smallint`, `my_int` or `my_bigint` of one width, as MySQL types
+such a column `BIGINT`, its storage is `my_signed_int`, in any operand order.
+Its `int_range` merges the operands' ranges either way.
+
 A generated R13 `aggregate` requirement's `evidence` may also be
 `[{"overflow": "target_checked_binary64_overflow"}]`. It marks a PostgreSQL
 `stddev(Float)`, `variance(Float)`, `pvariance(Float)` or `pstdev(Float)`,
