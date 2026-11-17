@@ -3,7 +3,7 @@
 The owner answered the Gate 1 of the MySQL catch-up work package MC on
 2026-11-16. The [decision
 record](../decisions.md#mysql-catch-up-mc-gate-1--owner-answers-and-the-leads-rulings-2026-11-16)
-keeps the answers as MC.01–MC.12 and the lead's rulings as MC.13–MC.17. MC
+keeps the answers as MC.01–MC.12 and the lead's rulings as MC.13–MC.18. MC
 is the "MySQL catch-up phase" that D77.76, D77.78, PL.40's D1 and D19 and
 PL.49 name. Under MC.01 it is a work package with no phase number, as the
 editor core work package E-C is ([E-C route](../editor/ed03-route.md)): its
@@ -128,6 +128,7 @@ answers, it is an owner-held working record outside Git.
 | MC.15 | The slice order, the single writers, the midpoint and the stop points of this route | Lead |
 | MC.16 | Full target receipts, the classification of PL.49's 57 mutants, and the ledger figure under MC.04 | Lead |
 | MC.17 | The harness's raw text route, a container label and campaign lock for each family, MC.09's count of freezes, and no MC form in the conformance corpus's generation inputs by default | Lead |
+| MC.18 | The harness's third round (H1–H4), a value the client cannot read judged `UNQUALIFIED_RECEIPT`, G1's law edge, G2's carriers and E4's rule for a difference on the text route alone | Lead |
 
 The sheet's Q10, whether to take neighbouring MySQL refusals into MC, was
 withdrawn before the owner answered: those items keep their refusals under

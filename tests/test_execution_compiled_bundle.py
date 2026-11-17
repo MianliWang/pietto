@@ -2971,8 +2971,6 @@ _NUMERIC_UNFORGEABLE = {
     "chained": "PIE-B1008",
     "negated_sum": "PIE-B1008",
     "sum_argument": "PIE-B1004",
-    # S03's guarded SUM result law takes any BIGINT; the cell laws refuse it.
-    "sum_narrow": "PIE-B1002",
     "sum_composed": "PIE-B1003",
     "sum_coalesced": "PIE-B1003",
     "sum_filtered": "PIE-B1004",
@@ -2980,6 +2978,11 @@ _NUMERIC_UNFORGEABLE = {
     "beside_two_refusals": "PIE-B1008",
     "beside_division": "PIE-B1003",
     "sum_beside_sum_argument": "PIE-B1004",
+    # MC G1's neighbours: a label too long, a sum outside every cell and a
+    # SMALLINT argument, which the guarded SUM's result law takes not.
+    "R1": "PIE-B1002",
+    "R2": "PIE-B1004",
+    "X1": "PIE-B1002",
 }
 
 
@@ -2994,12 +2997,14 @@ def _numeric_cells_opened(patch):
         "mysql_checked_operands",
         lambda values: bool(values) and all(value.tag == "Int" for value in values),
     )
-    patch.setattr(rows, "mysql_sum_query", lambda plan, keys: True)
+    patch.setattr(rows, "mysql_sum_operand", lambda value: value.tag == "Int")
+    patch.setattr(rows, "mysql_sum_query", lambda plan, keys, columns: True)
     patch.setattr(rows, "mysql_sum_cell", lambda aggregate, argument: True)
 
 
-# Each refused S01/S02 body, and a WHERE cell whose literal a bind-safe `?`
-# replaces.
+# Each refused S01/S02 body, a WHERE cell whose literal a bind-safe `?`
+# replaces, each MC G1 neighbour under a policy that refuses it, and each
+# SMALLINT read that G1 leaves in S02's cell (`G1S_` before its name).
 _NUMERIC_FORGED = [
     *(
         (shape, "preserve_literals")
@@ -3007,7 +3012,45 @@ _NUMERIC_FORGED = [
     ),
     ("s01_where", "bind_safe_literals"),
     ("s02_where", "bind_safe_literals"),
+    *(
+        (
+            shape,
+            _pietto_sql_emission.G1_REFUSAL_POLICIES.get(shape, ("preserve_literals",))[
+                0
+            ],
+        )
+        for shape in sorted(_pietto_sql_emission.G1_REFUSALS)
+    ),
+    *(
+        ("G1S_" + shape, "preserve_literals")
+        for shape in sorted(_pietto_sql_emission.G1_SMALLINT_REFUSALS)
+    ),
 ]
+# A relation alias or an unread window leaves G1's neighbours X6 and
+# let_window the records and document of L2.
+_NUMERIC_ALIASES = {
+    **_pietto_sql_emission.NUMERIC_ALIASES,
+    "X6": _pietto_sql_emission.G1_FORMS["L2"],
+    "let_window": _pietto_sql_emission.G1_FORMS["L2"],
+}
+
+
+def _numeric_forged_world(shape):
+    """The world, keywords and body of a forged numeric shape: a SMALLINT
+    read beside G1 (`G1S_` before its name) over division_world."""
+    if shape.startswith("G1S_"):
+        return (
+            _pietto_sql_emission.division_world,
+            {},
+            _pietto_sql_emission.G1_SMALLINT_REFUSALS[shape[4:]][0],
+        )
+    return (
+        _pietto_sql_emission.numeric_world,
+        _pietto_sql_emission.G1_REFUSAL_WORLDS.get(shape, {}),
+        _pietto_sql_emission.NUMERIC_REFUSALS.get(shape)
+        or _pietto_sql_emission.G1_REFUSALS.get(shape)
+        or _pietto_sql_emission.NUMERIC_CELLS[shape],
+    )
 
 
 @pytest.mark.parametrize(("shape", "policy"), _NUMERIC_FORGED)
@@ -3017,8 +3060,9 @@ def test_forged_mysql_numeric_cells_fail_every_reader(
     """An artifact of each refused S01/S02 body, emitted while every MySQL
     Int operation and sum counts as in a cell, with its observation and
     compiled bundle exported under that law, fails plain verification and
-    the live template (plan), the pure boundary (document) and compiled
-    replay and its template (records) once the law is back; a body whose
+    the live template (plan), the pure boundary (document; its _Check, while
+    the re-rendering alone takes the records) and compiled replay and its
+    template (records) once the law is back; a body whose
     emission verifies itself or that another rule refuses has no artifact.
     A relation alias or a window, read or not, or an imported source fails
     the plan's readers only: its document and records are the direct read's
@@ -3036,15 +3080,10 @@ def test_forged_mysql_numeric_cells_fail_every_reader(
         verify_project_sql_emission,
     )
 
-    body = (
-        _pietto_sql_emission.NUMERIC_REFUSALS.get(shape)
-        or _pietto_sql_emission.NUMERIC_CELLS[shape]
-    )
+    world, keywords, body = _numeric_forged_world(shape)
     with monkeypatch.context() as patch:
         _numeric_cells_opened(patch)
-        _, outcome = _pietto_sql_emission.numeric_world(
-            tmp_path / "forged", "mysql", body, policy
-        )
+        _, outcome = world(tmp_path / "forged", "mysql", body, policy, **keywords)
         artifact = outcome.artifact
         if shape in _NUMERIC_UNFORGEABLE:
             assert artifact is None
@@ -3058,15 +3097,15 @@ def test_forged_mysql_numeric_cells_fail_every_reader(
         assert artifact is not None, outcome.blockers
         observed = portable.export_emission_observation(artifact, artifact.request)
         loaded = _numeric_loaded(artifact)
-    summed = shape.startswith(("sum_", "s02"))
+    summed = shape.startswith(("sum_", "s02", "G1S_")) or shape in (
+        _pietto_sql_emission.G1_REFUSALS
+    )
     assert not verify_project_sql_emission(artifact, artifact.request).verified
     with pytest.raises(BindingError, match="^BINDING_ARTIFACT$"):
         prepare_live_template(artifact)
     values = tuple(value.value for value in artifact.fixed_values)
-    if shape in _pietto_sql_emission.NUMERIC_ALIASES:
-        _, direct = _pietto_sql_emission.numeric_world(
-            tmp_path / "direct", "mysql", _pietto_sql_emission.NUMERIC_ALIASES[shape]
-        )
+    if shape in _NUMERIC_ALIASES:
+        _, direct = world(tmp_path / "direct", "mysql", _NUMERIC_ALIASES[shape])
         assert direct.artifact is not None
         assert artifact.rendered.sql == direct.artifact.rendered.sql
         assert observed.canonical_bytes is not None
@@ -3086,6 +3125,8 @@ def test_forged_mysql_numeric_cells_fail_every_reader(
             pure.Status.INVALID_RELATION,
             "sum result" if summed else "target checked evidence",
         )
+        # The cell laws are _Check's alone: the re-rendering takes the records.
+        assert pure.rendering_refusal(observed.canonical_bytes) is None
     code = "COMPILED_AGGREGATE_ARGUMENT" if summed else "COMPILED_PHYSICAL_DOMAIN"
     for replay in (
         lambda: emit_compiled(loaded, values),
@@ -3258,31 +3299,147 @@ def test_tampered_mysql_checked_int_cells_fail_compiled_and_pure_readers(
 
 
 def test_tampered_mysql_sum_cell_argument_fails_compiled_replay(tmp_path):
-    """A forger who points a native S02 sum at its non-null INT group key
-    instead of its nullable BIGINT field gets compiled replay and its
-    template to refuse it; the untouched bytes pass."""
+    """A forger who points a native S02 sum at the SMALLINT field that its
+    `min` reads, which no cell sums (MC G1: a BIGINT or INT), gets compiled
+    replay and its template to refuse it; the untouched bytes pass."""
+    from pietto._project.project_compiled_build import build_compiled
     from pietto._project.project_compiled_lowering import emit_compiled
     from pietto._project.project_execution_template import prepare_compiled_template
 
     _, outcome = _pietto_sql_emission.numeric_world(
-        tmp_path, "mysql", _pietto_sql_emission.NUMERIC_CELLS["s02_grouped"]
+        tmp_path,
+        "mysql",
+        "query result:\n    from rows\n    group by k\n    select:\n        k\n"
+        "        total = sum(a)\n        lo = min(c)\n",
+        smallint=True,
     )
     artifact = outcome.artifact
     assert artifact is not None, outcome.blockers
     assert emit_compiled(_numeric_loaded(artifact), ()).rendered.sql == (
         artifact.rendered.sql
     )
+    arguments = wire.FIELDS["aggregate_value"].index("arguments")
+    (smallint,) = (
+        record.values[arguments]
+        for _, records in wire.decode(build_compiled(artifact).payload).members
+        for record in records
+        if record.address.kind == "aggregate_value" and record.values[0] == "min"
+    )
 
     def change(record):
-        if record.address.kind != "aggregate_value":
+        if record.address.kind != "aggregate_value" or record.values[0] != "sum":
             return record
         values = list(record.values)
-        values[wire.FIELDS["aggregate_value"].index("arguments")] = (
-            wire.Address("read", 0),
-        )
+        values[arguments] = smallint
         return wire.Record(record.address, tuple(values))
 
     loaded = _numeric_loaded(artifact, _numeric_rewritten(change))
+    for replay in (
+        lambda: emit_compiled(loaded, ()),
+        lambda: prepare_compiled_template(loaded),
+    ):
+        with pytest.raises(wire.CompiledError, match="^COMPILED_AGGREGATE_ARGUMENT$"):
+            replay()
+
+
+@pytest.mark.parametrize("forgery", ("natural", "renumbered", "shared"))
+@pytest.mark.parametrize("other", ("min", "count"))
+def test_forged_mysql_let_reads_fail_compiled_replay(
+    tmp_path, monkeypatch, forgery, other
+):
+    """MC G1's `let` law holds in compiled replay whatever the records'
+    numbering or sharing: the bundle of a `let` read through a WHERE by a
+    sum and by a `min` or `count` (emitted while every MySQL sum counts as
+    in a cell) is refused by replay and its template as it stands, with its
+    reads renumbered so that the other aggregate's read comes before the
+    WHERE row's carry and the sum's after it, and with the other aggregate
+    sharing the sum's read while its own reads another port."""
+    from pietto._project.project_compiled_lowering import emit_compiled
+    from pietto._project.project_execution_template import prepare_compiled_template
+
+    def rewrite(payload):
+        description = wire.decode(payload)
+        found = {record.address: record for record in description.records}
+        (let,) = (
+            r
+            for r in found.values()
+            if r.address.kind == "row" and r.get("stage") == "let"
+        )
+        (where,) = (
+            r
+            for r in found.values()
+            if r.address.kind == "row" and r.get("stage") == "where"
+        )
+        (carry,) = (
+            a
+            for a, r in found.items()
+            if a.kind == "read" and r.get("port") == let.get("outputs")[-1]
+        )
+        aggregates = [r for r in found.values() if r.address.kind == "aggregate_value"]
+        (summed,) = (r for r in aggregates if r.get("function") == "sum")
+        (counted,) = (r for r in aggregates if r.get("function") != "sum")
+        (summed_read,), (counted_read,) = (
+            summed.get("arguments"),
+            counted.get("arguments"),
+        )
+        swap, edits = {}, {}
+        if forgery == "renumbered":
+            assert carry.position < summed_read.position < counted_read.position
+            slots = (carry, summed_read, counted_read)
+            swap = dict(zip((counted_read, carry, summed_read), slots))
+        elif forgery == "shared":
+            edits = {
+                counted.address: {"arguments": (summed_read,)},
+                counted_read: {"port": where.get("outputs")[3]},
+            }
+
+        def renamed(item):
+            if type(item) is tuple:
+                return tuple(map(renamed, item))
+            return swap.get(item, item) if type(item) is wire.Address else item
+
+        members = []
+        for name, records in description.members:
+            changed = []
+            for record in records:
+                values = [renamed(value) for value in record.values]
+                for key, value in edits.get(record.address, {}).items():
+                    values[wire.FIELDS[record.address.kind].index(key)] = value
+                changed.append(
+                    wire.Record(swap.get(record.address, record.address), tuple(values))
+                )
+            reads = [
+                index
+                for index, record in enumerate(changed)
+                if record.address.kind == "read"
+            ]
+            for index, record in zip(
+                reads,
+                sorted((changed[i] for i in reads), key=lambda r: r.address.position),
+            ):
+                changed[index] = record
+            members.append((name, tuple(changed)))
+        return wire.encode(
+            wire.Description(
+                description.compatibility,
+                description.producer,
+                description.query,
+                tuple(members),
+            )
+        )
+
+    with monkeypatch.context() as patch:
+        _numeric_cells_opened(patch)
+        _, outcome = _pietto_sql_emission.numeric_world(
+            tmp_path,
+            "mysql",
+            "query result:\n    from rows\n    let t = n\n    where id > 3\n"
+            "    group by k\n    select:\n        k\n        s = sum(t)\n"
+            "        m = %s(t)\n" % other,
+        )
+        artifact = outcome.artifact
+        assert artifact is not None, outcome.blockers
+        loaded = _numeric_loaded(artifact, rewrite)
     for replay in (
         lambda: emit_compiled(loaded, ()),
         lambda: prepare_compiled_template(loaded),
@@ -3591,7 +3748,39 @@ _PURE_LAW_EDITS = {
     "s02_argument_not_field": _doc_column_edit(
         "sql_stage_reference", 0, "column", literal=0
     ),
-    "s02_argument_nonnull": _doc_realization_edit(0, nullable=False),
+    "s02_argument_storage": _doc_realization_edit(0, storage={"kind": "my_smallint"}),
+    # MC G1, over G1_CELLS' let_beside_count, whose `let` body is row_body 0
+    # and whose sum, count and min read sql_stage_reference 1, 2 and 3.
+    # Its `let` body ends in a carry: the value column dropped, the carry
+    # of `a`, which nothing reads, moved last and the sum repointed at it.
+    "g1_let_value_not_last": _doc_steps(
+        _doc_edit(
+            "row_body",
+            0,
+            columns=tuple(
+                _doc_ref("row_carry_column", index) for index in (0, 2, 3, 4, 5, 1)
+            ),
+        ),
+        _doc_edit("sql_stage_reference", 1, column=_doc_ref("stage_column", 3)),
+    ),
+    "g1_let_carries_a_value": lambda records: _doc_edit(
+        "row_body",
+        0,
+        columns=(
+            _doc_ref("row_value_column", 0),
+            *records[_doc_ref("row_body", 0)].fields["columns"][1:],
+        ),
+    )(records),
+    "g1_let_counted": _doc_edit(
+        "sql_stage_reference", 2, column=_doc_ref("stage_column", 15)
+    ),
+    "g1_let_unread": _doc_edit(
+        "sql_stage_reference", 1, column=_doc_ref("stage_column", 17)
+    ),
+    # Its GROUP BY key reads the `let` column instead of `k`.
+    "g1_let_keyed": _doc_edit(
+        "aggregate_key_column", 0, read=_doc_ref("stage_column", 15)
+    ),
 }
 
 
@@ -3603,8 +3792,11 @@ def test_the_mysql_pure_cell_law_refuses_each_edited_record(tmp_path, edit):
     outside the chain, a window, an aggregation or aggregate stage in an
     S01 query, a column or operation named twice, an operation without
     operands, an operand, key or argument that is no source field, an
-    operand or argument carrier other than a nullable BIGINT, a key that is
-    no Int, or a final column that projects no aggregate column."""
+    operand carrier other than a nullable BIGINT, an argument carrier other
+    than a BIGINT or INT, a key that is no Int, a final column that
+    projects no aggregate column, or (MC G1) a `let` body whose value is not
+    its last column or that carries a value, a `let` read by a count or by
+    the GROUP BY key, or a `let` that no sum reads."""
     import _pietto_sql_emission_portable as portable
     import _pietto_sql_emission_pure_boundary as pure
 
@@ -3612,6 +3804,8 @@ def test_the_mysql_pure_cell_law_refuses_each_edited_record(tmp_path, edit):
     body = (
         _NUMERIC_LAW_S01
         if s01
+        else _pietto_sql_emission.G1_CELLS["let_beside_count"]
+        if edit.startswith("g1")
         else _pietto_sql_emission.NUMERIC_CELLS["s02_beside_count"]
     )
     _, outcome = _pietto_sql_emission.numeric_world(tmp_path, "mysql", body)
@@ -5414,10 +5608,10 @@ def test_mysql_typed_cells_are_derived_in_linear_work(tmp_path, monkeypatch):
 
 
 # Phase77 S03: MySQL conditional, JOIN and two-level sums in their forms.
-# Refused shapes that no artifact holds even with the form law open: an INT
-# argument (the guarded SUM's carrier law) and a composed aggregate.
+# Refused shapes that no artifact holds even with the form law open: a
+# composed aggregate. The guarded SUM's carrier law takes an INT argument
+# since MC G1, so only the form law refuses one.
 _S03_UNFORGEABLE = {
-    "ctl_c_narrow_argument": "PIE-B1004",
     "c1_beside_composed": "PIE-B1003",
 }
 

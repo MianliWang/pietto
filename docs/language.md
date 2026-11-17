@@ -4540,6 +4540,29 @@ nullable `Int`, NULL for no or only NULL values. A statement still refused
 reports exactly the blockers it has without either cell, a cell's own
 included, so `s = a + b` beside `t = a + 1` keeps both PIE-B1002.
 
+Since `0.2.2` (MC G1), the S02 cell also takes a `sum` of a non-null
+`BIGINT` field or of a nullable or non-null `INT` field, and a `sum` whose
+argument is the name of a value `let` of the query whose value, as written,
+is a read of one `BIGINT` or `INT` field, nullable or not (`let t = n`,
+`sum(t)`; parentheses and an identity `def`, in the `let` or around the
+name, count as above). Every `let` of the query must then be such a
+binding, read at least once, and every read of its name must be the whole
+argument of a `sum`; more than one is allowed. A `let` chain (`let u = t`),
+a `let` whose value is anything else, a `let` read in a WHERE, as the GROUP
+BY key, in a `count`, a `min` or anywhere else, a value `let` that nothing
+reads, a relation alias or window, a `sum` of a `SMALLINT` field, S02's own
+`SMALLINT` reads beside a G1 `sum` (a non-null `SMALLINT` GROUP BY key, or a
+`count` or `min` of a `SMALLINT` field, which no G1 form reads, so that only
+the cell above takes them, beside sums of nullable `BIGINT` fields alone)
+and everything else the paragraph above excludes keep the blockers they
+have without G1, object for object: PIE-B1004
+`sum_int_aggregate_range_proof_missing` where that is their blocker, as for
+`let t = c + 1`, while `let t = a + b` keeps only the PIE-B1002
+`arithmetic_outside_physical_range` of `a + b`. The `sum` is the cell's
+guarded `SUM` over the field, read through the `let`'s stage where there is
+one, as the PostgreSQL SQL of the same query reads it, and its result is
+the same nullable `Int` whatever the field's width.
+
 Since `0.1.12` (Phase77 S03), MySQL project SQL also emits each `sum` of an
 `Int` of a statement that is, names aside, one of nine forms its
 qualification ran on both databases, the selected definition's SELECT items
@@ -4766,7 +4789,8 @@ VERIFIED, without its sum blockers. `per_order`, which holds no sum,
 reports only the premise's blocker.
 
 Any other MySQL project `sum` of an `Int`, outside these forms and S02's
-cell, is BLOCKED with PIE-B1004 `sum_int_aggregate_range_proof_missing`.
+cell as G1 widens it, is BLOCKED with PIE-B1004
+`sum_int_aggregate_range_proof_missing`.
 This refusal is by design, not a defect: MySQL sums a `BIGINT` as a
 `DECIMAL`, which `CAST(... AS SIGNED)` would clamp, so a MySQL project emits
 only the guarded `SUM` of that cell and these forms. A plain `sum(amount)`

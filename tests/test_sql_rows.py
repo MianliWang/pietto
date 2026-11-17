@@ -2429,8 +2429,8 @@ def test_the_mysql_checked_operand_law_refuses_each_edited_carrier(tmp_path, edi
 
 
 def _key_edit(**changes):
-    def edit(plan, keys):
-        return plan, (replace(keys[0], **changes), *keys[1:])
+    def edit(plan, keys, columns):
+        return plan, (replace(keys[0], **changes), *keys[1:]), columns
 
     return edit
 
@@ -2448,11 +2448,12 @@ def _source_edit(**changes):
 # for.
 S02_QUERY_EDITS = {
     "key_not_field": _key_edit(field=None),
-    "key_not_int": lambda plan, keys: (
+    "key_not_int": lambda plan, keys, columns: (
         plan,
         (replace(keys[0], realization=replace(keys[0].realization, tag="Text")),),
+        columns,
     ),
-    "select_expression": lambda plan, keys: (
+    "select_expression": lambda plan, keys, columns: (
         _plan_with(
             plan,
             expressions=(
@@ -2463,6 +2464,7 @@ S02_QUERY_EDITS = {
             ),
         ),
         keys,
+        columns,
     ),
 }
 S02_CELL_EDITS = {
@@ -2472,35 +2474,131 @@ S02_CELL_EDITS = {
 
 
 @pytest.mark.parametrize(
-    "edit", [*sorted(S02_QUERY_EDITS), *sorted(S02_CELL_EDITS), "result_carrier"]
+    "edit",
+    [
+        *sorted(S02_QUERY_EDITS),
+        *sorted(S02_CELL_EDITS),
+        "argument_carrier",
+        "result_carrier",
+    ],
 )
 def test_the_mysql_sum_cell_law_refuses_each_edited_input(tmp_path, edit):
     """The S02 laws emission asks of a MySQL aggregation and of each of its
     sums hold the native `group by k` cell and refuse it once one input
     changes: a key that is no non-null Int source field, a SELECT item that
     computes, a sum whose fact is no result fact, or a computed argument;
-    and the sum result law refuses an INT argument (S03 sums a non-null
-    BIGINT count, so the cell laws, not the result law, pin the carrier)."""
+    the cell's argument law takes a nullable or non-null BIGINT or INT
+    field (MC G1) and refuses a SMALLINT one; and the sum result law refuses
+    a SMALLINT argument too (S03 sums a non-null BIGINT count and MC G1 an
+    INT field, so the cell laws, not the result law, pin the carrier), as
+    plain verification's own result law does alone for a sum and S03's
+    conditional sum, taking a BIGINT or INT one."""
     seen = probe.numeric_law_inputs(tmp_path, probe.NUMERIC_CELLS["s02_grouped"])
-    plan, keys = seen["mysql_sum_query"]
+    plan, keys, columns = seen["mysql_sum_query"]
     aggregate, argument = seen["mysql_sum_cell"]
-    assert keys and rows.mysql_sum_query(plan, keys) is True
+    assert keys and rows.mysql_sum_query(plan, keys, columns) is True
     assert rows.mysql_sum_cell(aggregate, argument) is True
     if edit in S02_QUERY_EDITS:
-        assert rows.mysql_sum_query(*S02_QUERY_EDITS[edit](plan, keys)) is False
+        assert (
+            rows.mysql_sum_query(*S02_QUERY_EDITS[edit](plan, keys, columns)) is False
+        )
     elif edit in S02_CELL_EDITS:
         assert rows.mysql_sum_cell(*S02_CELL_EDITS[edit](aggregate, argument)) is (
             False
         )
+    elif edit == "argument_carrier":
+        for kind, nullable, problem in (
+            ("my_bigint", False, None),
+            ("my_int", True, None),
+            ("my_int", False, None),
+            (
+                "my_smallint",
+                True,
+                ("PIE-B1004", "sum_int_aggregate_range_proof_missing"),
+            ),
+        ):
+            realization = replace(
+                argument.realization, storage={"kind": kind}, nullable=nullable
+            )
+            assert (
+                grouping.resolved_argument_problem(
+                    "sum", True, realization, "mysql", True
+                )
+                == problem
+            )
     else:
         assert grouping.result_realization("mysql", "sum", argument, ("Int", True))[0]
         narrow = SimpleNamespace(
-            realization=replace(argument.realization, storage={"kind": "my_int"})
+            realization=replace(argument.realization, storage={"kind": "my_smallint"})
         )
         assert grouping.result_realization("mysql", "sum", narrow, ("Int", True)) == (
             None,
             ("PIE-B1002", "sum_result_logical_type_or_argument_drift"),
         )
+        from pietto._project import project_sql_emission_verification as verification
+
+        for function, retained, refusal in (
+            ("sum", ("Int", True), "sum result domain"),
+            ("filtered_sum", ("Int", False), "conditional aggregate result domain"),
+        ):
+            for kind in ("my_bigint", "my_int", "my_signed_int"):
+                carried = SimpleNamespace(
+                    realization=replace(argument.realization, storage={"kind": kind})
+                )
+                assert verification._aggregate_result_realization(
+                    "mysql", function, carried, retained
+                ).storage == {"kind": "my_signed_int"}
+            with pytest.raises(ValueError, match=refusal):
+                verification._aggregate_result_realization(
+                    "mysql", function, narrow, retained
+                )
+
+
+def _with_storage(columns, port, **changes):
+    column = columns[port]
+    realization = replace(column.realization, **changes)
+    return {**columns, port: replace(column, realization=realization)}
+
+
+@pytest.mark.parametrize(
+    ("body", "read"),
+    (("cell", None), ("cell", "count"), ("cell", "min"), ("let", None)),
+)
+def test_the_mysql_sum_smallint_law_keeps_s02_own_cell(tmp_path, body, read):
+    """MC G1 (lead ruling of 2026-11-21, S02-SMALLINT): emission's S02 law
+    takes a SMALLINT GROUP BY key, or a `count` or `min` of a SMALLINT
+    field, in S02's own cell alone, every sum over a nullable BIGINT field
+    and no `let`; beside a sum of a non-null BIGINT or an INT field (MC
+    G1) or of a `let` it refuses the stage, which it takes without the
+    SMALLINT read."""
+    seen = probe.numeric_law_inputs(
+        tmp_path,
+        probe.G1_CELLS["sum_let_argument"]
+        if body == "let"
+        else "query result:\n    from rows\n    group by k\n    select:\n"
+        "        k\n        x = sum(a)\n        m = count(b)\n        lo = min(c)\n",
+    )
+    plan, keys, columns = seen["mysql_sum_query"]
+    assert rows.mysql_sum_query(plan, keys, columns) is True
+    ports = {}
+    for value in plan.aggregates:
+        argument = rows._planned(plan, value.arguments[0])
+        assert argument is not None
+        ports[grouping.function_name(value.source)] = argument.port
+    small_keys, small_columns = keys, columns
+    if read is None:
+        small = replace(keys[0].realization, storage={"kind": "my_smallint"})
+        small_keys = (replace(keys[0], realization=small),)
+    else:
+        small_columns = _with_storage(
+            columns, ports[read], storage={"kind": "my_smallint"}
+        )
+    assert rows.mysql_sum_query(plan, small_keys, small_columns) is (body == "cell")
+    for changes in ({"storage": {"kind": "my_int"}}, {"nullable": False}):
+        widened = _with_storage(columns, ports["sum"], **changes)
+        assert rows.mysql_sum_query(plan, keys, widened) is True
+        small_widened = _with_storage(small_columns, ports["sum"], **changes)
+        assert rows.mysql_sum_query(plan, small_keys, small_widened) is False
 
 
 # --------------------------------------------------------------------------
