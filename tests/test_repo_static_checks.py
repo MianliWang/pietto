@@ -462,5 +462,76 @@ def test_the_sqlite_adapter_imports_only_its_pipeline_whitelist() -> None:
     )
 
 
+# PL.61, PL.62: the DuckDB and SQLite adapters and execution routes read JOIN
+# key, grain, fan-out and single-match facts only from the verified plan,
+# never from the compiled replay's derivations of them.
+_COMPILED_JOIN_DERIVATIONS = {
+    "project_current_joins": {
+        "compiled_join_properties",
+        "compiled_forward_at_most_one",
+        "compiled_local_reverse_sources",
+        "_compiled_matched_classes",
+        "_compiled_predicate_matched_classes",
+    },
+    "project_query_block_ir_verification": {
+        "_compiled_join_inputs",
+        "compiled_join_property_signatures",
+        "verify_compiled_join_grain",
+    },
+    "project_joined_aggregation": {
+        "compiled_orphan_free_dependencies",
+        "compiled_field_dependencies",
+        "_compiled_predicate_source_match",
+        "_compiled_non_null_classes",
+        "_compiled_protection_inputs",
+        "_compiled_pair_values",
+        "build_compiled_aggregate_evidence",
+        "verify_compiled_aggregate_evidence",
+    },
+    "project_multifact": {
+        "compiled_region_inputs",
+        "build_compiled_region",
+        "verify_compiled_region",
+        "verify_compiled_grain_comparison",
+    },
+    "project_single_match": {
+        "compiled_boundary_proofs",
+        "assess_compiled_requests",
+        "_compiled_right_bounds",
+    },
+}
+
+
+def test_the_adapters_name_no_compiled_join_derivation() -> None:
+    import ast
+    import importlib
+
+    for module, names in _COMPILED_JOIN_DERIVATIONS.items():
+        owner = importlib.import_module(f"pietto._project.{module}")
+        assert all(callable(getattr(owner, name, None)) for name in names), module
+    forbidden = set().union(*_COMPILED_JOIN_DERIVATIONS.values())
+    package = REPO_ROOT / "src/pietto/_project"
+    paths = sorted(
+        (
+            *package.glob("project_duckdb_*.py"),
+            *package.glob("project_sqlite_*.py"),
+            REPO_ROOT / "src/pietto/execution/_duckdb.py",
+            REPO_ROOT / "src/pietto/execution/_sqlite.py",
+        )
+    )
+    assert package / "project_duckdb_emission.py" in paths
+    assert package / "project_sqlite_emission.py" in paths
+    for path in paths:
+        named = set()
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if isinstance(node, ast.Name):
+                named.add(node.id)
+            elif isinstance(node, ast.Attribute):
+                named.add(node.attr)
+            elif isinstance(node, ast.alias):
+                named.add(node.name.rpartition(".")[2])
+        assert not named & forbidden, path
+
+
 def _read(path: str) -> str:
     return (REPO_ROOT / path).read_text(encoding="utf-8")
