@@ -603,6 +603,98 @@ def mysql_division_cells(plan, items, columns) -> frozenset:
     return frozenset(cells)
 
 
+# MC E4 (MC.04): the MySQL Float `+`, `-` and `*` of a finite DOUBLE source
+# field and a Float literal, in either order, and the unary `-` of such a
+# field, as the whole value of a SELECT item of S01's cell query. MySQL's
+# DOUBLE operators raise 1690 (SQLSTATE 22003) at overflow as PostgreSQL's
+# float8 ones raise 22003, and `*` renders MYSQL_PRODUCT_GUARD (MC.05).
+E4_OPERATORS = {"binary": ("+", "-", "*"), "unary": ("-",)}
+
+
+def mysql_float_literal(value) -> bool:
+    """An E4 literal operand: a finite Float literal token, or one `-` over
+    one; never a slot, a header parameter, a field or another sign."""
+    try:
+        nodes = parameters.value_nodes(value)
+        signs = nodes[:-2]
+        literal = (
+            type(nodes[-1]) is parameters.SQLLiteral
+            and parameters.tag_of(nodes[-1].original) == "Float"
+        )
+        signed = all(sign.original.expression.operator == "-" for sign in signs)
+    except (AttributeError, IndexError, TypeError, ValueError):
+        return False
+    return (
+        literal
+        and signed
+        and len(signs) <= 1
+        and _float_literal_value(value) is not None
+    )
+
+
+def mysql_float_operands(values) -> bool:
+    """The operand carriers of an E4 cell: finite MySQL DOUBLE values that no
+    binding proves, the carriers the qualification probed."""
+    return bool(values) and all(
+        float_carrier(value, "mysql") and not value.binding for value in values
+    )
+
+
+def mysql_float_arithmetic_cell(plan, expression, values) -> bool:
+    """E4: a MySQL Float `+`, `-` or `*` is in its cell when one operand is a
+    source field (mysql_field) and the other a Float literal
+    (mysql_float_literal), in either order, and a unary `-` when its operand
+    is a source field; the operation is the whole value of a SELECT item of
+    the emitted query, and the query is mysql_checked_query's (one WHERE at
+    most, no slot). Its carriers are mysql_float_operands'."""
+
+    site = getattr(expression, "site", None)
+    kind = {row.ProjectSQLBinary: "binary", row.ProjectSQLUnary: "unary"}.get(
+        type(expression)
+    )
+    return (
+        kind is not None
+        and expression.expression.operator in E4_OPERATORS[kind]
+        and len(values) == (2 if kind == "binary" else 1)
+        and sum(mysql_field(value) for value in values) == 1
+        and all(mysql_field(value) or mysql_float_literal(value) for value in values)
+        and type(site) is row.ProjectSQLExpressionSite
+        and site.role is row.ProjectSQLExpressionRole.SELECT
+        and site.occurrence.expression is expression.expression
+        and mysql_checked_query(plan, aggregate=False)
+    )
+
+
+# MC.05: MySQL's guarded Float `*`, as (role, text) between the operands x, y,
+# x, y, x, y in their written order. A product of two non-zero operands that
+# rounds to zero takes the BIGINT branch, which raises 1690 (SQLSTATE 22003)
+# where PostgreSQL's float8 `*` raises 22003; MySQL alone returns the zero.
+MYSQL_PRODUCT_GUARD = (
+    ("product_guard_open", "CASE WHEN ("),
+    ("arithmetic_operator", " * "),
+    ("product_guard_zero", ") = 0 AND "),
+    ("product_guard_and", " <> 0 AND "),
+    (
+        "product_guard_then",
+        " <> 0 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) ELSE (",
+    ),
+    ("arithmetic_operator", " * "),
+    ("product_guard_close", ") END"),
+)
+
+
+def mysql_guarded_product(family: str, operation) -> bool:
+    """Whether one realized operation renders MYSQL_PRODUCT_GUARD: a MySQL
+    Float `*` that no literal fold proves, which only an E4 cell admits."""
+    return (
+        family == "mysql"
+        and operation.kind == "arithmetic"
+        and operation.original.expression.operator == "*"
+        and operation.realization.tag == "Float"
+        and any(_float_literal_value(o) is None for o in operation.operands)
+    )
+
+
 # The compiled record kinds a cell's bundle may hold (D77.24 whitelist), the
 # source's metadata and any literal or WHERE predicate call included; any
 # other kind (a parameter, slot, native use, block, capture or ANY read,
@@ -639,6 +731,13 @@ _MYSQL_CELL_RECORDS = frozenset(
         "use",
     }
 )
+# MC E4: each compiled operator of an E4 cell and its operand count.
+_E4_COMPILED = {
+    ("binary", "+"): 2,
+    ("binary", "-"): 2,
+    ("binary", "*"): 2,
+    ("unary", "-"): 1,
+}
 _MYSQL_CHECKED_OPERATORS = frozenset(
     {
         ("binary", "+"),
@@ -653,11 +752,12 @@ _MYSQL_CHECKED_OPERATORS = frozenset(
 
 def mysql_compiled_cells(
     records, entry
-) -> tuple[frozenset, frozenset, frozenset, frozenset]:
-    """Compiled replay's S01 operations, S02 aggregate values, S15 `%` and R08
-    `/` operations in their cells, from the records alone, as emission
-    derives them from the plan (mysql_checked_cell, mysql_sum_query,
-    mysql_remainder_cells, mysql_division_cells). A relation alias or a window,
+) -> tuple[frozenset, frozenset, frozenset, frozenset, frozenset]:
+    """Compiled replay's S01 operations, S02 aggregate values, S15 `%`, R08
+    `/` and MC E4 Float operations in their cells, from the records alone, as
+    emission derives them from the plan (mysql_checked_cell, mysql_sum_query,
+    mysql_remainder_cells, mysql_division_cells, mysql_float_arithmetic_cell).
+    A relation alias or a window,
     read or not, and an imported source leave a direct read's records apart
     from source positions and the source digest, so only emission refuses
     them.
@@ -682,9 +782,15 @@ def mysql_compiled_cells(
     MYSQL_DIVISION_CARRIERS, or a `/` that no other counted record names of an
     Int literal record (a sign over one is an operation) and one such read,
     in either order; any other value, or a bind-safe slot of another literal,
-    closes them. A slot or native use record closes every other cell."""
+    closes them. An E4 operation is, as an S01 one, a whole value of the
+    terminal row that no other counted record names: a Float `+`, `-` or `*`
+    of one read of a marked port whose field's physical storage is
+    `my_double` and one Float literal record (or a `-` operation over one),
+    in either order, or a `-` of such a read. A slot or native use record
+    closes every other cell."""
 
-    empty: tuple[frozenset, frozenset, frozenset, frozenset] = (
+    empty: tuple[frozenset, frozenset, frozenset, frozenset, frozenset] = (
+        frozenset(),
         frozenset(),
         frozenset(),
         frozenset(),
@@ -778,6 +884,7 @@ def mysql_compiled_cells(
             ),
             frozenset(),
             frozenset(),
+            frozenset(),
         )
 
     def physical(address) -> tuple[str, Any] | None:
@@ -841,7 +948,7 @@ def mysql_compiled_cells(
     if not slotted <= operands:
         divisions.clear()
     if slotted:
-        return frozenset(), frozenset(), frozenset(), frozenset(divisions)
+        return frozenset(), frozenset(), frozenset(), frozenset(divisions), frozenset()
 
     remainders = set()
     for value in terminal.get("values") if where is None else ():
@@ -859,6 +966,50 @@ def mysql_compiled_cells(
             break
         if operation is not None:
             remainders.add(value)
+
+    def double(address) -> bool:
+        """E4: a read of a marked port of a `my_double` Float field, the
+        port a source port or a WHERE row's port that reads one."""
+        if not field(address):
+            return False
+        source = records[records[address].get("port")].get("source")
+        if source is not None and source.kind == "read":
+            source = records[records[source].get("port")].get("source")
+        if source is None or source.kind != "field":
+            return False
+        try:
+            storage = json.loads(records[source].get("physical"))["storage"]
+            tag = records[source].get("logical")[0]
+        except (KeyError, IndexError, TypeError, ValueError):
+            return False
+        return (tag, storage) == ("Float", {"kind": "my_double"})
+
+    def float_literal(address) -> bool:
+        """E4: a Float literal record, or a `-` operation over one."""
+        record = records[address]
+        if (
+            address.kind == "operation"
+            and record.get("operator") == ("unary", "-")
+            and len(record.get("operands")) == 1
+        ):
+            address = record.get("operands")[0]
+        return address.kind == "literal" and records[address].get("tag") == "Float"
+
+    floats = set()
+    for value in terminal.get("values"):
+        operation = records[value] if value.kind == "operation" else None
+        operator = None if operation is None else operation.get("operator")
+        operands = () if operation is None else operation.get("operands")
+        if (
+            operation is not None
+            and named.get(value) == [terminal.address]
+            and operation.get("logical")[0] == "Float"
+            and operator in _E4_COMPILED
+            and len(operands) == _E4_COMPILED[operator]
+            and sum(double(item) for item in operands) == 1
+            and all(double(item) or float_literal(item) for item in operands)
+        ):
+            floats.add(value)
     return (
         frozenset(
             value
@@ -871,6 +1022,7 @@ def mysql_compiled_cells(
         frozenset(),
         frozenset(remainders),
         frozenset(divisions),
+        frozenset(floats),
     )
 
 
@@ -3194,7 +3346,13 @@ def build_row_value(
                 expression, "sign", (operand,), replace(inner, nullable=nullable)
             ), None
         if tag == "Float":
-            checked = float_sign(family, inner, nullable)
+            checked = float_sign(
+                family,
+                inner,
+                nullable,
+                family == "mysql"
+                and mysql_float_arithmetic_cell(request.plan, expression, (operand,)),
+            )
             if checked is None:
                 return None, ("PIE-B1003", "unary_sign_requires_int_operand")
             return SQLOperation(expression, "sign", (operand,), checked), None
@@ -3472,13 +3630,13 @@ def target_checked(family: str, operation) -> bool:
 
 def checked_evidence(family: str, operation) -> tuple[str, ...]:
     """The overflow evidence of one realized operation: a checked bigint
-    range, or a PostgreSQL Float `+`, `-` or `*` that no literal fold proves
-    finite, bounded by the target's checked float8 operator (E4)."""
+    range, or a Float `+`, `-` or `*` that no literal fold proves finite,
+    bounded by the target's checked float8 or DOUBLE operator (E4; on MySQL
+    only in an MC E4 cell)."""
     if target_checked(family, operation):
         return (TARGET_CHECKED_SIGNED64,)
     if (
-        family == "postgres"
-        and operation.kind == "arithmetic"
+        operation.kind == "arithmetic"
         and operation.original.expression.operator != "%"
         and operation.realization.tag == "Float"
         and any(_float_literal_value(o) is None for o in operation.operands)
@@ -3519,12 +3677,25 @@ def int8_widened(family: str, operation) -> bool:
     )
 
 
-def float_sign(family, inner, nullable) -> Realization | None:
+def float_sign(family, inner, nullable, mysql_float=False) -> Realization | None:
     """E4: a PostgreSQL unary `-` or `+` of a finite float8 value flips or
-    keeps its sign bit exactly (float8um/float8up), so it never fails."""
-    if family != "postgres" or not float_carrier(inner, family):
+    keeps its sign bit exactly (float8um/float8up), so it never fails; so
+    does MySQL's unary `-` of a DOUBLE in an MC E4 cell (``mysql_float``,
+    whose caller derives it, mysql_float_arithmetic_cell)."""
+    if not (
+        family == "postgres"
+        and float_carrier(inner, family)
+        or family == "mysql"
+        and mysql_float
+        and mysql_float_operands((inner,))
+    ):
         return None
-    return Realization("Float", {"kind": "pg_float8"}, nullable, FINITE_FLOAT)
+    return Realization(
+        "Float",
+        {"kind": "pg_float8" if family == "postgres" else "my_double"},
+        nullable,
+        FINITE_FLOAT,
+    )
 
 
 def _unary_int(
@@ -3720,6 +3891,8 @@ def _binary(
         and mysql_checked_cell(request.plan, expression, values),
         mysql_remainder=cell,
         mysql_division=cell,
+        mysql_float=request.family == "mysql"
+        and mysql_float_arithmetic_cell(request.plan, expression, values),
         # This reader's own S17 pairing check.
         paired=tag == "Decimal" and pairing.project_form(request) is not None,
     )
@@ -3745,12 +3918,14 @@ def resolved_binary_realization(
     mysql_checked: bool = False,
     mysql_remainder: bool = False,
     mysql_division: bool = False,
+    mysql_float: bool = False,
     paired: bool = False,
 ):
     """Original range/domain law over resolved operands; no name resolution.
     ``mysql_checked`` marks an S01 cell (mysql_checked_cell),
-    ``mysql_remainder`` an S15 one (mysql_remainder_cells) and
-    ``mysql_division`` an R08 one (mysql_division_cells). MySQL takes
+    ``mysql_remainder`` an S15 one (mysql_remainder_cells),
+    ``mysql_division`` an R08 one (mysql_division_cells) and ``mysql_float``
+    an MC E4 one (mysql_float_arithmetic_cell). MySQL takes
     Decimal and Int, Decimal of another scale and Decimal times Int as
     PostgreSQL does only in a statement its reader pairs with an S17 form
     (``paired``, `project_sql_emission_paired`)."""
@@ -3907,10 +4082,14 @@ def resolved_binary_realization(
             family == "postgres"
             and float_carrier(left, family)
             and float_carrier(right, family)
+            or family == "mysql"
+            and mysql_float
+            and mysql_float_operands((left, right))
         ):
             return None, ("PIE-B1003", "float_literal_operands_required")
-        # Without a literal fold PostgreSQL's checked float8 operator bounds
-        # the result (SQLSTATE 22003, TARGET_CHECKED_BINARY64).
+        # Without a literal fold PostgreSQL's checked float8 operator, or in
+        # an E4 cell MySQL's DOUBLE one (`*` guarded), bounds the result
+        # (SQLSTATE 22003, TARGET_CHECKED_BINARY64).
         return (
             Realization(
                 "Float",

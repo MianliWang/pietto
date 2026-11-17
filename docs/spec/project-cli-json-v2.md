@@ -484,10 +484,29 @@ with SQLSTATE 22003, and also a non-zero product that rounds to zero; the
 statement may fail while PostgreSQL plans or executes it and never returns an
 infinity or a wrong value. A sign on a `Float` (`-price`, requirement kind
 `arithmetic` with the operator `-`) and arithmetic of two `Float` literals,
-which the compiler folds, carry none, and no MySQL document carries it. A
-consumer that requires a statically proved finite result refuses a document
-with this evidence. The emission observation lists the token in that
-requirement's `evidence`.
+which the compiler folds, carry none, and no MySQL document carries it
+outside the MC E4 cell below. A consumer that requires a statically proved
+finite result refuses a document with this evidence. The emission
+observation lists the token in that requirement's `evidence`.
+
+In MySQL's MC E4 cell, which the [language page](../language.md#mysql-float-arithmetic-cell)
+states, a `Float` `+`, `-` or `*` of a `DOUBLE` field and a `Float` literal
+carries the same evidence, since MySQL's `DOUBLE` operator raises error 1690
+(SQLSTATE 22003) where its result leaves binary64; the unary `-` of such a
+field carries none. Its result's storage is `my_double` with the domain
+`finite_float` `binary64`. `+` and `-` are written uncast, `(x + 2.0)` with
+each operand in its own spelling, and `*` is written `CASE WHEN (x * y) = 0
+AND x <> 0 AND y <> 0 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS
+SIGNED) ELSE (x * y) END`, `x` and `y` the operands in their written order,
+whose `BIGINT` branch raises 1690 where a product of two non-zero values
+rounds to zero. Its additive `ranges` roles are the `syntax` roles
+`product_guard_open` (`CASE WHEN (`), `product_guard_zero` (`) = 0 AND `),
+`product_guard_and` (` <> 0 AND `), `product_guard_then` (` <> 0 THEN
+CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) ELSE (`) and
+`product_guard_close` (`) END`), which open and close its `binary` range in
+place of `binary_open` and `binary_close`, with the operands read between
+them in the order `x`, `y`, `x`, `y`, `x`, `y` and each `x * y` written with
+the `arithmetic_operator` role (` * `).
 
 After `0.1.10`, a project `Float / Float` or `Float % Float` that is not
 emitted is BLOCKED with the additive PIE-B1003 detail

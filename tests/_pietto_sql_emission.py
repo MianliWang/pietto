@@ -8779,6 +8779,50 @@ def _decode_fixed_public(document, limits):
             }
         original = expression_ref(False)
         seen_expressions.add(original["position"])
+        if role == "product_guard_open":
+            # MC.05: a MySQL Float `*` under its underflow guard, which reads
+            # its operands x and y three times each, in written order; their
+            # expressions and literal sites are seen again at each round.
+            _need(family == "mysql", "guarded product family")
+            unseen, unsited = set(seen_expressions), set(seen_sites)
+            reads: list[Any] = []
+
+            def guarded_operand():
+                if not len(reads) % 2:
+                    seen_expressions.intersection_update(unseen)
+                    for site in set(seen_sites) - unsited:
+                        del seen_sites[site]
+                reads.append(row_parse(block, port_kind, repeated=len(reads) > 1))
+
+            take("syntax", *MYSQL_PRODUCT_GUARD[0], original)
+            for guard_role, text in MYSQL_PRODUCT_GUARD[1:-1]:
+                guarded_operand()
+                take("syntax", guard_role, text, original)
+            guarded_operand()
+            closed, _ = take("syntax", *MYSQL_PRODUCT_GUARD[-1], original)
+
+            def read(item):
+                """A read without its repetition marks."""
+                value = item.get("value")
+                if item["kind"] == "constant" and type(value) is dict:
+                    item = dict(item, value=dict(value, duplicate=None))
+                return encoded(dict(item, duplicate=None))
+
+            _need(
+                all(
+                    len({read(item) for item in reads[side::2]}) == 1 for side in (0, 1)
+                ),
+                "guarded product operands",
+            )
+            expected_ranges.append(("binary", original, start, closed["end"]))
+            return {
+                "kind": "arithmetic",
+                "expression": original,
+                "operator": " * ",
+                "operands": reads[:2],
+                "widened": False,
+                "null_casts": [None, None],
+            }
         if role == "unary_open":
             _, text = take("syntax", "unary_open", subject=original)
             _need(text in {"(+", "(-"}, "unary operator")
@@ -10404,10 +10448,15 @@ def _decode_fixed_public(document, limits):
                 }
                 if source is None:
                     # E4: a PostgreSQL float8 sign over a finite field value
-                    # flips or keeps its sign bit exactly.
+                    # flips or keeps its sign bit exactly, and so does a MySQL
+                    # DOUBLE `-` (MC E4; the readers under test derive its
+                    # cell).
                     _need(
-                        family == "postgres"
-                        and operands[0]["storage"] == {"kind": "pg_float8"}
+                        (family == "postgres" or node["operator"] == "-")
+                        and operands[0]["storage"]
+                        == {
+                            "kind": "pg_float8" if family == "postgres" else "my_double"
+                        }
                         and operands[0]["domain"] == FINITE_FLOAT,
                         "finite Float literal/sign",
                     )
@@ -10533,11 +10582,22 @@ def _decode_fixed_public(document, limits):
                     )
                 elif None in values or node["operator"] == " / ":
                     # E4: no literal fold proves the result finite; PostgreSQL's
-                    # checked float8 operator refuses an infinity (22003).
+                    # checked float8 operator refuses an infinity (22003), and
+                    # so does MySQL's DOUBLE `+`, `-` and guarded `*` over one
+                    # literal (MC E4; the readers under test derive its cell).
                     _need(
-                        family == "postgres"
+                        (
+                            family == "postgres"
+                            or node["operator"] != " / "
+                            and values.count(None) == 1
+                        )
                         and all(
-                            item["storage"] == {"kind": "pg_float8"}
+                            item["storage"]
+                            == {
+                                "kind": "pg_float8"
+                                if family == "postgres"
+                                else "my_double"
+                            }
                             and item["domain"] == FINITE_FLOAT
                             for item in operands
                         ),
@@ -16485,6 +16545,20 @@ MYSQL_SUM_GUARD = (
     ),
     ("aggregate_guard_close", ") AS SIGNED) END"),
 )
+# MC.05: MySQL's guarded Float `*`, as (role, text) around its operands x, y,
+# x, y, x, y; restated here, never imported from the emitter.
+MYSQL_PRODUCT_GUARD = (
+    ("product_guard_open", "CASE WHEN ("),
+    ("arithmetic_operator", " * "),
+    ("product_guard_zero", ") = 0 AND "),
+    ("product_guard_and", " <> 0 AND "),
+    (
+        "product_guard_then",
+        " <> 0 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) ELSE (",
+    ),
+    ("arithmetic_operator", " * "),
+    ("product_guard_close", ") END"),
+)
 
 
 def decode_public(data: bytes) -> dict[str, Any]:
@@ -18909,4 +18983,514 @@ DIVISION_REFUSAL_BLOCKERS = {
         (*_INT_DIVISION, 14, 9),
         ("PIE-B1002", "unary_result_outside_physical_range", 15, 9),
     ],
+}
+
+
+# MC E4: the qualification's world (its PREREG World): one source over a
+# non-null BIGINT `id`, a nullable finite DOUBLE `x` (column `fx`) and a
+# non-null one `y` (column `fy`), in the relation `e4 source é`.
+FLOAT_HEADER = """shape Row:
+    id: Int
+    x: Float | None
+    y: Float
+source rows: Row = {target}.table("opaque.locator.not.sql")
+"""
+
+
+def float_world(directory, target, body, policy="preserve_literals"):
+    """``body`` after FLOAT_HEADER, over the E4 world's source with exact
+    identifier case and the native parameter protocol; a dict ``body`` maps
+    module paths to their text, main.pietto's after the header."""
+    contract = json.loads(fixture(target)["contract"])
+    contract["environment"] += [
+        {
+            "key": "identifier_case",
+            "scope": "statement",
+            "value": "quoted_exact"
+            if target == "postgres"
+            else "lower_case_table_names=0",
+        },
+        {
+            "key": "parameter_protocol",
+            "scope": "statement",
+            "value": "postgres_extended" if target == "postgres" else "mysql_prepared",
+        },
+    ]
+    source = contract["sources"][0]
+    source["relation"] = {**source["relation"], "name": "e4 source é"}
+    wide, double = (
+        ("pg_int8", "pg_float8") if target == "postgres" else ("my_bigint", "my_double")
+    )
+    domains = {
+        wide: {"kind": "int_range", "min": str(-(1 << 63)), "max": str((1 << 63) - 1)},
+        double: {"kind": "finite_float", "format": "binary64"},
+    }
+    source["fields"] = [
+        {
+            "ordinal": ordinal,
+            "name": name,
+            "column": column,
+            "representation": {
+                "storage": {"kind": kind},
+                "nullable": nullable,
+                "domain": domains[kind],
+            },
+        }
+        for ordinal, (name, column, kind, nullable) in enumerate(
+            (
+                ("id", "id", wide, False),
+                ("x", "fx", double, True),
+                ("y", "fy", double, False),
+            )
+        )
+    ]
+    files = dict(body) if type(body) is dict else {"main.pietto": body}
+    files["main.pietto"] = FLOAT_HEADER.format(target=target) + files.get(
+        "main.pietto", ""
+    )
+    return build_case(directory, files, encoded(contract).decode(), policy)
+
+
+# `1e308` as a Pietto literal: `1` and 308 zeros, then `.0`.
+_E4_BIG = str(10**308) + ".0"
+
+
+def _e4_body(kind, items, where=None):
+    return (
+        f"{kind} result:\n    from rows\n"
+        + (f"    where {where}\n" if where else "")
+        + "    select:\n        id\n"
+        + "".join(f"        {item}\n" for item in items)
+    ).replace("{B}", _E4_BIG)
+
+
+# The emitted list's forms (PREREG Emitted forms), each a `query` or `table`
+# whose `+`, `-`, `*` or unary `-` items are in E4's cell on MySQL, and the
+# three standby forms that join the list only when its EPQ drops.
+E4_FORMS = {
+    "EA1": _e4_body("query", ["r = x + 0.1"]),
+    "EA2": _e4_body("query", ["r = y + 0.1"]),
+    "EA3": _e4_body("query", ["r = 0.1 + x"]),
+    "EA4": _e4_body("query", ["r = x + {B}"]),
+    "EA5": _e4_body("query", ["r = y + -{B}"]),
+    "EA6": _e4_body("query", ["r = x + -0.0"]),
+    "EA7": _e4_body("table", ["r = -{B} + y"]),
+    "EAT": _e4_body("table", ["r = x + {B}"], "id > 1"),
+    "ES1": _e4_body("query", ["r = y - 0.1"]),
+    "ES2": _e4_body("query", ["r = {B} - x"]),
+    "ES3": _e4_body("query", ["r = y - {B}"]),
+    "ES4": _e4_body("query", ["r = x - 0.0"]),
+    "ES5": _e4_body("query", ["r = -{B} - y"]),
+    "EST": _e4_body("table", ["r = y - {B}"], "id > 1"),
+    "EN1": _e4_body("query", ["r = -x"]),
+    "EN2": _e4_body("query", ["r = -y"]),
+    "ENT": _e4_body("table", ["r = -x"], "id > 1"),
+    "EM1": _e4_body("query", ["r = x * 2.0"]),
+    "EM2": _e4_body("query", ["r = y * -2.0"]),
+    "EM3": _e4_body("query", ["r = -2.0 * x"]),
+    "EM4": _e4_body("query", ["r = x * 0.5"]),
+    "EM5": _e4_body("query", ["r = y * 0.5"]),
+    "EM6": _e4_body("query", ["r = y * 0.0"]),
+    "EM7": _e4_body("query", ["r = 0.5 * y"]),
+    "EMT": _e4_body("table", ["r = x * 2.0"], "id > 1"),
+    "EMQ": _e4_body("query", ["r = 0.1 * y"], "id > 1"),
+    "EPQ": _e4_body("query", ["a = x + 0.1", "s = y - {B}", "n = -x"], "id > 1"),
+}
+E4_STANDBY = {
+    "EAQ": _e4_body("query", ["r = y + {B}"], "id > 1"),
+    "ESQ": _e4_body("query", ["r = x - {B}"], "id > 1"),
+    "ENQ": _e4_body("query", ["r = -y"], "id > 1"),
+}
+# The SQL each form and standby form emits (also the qualification's byte
+# source): PostgreSQL's is main's E4 emission, byte for byte, and MySQL's
+# writes each `*` as MYSQL_PRODUCT_GUARD with its operands in written order.
+E4_FORM_SQL = {
+    (
+        "EA1",
+        "postgres",
+    ): 'SELECT "s0"."id" AS "id", ("s0"."fx" + CAST(\'0.1\' AS pg_catalog.float8)) AS "r" FROM "public"."e4 source é" AS "s0"',
+    (
+        "EA1",
+        "mysql",
+    ): "SELECT `s0`.`id` AS `id`, (`s0`.`fx` + CAST(0.1e0 AS DOUBLE)) AS `r` FROM `phase66`.`e4 source é` AS `s0`",
+    (
+        "EA2",
+        "postgres",
+    ): 'SELECT "s0"."id" AS "id", ("s0"."fy" + CAST(\'0.1\' AS pg_catalog.float8)) AS "r" FROM "public"."e4 source é" AS "s0"',
+    (
+        "EA2",
+        "mysql",
+    ): "SELECT `s0`.`id` AS `id`, (`s0`.`fy` + CAST(0.1e0 AS DOUBLE)) AS `r` FROM `phase66`.`e4 source é` AS `s0`",
+    (
+        "EA3",
+        "postgres",
+    ): 'SELECT "s0"."id" AS "id", (CAST(\'0.1\' AS pg_catalog.float8) + "s0"."fx") AS "r" FROM "public"."e4 source é" AS "s0"',
+    (
+        "EA3",
+        "mysql",
+    ): "SELECT `s0`.`id` AS `id`, (CAST(0.1e0 AS DOUBLE) + `s0`.`fx`) AS `r` FROM `phase66`.`e4 source é` AS `s0`",
+    (
+        "EA4",
+        "postgres",
+    ): 'SELECT "s0"."id" AS "id", ("s0"."fx" + CAST(\'1e+308\' AS pg_catalog.float8)) AS "r" FROM "public"."e4 source é" AS "s0"',
+    (
+        "EA4",
+        "mysql",
+    ): "SELECT `s0`.`id` AS `id`, (`s0`.`fx` + CAST(1e+308 AS DOUBLE)) AS `r` FROM `phase66`.`e4 source é` AS `s0`",
+    (
+        "EA5",
+        "postgres",
+    ): 'SELECT "s0"."id" AS "id", ("s0"."fy" + (-CAST(\'1e+308\' AS pg_catalog.float8))) AS "r" FROM "public"."e4 source é" AS "s0"',
+    (
+        "EA5",
+        "mysql",
+    ): "SELECT `s0`.`id` AS `id`, (`s0`.`fy` + (-CAST(1e+308 AS DOUBLE))) AS `r` FROM `phase66`.`e4 source é` AS `s0`",
+    (
+        "EA6",
+        "postgres",
+    ): 'SELECT "s0"."id" AS "id", ("s0"."fx" + (-CAST(\'0.0\' AS pg_catalog.float8))) AS "r" FROM "public"."e4 source é" AS "s0"',
+    (
+        "EA6",
+        "mysql",
+    ): "SELECT `s0`.`id` AS `id`, (`s0`.`fx` + (-CAST(0.0e0 AS DOUBLE))) AS `r` FROM `phase66`.`e4 source é` AS `s0`",
+    (
+        "EA7",
+        "postgres",
+    ): 'SELECT "s0"."id" AS "id", ((-CAST(\'1e+308\' AS pg_catalog.float8)) + "s0"."fy") AS "r" FROM "public"."e4 source é" AS "s0"',
+    (
+        "EA7",
+        "mysql",
+    ): "SELECT `s0`.`id` AS `id`, ((-CAST(1e+308 AS DOUBLE)) + `s0`.`fy`) AS `r` FROM `phase66`.`e4 source é` AS `s0`",
+    (
+        "EAT",
+        "postgres",
+    ): 'WITH "p0" ("c0", "c1", "c2") AS (SELECT "s0"."id" AS "c0", "s0"."fx" AS "c1", "s0"."fy" AS "c2" FROM "public"."e4 source é" AS "s0" WHERE ("s0"."id" > CAST(1 AS pg_catalog.int8))) SELECT "t1"."c0" AS "id", ("t1"."c1" + CAST(\'1e+308\' AS pg_catalog.float8)) AS "r" FROM "p0" AS "t1"',
+    (
+        "EAT",
+        "mysql",
+    ): "WITH `p0` (`c0`, `c1`, `c2`) AS (SELECT `s0`.`id` AS `c0`, `s0`.`fx` AS `c1`, `s0`.`fy` AS `c2` FROM `phase66`.`e4 source é` AS `s0` WHERE (`s0`.`id` > CAST(1 AS SIGNED))) SELECT `t1`.`c0` AS `id`, (`t1`.`c1` + CAST(1e+308 AS DOUBLE)) AS `r` FROM `p0` AS `t1`",
+    (
+        "ES1",
+        "postgres",
+    ): 'SELECT "s0"."id" AS "id", ("s0"."fy" - CAST(\'0.1\' AS pg_catalog.float8)) AS "r" FROM "public"."e4 source é" AS "s0"',
+    (
+        "ES1",
+        "mysql",
+    ): "SELECT `s0`.`id` AS `id`, (`s0`.`fy` - CAST(0.1e0 AS DOUBLE)) AS `r` FROM `phase66`.`e4 source é` AS `s0`",
+    (
+        "ES2",
+        "postgres",
+    ): 'SELECT "s0"."id" AS "id", (CAST(\'1e+308\' AS pg_catalog.float8) - "s0"."fx") AS "r" FROM "public"."e4 source é" AS "s0"',
+    (
+        "ES2",
+        "mysql",
+    ): "SELECT `s0`.`id` AS `id`, (CAST(1e+308 AS DOUBLE) - `s0`.`fx`) AS `r` FROM `phase66`.`e4 source é` AS `s0`",
+    (
+        "ES3",
+        "postgres",
+    ): 'SELECT "s0"."id" AS "id", ("s0"."fy" - CAST(\'1e+308\' AS pg_catalog.float8)) AS "r" FROM "public"."e4 source é" AS "s0"',
+    (
+        "ES3",
+        "mysql",
+    ): "SELECT `s0`.`id` AS `id`, (`s0`.`fy` - CAST(1e+308 AS DOUBLE)) AS `r` FROM `phase66`.`e4 source é` AS `s0`",
+    (
+        "ES4",
+        "postgres",
+    ): 'SELECT "s0"."id" AS "id", ("s0"."fx" - CAST(\'0.0\' AS pg_catalog.float8)) AS "r" FROM "public"."e4 source é" AS "s0"',
+    (
+        "ES4",
+        "mysql",
+    ): "SELECT `s0`.`id` AS `id`, (`s0`.`fx` - CAST(0.0e0 AS DOUBLE)) AS `r` FROM `phase66`.`e4 source é` AS `s0`",
+    (
+        "ES5",
+        "postgres",
+    ): 'SELECT "s0"."id" AS "id", ((-CAST(\'1e+308\' AS pg_catalog.float8)) - "s0"."fy") AS "r" FROM "public"."e4 source é" AS "s0"',
+    (
+        "ES5",
+        "mysql",
+    ): "SELECT `s0`.`id` AS `id`, ((-CAST(1e+308 AS DOUBLE)) - `s0`.`fy`) AS `r` FROM `phase66`.`e4 source é` AS `s0`",
+    (
+        "EST",
+        "postgres",
+    ): 'WITH "p0" ("c0", "c1", "c2") AS (SELECT "s0"."id" AS "c0", "s0"."fx" AS "c1", "s0"."fy" AS "c2" FROM "public"."e4 source é" AS "s0" WHERE ("s0"."id" > CAST(1 AS pg_catalog.int8))) SELECT "t1"."c0" AS "id", ("t1"."c2" - CAST(\'1e+308\' AS pg_catalog.float8)) AS "r" FROM "p0" AS "t1"',
+    (
+        "EST",
+        "mysql",
+    ): "WITH `p0` (`c0`, `c1`, `c2`) AS (SELECT `s0`.`id` AS `c0`, `s0`.`fx` AS `c1`, `s0`.`fy` AS `c2` FROM `phase66`.`e4 source é` AS `s0` WHERE (`s0`.`id` > CAST(1 AS SIGNED))) SELECT `t1`.`c0` AS `id`, (`t1`.`c2` - CAST(1e+308 AS DOUBLE)) AS `r` FROM `p0` AS `t1`",
+    (
+        "EN1",
+        "postgres",
+    ): 'SELECT "s0"."id" AS "id", (-"s0"."fx") AS "r" FROM "public"."e4 source é" AS "s0"',
+    (
+        "EN1",
+        "mysql",
+    ): "SELECT `s0`.`id` AS `id`, (-`s0`.`fx`) AS `r` FROM `phase66`.`e4 source é` AS `s0`",
+    (
+        "EN2",
+        "postgres",
+    ): 'SELECT "s0"."id" AS "id", (-"s0"."fy") AS "r" FROM "public"."e4 source é" AS "s0"',
+    (
+        "EN2",
+        "mysql",
+    ): "SELECT `s0`.`id` AS `id`, (-`s0`.`fy`) AS `r` FROM `phase66`.`e4 source é` AS `s0`",
+    (
+        "ENT",
+        "postgres",
+    ): 'WITH "p0" ("c0", "c1", "c2") AS (SELECT "s0"."id" AS "c0", "s0"."fx" AS "c1", "s0"."fy" AS "c2" FROM "public"."e4 source é" AS "s0" WHERE ("s0"."id" > CAST(1 AS pg_catalog.int8))) SELECT "t1"."c0" AS "id", (-"t1"."c1") AS "r" FROM "p0" AS "t1"',
+    (
+        "ENT",
+        "mysql",
+    ): "WITH `p0` (`c0`, `c1`, `c2`) AS (SELECT `s0`.`id` AS `c0`, `s0`.`fx` AS `c1`, `s0`.`fy` AS `c2` FROM `phase66`.`e4 source é` AS `s0` WHERE (`s0`.`id` > CAST(1 AS SIGNED))) SELECT `t1`.`c0` AS `id`, (-`t1`.`c1`) AS `r` FROM `p0` AS `t1`",
+    (
+        "EM1",
+        "postgres",
+    ): 'SELECT "s0"."id" AS "id", ("s0"."fx" * CAST(\'2.0\' AS pg_catalog.float8)) AS "r" FROM "public"."e4 source é" AS "s0"',
+    (
+        "EM1",
+        "mysql",
+    ): "SELECT `s0`.`id` AS `id`, CASE WHEN (`s0`.`fx` * CAST(2.0e0 AS DOUBLE)) = 0 AND `s0`.`fx` <> 0 AND CAST(2.0e0 AS DOUBLE) <> 0 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) ELSE (`s0`.`fx` * CAST(2.0e0 AS DOUBLE)) END AS `r` FROM `phase66`.`e4 source é` AS `s0`",
+    (
+        "EM2",
+        "postgres",
+    ): 'SELECT "s0"."id" AS "id", ("s0"."fy" * (-CAST(\'2.0\' AS pg_catalog.float8))) AS "r" FROM "public"."e4 source é" AS "s0"',
+    (
+        "EM2",
+        "mysql",
+    ): "SELECT `s0`.`id` AS `id`, CASE WHEN (`s0`.`fy` * (-CAST(2.0e0 AS DOUBLE))) = 0 AND `s0`.`fy` <> 0 AND (-CAST(2.0e0 AS DOUBLE)) <> 0 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) ELSE (`s0`.`fy` * (-CAST(2.0e0 AS DOUBLE))) END AS `r` FROM `phase66`.`e4 source é` AS `s0`",
+    (
+        "EM3",
+        "postgres",
+    ): 'SELECT "s0"."id" AS "id", ((-CAST(\'2.0\' AS pg_catalog.float8)) * "s0"."fx") AS "r" FROM "public"."e4 source é" AS "s0"',
+    (
+        "EM3",
+        "mysql",
+    ): "SELECT `s0`.`id` AS `id`, CASE WHEN ((-CAST(2.0e0 AS DOUBLE)) * `s0`.`fx`) = 0 AND (-CAST(2.0e0 AS DOUBLE)) <> 0 AND `s0`.`fx` <> 0 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) ELSE ((-CAST(2.0e0 AS DOUBLE)) * `s0`.`fx`) END AS `r` FROM `phase66`.`e4 source é` AS `s0`",
+    (
+        "EM4",
+        "postgres",
+    ): 'SELECT "s0"."id" AS "id", ("s0"."fx" * CAST(\'0.5\' AS pg_catalog.float8)) AS "r" FROM "public"."e4 source é" AS "s0"',
+    (
+        "EM4",
+        "mysql",
+    ): "SELECT `s0`.`id` AS `id`, CASE WHEN (`s0`.`fx` * CAST(0.5e0 AS DOUBLE)) = 0 AND `s0`.`fx` <> 0 AND CAST(0.5e0 AS DOUBLE) <> 0 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) ELSE (`s0`.`fx` * CAST(0.5e0 AS DOUBLE)) END AS `r` FROM `phase66`.`e4 source é` AS `s0`",
+    (
+        "EM5",
+        "postgres",
+    ): 'SELECT "s0"."id" AS "id", ("s0"."fy" * CAST(\'0.5\' AS pg_catalog.float8)) AS "r" FROM "public"."e4 source é" AS "s0"',
+    (
+        "EM5",
+        "mysql",
+    ): "SELECT `s0`.`id` AS `id`, CASE WHEN (`s0`.`fy` * CAST(0.5e0 AS DOUBLE)) = 0 AND `s0`.`fy` <> 0 AND CAST(0.5e0 AS DOUBLE) <> 0 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) ELSE (`s0`.`fy` * CAST(0.5e0 AS DOUBLE)) END AS `r` FROM `phase66`.`e4 source é` AS `s0`",
+    (
+        "EM6",
+        "postgres",
+    ): 'SELECT "s0"."id" AS "id", ("s0"."fy" * CAST(\'0.0\' AS pg_catalog.float8)) AS "r" FROM "public"."e4 source é" AS "s0"',
+    (
+        "EM6",
+        "mysql",
+    ): "SELECT `s0`.`id` AS `id`, CASE WHEN (`s0`.`fy` * CAST(0.0e0 AS DOUBLE)) = 0 AND `s0`.`fy` <> 0 AND CAST(0.0e0 AS DOUBLE) <> 0 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) ELSE (`s0`.`fy` * CAST(0.0e0 AS DOUBLE)) END AS `r` FROM `phase66`.`e4 source é` AS `s0`",
+    (
+        "EM7",
+        "postgres",
+    ): 'SELECT "s0"."id" AS "id", (CAST(\'0.5\' AS pg_catalog.float8) * "s0"."fy") AS "r" FROM "public"."e4 source é" AS "s0"',
+    (
+        "EM7",
+        "mysql",
+    ): "SELECT `s0`.`id` AS `id`, CASE WHEN (CAST(0.5e0 AS DOUBLE) * `s0`.`fy`) = 0 AND CAST(0.5e0 AS DOUBLE) <> 0 AND `s0`.`fy` <> 0 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) ELSE (CAST(0.5e0 AS DOUBLE) * `s0`.`fy`) END AS `r` FROM `phase66`.`e4 source é` AS `s0`",
+    (
+        "EMT",
+        "postgres",
+    ): 'WITH "p0" ("c0", "c1", "c2") AS (SELECT "s0"."id" AS "c0", "s0"."fx" AS "c1", "s0"."fy" AS "c2" FROM "public"."e4 source é" AS "s0" WHERE ("s0"."id" > CAST(1 AS pg_catalog.int8))) SELECT "t1"."c0" AS "id", ("t1"."c1" * CAST(\'2.0\' AS pg_catalog.float8)) AS "r" FROM "p0" AS "t1"',
+    (
+        "EMT",
+        "mysql",
+    ): "WITH `p0` (`c0`, `c1`, `c2`) AS (SELECT `s0`.`id` AS `c0`, `s0`.`fx` AS `c1`, `s0`.`fy` AS `c2` FROM `phase66`.`e4 source é` AS `s0` WHERE (`s0`.`id` > CAST(1 AS SIGNED))) SELECT `t1`.`c0` AS `id`, CASE WHEN (`t1`.`c1` * CAST(2.0e0 AS DOUBLE)) = 0 AND `t1`.`c1` <> 0 AND CAST(2.0e0 AS DOUBLE) <> 0 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) ELSE (`t1`.`c1` * CAST(2.0e0 AS DOUBLE)) END AS `r` FROM `p0` AS `t1`",
+    (
+        "EMQ",
+        "postgres",
+    ): 'WITH "p0" ("c0", "c1", "c2") AS (SELECT "s0"."id" AS "c0", "s0"."fx" AS "c1", "s0"."fy" AS "c2" FROM "public"."e4 source é" AS "s0" WHERE ("s0"."id" > CAST(1 AS pg_catalog.int8))) SELECT "t1"."c0" AS "id", (CAST(\'0.1\' AS pg_catalog.float8) * "t1"."c2") AS "r" FROM "p0" AS "t1"',
+    (
+        "EMQ",
+        "mysql",
+    ): "WITH `p0` (`c0`, `c1`, `c2`) AS (SELECT `s0`.`id` AS `c0`, `s0`.`fx` AS `c1`, `s0`.`fy` AS `c2` FROM `phase66`.`e4 source é` AS `s0` WHERE (`s0`.`id` > CAST(1 AS SIGNED))) SELECT `t1`.`c0` AS `id`, CASE WHEN (CAST(0.1e0 AS DOUBLE) * `t1`.`c2`) = 0 AND CAST(0.1e0 AS DOUBLE) <> 0 AND `t1`.`c2` <> 0 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) ELSE (CAST(0.1e0 AS DOUBLE) * `t1`.`c2`) END AS `r` FROM `p0` AS `t1`",
+    (
+        "EPQ",
+        "postgres",
+    ): 'WITH "p0" ("c0", "c1", "c2") AS (SELECT "s0"."id" AS "c0", "s0"."fx" AS "c1", "s0"."fy" AS "c2" FROM "public"."e4 source é" AS "s0" WHERE ("s0"."id" > CAST(1 AS pg_catalog.int8))) SELECT "t1"."c0" AS "id", ("t1"."c1" + CAST(\'0.1\' AS pg_catalog.float8)) AS "a", ("t1"."c2" - CAST(\'1e+308\' AS pg_catalog.float8)) AS "s", (-"t1"."c1") AS "n" FROM "p0" AS "t1"',
+    (
+        "EPQ",
+        "mysql",
+    ): "WITH `p0` (`c0`, `c1`, `c2`) AS (SELECT `s0`.`id` AS `c0`, `s0`.`fx` AS `c1`, `s0`.`fy` AS `c2` FROM `phase66`.`e4 source é` AS `s0` WHERE (`s0`.`id` > CAST(1 AS SIGNED))) SELECT `t1`.`c0` AS `id`, (`t1`.`c1` + CAST(0.1e0 AS DOUBLE)) AS `a`, (`t1`.`c2` - CAST(1e+308 AS DOUBLE)) AS `s`, (-`t1`.`c1`) AS `n` FROM `p0` AS `t1`",
+    (
+        "EAQ",
+        "postgres",
+    ): 'WITH "p0" ("c0", "c1", "c2") AS (SELECT "s0"."id" AS "c0", "s0"."fx" AS "c1", "s0"."fy" AS "c2" FROM "public"."e4 source é" AS "s0" WHERE ("s0"."id" > CAST(1 AS pg_catalog.int8))) SELECT "t1"."c0" AS "id", ("t1"."c2" + CAST(\'1e+308\' AS pg_catalog.float8)) AS "r" FROM "p0" AS "t1"',
+    (
+        "EAQ",
+        "mysql",
+    ): "WITH `p0` (`c0`, `c1`, `c2`) AS (SELECT `s0`.`id` AS `c0`, `s0`.`fx` AS `c1`, `s0`.`fy` AS `c2` FROM `phase66`.`e4 source é` AS `s0` WHERE (`s0`.`id` > CAST(1 AS SIGNED))) SELECT `t1`.`c0` AS `id`, (`t1`.`c2` + CAST(1e+308 AS DOUBLE)) AS `r` FROM `p0` AS `t1`",
+    (
+        "ESQ",
+        "postgres",
+    ): 'WITH "p0" ("c0", "c1", "c2") AS (SELECT "s0"."id" AS "c0", "s0"."fx" AS "c1", "s0"."fy" AS "c2" FROM "public"."e4 source é" AS "s0" WHERE ("s0"."id" > CAST(1 AS pg_catalog.int8))) SELECT "t1"."c0" AS "id", ("t1"."c1" - CAST(\'1e+308\' AS pg_catalog.float8)) AS "r" FROM "p0" AS "t1"',
+    (
+        "ESQ",
+        "mysql",
+    ): "WITH `p0` (`c0`, `c1`, `c2`) AS (SELECT `s0`.`id` AS `c0`, `s0`.`fx` AS `c1`, `s0`.`fy` AS `c2` FROM `phase66`.`e4 source é` AS `s0` WHERE (`s0`.`id` > CAST(1 AS SIGNED))) SELECT `t1`.`c0` AS `id`, (`t1`.`c1` - CAST(1e+308 AS DOUBLE)) AS `r` FROM `p0` AS `t1`",
+    (
+        "ENQ",
+        "postgres",
+    ): 'WITH "p0" ("c0", "c1", "c2") AS (SELECT "s0"."id" AS "c0", "s0"."fx" AS "c1", "s0"."fy" AS "c2" FROM "public"."e4 source é" AS "s0" WHERE ("s0"."id" > CAST(1 AS pg_catalog.int8))) SELECT "t1"."c0" AS "id", (-"t1"."c2") AS "r" FROM "p0" AS "t1"',
+    (
+        "ENQ",
+        "mysql",
+    ): "WITH `p0` (`c0`, `c1`, `c2`) AS (SELECT `s0`.`id` AS `c0`, `s0`.`fx` AS `c1`, `s0`.`fy` AS `c2` FROM `phase66`.`e4 source é` AS `s0` WHERE (`s0`.`id` > CAST(1 AS SIGNED))) SELECT `t1`.`c0` AS `id`, (-`t1`.`c2`) AS `r` FROM `p0` AS `t1`",
+}
+# Other spellings of an E4 cell, each with the form whose SQL it emits byte
+# for byte: a read qualified by the source's name, parentheses around an
+# operand, the operation or a signed literal, a `def` that inlines to the
+# field, the literal, a signed literal, the sign or the whole operation, a
+# literal as a `def` argument, and the form's `query` as a `table`.
+_E4_IDENTITY = "def same(v: Float | None) -> Float | None: return v\n"
+_E4_NEGATED = "def neg(v: Float | None) -> Float | None: return -v\n"
+E4_SPELLINGS = {
+    "qualified": ("EM1", _e4_body("query", ["r = rows.x * 2.0"])),
+    "parenthesized": ("EM1", _e4_body("query", ["r = (x) * (2.0)"])),
+    "whole_parenthesized": ("EM1", _e4_body("query", ["r = (x * 2.0)"])),
+    "negated_parenthesized_literal": ("EM2", _e4_body("query", ["r = y * -(2.0)"])),
+    "identity_def": ("EM1", _E4_IDENTITY + _e4_body("query", ["r = same(x) * 2.0"])),
+    "def_body": (
+        "EM1",
+        "def twice(v: Float | None) -> Float | None: return v * 2.0\n"
+        + _e4_body("query", ["r = twice(x)"]),
+    ),
+    "literal_def": (
+        "EM1",
+        "def two() -> Float: return 2.0\n" + _e4_body("query", ["r = x * two()"]),
+    ),
+    "literal_identity": (
+        "EM1",
+        _E4_IDENTITY + _e4_body("query", ["r = x * same(2.0)"]),
+    ),
+    "negated_literal_def": (
+        "EM2",
+        _E4_NEGATED + _e4_body("query", ["r = y * neg(2.0)"]),
+    ),
+    "literal_argument": (
+        "EM1",
+        "def mul(v: Float | None, k: Float) -> Float | None: return v * k\n"
+        + _e4_body("query", ["r = mul(x, 2.0)"]),
+    ),
+    "operation_argument": (
+        "EM1",
+        _E4_IDENTITY + _e4_body("query", ["r = same(x * 2.0)"]),
+    ),
+    "negated_identity": ("EN1", _E4_IDENTITY + _e4_body("query", ["r = -same(x)"])),
+    "negated_def": ("EN1", _E4_NEGATED + _e4_body("query", ["r = neg(x)"])),
+    "sign_argument": ("EN1", _E4_IDENTITY + _e4_body("query", ["r = same(-x)"])),
+    "em1_table": ("EM1", _e4_body("table", ["r = x * 2.0"])),
+    "ea1_table": ("EA1", _e4_body("table", ["r = x + 0.1"])),
+    "en1_table": ("EN1", _e4_body("table", ["r = -x"])),
+    "epq_table": ("EPQ", E4_FORMS["EPQ"].replace("query result", "table result")),
+}
+# MySQL statements outside E4's cell (PREREG Rule two and neighbours, R1-R18,
+# and more neighbours), each keeping the blockers main reports for it
+# (E4_REFUSAL_BLOCKERS) under every literal policy that E4_REFUSAL_POLICIES
+# does not narrow.
+_E4_IMPORT = {
+    "main.pietto": "export source rows\n",
+    "other.pietto": 'from "main.pietto" import (\n    source rows,\n)\n'
+    + _e4_body("query", ["r = x * 2.0"]),
+}
+E4_REFUSALS = {
+    "r01_long_label": _e4_body("query", ["r" * 257 + " = x + 0.1"]),
+    "r02_two_fields": _e4_body("query", ["r = x + y"]),
+    "r03_same_field": _e4_body("query", ["r = x - x"]),
+    "r04_nested": _e4_body("query", ["r = (x * 2.0) + 1.0"]),
+    "r05_let": "query result:\n    from rows\n    let t = x * 2.0\n    select:\n"
+    "        id\n        r = t\n",
+    "r06_where": "query result:\n    from rows\n    where x * 2.0 > 1.0\n    select:\n"
+    "        id\n",
+    "r07_order_by": _e4_body("query", ["r = x * 2.0"]) + "    order by:\n        r\n",
+    "r07_order_by_id": _e4_body("query", ["r = x * 2.0"])
+    + "    order by:\n        id\n",
+    "r08_limit": _e4_body("query", ["r = x * 2.0"]) + "    limit 1\n",
+    "r09_aggregate": "query result:\n    from rows\n    group by id\n    select:\n"
+    "        id\n        m = max(x * 2.0)\n",
+    "r09_sum": "query result:\n    from rows\n    group by id\n    select:\n"
+    "        id\n        m = sum(x * 2.0)\n",
+    "r10_division": _e4_body("query", ["r = x / 2.0"]),
+    "r11_plus": _e4_body("query", ["r = +x"]),
+    "r12_parameter": "query result(p: Float):\n    from rows\n    select:\n"
+    "        id\n        r = x * p\n",
+    "r13_bind_safe": _e4_body("query", ["r = x * 2.0"]),
+    "r14_join": "query result:\n    from rows\n    let o = rows\n"
+    "    inner join o on rows.id == o.id\n    select:\n        id = rows.id\n"
+    "        r = rows.x * 2.0\n",
+    "r15_window": _e4_body("query", ["r = x * 2.0", "w = lag(id) window(order by id)"]),
+    "r17_imported": _E4_IMPORT,
+    "r18_distinct": _e4_body("query", ["r = x * 2.0"]).replace(
+        "select:", "select distinct:"
+    ),
+    "beside_refused": _e4_body("query", ["r = x * 2.0", "s = x + y"]),
+    "plus_literal": _e4_body("query", ["r = x * +2.0"]),
+    "double_negation": _e4_body("query", ["r = x * -(-2.0)"]),
+    "int_literal": _e4_body("query", ["r = x * 2"]),
+    "negated_product": _e4_body("query", ["r = -(x * 2.0)"]),
+    "negated_sign": _e4_body("query", ["r = -(-x)"]),
+    "coalesced": _e4_body("query", ["r = coalesce(x * 2.0, 0.0)"]),
+    "upstream": "query up:\n    from rows\n    select:\n        id\n        x\n"
+    + _e4_body("query", ["r = x * 2.0"]).replace("from rows", "from up"),
+    "row_input_alias": _e4_body("query", ["r = x * 2.0"]).replace(
+        "    from rows\n", "    let s = rows\n    from s\n"
+    ),
+    "unread_window": _e4_body("query", ["r = x * 2.0"]).replace(
+        "    from rows\n", "    from rows\n    let w = window(order by id)\n"
+    ),
+}
+# The one policy that refuses a body otherwise emitted.
+E4_REFUSAL_POLICIES = {"r13_bind_safe": ("bind_safe_literals",)}
+# The MySQL blockers main reports for each of E4_REFUSALS, as (code, detail,
+# line, column) (observed on main at this slice's base, byte for byte the
+# same documents as this slice's).
+E4_REFUSAL_BLOCKERS = {
+    "r01_long_label": [
+        ("PIE-B1003", "float_literal_operands_required", 10, 9),
+        ("PIE-B1002", "output_label_unrepresentable", None, None),
+    ],
+    "r02_two_fields": [("PIE-B1003", "float_literal_operands_required", 10, 9)],
+    "r03_same_field": [("PIE-B1003", "float_literal_operands_required", 10, 9)],
+    "r04_nested": [("PIE-B1003", "float_literal_operands_required", 10, 9)],
+    "r05_let": [("PIE-B1003", "float_literal_operands_required", 8, 5)],
+    "r06_where": [("PIE-B1003", "float_literal_operands_required", 8, 5)],
+    "r07_order_by": [("PIE-B1003", "order", 11, 5)],
+    "r07_order_by_id": [("PIE-B1003", "float_literal_operands_required", 10, 9)],
+    "r08_limit": [("PIE-B1003", "float_literal_operands_required", 10, 9)],
+    "r09_aggregate": [
+        ("PIE-B1003", "semantic_result_unsuccessful", 6, 1),
+        ("PIE-B1003", "active_output_unavailable", 6, 1),
+        ("PIE-B1003", "group", 8, 5),
+    ],
+    "r09_sum": [("PIE-B1003", "float_literal_operands_required", 11, 9)],
+    "r10_division": [("PIE-B1003", "float_division_not_realized", 10, 9)],
+    "r11_plus": [("PIE-B1003", "unary_sign_requires_int_operand", 10, 9)],
+    "r12_parameter": [("PIE-B1003", "float_literal_operands_required", 10, 9)],
+    "r13_bind_safe": [("PIE-B1003", "float_literal_operands_required", 10, 9)],
+    "r14_join": [("PIE-B1003", "float_literal_operands_required", 12, 9)],
+    "r15_window": [("PIE-B1003", "float_literal_operands_required", 10, 9)],
+    "r17_imported": [("PIE-B1003", "float_literal_operands_required", 8, 9)],
+    "r18_distinct": [("PIE-B1003", "float_literal_operands_required", 10, 9)],
+    "beside_refused": [
+        ("PIE-B1003", "float_literal_operands_required", 10, 9),
+        ("PIE-B1003", "float_literal_operands_required", 11, 9),
+    ],
+    "plus_literal": [("PIE-B1003", "float_literal_operands_required", 10, 9)],
+    "double_negation": [("PIE-B1003", "float_literal_operands_required", 10, 9)],
+    "int_literal": [("PIE-B1003", "arithmetic_requires_signed_int_operands", 10, 9)],
+    "negated_product": [("PIE-B1003", "float_literal_operands_required", 10, 9)],
+    "negated_sign": [("PIE-B1003", "unary_sign_requires_int_operand", 10, 9)],
+    "coalesced": [("PIE-B1003", "float_literal_operands_required", 10, 9)],
+    "upstream": [("PIE-B1003", "float_literal_operands_required", 15, 9)],
+    "row_input_alias": [("PIE-B1003", "float_literal_operands_required", 11, 9)],
+    "unread_window": [("PIE-B1003", "float_literal_operands_required", 11, 9)],
 }

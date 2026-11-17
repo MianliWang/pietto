@@ -1566,6 +1566,17 @@ PHASE77_MYSQL_FORMS = {
         "table result:\n    from o\n    where not any(z.v == o.v for z in i)\n"
         "    select:\n        id\n        v\n",
     ),
+    # MC E4 (D77.73): `+`, `-` and unary `-` beside each other under a WHERE,
+    # and the guarded `*`.
+    "E4": (
+        "float",
+        "query result:\n    from rows\n    where id > 1\n    select:\n"
+        "        id\n        a = x + 0.1\n        s = y - 0.5\n        n = -x\n",
+    ),
+    "E4_product": (
+        "float",
+        "table result:\n    from rows\n    select:\n        id\n        r = 0.5 * y\n",
+    ),
 }
 # A neighbour of each that 0.1.11 already compiled, R2's cross JOIN of the
 # public journey, and an R01 class U form, with the R2 refusal each keeps.
@@ -1622,6 +1633,12 @@ MYSQL_0111_FORMS = {
         "r02",
         "table result:\n    from o\n    where not any(z.id == o.id for z in i)\n"
         "    select:\n        id\n        v\n",
+        _WORKSPACE,
+    ),
+    "E4": (
+        "float",
+        "query result:\n    from rows\n    where id > 1\n    select:\n"
+        "        id\n        x\n        r = 0.5 * 2.0\n",
         _WORKSPACE,
     ),
     "cross": (
