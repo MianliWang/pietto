@@ -772,11 +772,7 @@ class _Server:
             return ("refused", uri)
         if path is not None:
             indexes = (
-                tuple(
-                    index
-                    for index, selection in enumerate(self.selections)
-                    if path in selection
-                )
+                self._selecting(path)
                 or tuple(
                     index for index, extra in enumerate(self.extras) if path in extra
                 )[:1]
@@ -789,6 +785,33 @@ class _Server:
                     return None
                 return ("root", indexes[0]) if len(indexes) == 1 else ("roots", indexes)
         return ("file", uri) if document is not None else None
+
+    def _selecting(self, path: Path) -> tuple[int, ...]:
+        """The roots that select the file at `path`, each under its own
+        spelling. Only the roots are resolved: `path` under a root as spelled
+        is that root's real path joined with the rest, so a root nested in
+        another through a symbolic link selects the other's file too. That
+        only adds roots to a spelling that a root selects as written, as no
+        root publishes under another spelling."""
+
+        if not any(path in selection for selection in self.selections):
+            return ()
+        reals = [
+            real / path.relative_to(root)
+            for root, real in zip(self.roots, self.real_roots, strict=True)
+            if path.is_relative_to(root)
+        ]
+        return tuple(
+            index
+            for index, (root, real) in enumerate(
+                zip(self.roots, self.real_roots, strict=True)
+            )
+            if any(
+                item.is_relative_to(real)
+                and root / item.relative_to(real) in self.selections[index]
+                for item in reals
+            )
+        )
 
     def _uris(self, path: Path) -> tuple[str, ...]:
         """The URIs of the open documents at `path`, in code-point order."""

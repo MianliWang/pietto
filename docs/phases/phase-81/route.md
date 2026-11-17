@@ -678,6 +678,47 @@ contract](../../spec/lsp-diagnostics-v1.md) and a release-note fragment.
 - **Roadmap.** At integration, the single writer of the roadmap's Phase81
   row records this fault tolerance as landed with P12.
 
+## P13 record
+
+P13 takes PL.44 (b) after P12, which writes the same files. Its write set
+is `src/pietto/_lsp.py`, `tests/test_cli_lsp.py`, the [LSP diagnostics
+contract](../../spec/lsp-diagnostics-v1.md) and a release-note fragment.
+
+- **Root identity.** M02's rule, under which only a root is resolved and
+  never a file's own links, now also decides which roots select a file: a
+  path under a root as written stands for that root's real path joined
+  with the rest, and every root that selects that real-path form under its
+  own spelling selects the file. The rule only adds roots to a spelling
+  that a root selects as written, as no root publishes under another
+  spelling. The owner of such a spelling that two roots select is both
+  roots, so each spelling publishes only the overlap diagnostic, as for
+  roots nested as written; a spelling that only one root selects, or that
+  no root selects as written, keeps its former owner.
+- **Before and after.** With `**/*.pietto` at an outer root and a symbolic
+  link to its nested project `sub` as the second root, `6fa66291`
+  published PIE-S2701 at both `port/sub/inner.pietto` and
+  `link/inner.pietto`; with P13 both URIs show only the overlap
+  diagnostic, measured in a `pietto lsp` process on Linux with CPython
+  3.13.13. Where the outer root does not select `sub/`, the outer root's
+  spelling of the file is still checked alone, as at `6fa66291`, and so,
+  measured in process, is a spelling under a third root that does not
+  select the file while two linked roots do.
+- **Tests.** One new test in `tests/test_cli_lsp.py`, with either the
+  inner or the outer root given through a link, and with the outer root
+  selecting the file or not. The two overlap cases failed on P12's commit;
+  the two others, where the outer root's spelling is checked alone, pass
+  there and failed on a first form of P13 that took that spelling for the
+  inner root's and so published nothing at it. All four pass with P13,
+  and a host that cannot link directories skips them.
+- **Residuals.** A document opened under a third spelling, under the real
+  paths of both roots but under neither as written, is still checked
+  alone, as M02's rule keeps its spelling; and when a document is open
+  under one root's spelling, that root checks its buffer while the other
+  root reads the file from disk. Both stay known limitations of the alpha
+  server.
+- **Roadmap.** At integration, the single writer of the roadmap's Phase81
+  row records this overlap as landed with P13.
+
 ## Single writers and the other lines
 
 The lead sets the order and a later arrival rebases. At the first
