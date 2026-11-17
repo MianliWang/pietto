@@ -113,7 +113,10 @@ included, and the owner has authorized its publication (PL.55, PL.56);
 Phase81's commits reach `main` only after the `0.2.2` release commit
 (PL.57).
 The first tiers of SQLite B2 and DuckDB B2 and the interop relief enter
-`0.2.2` (PL.47, PL.55). Phase82
+`0.2.2` (PL.47, PL.55), and so do DuckDB B2's second tier, JF's J1 and
+the batches of E4B, the part of C04's E4 that MC.04 left to the owner's
+plan, that are pushed before `0.2.2`'s final assembly starts; SQLite B2's
+second tier publishes after `0.2.2` (PL.61, PL.64). Phase82
 and Phase83 also use `0.2.x`, and no release is called `1.0`: every release
 before Phase90 is a `0.2.x`, and Phase90, the Rust rewrite, releases as
 `0.3.0` (PL.51). The extension follows its own version line.
@@ -263,9 +266,8 @@ is complete: S06–S12 are published as one batch ending at `31859bc6`
 2026-11-17 once the host reached Docker Desktop's Engine; and its closeout
 S16 closes Phase78 with its
 [completion audit](phases/phase-78/completion-audit.md). R1 and S16
-publish as one batch, and `0.2.2` waits for it (PL.59); a documentation
-commit after its publication, before that release commit, records its
-Gate 2 and natural CI.
+were published as one batch ending at `300f0a93` (PL.59), whose Gate 2
+and natural CI the completion audit records.
 SQLite B2 also makes single-file SQLite SQL write `Bool`
 literals as `1` and `0`, a change to the bytes that `0.2.0` and `0.2.1`
 publish, which its release lists as incompatible (PL.54).
@@ -292,8 +294,10 @@ D5).
 
 Phase81 follows the new route of the owner's draft plan for the later
 phases, which bundles several phases for parallel scheduling and which the
-lead reviewed, and waits for the owner's next revision of that draft before
-it starts (PL.54, PL.58). On 2026-11-16 the owner answered the lead's
+lead reviewed, in its next revision, r17, which the lead drafted and the
+owner reviewed and dispatched on 2026-11-17; Phase81's Gate 0 may start,
+and its implementation runs beside `0.2.2` (PL.54, PL.58, PL.65, PL.66).
+On 2026-11-16 the owner answered the lead's
 Phase81 Gate 1 sheet (PL.50), taking every recommendation except that the
 release tools move into the repository, and later adopted every answer
 again in that route (PL.58). In them CPython 3.14 gets full CI parity
@@ -301,7 +305,9 @@ again in that route (PL.58). In them CPython 3.14 gets full CI parity
 verified profile. On Windows
 x86-64 the CLI and `pietto.compiler` are declared supported with execution
 NOTRUN, batch directory output gets a writer that holds the new directory's
-handle, the extension repository's CI gains a native Windows job, and the
+handle, the extension repository's CI gains a native Windows job and, in
+the same push, the extension's preview drops the `None:1:1` prefix of a
+diagnostic without a path (PL.44 (c), PL.66), and the
 classifiers name Linux and Windows. A verification result is reused only
 inside one public call, and a stored or cross-process result is verified
 again when loaded. The diagnostic review fixes texts, hints, positions, order

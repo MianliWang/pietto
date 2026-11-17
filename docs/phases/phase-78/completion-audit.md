@@ -12,8 +12,10 @@ the CI health, and closes Phase78; B2's second tier goes to the owner's
 plan. The batch that carries R1 and S16 determines the closure's
 publication through its Gate 2 seal and natural exact-head CI; this
 document does not certify its own publication, and a documentation commit
-after that batch is published, before the `0.2.2` release commit, records
-the batch's facts here.
+after that batch was published, before the `0.2.2` release commit,
+recorded the batch's facts in the
+[publication boundary](#baseline-and-publication-boundary) and the
+[Gate 2 durations](#gate-2-durations).
 
 ## Baseline and publication boundary
 
@@ -24,7 +26,7 @@ the batch's facts here.
 | Integration | After batch 2, which published the third whole-tree test pass at `851ad83f` (PL.49), as the [single-writer order](route.md#b2-single-writer-order) requires. The slices were built on a lane branch from `851ad83f` and replayed one commit each onto `main` at `64a7f885` |
 | First batch | 13 commits on `64a7f885`, ending at `31859bc66a6f53d301491dcaed9ad9111c94e089` (tree `8e8a9fba8f04402c2276b012836ae6b56165dc11`): S06–S12, the diagnostics rows, PL.59 and D78.12, the Windows CI change and the MySQL catch-up's Gate 1 record, below them the owner-answers record `489108bc`. Fast-forward pushed under PL.52 on 2026-11-16 at 20:04:45Z by the lead's record. Its Gate 2 is [below](#gate-2-durations); its natural exact-head CI `43946002245`, push/main attempt 1, succeeded, as the health history of `44006845752` records ([CI health](#ci-health)) |
 | Between | The pure verifier fidelity repair, four commits ending at `6a0646b4` (tree `feeb6b93`), whose natural exact-head CI `44006845752` passed all 21 jobs; not Phase78's work (PL.20, PL.60) |
-| Second batch | R1 `a47a5713` (tree `a6735d4f`) on `6a0646b4`, S16 above it and, above S16, the VR2 fix that lets a split Gate 2's local receipt accept the route's counted ARROW skip and, above the fix, the documentation commit that records the Gate 2 and CI facts of DuckDB B2's batch in its [audit](../phase-79/b2-completion-audit.md#budget-failures-and-gate-2) (by the lead's record of 2026-11-17): one Gate 2 and one natural CI (PL.59 (3)); they publish as one batch under PL.52 |
+| Second batch | R1 `a47a5713` (tree `a6735d4f`) on `6a0646b4`, S16 above it and, above S16, the VR2 fix that lets a split Gate 2's local receipt accept the route's counted ARROW skip and, above the fix, the documentation commit that records the Gate 2 and CI facts of DuckDB B2's batch in its [audit](../phase-79/b2-completion-audit.md#budget-failures-and-gate-2) (by the lead's record of 2026-11-17): one Gate 2 and one natural CI (PL.59 (3)). The four commits, ending at `300f0a93de74f0949671542f9df8d6d1c73f766e` (tree `9fb0d7c3d266dcbc41a7006119a1a565989ba82c`), were fast-forward pushed as one batch under PL.52 on 2026-11-17 at 07:57:25Z by the lead's record. Its Gate 2 is [below](#gate-2-durations): the run sealed `e8eb183f`, whose message alone was then amended with its Gate 2 line into `300f0a93`. Its natural exact-head CI `44042698462` passed all 21 jobs and completed with success at 08:16:26Z |
 
 The [B2 record](route.md#b2-record) gives each slice's commit and the
 midpoint record. B2 has two release-note fragments, `78-s06-sqlite-project-mode.md`
@@ -122,10 +124,11 @@ states; `VERSIONS` and every compiled record are unchanged.
 - **The derived rows.** The specification's
   [open items](../../spec/sqlite-project-v1.md#open-items) ask the lead to
   state its *derived* rows to the owner as inform, at the latest before S08
-  sealed. No record of that statement exists in the repository. Owner: the
-  lead, at the latest before the `0.2.2` release commit, which releases
-  these rows; once stated, a decision row records it, as D79.12 did for
-  Phase79's.
+  sealed. No record of that statement existed in the repository when S16
+  ran. The lead stated them to the owner in the chat of 2026-11-17 at about
+  08:20Z, after this batch was published and before the `0.2.2` release
+  commit, which releases these rows, and D78.13 records it, as D79.12 did
+  for Phase79's.
 - **The cProfile half of the ten-slowest profile** ([below](#b2-acquisition-review)).
 
 ## Route items due at S16
@@ -318,20 +321,20 @@ aggregate job finish. Health is advisory and holds nothing.
 
 ## Gate 2 durations
 
-The two most recent Gate 2 runs, each on the integration host with
+The three most recent Gate 2 runs, each on the integration host with
 `scripts/validate.py` under 20 workers and the qualified SQLite class:
 
 | Batch | Tree | Run (UTC) | `validate.py` | pytest | Tests | Beside it |
 | --- | --- | --- | ---: | ---: | --- | --- |
 | S06–S12 | `8e8a9fba` | 2026-11-16, 19:51:43Z to 20:01:11Z | 541.2 s | 488.12 s | 31,254 passed, 140 skipped | package smoke passed; the route's file with the `arrow` extra, 80 passed, none skipped; the DuckDB extra start, 166 passed |
 | Pure repair | `feeb6b93` | 2026-11-17, 02:46:01Z to 02:55:25Z | 535.2 s | 485.01 s | 31,283 passed, 140 skipped | the same three, with the same counts |
+| R1 and S16 | `9fb0d7c3` | 2026-11-17, 07:44:16Z to 07:54:17Z | 572.2 s | 518.55 s | 31,284 passed, 140 skipped | the same three, with the same counts; the six interop consumers and the sdist member check passed |
 
 Each sealed its tree unchanged and is the Gate 2 line of its batch's last
 commit. The Arrow-free core counts the route's native cells with the
 `PIETTO_NOT_RUN sqlite-native ARROW` line; its log lists no skip reasons.
-The Gate 2 of R1 and S16 runs once on this batch's final tree after this
-commit; a documentation commit after publication, before the `0.2.2`
-release commit, records it here.
+The Gate 2 of R1 and S16 ran once on that batch's final tree, after S16's
+commit, and a documentation commit after publication recorded it here.
 
 ## Budget and failures
 
@@ -387,18 +390,19 @@ until the freeze rules on them.
   on the freeze ledger's JOIN key and grain row comes before any slice that
   opens a JOIN. Reminder 8 stays met by exclusion: the first tier opens no
   JOIN and refuses bundles. Unclaimed items are unsupported at the freeze.
-- **Next phase.** Phase81 waits for the owner's next revision of the draft
-  plan, r17, and the lead does not start it (PL.58); its commits reach
-  `main` only after the `0.2.2` release commit (PL.57).
-- **`0.2.2`.** It waits for this batch and the rest of PL.55's scope; the
-  owner authorized its publication once its gates pass (PL.56). Its
+- **Next phase.** Phase81 follows the draft plan's next revision, r17,
+  which the lead drafted and the owner reviewed and dispatched on
+  2026-11-17, so its Gate 0 may start (PL.58, PL.65, PL.66); its commits
+  reach `main` only after the `0.2.2` release commit (PL.57).
+- **`0.2.2`.** It carries this batch and PL.55's scope as PL.64 revises
+  it; the owner authorized its publication once its gates pass (PL.56). Its
   release commit assembles `78-s06` and `78-s11` and lists the single-file
   `Bool` literals as an incompatible change (PL.54).
 - **Deferred owners.** As the route's [B2 deferred owners](route.md#b2-deferred-owners)
   and the roadmap's deferred subjects name them.
-- **Debts.** The derived-rows inform and the cProfile half of the profile,
-  both before the `0.2.2` release commit; the ten-slowest table from this
-  batch's natural CI, in a documentation commit after it and before the
-  `0.2.2` release commit; the coverage law's cross-shard re-emission; and
-  B1's fresh parse. The Gate 2 and natural CI of this batch are recorded
-  here after publication, by the same point.
+- **Debts.** The cProfile half of the profile, before the `0.2.2` release
+  commit; the ten-slowest table from this batch's natural CI, in a
+  documentation commit after it and before the `0.2.2` release commit; the
+  coverage law's cross-shard re-emission; and B1's fresh parse. The
+  derived-rows inform is recorded (D78.13), and so are the Gate 2 and
+  natural CI of this batch, [above](#gate-2-durations).

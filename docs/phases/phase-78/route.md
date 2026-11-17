@@ -1022,10 +1022,12 @@ route's counted ARROW skip and, above the fix, the documentation commit
 that records the Gate 2 and CI facts of DuckDB B2's batch in its
 [audit](../phase-79/b2-completion-audit.md#budget-failures-and-gate-2)
 (by the lead's record of 2026-11-17), with one
-Gate 2 and one natural CI (PL.59 (3)); they publish as one batch under
-PL.52, and `0.2.2` waits for it (PL.55, PL.59). A documentation commit
-after its publication, before the `0.2.2` release commit, records its
-Gate 2 and CI in the completion audit.
+Gate 2 and one natural CI (PL.59 (3)); they were published as one batch
+under PL.52, ending at `300f0a93` (tree `9fb0d7c3`), on 2026-11-17 at
+07:57:25Z by the lead's record, and `0.2.2` carries it (PL.55, PL.59). A
+documentation commit after its publication recorded its Gate 2 and its
+natural exact-head CI `44042698462`, which passed all 21 jobs, in the
+[completion audit](completion-audit.md#gate-2-durations).
 
 | Slice | Commit | Delivered |
 | --- | --- | --- |
@@ -1039,7 +1041,7 @@ Gate 2 and CI in the completion audit.
 | S12 | `dd7e3b5f` | The route's native cells under both interpreters and the 128 MiB cap from its timing |
 | Batch records | `00ac418f`, `2d910d34`, `a6c89521` | The diagnostics rows; PL.59, D78.12 and the batch rule; both Windows jobs run the route's test file |
 | R1 | `a47a5713` | The PostgreSQL replay, `PASS` ([R1 record](#b2-qualification-and-replay)) |
-| S16 | this commit | This record, the roadmap and status rows, the specification's construction state, the Phase78 lessons and the completion audit |
+| S16 | `1580aaa1` | This record, the roadmap and status rows, the specification's construction state, the Phase78 lessons and the completion audit |
 
 No golden fixture file was added: project bytes are pinned in
 `tests/test_sql_sqlite_project_emission.py` and in the native cells'
