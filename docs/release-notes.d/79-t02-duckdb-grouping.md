@@ -40,9 +40,10 @@ negative zero, a `Text` literal quoted with each `'` doubled, a `Bool`
 literal as `TRUE` or `FALSE`, and each parameter read as
 `CAST($n AS <type>)`, numbered in the order of first reads; in a `where`, a
 `-` before a number literal is part of the literal. The emission
-document's `parameter_uses` has one entry per read with its parameter's
-`server_index`, and `physical_type` may now also be `duckdb_double`,
-`duckdb_varchar` or `duckdb_boolean`. See the
+document's `parameter_uses` has one entry per placeholder that the SQL
+writes, which is one per read outside the `Float` checks, with its
+parameter's `server_index`, and `physical_type` may now also be
+`duckdb_double`, `duckdb_varchar` or `duckdb_boolean`. See the
 [DuckDB Arrow route](../spec/duckdb-arrow-route-v1.md#admission), the
 [DuckDB local path](../capabilities.md#duckdb-local-path) and the route's
 [execution guide](../execution.md#duckdb-arrow-route). These forms are
@@ -93,8 +94,9 @@ query totals(min_total: Int):
   `-amount` or `+5`, and a parameter tested with `is None` are still refused
   with `duckdb_filter_not_admitted`. A parameter that is optional, of
   another type, read nowhere or read outside a `where` or `having`
-  comparison is refused with `duckdb_parameter_not_admitted`, at the
-  declaration of the first such parameter or at the statement. A `Text`
+  comparison and selected arithmetic is refused with
+  `duckdb_parameter_not_admitted`, at the declaration of the first such
+  parameter or at the statement. A `Text`
   literal that holds NUL is refused with the new detail
   `duckdb_text_literal_nul_not_admitted` at the literal, with the suggestion
   `remove NUL from the Text literal; DuckDB emission writes no NUL into SQL
@@ -106,13 +108,15 @@ query totals(min_total: Int):
   operations, relation lets and derived sources are not available on
   DuckDB`; `duckdb_projection_not_admitted` `select source fields directly,
   or group by keys and aggregates of fields, such as select: customer, total
-  = sum(amount); computed values are not available on DuckDB`;
+  = sum(amount), or add, subtract or multiply two Int or two Float values,
+  one at least a field or key, such as net = price - discount; other
+  computed values are not available on DuckDB`;
   `duckdb_filter_not_admitted` `compare fields or selected outputs with
   literals or query parameters of the same type, and join the tests with
   and, or and not, such as where amount >= min_amount and note is not
   None`; `duckdb_parameter_not_admitted` `declare non-null Int, Text, Bool,
   Float, Date, Timestamp or Decimal(p, s) parameters, p at most 38, and read
-  each one in a where or having comparison`; and
+  each one in a where or having comparison or in selected arithmetic`; and
   `duckdb_field_type_not_admitted` `DuckDB emission reads Int, Text, Bool,
   Float, Date and Timestamp fields and Decimal(p, s) fields with p at most
   38`. The new details have the suggestions `use count(), count(field), sum

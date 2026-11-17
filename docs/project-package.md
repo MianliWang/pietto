@@ -733,7 +733,7 @@ statement premise goes in `environment` with `"scope": "statement"`:
 | `row_domain_matches` | source | `true` | `true` | `true` | `true` | on every source the statement reads; otherwise `PIE-B1001` |
 | `read_only_object` | source | `true` | `true` | `true` | `true` | on every source the statement reads; otherwise `PIE-B1001` |
 | `client_encoding` | statement | `"UTF8"` | `"utf8mb4"` | `"UTF8"` | `"UTF-8"` | whenever the statement reads a source |
-| `operator_environment` | statement | `"builtin_only"` | `"builtin_only"` | `"builtin_only"` | `"builtin_only"` | when the SQL computes more than the selected columns, for example a value, a filter, an ordering or a limit; on DuckDB only when the statement has a `where` or a `having` |
+| `operator_environment` | statement | `"builtin_only"` | `"builtin_only"` | `"builtin_only"` | `"builtin_only"` | when the SQL computes more than the selected columns, for example a value, a filter, an ordering or a limit; on DuckDB only when the statement has a `where`, a `having` or arithmetic in its final projection |
 | `identifier_case` | statement | `"quoted_exact"` | `"lower_case_table_names=0"` | none: BLOCKED with `PIE-B1003` `premise_not_admitted_on_target` | none: BLOCKED as on DuckDB | when the SQL needs named stages (a `WITH` clause), for example for `where`, `group by`, `order by`, `limit`, a window, a JOIN, a relation `let`, a set operation, or a read of another table |
 | `parameter_protocol` | statement | `"postgres_extended"` | `"mysql_prepared"` | `"duckdb_prepared"` | `"sqlite_prepared"` | when the artifact has a placeholder: a literal under `--literal-policy bind-safe`, or a read of a header parameter |
 

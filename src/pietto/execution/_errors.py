@@ -13,6 +13,7 @@ from dataclasses import dataclass
 import re
 from typing import TYPE_CHECKING
 
+from pietto._project import project_duckdb_sql as duckdb_sql
 from pietto._project import project_execution as ex
 from pietto._project.project_compiled_schema import CompiledError
 from pietto._project.project_execution_source import SourceAdmissionError
@@ -195,6 +196,15 @@ _QUERY_ERRORS = (
     SourceAdmissionError,
     ValueError,
 )
+# The error each checked DuckDB `Float` operation raises, by its
+# exception class and arguments, and the detail word it becomes.
+_DUCKDB_GUARDS = {
+    ("InvalidInputException", ("Invalid Input Error: " + text,)): word
+    for text, word in (
+        (duckdb_sql.FLOAT_OVERFLOW, "DUCKDB_FLOAT_OVERFLOW"),
+        (duckdb_sql.FLOAT_UNDERFLOW, "DUCKDB_FLOAT_UNDERFLOW"),
+    )
+}
 _WORD = re.compile(r"[A-Z][A-Z0-9_]*(?::[0-9]+:[A-Za-z]+)?")
 _SQLSTATE = re.compile(r"[0-9A-Z]{5}")
 
@@ -469,7 +479,13 @@ def native_word(error):
     """The detail of an error that SQLite raised: its extended result code
     (``sqlite_errorcode``), and its message only where the code is not
     enough, never ``sqlite_errorname`` (a STRICT type error's name is
-    ``unknown``). The message is read, never shown."""
+    ``unknown``); or the word of a checked DuckDB `Float` operation's error.
+    The message is read, never shown."""
+    args = getattr(error, "args", None)
+    if type(error).__module__.split(".")[0] in ("duckdb", "_duckdb"):
+        if type(args) is not tuple or any(type(a) is not str for a in args):
+            return None
+        return _DUCKDB_GUARDS.get((type(error).__name__, args))
     code = getattr(error, "sqlite_errorcode", None)
     if type(error).__module__ != "sqlite3" or type(code) is not int or code < 0:
         return None

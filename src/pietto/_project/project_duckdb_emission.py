@@ -33,6 +33,7 @@ from pietto._project.project_duckdb_contract import (
 from pietto._project.project_duckdb_sql import (
     OPERATORS,
     RELATION,
+    DuckDBArithmetic,
     DuckDBColumn,
     DuckDBComparison,
     DuckDBLiteral,
@@ -43,11 +44,14 @@ from pietto._project.project_duckdb_sql import (
     DuckDBRead,
     DuckDBSelect,
     Token,
+    arithmetic_holds,
     ast_rules_hold,
+    int_bounds,
     literal_decimal,
     literal_holds,
     node_count,
     render,
+    written,
 )
 from pietto._project.project_sql_emission_contract import (
     CODES,
@@ -171,8 +175,16 @@ _SUGGESTIONS = {
     ),
     "duckdb_projection_not_admitted": (
         "select source fields directly, or group by keys and aggregates of"
-        " fields, such as select: customer, total = sum(amount); computed values"
+        " fields, such as select: customer, total = sum(amount), or add,"
+        " subtract or multiply two Int or two Float values, one at least a"
+        " field or key, such as net = price - discount; other computed values"
         " are not available on DuckDB"
+    ),
+    "duckdb_arithmetic_range_not_proved": (
+        "narrow the int_range of each Int field this value reads so that"
+        " every result fits a signed 64-bit integer; DuckDB emission proves"
+        " Int arithmetic from those ranges and literals, and an Int parameter"
+        " may hold any signed 64-bit value"
     ),
     "duckdb_aggregate_not_admitted": (
         "use count(), count(field), sum of an Int field, or min or max of an Int,"
@@ -199,7 +211,7 @@ _SUGGESTIONS = {
     "duckdb_parameter_not_admitted": (
         "declare non-null Int, Text, Bool, Float, Date, Timestamp or Decimal(p, s)"
         " parameters, p at most 38, and read each one in a where or having"
-        " comparison"
+        " comparison or in selected arithmetic"
     ),
     "duckdb_field_type_not_admitted": (
         "DuckDB emission reads Int, Text, Bool, Float, Date and Timestamp fields"
@@ -372,6 +384,33 @@ def _logical(value_type: Any) -> tuple[str, bool] | None:
     return resolved.name, nullable
 
 
+def _arithmetic(expression: Any) -> tuple[Any, ...]:
+    """The operands of a `+`, `-` or `*`, or of a unary `-` or `+`; none for
+    any other expression."""
+    operator = getattr(expression.expression, "operator", None)
+    if type(expression) is ProjectSQLBinary and operator in ("+", "-", "*"):
+        return expression.left, expression.right
+    if type(expression) is ProjectSQLUnary and operator in ("-", "+"):
+        return (expression.operand,)
+    return ()
+
+
+def _bounds(contract: DuckDBContract, plan: Any) -> dict[int, tuple[int, int]]:
+    """The declared `int_range` of each field of the statement's first source
+    that has one, by ordinal; the capture admits no value outside it."""
+    result = {}
+    for entry in contract.sources:
+        if plan.sources and entry.owner is plan.sources[0].source.owner:
+            for field in entry.fields:
+                domain = field.representation["domain"]
+                if domain.get("kind") == "int_range":
+                    low, high = int(domain["min"]), int(domain["max"])
+                    # A range beyond signed 64 bits is rule 28's.
+                    if -(2**63) <= low and high <= 2**63 - 1:
+                        result[field.ordinal] = (low, high)
+    return result
+
+
 def _operands(expression: Any) -> tuple[Any, ...]:
     """The operands of a predicate node: `and`, `or` and `not`, a comparison
     or a null test; any other expression is a leaf, a signed literal too."""
@@ -523,6 +562,55 @@ class _Values:
                     port = self.key(owner)
             result.append((projection, port, owner))
         return tuple(result)
+
+    def computed(
+        self, projection: Any, numbers: dict[int, int]
+    ) -> DuckDBArithmetic | None:
+        """The arithmetic of a result field that rule 7 admits: `+`, `-` or
+        `*` of two `Int` or two `Float` operands, or a `Float` sign of one,
+        each a direct read of a source field (of a group key when the
+        statement aggregates), a literal or a parameter, one at least a
+        read; else None."""
+        if type(projection) is not plans.ProjectSQLProjection:
+            return None
+        expression = self.plan.expressions[projection.expression.position]
+        found = [self.operand(ref, numbers) for ref in _arithmetic(expression)]
+        tags = {tag for _, tag in filter(None, found)}
+        resolved = expression.value_type.resolved_type
+        if (
+            not found
+            or None in found
+            or len(tags) != 1
+            or getattr(resolved, "name", None) not in tags
+        ):
+            return None
+        node = DuckDBArithmetic(
+            expression.expression.operator,
+            tuple(operand for operand, _ in filter(None, found)),
+            tags.pop(),
+        )
+        return node if arithmetic_holds(node) else None
+
+    def operand(
+        self, ref: Any, numbers: dict[int, int]
+    ) -> tuple[DuckDBRead | DuckDBLiteral | DuckDBParameter, str] | None:
+        """(node, type) of an arithmetic operand of type `Int` or `Float`."""
+        expression = self.plan.expressions[ref.position]
+        port = None
+        if not self.plan.aggregations:
+            port = self.direct(expression)
+        elif type(expression) is aggregation.ProjectSQLResultReference:
+            owner = self.owners.get(expression.port)
+            if type(owner) is aggregation.ProjectSQLGroupKey:
+                port = self.key(owner)
+        node: DuckDBRead | DuckDBLiteral | DuckDBParameter
+        if port is not None:
+            node, tag = DuckDBRead(self.index[port.ref]), _type_name(port)
+        elif (found := self.constant(ref, numbers, None)) is not None:
+            node, tag = found
+        else:
+            return None
+        return None if tag is None or tag not in ("Int", "Float") else (node, tag)
 
     def value(self, owner: Any) -> tuple[Any, str | None]:
         """(source port, aggregate function) of a group key or of an aggregate
@@ -678,6 +766,15 @@ class _Values:
         number, value = Decimal(text.replace("_", "")), literal.expression.value
         return number if type(value) is float and float(number) == value else None
 
+    def computations(self) -> tuple[DuckDBArithmetic, ...]:
+        """The admitted arithmetic of each result field that has one."""
+        found = (
+            self.computed(projection, {})
+            for projection, port, owner in self.outputs()
+            if port is None and owner is None
+        )
+        return tuple(node for node in found if node is not None)
+
     def size(self, ref: Any) -> int:
         """Rule 16's nodes of a predicate, as `predicate` builds them."""
         expression = self.plan.expressions[ref.position]
@@ -690,7 +787,7 @@ class _Values:
             len(owner.arguments)
             for _, _, owner in self.outputs()
             if type(owner) is aggregation.ProjectSQLAggregate
-        )
+        ) + sum(len(node.operands) for node in self.computations())
         return node_count(
             len(plan.exports),
             arguments,
@@ -702,8 +799,8 @@ class _Values:
 
 
 class _Rules:
-    """Rules 1-29, with 7a, 7b, 8a and 8b keyed 7.1, 7.2, 8.1 and 8.2: at
-    most one blocker per rule, at its first failing site."""
+    """Rules 1-29, with 7a, 7b, 7c, 8a and 8b keyed 7.1, 7.2, 7.3, 8.1 and
+    8.2: at most one blocker per rule, at its first failing site."""
 
     def __init__(self, checked: Any, contract: DuckDBContract, policy: Any) -> None:
         self.found: dict[float, Blocker] = {}
@@ -832,21 +929,36 @@ class _Rules:
     def projections(self) -> None:
         plan, values = self.plan, self.values
         outputs = values.outputs()
+        bounds = _bounds(self.contract, plan)
         for export, (projection, port, owner) in zip(
             plan.exports, outputs, strict=True
         ):
-            if port is None and type(owner) is not aggregation.ProjectSQLAggregate:
-                self.fail(
-                    7,
-                    "PIE-B1003",
-                    "duckdb_projection_not_admitted",
-                    export.ref if projection is None else projection.ref,
-                    self.statement
-                    if projection is None
-                    else projection.site.occurrence.span
-                    if type(projection) is plans.ProjectSQLProjection
-                    else projection.semantic.item.span,
+            node = None if port or owner else values.computed(projection, {})
+            site = (
+                export.ref if projection is None else projection.ref,
+                self.statement
+                if projection is None
+                else projection.site.occurrence.span
+                if type(projection) is plans.ProjectSQLProjection
+                else projection.semantic.item.span,
+            )
+            if (
+                port is None
+                and type(owner) is not aggregation.ProjectSQLAggregate
+                and node is None
+            ):
+                self.fail(7, "PIE-B1003", "duckdb_projection_not_admitted", *site)
+            elif (
+                node is not None
+                and node.tag == "Int"
+                # An unmapped field or another domain is rule 20's or 28's.
+                and all(
+                    type(o) is not DuckDBRead or o.field in bounds
+                    for o in node.operands
                 )
+                and int_bounds(node, bounds) is None
+            ):
+                self.fail(7.3, "PIE-B1003", "duckdb_arithmetic_range_not_proved", *site)
         for aggregate in sorted(plan.aggregates, key=lambda a: _key(self.site(a))):
             if values.aggregate(aggregate) is None:
                 self.fail(
@@ -919,7 +1031,7 @@ class _Rules:
         """Rule 9 at the declaration of the first parameter, in header order,
         that is optional, of another type or read nowhere; else at the
         statement when a read is no side of a `where` or `having`
-        comparison."""
+        comparison and no operand of admitted arithmetic."""
         plan = self.plan
         placed = []
         stack = [plan.expressions[f.predicate.position] for f in plan.filters]
@@ -930,6 +1042,10 @@ class _Rules:
                 placed.extend(operands)
             else:
                 stack.extend(operands)
+        for projection, port, owner in self.values.outputs():
+            if not (port or owner) and self.values.computed(projection, {}):
+                root = plan.expressions[projection.expression.position]
+                placed.extend(plan.expressions[o.position] for o in _arithmetic(root))
         ordinals = {read.parameter.ordinal for read in self.reads}
         problem: tuple[object, object] | None = next(
             (
@@ -965,7 +1081,11 @@ class _Rules:
         plan = self.plan
         statement = [p for p in self.contract.premises if p.scope == "statement"]
         for rule, key, needed in (
-            (13, "operator_environment", bool(plan.filters)),
+            (
+                13,
+                "operator_environment",
+                bool(plan.filters or self.values.computations()),
+            ),
             (14, "parameter_protocol", bool(self.reads)),
         ):
             found = [p for p in statement if p.key == key]
@@ -974,7 +1094,13 @@ class _Rules:
             elif needed and json.loads(found[0].value) != PREMISES[key]:
                 self.fail(rule, "PIE-B1005", key + "_declaration_mismatch", at=True)
         window_reads = sum(a.parameter is not None for a in plan.window_arguments)
-        if len(self.reads) + window_reads > limits["parameters"]:
+        # The placeholders the SQL writes: the checks of `Float` arithmetic
+        # repeat its parameter operands.
+        repeated = sum(
+            (written(node) - 1) * sum(type(o) is DuckDBParameter for o in node.operands)
+            for node in self.values.computations()
+        )
+        if len(self.reads) + window_reads + repeated > limits["parameters"]:
             self.fail(15, "PIE-B1007", "parameter_occurrence_limit", at=True)
         if (
             any(len(_ports(plan, s)) > limits["columns"] for s in plan.sources)
@@ -1118,17 +1244,22 @@ def _expected_ast(plan: Any) -> DuckDBSelect:
     def field(port: Any) -> int | None:
         return None if port is None else index[port.ref]
 
+    # Placeholders are numbered in SQL order: the projection's, then the
+    # `where`'s, then the `having`'s.
+    numbers: dict[int, int] = {}
     columns = []
-    for export, (_, port, owner) in zip(plan.exports, values.outputs(), strict=True):
-        function = None
+    for export, (projection, port, owner) in zip(
+        plan.exports, values.outputs(), strict=True
+    ):
+        function = value = None
         if type(owner) is aggregation.ProjectSQLAggregate:
             port, function = values.value(owner)
-        columns.append(DuckDBColumn(field(port), export.identity.name, function))
+        elif port is None and owner is None:
+            value = values.computed(projection, numbers)
+        columns.append(DuckDBColumn(field(port), export.identity.name, function, value))
     where = having = None
     outputs = values.outputs()
     selected = tuple(owner for _, _, owner in outputs if owner is not None)
-    # Placeholders are numbered in SQL order: the `where` before the `having`.
-    numbers: dict[int, int] = {}
     for filter_ in sorted(plan.filters, key=lambda f: f.site.role.value != "where"):
         if filter_.site.role.value == "where":
             where = values.predicate(filter_.predicate, None, numbers)
@@ -1182,6 +1313,11 @@ def _subjects(
     ):
         result["projection", position] = projection.ref
         result["export", position] = export.ref
+        if type(projection) is plans.ProjectSQLProjection:
+            root = plan.expressions[projection.expression.position]
+            result["computed", position] = root.ref
+            for k, operand in enumerate(_arithmetic(root)):
+                result["computed", position, k] = plan.expressions[operand.position].ref
         if type(owner) is aggregation.ProjectSQLAggregate:
             result["aggregate", position] = owner.ref
             if owner.arguments:
@@ -1224,6 +1360,7 @@ def _document(artifact: DuckDBArtifact) -> bytes:
     outputs = _Values(plan).outputs()
     subjects = _subjects(plan, outputs)
     indexes = artifact.source_map.indexes
+    bounds = _bounds(artifact.contract, plan)
     ranges = []
     for token in artifact.tokens:
         subject = subjects[token.subject]
@@ -1261,14 +1398,44 @@ def _document(artifact: DuckDBArtifact) -> bytes:
             "field": column.field,
             "source_port": None if read is None else _ref(read.ref),
         }
-        k, logical = column.field, None
+        k, logical, node = column.field, None, column.value
         if column.function is not None:
             correspondence["aggregate"] = _ref(item.ref)
             correspondence["function"] = column.function
             logical = _logical(item.value_type)
         elif item is not None:
             correspondence["group_key"] = _ref(item.ref)
-        if column.function in ("count", "sum") or k is None:
+        if node is not None:
+            # Arithmetic: NULL when an operand is, of its operands' type, an
+            # Int over the range that its operands' capture-checked bounds
+            # prove.
+            correspondence["computed"] = _ref(subjects["computed", position])
+            name, nullable = (
+                node.tag,
+                any(
+                    type(o) is DuckDBRead
+                    and o.field is not None
+                    and fields[o.field].representation["nullable"]
+                    for o in node.operands
+                ),
+            )
+            domain: dict[str, str] = {"kind": "finite_float", "format": "binary64"}
+            if name == "Int":
+                proved = int_bounds(node, bounds)
+                if proved is None:
+                    raise ValueError("arithmetic range")
+                domain = {
+                    "kind": "int_range",
+                    "min": str(proved[0]),
+                    "max": str(proved[1]),
+                }
+            storage = "arrow_int64" if name == "Int" else "arrow_float64"
+            representation = {
+                "storage": {"kind": storage},
+                "domain": domain,
+                "nullable": nullable,
+            }
+        elif column.function in ("count", "sum") or k is None:
             # A count or a sum is a signed 64-bit Int, a count never negative.
             name, nullable = logical or (None, None)
             least = "0" if column.function == "count" else str(-(2**63))
@@ -1616,7 +1783,8 @@ def execution_facts(template: object) -> DuckDBExecutionFacts:
     """The facts of a live template whose artifact verifies afresh; any other
     value is BINDING_ARTIFACT. Each result column has the logical type and
     nullability of its verified document's column: a read's are its source
-    field's, an aggregate's its result's (rules 7 and 7a)."""
+    field's, an aggregate's its result's (rules 7 and 7a), an arithmetic
+    value's its operands' type, NULL when an operand is."""
     if type(template) is not DuckDBTemplate or not verify_artifact(template.emission):
         raise ValueError("BINDING_ARTIFACT")
     artifact = template.emission

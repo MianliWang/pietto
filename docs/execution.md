@@ -86,7 +86,7 @@ Linux-only (see [Known limitations](#known-limitations)).
 | `postgres_rows` | PostgreSQL 18.6; `psycopg[binary]==3.3.8`; `pyarrow==26.0.1` (the published `0.1.10` selects `3.3.5` and `26.0.0`) | One TCP host, `PostgresAccess`, `PostgresDeploymentPremise`, and SCRAM-SHA-256; TLS `require`, or `verify-full` against a caller-supplied `ca_file`. | Linux x86-64, CPython 3.13.13 with 3.3.5/26.0.0; the new pins passed the maintenance runs listed above. | Windows native execution; another PostgreSQL release, libpq closure or TLS profile (client certificates, revocation lists, `verify-ca`, a system CA store). |
 | `mysql_rows` | MySQL 8.4.12; `mysql-connector-python==26.10.0`; `pyarrow==26.0.1` (the published `0.1.10` selects `26.0.0`) | One TCP host, `MySQLAccess`, `MySQLDeploymentPremise`, and caller-supplied CA with certificate and server-identity verification. | Linux x86-64, CPython 3.13.13 with 26.0.0; the new pin passed the maintenance runs listed above. | Windows native execution; another MySQL release, connector version or provider profile. |
 | `postgres_adbc` | PostgreSQL 18.6; `adbc-driver-postgresql==1.13.0`; `adbc-driver-manager==1.13.0`; `pyarrow==26.0.1` (the published `0.1.10` selects `26.0.0`) | PostgreSQL TCP access, deployment premise, SCRAM profile with the same two TLS profiles as `postgres_rows`, and the selected driver closure. | Linux x86-64, CPython 3.13.13 with 26.0.0; the new pin passed the maintenance runs listed above. | Windows native execution; another ADBC/libpq closure, PostgreSQL release, TLS profile or platform. |
-| `duckdb_arrow` | DuckDB `2.0.0` in process; `duckdb==2.0.0`; `pyarrow==26.0.1` | A query compiled with `--dialect duckdb` from one `duckdb.arrow` source, `DuckDBArrowInput(name, table)` and `premise=None`. | Linux x86-64, CPython 3.13.13 and 3.12.13 with the locked closure: the in-process native matrices of Phase79 S06 for B1 and T06 for B2, every unit accepted on its first attempt on 2026-11-14 (D79.07) and 2026-11-16 (PL.47); and the `arrow-ready` cell of natural CI on CPython 3.12 and 3.13. | Any form beyond the [DuckDB Arrow route](spec/duckdb-arrow-route-v1.md); another DuckDB release, Windows, macOS and platforms other than Linux x86-64 with glibc 2.28 or later. |
+| `duckdb_arrow` | DuckDB `2.0.0` in process; `duckdb==2.0.0`; `pyarrow==26.0.1` | A query compiled with `--dialect duckdb` from one `duckdb.arrow` source, `DuckDBArrowInput(name, table)` and `premise=None`. | Linux x86-64, CPython 3.13.13 and 3.12.13 with the locked closure: the in-process native matrices of Phase79 S06 for B1 and T06 for B2, every unit accepted on its first attempt on 2026-11-14 (D79.07) and 2026-11-16 (PL.47); and the `arrow-ready` cell of natural CI on CPython 3.12 and 3.13. | Any form beyond the [DuckDB Arrow route](spec/duckdb-arrow-route-v1.md); the second tier's types and arithmetic, whose qualification has not run; another DuckDB release, Windows, macOS and platforms other than Linux x86-64 with glibc 2.28 or later. |
 | `sqlite_file` | SQLite `3.53.1` with the measured source id and compile options, in process through the standard library's `sqlite3`; `pyarrow==26.0.1` | A query compiled with `--dialect sqlite` from one `sqlite.table` source, `SQLiteFileInput(path)` naming a file of `STRICT` tables and `premise=None`. | Linux x86-64 under CPython 3.13.13 and 3.12.13, qualified by the route's native cells ([SQLite project mode](spec/sqlite-project-v1.md#qualification)). | Any other SQLite build or platform, which `execute()` refuses; the library's memory safety on a malformed file; any form beyond [SQLite project mode](spec/sqlite-project-v1.md). |
 
 The qualified profile is the integration host with the lock's exact artifacts.
@@ -1431,7 +1431,10 @@ short:
   non-null parameters of those types (a `having` only of the first four),
   joined by `and` and `or`, a `where` also with `not` and NULL tests, then
   ordered and limited, compiled
-  with `--dialect duckdb` and `--literal-policy preserve`. Without
+  with `--dialect duckdb` and `--literal-policy preserve`. The final
+  projection may also add, subtract or multiply two `Int` or two `Float`
+  values and take a `Float`'s sign
+  ([arithmetic](spec/duckdb-arrow-route-v1.md#arithmetic)). Without
   `order by` a result is a bag; with it,
   rows that tie have no promised order. `0.2.0` and `0.2.1` take only a
   direct projection with at most one comparison of an `Int` field with one
@@ -1458,7 +1461,14 @@ short:
 - **Failures.** DuckDB errors become `AttemptFailed` with the existing codes
   (`PIE-R3003`, also for a `sum` outside signed 64 bits or a statement beyond
   the memory limit, `PIE-R3009` for a cancellation, `PIE-R3001` for the
-  deadline) and no DuckDB message; a result that does not match the compiled one is
+  deadline) and no DuckDB message. A `Float` `+`, `-` or `*` whose result is
+  outside binary64 fails with `PIE-R3003` and the detail
+  `DUCKDB_FLOAT_OVERFLOW`, and a `*` of two non-zero values that rounds to 0
+  with `DUCKDB_FLOAT_UNDERFLOW`; the failure's text is that of any
+  `PIE-R3003`, and the hint for an underflow, to compute with `Int` or scale
+  the values, is in the
+  [route's arithmetic](spec/duckdb-arrow-route-v1.md#arithmetic). A result
+  that does not match the compiled one is
   `PIE-R3005`.
 - **Elsewhere.** `export_bundle` refuses a DuckDB query (`PIE-R1004`), and
   `save`, `save_recoverable`, `recover`, `relay_live` and the job store do

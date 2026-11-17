@@ -506,9 +506,21 @@ SHAPES = {
         + "table result:\n    from base\n    select:\n        id\n",
         [("PIE-B1003", "duckdb_relation_shape_not_admitted")],
     ),
+    # amount ranges over all of signed 64 bits, so `+ 1` is not proved.
     "computed": (
         PROJECTION.replace("        note\n", "        more = amount + 1\n"),
-        [("PIE-B1003", "duckdb_projection_not_admitted")],
+        [("PIE-B1003", "duckdb_arithmetic_range_not_proved")],
+    ),
+    # Rule 7c after rules 7a and 7b and before rule 8.
+    "arithmetic_in_rule_order": (
+        "table result:\n    from orders\n    where amount > id\n"
+        "    group by amount\n    select:\n        amount\n"
+        "        more = amount + 1\n        mean = avg(amount)\n",
+        [
+            ("PIE-B1003", "duckdb_aggregate_not_admitted"),
+            ("PIE-B1003", "duckdb_arithmetic_range_not_proved"),
+            ("PIE-B1003", "duckdb_filter_not_admitted"),
+        ],
     ),
     **{
         name: (
@@ -591,6 +603,245 @@ def test_unsupported_shapes_are_blocked_in_rule_order(
             blocker["code"], blocker["subject"]["detail"]
         )
         assert blocker["location"]["path"] == "main.pietto"
+
+
+# Arithmetic: id ranges over [-5, 5] and amount over [0, 1000], so
+# their Int arithmetic is proved and written unchecked; a Float + or - fails
+# where DuckDB gives an infinity, and a * also where two non-zero operands
+# give 0.
+OVERFLOW = "error('Pietto Float overflow: the result is outside binary64')"
+UNDERFLOW = (
+    "error('Pietto Float underflow: a product of two non-zero Float values"
+    " rounded to 0; use Int or scale the values')"
+)
+ARITHMETIC = """query result(w: Float, k: Int):
+    from orders
+    where amount > k
+    select:
+        t = amount + id
+        d = id - amount
+        m = amount * id
+        f = price * w
+        s = price - -1.5
+        g = -price
+        h = +price
+"""
+_W = "CAST($1 AS DOUBLE)"
+_S = "\"c4\" - CAST('-1.5' AS DOUBLE)"
+ARITHMETIC_SQL = (
+    'SELECT "c1" + "c0" AS "t", "c0" - "c1" AS "d", "c1" * "c0" AS "m",'
+    f' CASE WHEN isinf("c4" * {_W}) THEN {OVERFLOW}'
+    f' WHEN ("c4" * {_W}) = 0 AND "c4" <> 0 AND {_W} <> 0 THEN {UNDERFLOW}'
+    f' ELSE ("c4" * {_W}) END AS "f",'
+    f' CASE WHEN isinf({_S}) THEN {OVERFLOW} ELSE ({_S}) END AS "s",'
+    ' -"c4" AS "g", "c4" AS "h"'
+    ' FROM temp.main."pietto_arrow_0" WHERE "c1" > CAST($2 AS BIGINT)'
+)
+
+
+def _bounded() -> dict[str, Any]:
+    document = contract()
+    fields = document["sources"][0]["fields"]
+    fields[0]["representation"]["domain"].update(min="-5", max="5")
+    fields[1]["representation"]["domain"].update(min="0", max="1000")
+    return document
+
+
+def test_projection_arithmetic_is_proved_or_checked(tmp_path: Path) -> None:
+    """Each Int result's exact range is its column's domain; the projection's
+    placeholders come first in SQL order, one use per placeholder; a grouped
+    query computes over its keys."""
+    status, document = emit(write(tmp_path / "p", ARITHMETIC, _bounded()), ARITHMETIC)
+    assert (status, document["sql"]) == ("VERIFIED", ARITHMETIC_SQL)
+    finite = {"kind": "finite_float", "format": "binary64"}
+    assert [
+        (
+            c["label"],
+            c["logical_type"]["name"],
+            c["nullable"],
+            c["representation"]["domain"],
+            c["correspondence"]["field"],
+            c["correspondence"]["computed"]["kind"],
+        )
+        for c in document["columns"]
+    ] == [
+        (*column, None, "expression")
+        for column in (
+            ("t", "Int", False, {"kind": "int_range", "min": "-5", "max": "1005"}),
+            ("d", "Int", False, {"kind": "int_range", "min": "-1005", "max": "5"}),
+            ("m", "Int", False, {"kind": "int_range", "min": "-5000", "max": "5000"}),
+            *((label, "Float", False, finite) for label in "fsgh"),
+        )
+    ]
+    sql = document["sql"].encode()
+    assert [
+        (sql[u["range"]["start"] : u["range"]["end"]], u["server_index"])
+        for u in document["parameter_uses"]
+    ] == [(b"$1", 1)] * 4 + [(b"$2", 2)]
+    grouped = (
+        "table result:\n    from orders\n    group by amount\n    select:\n"
+        "        amount\n        t = amount - 1\n        n = count()\n"
+    )
+    status, document = emit(write(tmp_path / "g", grouped, _bounded()), grouped)
+    assert (status, document["sql"]) == (
+        "VERIFIED",
+        'SELECT "c1" AS "amount", "c1" - CAST(1 AS BIGINT) AS "t", count(*) AS "n"'
+        ' FROM temp.main."pietto_arrow_0" GROUP BY "pietto_arrow_0"."c1"',
+    )
+    assert document["columns"][1]["representation"]["domain"] == {
+        "kind": "int_range",
+        "min": "-1",
+        "max": "999",
+    }
+
+
+def _selected(value: str, parameters: str = "") -> str:
+    head = f"query result({parameters}):" if parameters else "table result:"
+    return f"{head}\n    from orders\n    select:\n        id\n        {value}\n"
+
+
+# Each refused value is on line 14, after `id`, but the aggregate's on 13.
+ARITHMETIC_REFUSALS = {
+    "beyond_signed_64": (_selected("t = amount * 10000000000000000"), "range"),
+    "int_parameter": (_selected("t = amount + k", "k: Int"), "range"),
+    "mixed_types": (_selected("t = amount + 1.5"), "projection"),
+    "nested": (_selected("t = amount + id + 1"), "projection"),
+    "int_sign": (_selected("t = -amount"), "projection"),
+    # A value that reads no field is a constant, as `t = 1.5` is.
+    "signed_literal": (_selected("t = -1.5"), "projection"),
+    "literals": (_selected("t = 1 + 2"), "projection"),
+    "aggregate_operand": (
+        "table result:\n    from orders\n    select:\n        t = count() + 1\n",
+        "projection",
+    ),
+}
+_DETAILS = {
+    "range": "duckdb_arithmetic_range_not_proved",
+    "projection": "duckdb_projection_not_admitted",
+}
+
+
+@pytest.mark.parametrize("case", ARITHMETIC_REFUSALS)
+def test_unadmitted_arithmetic_is_blocked(tmp_path: Path, case: str) -> None:
+    """Rule 7c where an Int result may leave signed 64 bits, an Int parameter
+    ranging over all of it; rule 7 for other computed values; each at the
+    result field."""
+    body, kind = ARITHMETIC_REFUSALS[case]
+    status, document = emit(write(tmp_path / "p", body, _bounded()), body)
+    assert (status, blockers(document)) == ("BLOCKED", [("PIE-B1003", _DETAILS[kind])])
+    (blocker,) = document["blockers"]
+    assert blocker["suggestion"] == B2_SUGGESTIONS[_DETAILS[kind]]
+    location = blocker["location"]
+    line = 13 if case == "aggregate_operand" else 14
+    assert (location["line"], location["column"]) == (line, 9)
+
+
+@pytest.mark.parametrize(
+    "domain",
+    [
+        {"kind": "int_range", "min": "0", "max": str(2**64)},
+        {"kind": "finite_float", "format": "binary64"},
+    ],
+)
+def test_arithmetic_over_a_field_of_another_domain_is_rule_28s(
+    tmp_path: Path, domain: dict[str, str]
+) -> None:
+    """Rule 7c proves nothing from a domain that rule 28 refuses."""
+    document = contract()
+    document["sources"][0]["fields"][1]["representation"]["domain"] = domain
+    body = _selected("t = amount + id")
+    status, emitted = emit(write(tmp_path / "p", body, document), body)
+    assert (status, blockers(emitted)) == (
+        "BLOCKED",
+        [("PIE-B1002", "physical_storage_or_domain_mismatch")],
+    )
+
+
+@pytest.mark.parametrize(
+    ("value", "placeholders"), [("f = price * w", 4), ("f = price + w", 2)]
+)
+def test_the_parameter_limit_counts_each_written_placeholder(
+    tmp_path: Path, value: str, placeholders: int
+) -> None:
+    """Rule 15 counts the placeholders that the Float checks repeat, one
+    entry of parameter_uses each."""
+    body = _selected(value, "w: Float")
+    for limit, status in ((placeholders, "VERIFIED"), (placeholders - 1, "BLOCKED")):
+        document = _bounded()
+        document["environment"].append(
+            statement("resource_limits", {"parameters": limit})
+        )
+        found, emitted = emit(write(tmp_path / str(limit), body, document), body)
+        assert found == status
+        if status == "VERIFIED":
+            assert len(emitted["parameter_uses"]) == placeholders
+        else:
+            assert blockers(emitted) == [("PIE-B1007", "parameter_occurrence_limit")]
+
+
+def test_a_parameter_read_in_arithmetic_and_where_is_one_placeholder(
+    tmp_path: Path,
+) -> None:
+    """One Float parameter read by the checked product and by the where is
+    $1 at each of its five placeholders."""
+    body = (
+        "query result(w: Float):\n    from orders\n    where price > w\n"
+        "    select:\n        id\n        f = price * w\n"
+    )
+    status, document = emit(write(tmp_path / "p", body, _bounded()), body)
+    assert status == "VERIFIED"
+    sql = document["sql"].encode()
+    assert [
+        (sql[u["range"]["start"] : u["range"]["end"]], u["server_index"])
+        for u in document["parameter_uses"]
+    ] == [(b"$1", 1)] * 5
+
+
+def test_arithmetic_needs_the_operator_environment(tmp_path: Path) -> None:
+    document = _bounded()
+    document["environment"] = [
+        p for p in document["environment"] if p["key"] != "operator_environment"
+    ]
+    body = _selected("t = amount + id")
+    status, emitted = emit(write(tmp_path / "p", body, document), body)
+    assert blockers(emitted) == [
+        ("PIE-B1004", "operator_environment_declaration_missing")
+    ]
+
+
+def test_a_forged_arithmetic_column_is_refused(tmp_path: Path) -> None:
+    """Forgery: the first column's `+` written as a `-`, or its Int domain
+    widened, rendered and documented afresh; only the plan or the proved
+    range disagrees."""
+    root = write(tmp_path / "p", ARITHMETIC, _bounded())
+    outcome, _ = emission_cli.emit_project(
+        root,
+        "main.pietto",
+        "query",
+        "result",
+        "duckdb",
+        "contract.json",
+        emission_cli.POLICIES["preserve"],
+        read_sources_only=True,
+    )
+    assert type(outcome) is adapter.DuckDBEmission
+    artifact = outcome.artifact
+    assert artifact is not None and adapter.verify_artifact(artifact)
+    first = artifact.ast.columns[0]
+    assert first.value is not None
+    value = dataclasses.replace(first.value, operator="-")
+    ast = dataclasses.replace(
+        artifact.ast,
+        columns=(dataclasses.replace(first, value=value), *artifact.ast.columns[1:]),
+    )
+    assert duckdb_sql.ast_rules_hold(
+        ast, len(FIELDS), adapter._labels(artifact.checked.plan)
+    )
+    forged = dataclasses.replace(artifact, **_rendered(artifact, ast))
+    assert not adapter.verify_artifact(forged)
+    widened = artifact.document.replace(b'"max":"1005"', b'"max":"1006"', 1)
+    assert widened != artifact.document
+    assert not adapter.verify_artifact(dataclasses.replace(artifact, document=widened))
 
 
 def _change(document: dict[str, Any], path: str, value: object) -> dict[str, Any]:
@@ -930,8 +1181,16 @@ B2_SUGGESTIONS = {
     ),
     "duckdb_projection_not_admitted": (
         "select source fields directly, or group by keys and aggregates of"
-        " fields, such as select: customer, total = sum(amount); computed values"
+        " fields, such as select: customer, total = sum(amount), or add,"
+        " subtract or multiply two Int or two Float values, one at least a"
+        " field or key, such as net = price - discount; other computed values"
         " are not available on DuckDB"
+    ),
+    "duckdb_arithmetic_range_not_proved": (
+        "narrow the int_range of each Int field this value reads so that"
+        " every result fits a signed 64-bit integer; DuckDB emission proves"
+        " Int arithmetic from those ranges and literals, and an Int parameter"
+        " may hold any signed 64-bit value"
     ),
     "duckdb_aggregate_not_admitted": (
         "use count(), count(field), sum of an Int field, or min or max of an Int,"
@@ -958,7 +1217,7 @@ B2_SUGGESTIONS = {
     "duckdb_parameter_not_admitted": (
         "declare non-null Int, Text, Bool, Float, Date, Timestamp or Decimal(p, s)"
         " parameters, p at most 38, and read each one in a where or having"
-        " comparison"
+        " comparison or in selected arithmetic"
     ),
     "duckdb_field_type_not_admitted": (
         "DuckDB emission reads Int, Text, Bool, Float, Date and Timestamp fields"
@@ -1365,6 +1624,53 @@ BROKEN_PREDICATES = {
 def test_the_sql_rules_refuse_a_broken_predicate(case: str) -> None:
     assert duckdb_sql.ast_rules_hold(_where(_compare(_READ)), 5, ("id",))
     assert not duckdb_sql.ast_rules_hold(_where(BROKEN_PREDICATES[case]), 5, ("id",))
+
+
+def _computed(
+    operands: Any,
+    operator: str = "+",
+    tag: str = "Int",
+    field: int | None = None,
+    function: str | None = None,
+) -> Any:
+    """`id` and a column `t` of arithmetic over `operands`."""
+    value = duckdb_sql.DuckDBArithmetic(operator, operands, tag)
+    return duckdb_sql.DuckDBSelect(
+        duckdb_sql.RELATION,
+        (
+            duckdb_sql.DuckDBColumn(0, "id"),
+            duckdb_sql.DuckDBColumn(field, "t", function, value),
+        ),
+        None,
+    )
+
+
+_FLOAT = duckdb_sql.DuckDBRead(4)
+# Arithmetic columns that break a rule of the route's SQL.
+BROKEN_ARITHMETIC = {
+    "field_beside_value": _computed((_READ, _PARAMETER), field=1),
+    "function_beside_value": _computed((_READ, _PARAMETER), function="sum"),
+    "bool_in_int": _computed((_READ, duckdb_sql.DuckDBLiteral(True))),
+    "float_in_int": _computed((_READ, duckdb_sql.DuckDBLiteral(1.0))),
+    "int_beyond_64_bits": _computed((_READ, duckdb_sql.DuckDBLiteral(2**63))),
+    "int_parameter_in_float": _computed((_FLOAT, _PARAMETER), tag="Float"),
+    "placeholder_true": _computed((_READ, duckdb_sql.DuckDBParameter(True, "Int"))),
+    "first_placeholder_2": _computed((_READ, duckdb_sql.DuckDBParameter(2, "Int"))),
+    "aggregate_operand": _computed((duckdb_sql.DuckDBRead(1, "max"), _PARAMETER)),
+    "field_beyond_the_source": _computed((duckdb_sql.DuckDBRead(5), _PARAMETER)),
+    "no_read": _computed((duckdb_sql.DuckDBLiteral(1), _PARAMETER)),
+    "int_sign": _computed((_READ,), operator="-"),
+    "division": _computed((_READ, _PARAMETER), operator="/"),
+    "operand_list": _computed([_READ, _PARAMETER]),
+}
+
+
+@pytest.mark.parametrize("case", BROKEN_ARITHMETIC)
+def test_the_sql_rules_refuse_broken_arithmetic(case: str) -> None:
+    labels = ("id", "t")
+    assert duckdb_sql.ast_rules_hold(_computed((_READ, _PARAMETER)), 5, labels)
+    assert duckdb_sql.ast_rules_hold(_computed((_FLOAT,), "-", "Float"), 5, labels)
+    assert not duckdb_sql.ast_rules_hold(BROKEN_ARITHMETIC[case], 5, labels)
 
 
 def test_a_forged_predicate_is_refused(tmp_path: Path) -> None:

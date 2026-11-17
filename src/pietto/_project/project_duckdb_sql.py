@@ -1,7 +1,8 @@
 """The DuckDB adapter's own SQL AST and renderer (AD78.03).
 
 One statement over the registered capture: its columns, or with `group by`
-and aggregates their grouped values, filtered in `where` and `having` by
+and aggregates their grouped values, and `Int` and `Float` arithmetic over
+them in the final projection, filtered in `where` and `having` by
 comparisons of a read with a literal or a parameter, null tests and `AND`,
 `OR` and `NOT` of these, then its order keys and its static limit. Every
 identifier is Pietto-owned except the quoted result labels, so the SQL never
@@ -35,6 +36,8 @@ CASTS = {
 MAX_PRECISION = 38
 CIVIL = (datetime(1000, 1, 1), datetime(9999, 12, 31, 23, 59, 59, 499999))
 LOGIC = ("AND", "OR", "NOT")
+# The Python value type of an arithmetic literal of each type.
+_VALUE = {"Int": int, "Float": float}
 # NULL sorts as the PostgreSQL emitter's SQL puts it (PL.47); DuckDB's own
 # default puts NULL last in both directions.
 DIRECTIONS = {False: " ASC NULLS LAST", True: " DESC NULLS FIRST"}
@@ -47,17 +50,26 @@ AGGREGATES = {
     "min": ("min(", ")"),
     "max": ("max(", ")"),
 }
+# The text of the error each checked `Float` operation raises: DuckDB
+# returns an infinity on overflow and 0 on underflow, which PostgreSQL refuses.
+FLOAT_OVERFLOW = "Pietto Float overflow: the result is outside binary64"
+FLOAT_UNDERFLOW = (
+    "Pietto Float underflow: a product of two non-zero Float values rounded"
+    " to 0; use Int or scale the values"
+)
+SIGNED64 = (-(2**63), 2**63 - 1)
 
 
 @dataclass(frozen=True, slots=True)
 class DuckDBColumn:
-    """Result column `<value> AS "<label>"`: `"c<field>"`, or the aggregate
-    `function` of it; `field` is the source field's position in shape order,
-    None only in `count(*)`."""
+    """Result column `<value> AS "<label>"`: `"c<field>"`, the aggregate
+    `function` of it, or the arithmetic `value`; `field` is the source
+    field's position in shape order, None in `count(*)` and arithmetic."""
 
     field: int | None
     label: str
     function: str | None = None
+    value: DuckDBArithmetic | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -87,6 +99,21 @@ class DuckDBParameter:
     placeholder: int
     tag: str
     decimal: tuple[int, int] | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class DuckDBArithmetic:
+    """`<left> <operator> <right>` of two operands, `+`, `-` or `*`, or a
+    `Float` sign `-<operand>` or `+<operand>`, which is the operand itself;
+    each operand is a read of a field or group key, a literal or a parameter
+    of the result's `tag`, `Int` or `Float`, and one at least is a read. A
+    `Float` `+`, `-` or `*` is checked: it fails with FLOAT_OVERFLOW where
+    DuckDB gives an infinity, and a `*` also with FLOAT_UNDERFLOW where two
+    non-zero operands give 0."""
+
+    operator: str
+    operands: tuple[DuckDBRead | DuckDBLiteral | DuckDBParameter, ...]
+    tag: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -142,7 +169,8 @@ class DuckDBSelect:
     def nodes(self) -> int:
         return node_count(
             len(self.columns),
-            sum(c.function is not None and c.field is not None for c in self.columns),
+            sum(c.function is not None and c.field is not None for c in self.columns)
+            + sum(len(c.value.operands) for c in self.columns if c.value is not None),
             len(self.group_by),
             sum(_size(p) for p in (self.where, self.having) if p is not None),
             len(self.order_by),
@@ -160,7 +188,8 @@ def node_count(
     columns: int, arguments: int, keys: int, predicates: int, orders: int, limits: int
 ) -> int:
     """The statement and its relation; a value and a label per column, and the
-    read of each column's aggregate that has one; a read per group key; the
+    read of each column's aggregate that has one or each operand of its
+    arithmetic (both `arguments`); a read per group key; the
     `predicates` nodes of `where` and `having`, one per logical operator,
     comparison, null test, read, literal and placeholder; a key and the value
     it reads per order key; and the limit's value."""
@@ -171,7 +200,8 @@ def node_count(
 class Token:
     """One rendered byte range; `subject` names its plan owner symbolically:
     ("statement",), ("projection", i), ("export", i), ("aggregate", i),
-    ("argument", i), ("source",), ("filter",), ("aggregation",),
+    ("argument", i), ("computed", i), ("computed", i, k) for the k-th operand
+    of an arithmetic column, ("source",), ("filter",), ("aggregation",),
     ("group_key", i), ("having",), ("order",), ("order_key", i), ("limit",),
     or ("predicate", *path) and ("having_predicate", *path), the node of the
     `where` or `having` predicate at that path of operand positions."""
@@ -235,6 +265,36 @@ def render(ast: DuckDBSelect) -> tuple[bytes, tuple[Token, ...]]:
             if after:
                 emit(after, "syntax", "anchor_close", *subject)
 
+    def arithmetic(node: DuckDBArithmetic, subject: tuple[object, ...]) -> None:
+        def operation() -> None:
+            if len(node.operands) == 1:
+                if node.operator == "-":
+                    emit("-", "syntax", "operator", *subject)
+                term(node.operands[0], "", (*subject, 0))
+                return
+            term(node.operands[0], "", (*subject, 0))
+            emit(f" {node.operator} ", "syntax", "operator", *subject)
+            term(node.operands[1], "", (*subject, 1))
+
+        if node.tag != "Float" or len(node.operands) == 1:
+            operation()
+            return
+        emit("CASE WHEN isinf(", "syntax", "guard", *subject)
+        operation()
+        emit(f") THEN error({_text(FLOAT_OVERFLOW)})", "syntax", "guard", *subject)
+        if node.operator == "*":
+            emit(" WHEN (", "syntax", "guard", *subject)
+            operation()
+            emit(") = 0 AND ", "syntax", "guard", *subject)
+            term(node.operands[0], "", (*subject, 0))
+            emit(" <> 0 AND ", "syntax", "guard", *subject)
+            term(node.operands[1], "", (*subject, 1))
+            text = f" <> 0 THEN error({_text(FLOAT_UNDERFLOW)})"
+            emit(text, "syntax", "guard", *subject)
+        emit(" ELSE (", "syntax", "guard", *subject)
+        operation()
+        emit(") END", "syntax", "guard", *subject)
+
     def predicate(node: Predicate, qualifier: str, subject: tuple[object, ...]) -> None:
         if type(node) is DuckDBLogic:
             for position, operand in enumerate(node.operands):
@@ -263,8 +323,11 @@ def render(ast: DuckDBSelect) -> tuple[bytes, tuple[Token, ...]]:
     for position, column in enumerate(ast.columns):
         if position:
             emit(", ", "syntax", "separator", "statement")
-        read = ("projection" if column.function is None else "argument", position)
-        value(column.field, column.function, "", ("aggregate", position), read)
+        if column.value is not None:
+            arithmetic(column.value, ("computed", position))
+        else:
+            read = ("projection" if column.function is None else "argument", position)
+            value(column.field, column.function, "", ("aggregate", position), read)
         emit(" AS ", "syntax", "alias", "projection", position)
         emit(_quoted(column.label), "identifier", "label", "export", position)
     emit(" FROM temp.main.", "syntax", "from", "statement")
@@ -330,6 +393,60 @@ def _literal(value: object) -> tuple[str, str, str]:
     return "", "'" + str(value).replace("'", "''") + "'", ""
 
 
+def _text(value: str) -> str:
+    """A Pietto-owned text, quoted as a `Text` literal is."""
+    return "'" + value.replace("'", "''") + "'"
+
+
+def arithmetic_holds(node: object) -> bool:
+    """The shape of an arithmetic value that reads a field or key, as a
+    constant result field may not; its operands are checked as reads and
+    constants are."""
+    if type(node) is not DuckDBArithmetic or type(node.operands) is not tuple:
+        return False
+    if not any(type(operand) is DuckDBRead for operand in node.operands):
+        return False
+    if len(node.operands) == 2:
+        return node.operator in ("+", "-", "*") and node.tag in ("Int", "Float")
+    unary = len(node.operands) == 1 and node.operator in ("-", "+")
+    return unary and node.tag == "Float"
+
+
+def int_bounds(
+    node: DuckDBArithmetic, bounds: dict[int, tuple[int, int]]
+) -> tuple[int, int] | None:
+    """The range of an `Int` arithmetic value that interval arithmetic over
+    its operands' ranges gives, each read over its field's `bounds` and each
+    parameter over signed 64 bits, or None when that range leaves signed 64
+    bits (the range proof of arithmetic). It holds every result, but is wider
+    than the results where an operand repeats a read, as in `id - id`."""
+    ranges: list[tuple[int, int]] = []
+    for operand in node.operands:
+        if type(operand) is DuckDBLiteral and type(operand.value) is int:
+            ranges.append((operand.value, operand.value))
+        elif type(operand) is DuckDBRead and operand.field is not None:
+            ranges.append(bounds[operand.field])
+        else:
+            ranges.append(SIGNED64)
+    (a, b), (c, d) = ranges
+    if node.operator == "+":
+        low, high = a + c, b + d
+    elif node.operator == "-":
+        low, high = a - d, b - c
+    else:
+        products = (a * c, a * d, b * c, b * d)
+        low, high = min(products), max(products)
+    return (low, high) if SIGNED64[0] <= low and high <= SIGNED64[1] else None
+
+
+def written(node: DuckDBArithmetic) -> int:
+    """How often the SQL writes each operand of `node`: once, but twice in
+    the checks of a `Float` `+` or `-` and four times in those of a `*`."""
+    if node.tag != "Float" or len(node.operands) == 1:
+        return 1
+    return 4 if node.operator == "*" else 2
+
+
 def literal_holds(value: object) -> bool:
     """A literal in its type's domain, and no NUL written into the SQL text."""
     if type(value) is int:
@@ -362,6 +479,13 @@ def ast_rules_hold(ast: DuckDBSelect, fields: int, labels: tuple[str, ...]) -> b
         return False
     if tuple(c.label for c in ast.columns) != labels:
         return False
+    computed = tuple(c.value for c in ast.columns if c.value is not None)
+    if any(
+        not arithmetic_holds(c.value) or (c.field, c.function) != (None, None)
+        for c in ast.columns
+        if c.value is not None
+    ):
+        return False
     if type(ast.group_by) is not tuple or type(ast.order_by) is not tuple:
         return False
     if any(
@@ -374,7 +498,7 @@ def ast_rules_hold(ast: DuckDBSelect, fields: int, labels: tuple[str, ...]) -> b
     ):
         return False
     reads: list[object] = list(ast.group_by)
-    values = [(c.field, c.function) for c in ast.columns]
+    values = [(c.field, c.function) for c in ast.columns if c.value is None]
     grouped = bool(ast.group_by) or any(c.function is not None for c in ast.columns)
     # Each placeholder in SQL order, with the type it is cast to.
     placeholders: list[tuple[object, object]] = []
@@ -425,6 +549,25 @@ def ast_rules_hold(ast: DuckDBSelect, fields: int, labels: tuple[str, ...]) -> b
             return sorted(sides, key=str) == ["constant", "read"]
         return False
 
+    for node in computed:
+        for operand in node.operands:
+            if type(operand) is DuckDBRead:
+                if operand.function is not None:
+                    return False
+                values.append((operand.field, None))
+            elif type(operand) is DuckDBLiteral:
+                if type(operand.value) is not _VALUE[node.tag]:
+                    return False
+                if not literal_holds(operand.value):
+                    return False
+            elif type(operand) is not DuckDBParameter or operand.tag != node.tag:
+                return False
+            elif type(operand.placeholder) is not int:
+                return False
+            else:
+                placeholders.append(
+                    (operand.placeholder, (operand.tag, operand.decimal))
+                )
     where, having = ast.where, ast.having
     if where is not None and not holds(where, False):
         return False

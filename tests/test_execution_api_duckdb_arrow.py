@@ -40,6 +40,7 @@ from _pietto_sql_duckdb import (
     PROJECTION,
     contract,
     filtered,
+    source_entry,
     write,
 )
 
@@ -1446,6 +1447,198 @@ def test_statement_and_result_failures_are_attempt_failures(
             "UNKNOWN" if phase == "query" else "COMMIT_ACK"
         )
         assert calls == [*OPENED, *ENDED]
+
+
+# Arithmetic over optional operands whose Int range proves every product (3037000499 is
+# the largest square root below 2^63), arithmetic and signs of both types.
+PAIR = (
+    ("id", "Int", False),
+    ("a", "Int", True),
+    ("b", "Int", True),
+    ("x", "Float", True),
+    ("y", "Float", True),
+)
+PAIR_HEADER = """shape Pair:
+    id: Int
+    a: Int | None
+    b: Int | None
+    x: Float | None
+    y: Float | None
+
+source orders: Pair = duckdb.arrow("orders")
+"""
+PAIR_BODY = """table result:
+    from orders
+    select:
+        id
+        s = a + b
+        d = a - b
+        m = a * b
+        fs = x + y
+        fd = x - y
+        fm = x * y
+        n = -x
+        p = +x
+"""
+ROOT_63 = 3037000499
+PAIR_ROWS = (
+    (1, ROOT_63, ROOT_63, 1.5, 2.25),
+    (2, -ROOT_63, ROOT_63, -0.0, 0.0),
+    (3, None, 5, None, 1.0),
+    (4, 0, -ROOT_63, 5e-324, 0.75),
+    (5, 7, None, 2.2250738585072014e-308, 0.5),
+    (6, -1, 1, 0.0, 1e-200),
+    (7, 1, -1, 0.1, 0.2),
+    (8, 2, 3, -0.0, -0.0),
+)
+
+
+def _pair(pa: Any, tmp_path: Path, body: str = PAIR_BODY) -> tuple[Any, Any]:
+    entry = source_entry(fields=PAIR)
+    for field in entry["fields"][1:3]:
+        field["representation"]["domain"].update(min=str(-ROOT_63), max=str(ROOT_63))
+    root = write(tmp_path / "p", body, contract(entry), PAIR_HEADER)
+    query = execution.compile_query(
+        root,
+        module="main.pietto",
+        kind="table",
+        name="result",
+        dialect="duckdb",
+        emission_contract="contract.json",
+    )
+    types = (pa.int64(), pa.int64(), pa.int64(), pa.float64(), pa.float64())
+
+    def table(rows: tuple[tuple[Any, ...], ...]) -> Any:
+        return pa.table(
+            {
+                name: pa.array([row[k] for row in rows], type=types[k])
+                for k, (name, _, _) in enumerate(PAIR)
+            }
+        )
+
+    return query, table
+
+
+def _bits(value: Any) -> Any:
+    return value.hex() if type(value) is float else value
+
+
+def test_arithmetic_returns_the_oracle_values(tmp_path: Path) -> None:
+    """Python's exact Int and binary64 results, the sign of every zero,
+    subnormal products and NULL operands included, for both input orders."""
+    pa = _engine()
+    query, table = _pair(pa, tmp_path)
+
+    def oracle(row: tuple[Any, ...]) -> dict[str, Any]:
+        id_, a, b, x, y = row
+
+        def both(f: Any, u: Any, v: Any) -> Any:
+            return None if u is None or v is None else f(u, v)
+
+        return {
+            "id": id_,
+            "s": both(operator.add, a, b),
+            "d": both(operator.sub, a, b),
+            "m": both(operator.mul, a, b),
+            "fs": both(operator.add, x, y),
+            "fd": both(operator.sub, x, y),
+            "fm": both(operator.mul, x, y),
+            "n": None if x is None else -x,
+            "p": x,
+        }
+
+    expected = bag([{k: _bits(v) for k, v in oracle(r).items()} for r in PAIR_ROWS])
+    for rows in (PAIR_ROWS, PAIR_ROWS[::-1]):
+        delivered, _ = run(pa, query, table(rows))
+        got = [{k: _bits(v) for k, v in row.items()} for row in delivered]
+        assert bag(got) == expected
+
+
+def test_a_float_result_outside_binary64_fails_the_statement(tmp_path: Path) -> None:
+    """An infinity or a zero product of non-zero operands is never returned:
+    the statement fails with PIE-R3003 and its own detail, and its text
+    carries no hint, which only the documentation gives."""
+    pa = _engine()
+    query, table = _pair(pa, tmp_path)
+    big, tiny = sys.float_info.max, 1e-200
+    for x, y, detail in (
+        (big, big, "DUCKDB_FLOAT_OVERFLOW"),
+        (-big, big, "DUCKDB_FLOAT_OVERFLOW"),
+        (1e200, 1e200, "DUCKDB_FLOAT_OVERFLOW"),
+        (tiny, tiny, "DUCKDB_FLOAT_UNDERFLOW"),
+        (-tiny, tiny, "DUCKDB_FLOAT_UNDERFLOW"),
+        (5e-324, 0.5, "DUCKDB_FLOAT_UNDERFLOW"),
+    ):
+        handle = _handle(pa, query, table(((1, 0, 0, x, y),)))
+        failure = _failed(handle).failure
+        assert (failure.code, failure.detail, failure.phase, failure.cause) == (
+            "PIE-R3003",
+            detail,
+            "query",
+            "InvalidInputException",
+        )
+        assert str(failure).endswith(", cause=InvalidInputException)")
+        assert handle.outcome.end == "FAILED"
+    # A + or a - alone, with no product beside it to fail the same rows.
+    for value, x in (("fs = x + y", big), ("fd = x - y", -big)):
+        body = f"table result:\n    from orders\n    select:\n        {value}\n"
+        query, table = _pair(pa, tmp_path / value[:2], body)
+        failure = _failed(_handle(pa, query, table(((1, 0, 0, x, big),)))).failure
+        assert (failure.code, failure.detail) == ("PIE-R3003", "DUCKDB_FLOAT_OVERFLOW")
+
+
+# Arithmetic over group keys: a NULL group, a -0.0 group and an Int square
+# at the edge of its proved range; each group's key value is unambiguous.
+GROUPED_PAIR = """table result:
+    from orders
+    group by a, x
+    select:
+        a
+        x
+        t = a * a
+        f = x * x
+        g = -x
+        n = count()
+"""
+GROUPED_PAIR_ROWS = (
+    (None, 1.5),
+    (None, 1.5),
+    (2, -0.0),
+    (2, -0.0),
+    (3, 0.0),
+    (ROOT_63, None),
+    (-ROOT_63, 2.5),
+    (None, None),
+)
+
+
+def test_grouped_arithmetic_returns_the_oracle_values(tmp_path: Path) -> None:
+    """Each group's keys, their Int and Float arithmetic and its count, the
+    sign of every zero included; a key whose square underflows fails."""
+    pa = _engine()
+    query, table = _pair(pa, tmp_path, GROUPED_PAIR)
+    counts: dict[tuple[Any, Any], int] = {}
+    for key in GROUPED_PAIR_ROWS:
+        counts[key] = counts.get(key, 0) + 1
+    expected = bag(
+        [
+            {
+                "a": _bits(a),
+                "x": _bits(x),
+                "t": None if a is None else a * a,
+                "f": None if x is None else _bits(x * x),
+                "g": None if x is None else _bits(-x),
+                "n": n,
+            }
+            for (a, x), n in counts.items()
+        ]
+    )
+    rows = tuple((k, a, 0, x, 0.0) for k, (a, x) in enumerate(GROUPED_PAIR_ROWS))
+    delivered, _ = run(pa, query, table(rows))
+    assert bag([{k: _bits(v) for k, v in row.items()} for row in delivered]) == expected
+    handle = _handle(pa, query, table(((1, 1, 0, 1e-200, 0.0),)))
+    failure = _failed(handle).failure
+    assert (failure.code, failure.detail) == ("PIE-R3003", "DUCKDB_FLOAT_UNDERFLOW")
 
 
 def test_the_result_binding_refuses_a_value_that_fails_full_validation(

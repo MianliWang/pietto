@@ -286,17 +286,18 @@ release.
   at most 38: a direct projection, or `group by` with
   `count`, `sum`, `min` and `max` and a `having`, filtered by comparisons
   with literals and query parameters joined by `and` and `or`, a `where`
-  also with `not`, with `order by` and `limit`. JOINs, computed values and other aggregates
-  are BLOCKED, and an input table of more than 1,048,576 rows, or whose
-  columns named by the source's fields measure more than 256 MiB together
-  (read by the query or not), is refused. It is qualified
+  also with `not`, with `order by` and `limit`, and with `Int` and `Float`
+  arithmetic in the final projection. JOINs, other computed values and
+  other aggregates are BLOCKED, and an input table of more than 1,048,576
+  rows, or whose columns named by the source's fields measure more than
+  256 MiB together (read by the query or not), is refused. It is qualified
   only with CPython 3.12 and 3.13 on Linux x86-64 with glibc 2.28 or later
   ([DuckDB local path](https://github.com/MianliWang/pietto/blob/main/docs/capabilities.md#duckdb-local-path));
-  the second tier's `Date`, `Timestamp` and `Decimal` fields are not
-  qualified yet. `0.2.0` and `0.2.1` carry only the projection with one
-  `Int` parameter comparison, over at most 65,536 rows and 16 MiB; the rest
-  is Phase79's second slice, its first tier and its second tier's types,
-  which enter `0.2.2`
+  the second tier's `Date`, `Timestamp` and `Decimal` fields and its
+  arithmetic are not qualified yet. `0.2.0` and `0.2.1` carry only the
+  projection with one `Int` parameter comparison, over at most 65,536 rows
+  and 16 MiB; the rest is Phase79's second slice, its first tier and its
+  second tier's types and arithmetic, which enter `0.2.2`
   ([roadmap](https://github.com/MianliWang/pietto/blob/main/docs/roadmap.md#third-dialect)).
 - `pietto.interop` (alpha) turns one open `ResultBatch` into a pandas or
   Polars DataFrame, a NumPy array, a SciPy CSR array or a Matplotlib line or

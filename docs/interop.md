@@ -260,7 +260,8 @@ too, except the two aggregate forms, which it can block (`PIE-B1004` for
 `sum(v)` of an `Int`, `PIE-B1003` for `coalesce` of an aggregate). The DuckDB
 route admits direct reads of fields, `group by` keys and the aggregates
 `count`, `sum` of an `Int` field, `min` and `max`, filtered by comparisons in
-`where` and `having`, but no computed value, so a `coalesce`, a conditional
+`where` and `having`, but no computed value other than `Int` and `Float`
+arithmetic in the final projection, so a `coalesce`, a conditional
 expression or `Float(...)` cannot be written there; the fix there is a
 `where`, or `to_pandas` or `to_polars`.
 
