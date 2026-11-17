@@ -2,7 +2,8 @@
 
 The sections up to the initiation-gate checklist are B1's route and record.
 B2, Phase79's second slice, has its own route in [B2](#b2--the-second-slice)
-at the end.
+at the end, and B2's second tier in [B2 — the second tier](#b2--the-second-tier)
+after it.
 
 Phase79 owns the Phase 79 row of the [roadmap](../../roadmap.md#future-roadmap-v6):
 DuckDB deep adaptation, with the limited local analysis path that `0.2.0`
@@ -1069,3 +1070,94 @@ allows and the fragment states.
 | 28 | Readiness and exact deferred owners | Ready: Gate 0 is bound, T00 is done, T01 is written and its refusal texts are agreed (PL.50); T02 starts on batch 2's published head. Deferrals are in [B2 deferrals](#b2-deferrals). |
 | 29 | Slice route | T00–T08 above, with write sets, checks, dependencies and non-goals. |
 | 30 | Repair and stop conditions | Phase79's ledger with PL.15, at most three freezes per family, and the unfreeze conditions and stops above; failures are preserved. |
+
+## B2 — the second tier
+
+On 2026-11-17 the owner answered the Gate 1 sheet of B2's second tier
+(D79.17–D79.24) and the route draft's questions on the `Float` checks, the
+hint and the pushes (D79.18, D79.21); the lead ruled on `Int` arithmetic and
+the refusal design (D79.25). The tier opens three families on DuckDB: T1,
+several `duckdb.arrow` sources joined by inner and left equality JOINs over a
+tuple of inputs; T2, `Date`, `Timestamp` and `Decimal(p, s)` with `p` at most
+38; and T3, `Int` and `Float` arithmetic in the final projection. Every
+result is read in batches (D79.20). The
+[specification](../../spec/duckdb-arrow-route-v1.md) binds the exact forms,
+SQL, refusals and limits. The sheet, the route draft and the offline probe
+U00 are owner-held working records outside Git; U00's results set the
+specification's derived rules and its
+[pin facts](../../spec/duckdb-arrow-route-v1.md#tier-2-pin-facts-u00) only and
+are not qualification evidence.
+
+### Tier 2 Gate 0 and base
+
+The lane's Gate 0 froze `main` at `300f0a93`, whose natural CI passed 21 of
+21 jobs on 2026-11-17. JF's J1 (PL.61) then reached `main` at `900e8915`,
+so the whole tier integrates on that head as one batch, the JOIN part
+included, and its Gate 2 binds the integrated tree. The lead reads
+`900e8915`'s natural CI and health before that Gate 2 (PL.02, PL.07).
+
+### Tier 2 decisions adopted
+
+| ID | Rule | Source |
+| --- | --- | --- |
+| D79.17 | The three families; D79.04's Arrow types gain `date32`, `timestamp[us]` and `decimal128`; other forms stay refused | Owner, sheet Q1 B |
+| D79.18 | A `Float` `+`, `-` or `*` checked for overflow and a `*` for underflow, failing with `PIE-R3003`; the hint in the documentation only | Owner, sheet Q1f and the route draft |
+| D79.19 | `access` takes one input or a tuple of them, matched by name; rows per input, bytes over all | Owner, sheet Q2 A |
+| D79.20 | Every result read in batches; the restatement of D79.10 and D79.14 binds after the owner has seen it | Owner, sheet Q3 A |
+| D79.21 | The tier enters `0.2.2`; PL.52's standing push authorization covers its batches | Owner, sheet Q4 B and r17's Q2 |
+| D79.22 | Ledger P79T2, `C61/F196/D4,850/S4`, under PL.15 | Owner, sheet Q5 A |
+| D79.23 | Done when the last batch is pushed and its natural CI is green | Owner, sheet Q6 A |
+| D79.24 | Declared unique keys checked at capture when a JOIN statement aggregates | Owner, sheet Q7 (b) |
+| D79.25 | `Int` arithmetic only by range proof (rule 7c); the candidates' refusal design | Lead |
+| D79.26 | The texts of the types and the arithmetic as previewed; the hints in the words of the SQL's checks | Owner, on the lead's preview |
+| D79.27 | Batch reading as the specification lands it, restating D79.10 and D79.14 | Lead; the owner sees it before it binds |
+| D79.28 | Several inputs and JOINs as the specification lands them; one source read twice refused as *derived* | Lead; the owner sees its texts and that narrowing before they bind |
+
+### Tier 2 slices
+
+Slice ids take U. Budgets are `C/F/D/S` planning allocations inside P79T2.
+
+| Slice | Content | Write set | Budget | State |
+| --- | --- | --- | --- | --- |
+| U00 | The offline probe before Gate 0 | None in the repository | 0/0/80/0 | Done |
+| U01 | Records: the decision rows, this section; the specification rows land with each slice | `docs/decisions.md`; this file | 3/8/200/0 | In the batch |
+| U02 | The three types, and the batch reading of every result, in two commits: the types, and after U03 the batch reading | `src/pietto/execution/_duckdb.py`, `project_duckdb_{contract,emission,sql,result}.py`, `project_execution_reader.py`, the duckdb part of `project_result_binding.py`; their tests | 15/45/850/1 | In the batch |
+| U03 | Arithmetic: rule 7c, the `Float` checks and their details | `project_duckdb_emission.py`, `project_duckdb_sql.py`, `execution/_errors.py`; their tests | 8/25/400/1 | In the batch |
+| U04 | Several inputs: the tuple, matching by name, the capture limits | `execution/_handle.py`, `_duckdb.py`, `__init__.py`, `_access.py`; `docs/execution.md` | 5/15/200/1 | In the batch, with U05 in one commit |
+| U05 | JOINs: admission, SQL, `ast_rules_hold`, the artifact verifier, the declared key check | `project_duckdb_emission.py`, `project_duckdb_sql.py`, `_duckdb.py`'s capture; their tests | 13/40/800/1 | In the batch |
+| U06 | Qualification v7: the four helpers in place, the harness self-test, U0–U3 once each and an independent integrity audit | `tests/_pietto_execution_duckdb_native_*.py`, `tests/test_harness_execution_api.py`, `docs/development.md` | 8/30/800/0 | Next |
+| U07 | Package smoke gains a JOIN, a typed and an arithmetic query | `scripts/package_smoke.py`, its sentence in `docs/development.md` | 0/5/120/0 | Next |
+| U08 | Closeout: the shared pages, `diagnostics.md`, the freeze-ledger row, status, the fragments, the acquisition review and Phase79's completion audit | The shared pages; a new audit under `docs/phases/phase-79/` | 6/20/500/0 | `diagnostics.md`'s `PIE-R1002` part in the batch; the rest next |
+| Integration, Gate 2 and the batch audit | | | 3/8/400/0 | |
+| Replay reserve | | | 0/0/500/0 | |
+| Total | | | 61/196/4,850/4 | |
+
+Each slice is one commit, except U02's two and the one of U04 and U05, as
+the table states, and is reviewed on its own before delivery; a review
+with only low findings counts as clean (D77.51). The batch carries the
+records, the types, the arithmetic, the batch reading and the several
+inputs with their JOINs in that order, then U06–U08, one v7 run and one
+Gate 2. It publishes under PL.52 on D77.06's conditions, before the `0.2.2`
+release commit (D79.21), and the first documentation commit after its push
+records its Gate 2 and natural CI.
+
+### Tier 2 single writers and stops
+
+`execution/_duckdb.py` and the `project_duckdb_*` modules have the tier as
+their only writer. `docs/spec/diagnostics.md`, the capability page, the
+execution guide and `README.md` are shared with the MySQL catch-up's
+closeout, and `docs/language.md` with E4B: the later at its Gate 2 rebases.
+The tier changes no plan module, no PostgreSQL or MySQL bytes and no
+firewall; it reads JOIN facts only from the verified plan (PL.61).
+
+B2's stops hold, with these: a peak of the batch reading beyond the
+specification's derivation; a change by J1 or later of what the adapter
+reads; and any text beyond what the owner has seen (PL.47).
+
+### Tier 2 items for the owner
+
+| Item | Latest point |
+| --- | --- |
+| The suggestions of rules 5, 6 and 22, a refused JOIN reported by rule 5 alone, beside rules 9 and 8b for a parameter or a `Text` literal with NUL in its `on`, and `DUCKDB_ARROW_SCHEMA` as the declared key check's detail (D79.28) | Before the tier's push |
+| The batch reading's visible changes: a batch charged with its validity bitmaps; `UNKNOWN` where the first tier left `COMMIT_ACK`, for `PIE-R3004`, `PIE-R3005`, an exception of the caller's code, an early close, and a cancellation or the deadline before the reader's end, which narrows D79.14; and batches delivered before a statement fails at a later one (D79.27) | Before the tier's push |
+| One source read twice, such as a self-join through a row-input alias, refused as *derived*, which is narrower than D79.19's shared input: accept the narrowing, or open it as work of its own (D79.28) | Before the tier's push |
