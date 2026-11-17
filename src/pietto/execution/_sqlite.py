@@ -34,7 +34,7 @@ from pietto._project.project_duckdb_result import DuckDBBatches
 from pietto._project.project_execution_template import BindingError
 from pietto._project.project_result_contract import ResultError
 from pietto._project.project_sql_emission_parameters import parameter_valid
-from pietto._project.project_sqlite_sql import FUNCTIONS, quoted
+from pietto._project.project_sqlite_sql import FUNCTIONS, WINDOWS, quoted
 from pietto.execution._errors import failure, request_failure
 
 __all__: tuple[str, ...] = ()
@@ -56,8 +56,15 @@ DECLARED = {
     "Float": ("REAL",),
     "Text": ("TEXT",),
 }
-# The functions the compiled statement and the value check call.
-CALLS = frozenset({*(name.lower() for name in FUNCTIONS.values()), "typeof", "abs"})
+# The functions the compiled statement and the value check call; a window
+# function arrives under its lower-case name too.
+CALLS = frozenset(
+    {
+        *(name.lower() for name in (*FUNCTIONS.values(), *WINDOWS.values())),
+        "typeof",
+        "abs",
+    }
+)
 # The PRAGMA statements of the source check: whether each names the source.
 # `index_xinfo` names one of the source's indexes instead.
 PRAGMAS = {
