@@ -815,6 +815,38 @@ review. A change of the connector set, the three family mappings or the
 dialect sets reruns their consumers: `check --project`, the PostgreSQL,
 MySQL and DuckDB emitters, `pietto lsp` through `check`, and the firewall.
 
+**R1 record.** The campaign ran once on 2026-11-17 and ended `PASS` (exit 0)
+with its first attempt, after the first lane had stopped before any freeze
+because the host could not reach the Engine. Its package is B1's
+preregistration v2.3 with a delta outside Git: r1, frozen at 05:22:23Z, had
+an independent review that found two medium and eleven low issues; r2,
+frozen at 05:50:09Z, answers each and was reviewed before the attempt
+(D78.10). Attempt: run `p78b2-r1-20261117T055630Z`, 05:57:08Z to 05:57:23Z,
+outer wall time 14.68 s, charged 15 s of the two hours (D78.11); the pinned
+PostgreSQL 18.6 image on Docker Desktop 4.99.0 (Engine 29.9.3), one owned
+container with `--pull=never --network none`, PostgreSQL slot lock 2 of 3,
+removed by its label with no container, network or volume left. 124 entries
+passed: the 14 single-file `_T2_CELLS` and 110 project cells, 12 of them
+with bound arguments, each argument sent as its physical type's OID, format
+and bytes; `ZERO_SIGN` on `project-select-every-type` and
+`project-group-order-by-max`, as their single files in B1, and `AVG_ORDER`
+on `t2-avg-int-cancelling` and `project-t2-avg-int-cancelling`, each value
+one of the left-to-right sums the manifest listed before the run. Not
+entries: B1's 105 entries, reused because their bytes, fixtures, oracles and
+carriers are unchanged; 3 premise controls and 44 `-nocase` variants
+(SQLite-only premises; a variant's program and PostgreSQL contract equal its
+base cell's); 28 project cells that the PostgreSQL project pipeline refuses
+with `PIE-B1003` (`Bool` comparisons). R1 does not verify: (1) `having`
+with `Int`, `Text` and `Float` query parameters, since the only such cell,
+`project-t2-having-parameters`, also compares a `Bool` parameter; (2) a
+`Bool` query parameter echoed in `select` or read bare in `where`, which the
+cells hold only beside refused `Bool` comparisons; (3) binding a `pg_bool`
+argument at all; (4) the `Bool`-name cells in either mode; (5) the
+one-sided `sum` overflow, whose SQLSTATE 22003 stays inferred, since only
+the in-range bounds ran. The result is
+`tests/fixtures/sqlite/postgres_replay_r1.json`, bound by
+`test_each_r1_postgres_replay_binds_the_bytes_it_ran`.
+
 ### B2 midpoint and unfreeze
 
 **Midpoint (after S10 integrates).** Each T1 and T2 form emits with a

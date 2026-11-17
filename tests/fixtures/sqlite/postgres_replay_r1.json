@@ -1,0 +1,2874 @@
+{
+ "format": "pietto.phase78.b2-r1.postgres-replay.v1",
+ "source": {
+  "what": "Rows that PostgreSQL 18.6 returned for the PostgreSQL bytes of each SQLite B2 cell that postgres_replay_v1.json does not hold (Phase78 R1, PL.47): every single-file T2 cell of tests/test_sql_sqlite_native.py (its _T2_CELLS), emitted by emit_postgres_sql, then every project cell of its _PROJECT_CELLS that the PostgreSQL project pipeline emits (literal policy preserve), over the PostgreSQL contract below; each program with sqlite.table(\" swapped for postgres.table(\". Premise controls and -nocase variants are SQLite-only premises; postgres_refused lists the cells that pipeline refuses.",
+  "campaign": "Preregistration v2.3 with delta r2, attempt 1 of the R1 campaign, PASS exit 0; the campaign ended with this run. Outer wall time 14.68 s (charged 15 s of the campaign's two hours, D78.11). The 105 entries of postgres_replay_v1.json were reused, not replayed (D78.10).",
+  "run_id": "p78b2-r1-20261117T055630Z",
+  "started_utc": "2026-11-17T05:57:08.402059Z",
+  "finished_utc": "2026-11-17T05:57:23.037323Z",
+  "outer_start_utc": "2026-11-17T05:57:08.375476338Z",
+  "outer_end_utc": "2026-11-17T05:57:23.057845967Z",
+  "status": "PASS",
+  "preregistration_delta_sha256": "e6555e2d08affec100c7191221dde3cb964a81561c132c3971088b90f81d0fc4",
+  "sha256sums_sha256": "e37aee3f76c816526822a5a47ead9f2620ef79c2177a7089a54fcdfe33c76d98",
+  "driver_sha256": "b92e9bf56d1be82d9fcfe23a83e6e08d5515998f2dd3c1607e00cb7986e309f6",
+  "judge_sha256": "7dbd1226f155ea7a8f874c98a57c316c6b1cc9fa25a0f56295d944170182dd4e",
+  "manifest_sha256": "443a1baf2cbab574f57353e26ab6c8b4cd50df39aa030bef7215ae3d33ef3d42",
+  "manifest_generator_sha256": "5a310ddef4704551b52bc0f03efa225080e847dc57c9a876b048c27fa2e9fefe",
+  "manifest_input_sha256": {
+   "src/pietto/sql/postgres.py": "fb0757217b1f0ae4e8705c1c5649987ab09bbd36fe4faed440c00fd7d4e7c527",
+   "tests/_pietto_sql_sqlite.py": "5815726141201a179a8c23419c52c6e58c4c7267b0423a0efbcfde083ddb0224",
+   "tests/fixtures/sqlite/postgres_replay_v1.json": "325be52e27a815d79fdbbd77cb42701c469b6d4dc0355fc4026712d39942fe8c",
+   "tests/fixtures/sqlite/single_file.pietto": "430c151f17e44ed6bbf7dbcc7cec7753fdd74912bafcef62a0eb2949fbfaed2e",
+   "tests/phase66_target_pins.json": "572a36a890cda4dc286cd9f9fcccf7998a292fc3b437b7836937960c74e87e92",
+   "tests/test_sql_sqlite_native.py": "2886559cf2c32c5c4c927534e4f12cfc45b1e5bf31258e47380bfb7e4b01e169"
+  },
+  "lane_base_head": "6a0646b4d8d1202e3421a89825ca7f0028a92310",
+  "records_sha256": "938392bafdd0cb8d393cbe6642570cf5ebee236acf8fb0ea74337996949d78d3",
+  "result_sha256": "5cc3af2820fc5c5ef1144d1d99c98b7725fdf4069e629082ec16cac204a34c10",
+  "image": "docker.io/library/postgres:18.6-bookworm@sha256:a10c981235b4f635e65df0cfb66a5598064628128505dbc6a3ed4ca303717521",
+  "server_version": "18.6 (Debian 18.6-1.pgdg12+2)",
+  "server_version_num": "180006",
+  "server_encoding": "UTF8",
+  "timezone": "UTC",
+  "psycopg": "3.3.8 binary",
+  "libpq": 180006,
+  "runtime": "Docker Desktop 4.99.0 (245822), Engine 29.9.3, kernel 6.18.58.1-microsoft-standard-WSL2",
+  "container": "--pull=never --network none, under PostgreSQL slot lock 2 of 3, removed by its label after the run"
+ },
+ "regeneration": "No command regenerates this file (golden-fixture policy). The replay driver wrote records.jsonl and result.json; each entry here copies, in manifest order, its record's sql_sha256, sent, columns, type_oids and rows verbatim (a value is [type, text] as the replay driver wrote it: repr for int, float, str and bool; null is NULL; sent is each argument's type OID, format and bytes in hex as psycopg sent them), the manifest's parameters (physical type and value) and AVG_ORDER candidates, and the judge's divergences; fixtures copy the manifest's tables and PostgreSQL contracts. When an entry's PostgreSQL bytes, arguments, fixture rows, contract, prewritten oracle or carriers change, or a refused cell starts to emit, test_each_r1_postgres_replay_binds_the_bytes_it_ran in tests/test_sql_sqlite_native.py fails. Then the manifest is generated again from the tree, the changed or new entries run under a reviewed preregistration delta and D78.08's conditions, and a reviewed edit replaces only those entries and the source block; every unchanged entry keeps its saved rows (docs/development.md, SQLite target validation).",
+ "not_verified": [
+  "HAVING with Int, Text and Float query parameters: the only such cell, project-t2-having-parameters, also compares a Bool parameter, which PostgreSQL project mode refuses.",
+  "A Bool query parameter echoed in select or read bare in where: the cells hold it only beside refused Bool comparisons.",
+  "Binding a pg_bool argument at all: the bound arguments are pg_int8, pg_text and pg_float8 only.",
+  "The Bool-name cells (_BOOL_NAME_CELLS) in either mode.",
+  "The one-sided sum overflow (sum-over, sum-under): only the in-range bounds sum-up and sum-down ran; PostgreSQL's SQLSTATE 22003 there stays inferred."
+ ],
+ "postgres_refused": [
+  ["project-select-bool-results", ["PIE-B1003"]],
+  ["project-where-bool-ne", ["PIE-B1003"]],
+  ["project-where-bool-lt-true", ["PIE-B1003"]],
+  ["project-where-bool-lt-false", ["PIE-B1003"]],
+  ["project-where-bool-le-true", ["PIE-B1003"]],
+  ["project-where-bool-le-false", ["PIE-B1003"]],
+  ["project-where-bool-gt-false", ["PIE-B1003"]],
+  ["project-where-bool-gt-true", ["PIE-B1003"]],
+  ["project-where-bool-ge-false", ["PIE-B1003"]],
+  ["project-where-bool-ge-true", ["PIE-B1003"]],
+  ["project-where-bool-pair-lt", ["PIE-B1003"]],
+  ["project-where-bool-pair-le", ["PIE-B1003"]],
+  ["project-where-bool-pair-gt", ["PIE-B1003"]],
+  ["project-where-bool-pair-ge", ["PIE-B1003"]],
+  ["project-where-three-valued", ["PIE-B1003"]],
+  ["project-oracle-eq-b-8", ["PIE-B1003"]],
+  ["project-oracle-not-eq-b-8", ["PIE-B1003"]],
+  ["project-oracle-eq-b-9", ["PIE-B1003"]],
+  ["project-oracle-not-eq-b-9", ["PIE-B1003"]],
+  ["project-python-select-bool", ["PIE-B1003", "PIE-B1003", "PIE-B1003", "PIE-B1003", "PIE-B1003", "PIE-B1003"]],
+  ["project-python-select-bool-pair", ["PIE-B1003", "PIE-B1003", "PIE-B1003", "PIE-B1003", "PIE-B1003", "PIE-B1003"]],
+  ["project-t2-having-bool-comparisons", ["PIE-B1003"]],
+  ["project-t2-having-bool-literal-beside-an-output-named-true", ["PIE-B1003"]],
+  ["project-parameter-select-bool", ["PIE-B1003", "PIE-B1003", "PIE-B1003", "PIE-B1003", "PIE-B1003", "PIE-B1003", "PIE-B1003"]],
+  ["project-parameter-where-bool", ["PIE-B1003"]],
+  ["project-t2-having-parameters", ["PIE-B1003"]],
+  ["project-bool-literals-beside-outputs-named-true-and-false", ["PIE-B1003"]],
+  ["project-bool-literals-beside-columns-named-true-and-false", ["PIE-B1003"]]
+ ],
+ "fixtures": {
+  "aliased": {
+   "table": "t`x y",
+   "postgres_ddl": "CREATE TABLE \"t`x y\" (\"i`d\" bigint NOT NULL, \"N space\" bigint, \"\u00e9\"\"q\" text COLLATE \"C\", \"select\" boolean, \"n\" double precision)",
+   "rows": [
+    [["int", "1"], ["int", "-9223372036854775808"], ["str", "'a'"], ["bool", "True"], ["float", "-0.5"]],
+    [["int", "2"], ["int", "9223372036854775807"], ["str", "'A'"], ["bool", "False"], ["float", "1e+300"]],
+    [["int", "3"], ["int", "0"], ["str", "'\u00e9'"], null, ["float", "0.0"]],
+    [["int", "4"], null, ["str", "'e\u0301'"], ["bool", "True"], ["float", "-0.0"]],
+    [["int", "5"], ["int", "7"], null, ["bool", "False"], null],
+    [["int", "6"], ["int", "7"], ["str", "'\u4e2d'"], ["bool", "True"], ["float", "2.5"]],
+    [["int", "7"], ["int", "7"], ["str", "'\u4e2d'"], ["bool", "True"], ["float", "2.5"]],
+    [["int", "8"], null, ["str", "'\ud83d\ude00'"], null, null],
+    [["int", "9"], ["int", "1"], ["str", "''"], ["bool", "False"], ["float", "1.0"]]
+   ],
+   "postgres_contract": {
+    "environment": [
+     {
+      "key": "client_encoding",
+      "scope": "statement",
+      "value": "UTF8"
+     },
+     {
+      "key": "operator_environment",
+      "scope": "statement",
+      "value": "builtin_only"
+     },
+     {
+      "key": "identifier_case",
+      "scope": "statement",
+      "value": "quoted_exact"
+     },
+     {
+      "key": "parameter_protocol",
+      "scope": "statement",
+      "value": "postgres_extended"
+     }
+    ],
+    "format": "pietto.emission-contract.v1",
+    "sources": [
+     {
+      "fields": [
+       {
+        "column": "i`d",
+        "name": "id",
+        "ordinal": 0,
+        "representation": {
+         "domain": {
+          "kind": "int_range",
+          "max": "9223372036854775807",
+          "min": "-9223372036854775808"
+         },
+         "nullable": false,
+         "storage": {
+          "kind": "pg_int8"
+         }
+        }
+       },
+       {
+        "column": "N space",
+        "name": "n",
+        "ordinal": 1,
+        "representation": {
+         "domain": {
+          "kind": "int_range",
+          "max": "9223372036854775807",
+          "min": "-9223372036854775808"
+         },
+         "nullable": true,
+         "storage": {
+          "kind": "pg_int8"
+         }
+        }
+       },
+       {
+        "column": "\u00e9\"q",
+        "name": "s",
+        "ordinal": 2,
+        "representation": {
+         "domain": {
+          "collation": "C",
+          "encoding": "UTF8",
+          "kind": "text",
+          "max_characters": 100,
+          "padding": "NO PAD"
+         },
+         "nullable": true,
+         "storage": {
+          "kind": "pg_text"
+         }
+        }
+       },
+       {
+        "column": "select",
+        "name": "b",
+        "ordinal": 3,
+        "representation": {
+         "domain": {
+          "kind": "bool01"
+         },
+         "nullable": true,
+         "storage": {
+          "kind": "pg_bool"
+         }
+        }
+       },
+       {
+        "column": "n",
+        "name": "x",
+        "ordinal": 4,
+        "representation": {
+         "domain": {
+          "format": "binary64",
+          "kind": "finite_float"
+         },
+         "nullable": true,
+         "storage": {
+          "kind": "pg_float8"
+         }
+        }
+       }
+      ],
+      "premises": [
+       {
+        "key": "row_domain_matches",
+        "scope": "source",
+        "value": true
+       },
+       {
+        "key": "read_only_object",
+        "scope": "source",
+        "value": true
+       }
+      ],
+      "relation": {
+       "name": "t`x y",
+       "namespace": "public"
+      },
+      "scan": "relation_rows",
+      "selector": {
+       "kind": "source",
+       "module": "main.pietto",
+       "name": "t"
+      }
+     }
+    ],
+    "target": {
+     "family": "postgres",
+     "release": "18.6"
+    }
+   }
+  },
+  "cancel": {
+   "table": "t",
+   "postgres_ddl": "CREATE TABLE \"t\" (\"id\" bigint NOT NULL, \"n\" bigint, \"s\" text COLLATE \"C\", \"b\" boolean, \"x\" double precision)",
+   "rows": [
+    [["int", "1"], ["int", "1"], null, ["bool", "False"], null],
+    [["int", "2"], ["int", "9007199254740992"], null, ["bool", "False"], null],
+    [["int", "3"], ["int", "-9007199254740992"], null, ["bool", "False"], null],
+    [["int", "4"], ["int", "9007199254740992"], null, ["bool", "True"], null],
+    [["int", "5"], ["int", "1"], null, ["bool", "True"], null],
+    [["int", "6"], ["int", "1"], null, ["bool", "True"], null]
+   ],
+   "postgres_contract": {
+    "environment": [
+     {
+      "key": "client_encoding",
+      "scope": "statement",
+      "value": "UTF8"
+     },
+     {
+      "key": "operator_environment",
+      "scope": "statement",
+      "value": "builtin_only"
+     },
+     {
+      "key": "identifier_case",
+      "scope": "statement",
+      "value": "quoted_exact"
+     },
+     {
+      "key": "parameter_protocol",
+      "scope": "statement",
+      "value": "postgres_extended"
+     }
+    ],
+    "format": "pietto.emission-contract.v1",
+    "sources": [
+     {
+      "fields": [
+       {
+        "column": "id",
+        "name": "id",
+        "ordinal": 0,
+        "representation": {
+         "domain": {
+          "kind": "int_range",
+          "max": "9223372036854775807",
+          "min": "-9223372036854775808"
+         },
+         "nullable": false,
+         "storage": {
+          "kind": "pg_int8"
+         }
+        }
+       },
+       {
+        "column": "n",
+        "name": "n",
+        "ordinal": 1,
+        "representation": {
+         "domain": {
+          "kind": "int_range",
+          "max": "9223372036854775807",
+          "min": "-9223372036854775808"
+         },
+         "nullable": true,
+         "storage": {
+          "kind": "pg_int8"
+         }
+        }
+       },
+       {
+        "column": "s",
+        "name": "s",
+        "ordinal": 2,
+        "representation": {
+         "domain": {
+          "collation": "C",
+          "encoding": "UTF8",
+          "kind": "text",
+          "max_characters": 100,
+          "padding": "NO PAD"
+         },
+         "nullable": true,
+         "storage": {
+          "kind": "pg_text"
+         }
+        }
+       },
+       {
+        "column": "b",
+        "name": "b",
+        "ordinal": 3,
+        "representation": {
+         "domain": {
+          "kind": "bool01"
+         },
+         "nullable": true,
+         "storage": {
+          "kind": "pg_bool"
+         }
+        }
+       },
+       {
+        "column": "x",
+        "name": "x",
+        "ordinal": 4,
+        "representation": {
+         "domain": {
+          "format": "binary64",
+          "kind": "finite_float"
+         },
+         "nullable": true,
+         "storage": {
+          "kind": "pg_float8"
+         }
+        }
+       }
+      ],
+      "premises": [
+       {
+        "key": "row_domain_matches",
+        "scope": "source",
+        "value": true
+       },
+       {
+        "key": "read_only_object",
+        "scope": "source",
+        "value": true
+       }
+      ],
+      "relation": {
+       "name": "t",
+       "namespace": "public"
+      },
+      "scan": "relation_rows",
+      "selector": {
+       "kind": "source",
+       "module": "main.pietto",
+       "name": "t"
+      }
+     }
+    ],
+    "target": {
+     "family": "postgres",
+     "release": "18.6"
+    }
+   }
+  },
+  "rows": {
+   "table": "t",
+   "postgres_ddl": "CREATE TABLE \"t\" (\"id\" bigint NOT NULL, \"n\" bigint, \"s\" text COLLATE \"C\", \"b\" boolean, \"x\" double precision)",
+   "rows": [
+    [["int", "1"], ["int", "-9223372036854775808"], ["str", "'a'"], ["bool", "True"], ["float", "-0.5"]],
+    [["int", "2"], ["int", "9223372036854775807"], ["str", "'A'"], ["bool", "False"], ["float", "1e+300"]],
+    [["int", "3"], ["int", "0"], ["str", "'\u00e9'"], null, ["float", "0.0"]],
+    [["int", "4"], null, ["str", "'e\u0301'"], ["bool", "True"], ["float", "-0.0"]],
+    [["int", "5"], ["int", "7"], null, ["bool", "False"], null],
+    [["int", "6"], ["int", "7"], ["str", "'\u4e2d'"], ["bool", "True"], ["float", "2.5"]],
+    [["int", "7"], ["int", "7"], ["str", "'\u4e2d'"], ["bool", "True"], ["float", "2.5"]],
+    [["int", "8"], null, ["str", "'\ud83d\ude00'"], null, null],
+    [["int", "9"], ["int", "1"], ["str", "''"], ["bool", "False"], ["float", "1.0"]]
+   ],
+   "postgres_contract": {
+    "environment": [
+     {
+      "key": "client_encoding",
+      "scope": "statement",
+      "value": "UTF8"
+     },
+     {
+      "key": "operator_environment",
+      "scope": "statement",
+      "value": "builtin_only"
+     },
+     {
+      "key": "identifier_case",
+      "scope": "statement",
+      "value": "quoted_exact"
+     },
+     {
+      "key": "parameter_protocol",
+      "scope": "statement",
+      "value": "postgres_extended"
+     }
+    ],
+    "format": "pietto.emission-contract.v1",
+    "sources": [
+     {
+      "fields": [
+       {
+        "column": "id",
+        "name": "id",
+        "ordinal": 0,
+        "representation": {
+         "domain": {
+          "kind": "int_range",
+          "max": "9223372036854775807",
+          "min": "-9223372036854775808"
+         },
+         "nullable": false,
+         "storage": {
+          "kind": "pg_int8"
+         }
+        }
+       },
+       {
+        "column": "n",
+        "name": "n",
+        "ordinal": 1,
+        "representation": {
+         "domain": {
+          "kind": "int_range",
+          "max": "9223372036854775807",
+          "min": "-9223372036854775808"
+         },
+         "nullable": true,
+         "storage": {
+          "kind": "pg_int8"
+         }
+        }
+       },
+       {
+        "column": "s",
+        "name": "s",
+        "ordinal": 2,
+        "representation": {
+         "domain": {
+          "collation": "C",
+          "encoding": "UTF8",
+          "kind": "text",
+          "max_characters": 100,
+          "padding": "NO PAD"
+         },
+         "nullable": true,
+         "storage": {
+          "kind": "pg_text"
+         }
+        }
+       },
+       {
+        "column": "b",
+        "name": "b",
+        "ordinal": 3,
+        "representation": {
+         "domain": {
+          "kind": "bool01"
+         },
+         "nullable": true,
+         "storage": {
+          "kind": "pg_bool"
+         }
+        }
+       },
+       {
+        "column": "x",
+        "name": "x",
+        "ordinal": 4,
+        "representation": {
+         "domain": {
+          "format": "binary64",
+          "kind": "finite_float"
+         },
+         "nullable": true,
+         "storage": {
+          "kind": "pg_float8"
+         }
+        }
+       }
+      ],
+      "premises": [
+       {
+        "key": "row_domain_matches",
+        "scope": "source",
+        "value": true
+       },
+       {
+        "key": "read_only_object",
+        "scope": "source",
+        "value": true
+       }
+      ],
+      "relation": {
+       "name": "t",
+       "namespace": "public"
+      },
+      "scan": "relation_rows",
+      "selector": {
+       "kind": "source",
+       "module": "main.pietto",
+       "name": "t"
+      }
+     }
+    ],
+    "target": {
+     "family": "postgres",
+     "release": "18.6"
+    }
+   }
+  },
+  "sum-down": {
+   "table": "t",
+   "postgres_ddl": "CREATE TABLE \"t\" (\"id\" bigint NOT NULL, \"n\" bigint, \"s\" text COLLATE \"C\", \"b\" boolean, \"x\" double precision)",
+   "rows": [
+    [["int", "1"], ["int", "-9223372036854775801"], null, ["bool", "True"], null],
+    [["int", "2"], ["int", "-3"], null, ["bool", "True"], null],
+    [["int", "3"], ["int", "-4"], null, ["bool", "True"], null],
+    [["int", "4"], null, null, ["bool", "True"], null],
+    [["int", "5"], ["int", "0"], null, ["bool", "False"], null]
+   ],
+   "postgres_contract": {
+    "environment": [
+     {
+      "key": "client_encoding",
+      "scope": "statement",
+      "value": "UTF8"
+     },
+     {
+      "key": "operator_environment",
+      "scope": "statement",
+      "value": "builtin_only"
+     },
+     {
+      "key": "identifier_case",
+      "scope": "statement",
+      "value": "quoted_exact"
+     },
+     {
+      "key": "parameter_protocol",
+      "scope": "statement",
+      "value": "postgres_extended"
+     }
+    ],
+    "format": "pietto.emission-contract.v1",
+    "sources": [
+     {
+      "fields": [
+       {
+        "column": "id",
+        "name": "id",
+        "ordinal": 0,
+        "representation": {
+         "domain": {
+          "kind": "int_range",
+          "max": "9223372036854775807",
+          "min": "-9223372036854775808"
+         },
+         "nullable": false,
+         "storage": {
+          "kind": "pg_int8"
+         }
+        }
+       },
+       {
+        "column": "n",
+        "name": "n",
+        "ordinal": 1,
+        "representation": {
+         "domain": {
+          "kind": "int_range",
+          "max": "0",
+          "min": "-9223372036854775808"
+         },
+         "nullable": true,
+         "storage": {
+          "kind": "pg_int8"
+         }
+        }
+       },
+       {
+        "column": "s",
+        "name": "s",
+        "ordinal": 2,
+        "representation": {
+         "domain": {
+          "collation": "C",
+          "encoding": "UTF8",
+          "kind": "text",
+          "max_characters": 100,
+          "padding": "NO PAD"
+         },
+         "nullable": true,
+         "storage": {
+          "kind": "pg_text"
+         }
+        }
+       },
+       {
+        "column": "b",
+        "name": "b",
+        "ordinal": 3,
+        "representation": {
+         "domain": {
+          "kind": "bool01"
+         },
+         "nullable": true,
+         "storage": {
+          "kind": "pg_bool"
+         }
+        }
+       },
+       {
+        "column": "x",
+        "name": "x",
+        "ordinal": 4,
+        "representation": {
+         "domain": {
+          "format": "binary64",
+          "kind": "finite_float"
+         },
+         "nullable": true,
+         "storage": {
+          "kind": "pg_float8"
+         }
+        }
+       }
+      ],
+      "premises": [
+       {
+        "key": "row_domain_matches",
+        "scope": "source",
+        "value": true
+       },
+       {
+        "key": "read_only_object",
+        "scope": "source",
+        "value": true
+       }
+      ],
+      "relation": {
+       "name": "t",
+       "namespace": "public"
+      },
+      "scan": "relation_rows",
+      "selector": {
+       "kind": "source",
+       "module": "main.pietto",
+       "name": "t"
+      }
+     }
+    ],
+    "target": {
+     "family": "postgres",
+     "release": "18.6"
+    }
+   }
+  },
+  "sum-up": {
+   "table": "t",
+   "postgres_ddl": "CREATE TABLE \"t\" (\"id\" bigint NOT NULL, \"n\" bigint, \"s\" text COLLATE \"C\", \"b\" boolean, \"x\" double precision)",
+   "rows": [
+    [["int", "1"], ["int", "9223372036854775800"], null, ["bool", "True"], null],
+    [["int", "2"], ["int", "3"], null, ["bool", "True"], null],
+    [["int", "3"], ["int", "4"], null, ["bool", "True"], null],
+    [["int", "4"], null, null, ["bool", "True"], null],
+    [["int", "5"], ["int", "0"], null, ["bool", "False"], null],
+    [["int", "6"], ["int", "5"], null, ["bool", "False"], null],
+    [["int", "7"], null, null, null, null]
+   ],
+   "postgres_contract": {
+    "environment": [
+     {
+      "key": "client_encoding",
+      "scope": "statement",
+      "value": "UTF8"
+     },
+     {
+      "key": "operator_environment",
+      "scope": "statement",
+      "value": "builtin_only"
+     },
+     {
+      "key": "identifier_case",
+      "scope": "statement",
+      "value": "quoted_exact"
+     },
+     {
+      "key": "parameter_protocol",
+      "scope": "statement",
+      "value": "postgres_extended"
+     }
+    ],
+    "format": "pietto.emission-contract.v1",
+    "sources": [
+     {
+      "fields": [
+       {
+        "column": "id",
+        "name": "id",
+        "ordinal": 0,
+        "representation": {
+         "domain": {
+          "kind": "int_range",
+          "max": "9223372036854775807",
+          "min": "-9223372036854775808"
+         },
+         "nullable": false,
+         "storage": {
+          "kind": "pg_int8"
+         }
+        }
+       },
+       {
+        "column": "n",
+        "name": "n",
+        "ordinal": 1,
+        "representation": {
+         "domain": {
+          "kind": "int_range",
+          "max": "9223372036854775807",
+          "min": "0"
+         },
+         "nullable": true,
+         "storage": {
+          "kind": "pg_int8"
+         }
+        }
+       },
+       {
+        "column": "s",
+        "name": "s",
+        "ordinal": 2,
+        "representation": {
+         "domain": {
+          "collation": "C",
+          "encoding": "UTF8",
+          "kind": "text",
+          "max_characters": 100,
+          "padding": "NO PAD"
+         },
+         "nullable": true,
+         "storage": {
+          "kind": "pg_text"
+         }
+        }
+       },
+       {
+        "column": "b",
+        "name": "b",
+        "ordinal": 3,
+        "representation": {
+         "domain": {
+          "kind": "bool01"
+         },
+         "nullable": true,
+         "storage": {
+          "kind": "pg_bool"
+         }
+        }
+       },
+       {
+        "column": "x",
+        "name": "x",
+        "ordinal": 4,
+        "representation": {
+         "domain": {
+          "format": "binary64",
+          "kind": "finite_float"
+         },
+         "nullable": true,
+         "storage": {
+          "kind": "pg_float8"
+         }
+        }
+       }
+      ],
+      "premises": [
+       {
+        "key": "row_domain_matches",
+        "scope": "source",
+        "value": true
+       },
+       {
+        "key": "read_only_object",
+        "scope": "source",
+        "value": true
+       }
+      ],
+      "relation": {
+       "name": "t",
+       "namespace": "public"
+      },
+      "scan": "relation_rows",
+      "selector": {
+       "kind": "source",
+       "module": "main.pietto",
+       "name": "t"
+      }
+     }
+    ],
+    "target": {
+     "family": "postgres",
+     "release": "18.6"
+    }
+   }
+  }
+ },
+ "entries": [
+  {
+   "id": "t2-count-distinct-every-type",
+   "fixture": "rows",
+   "postgres_sql_sha256": "4086dbd5088b1c4c5d41e23b64bd1b959cf5a53ce8a59586588f8ee4fa0adeb9",
+   "parameters": [],
+   "sent": [],
+   "columns": ["did", "dn", "ds", "db"],
+   "type_oids": [20, 20, 20, 20],
+   "divergences": [],
+   "rows": [
+    [["int", "9"], ["int", "5"], ["int", "7"], ["int", "2"]]
+   ]
+  },
+  {
+   "id": "t2-count-distinct-grouped-ordered",
+   "fixture": "rows",
+   "postgres_sql_sha256": "e38d99d6956be869492d54cd7f5d2f3e98a80446e58e5baeeac8ce7e34aa649d",
+   "parameters": [],
+   "sent": [],
+   "columns": ["b", "ds"],
+   "type_oids": [16, 20],
+   "divergences": [],
+   "rows": [
+    [["bool", "True"], ["int", "3"]],
+    [["bool", "False"], ["int", "2"]],
+    [null, ["int", "2"]]
+   ]
+  },
+  {
+   "id": "t2-avg-int-grouped",
+   "fixture": "rows",
+   "postgres_sql_sha256": "dafff4ca17c1ed6931bfde040317845e7830244c029e70232269f576afb59241",
+   "parameters": [],
+   "sent": [],
+   "columns": ["b", "a", "e"],
+   "type_oids": [16, 701, 701],
+   "divergences": [],
+   "rows": [
+    [null, ["float", "0.0"], ["float", "5.5"]],
+    [["bool", "False"], ["float", "3.0744573456182584e+18"], ["float", "5.333333333333333"]],
+    [["bool", "True"], ["float", "-3.0744573456182584e+18"], ["float", "4.5"]]
+   ]
+  },
+  {
+   "id": "t2-avg-int-cancelling",
+   "fixture": "cancel",
+   "postgres_sql_sha256": "cdaac3e537082895e09fe01b02797d62e05d649b46c035a42f147a4fc3bfd800",
+   "parameters": [],
+   "sent": [],
+   "columns": ["b", "a"],
+   "type_oids": [16, 701],
+   "divergences": ["AVG_ORDER"],
+   "rows": [
+    [["bool", "False"], ["float", "0.0"]],
+    [["bool", "True"], ["float", "3002399751580330.5"]]
+   ],
+   "observed_difference": {
+    "candidates": [
+     [[["float", "0.0"], ["float", "0.3333333333333333"]]],
+     [[["float", "3002399751580330.5"], ["float", "3002399751580331.5"]]]
+    ],
+    "columns": ["a"],
+    "kind": "AVG_ORDER"
+   }
+  },
+  {
+   "id": "t2-empty-input",
+   "fixture": "rows",
+   "postgres_sql_sha256": "230146328a3faabb6b8b902add1847411d10e4365896f7d7248c3bdf53d9f76b",
+   "parameters": [],
+   "sent": [],
+   "columns": ["a", "d", "c"],
+   "type_oids": [701, 20, 20],
+   "divergences": [],
+   "rows": [
+    [null, ["int", "0"], ["int", "0"]]
+   ]
+  },
+  {
+   "id": "t2-all-null-input",
+   "fixture": "rows",
+   "postgres_sql_sha256": "59d45964a98eeaf7f7668e092e1ccf04b7a16f2bdfc9b2912d4823c5efd6af6c",
+   "parameters": [],
+   "sent": [],
+   "columns": ["a", "d"],
+   "type_oids": [701, 20],
+   "divergences": [],
+   "rows": [
+    [null, ["int", "0"]]
+   ]
+  },
+  {
+   "id": "t2-having-outputs-named-like-columns",
+   "fixture": "rows",
+   "postgres_sql_sha256": "c0e2bff722e07179aeaf17e206234aeceac1764a610ed984a5f17d03c9683174",
+   "parameters": [],
+   "sent": [],
+   "columns": ["s", "n", "x"],
+   "type_oids": [25, 20, 20],
+   "divergences": [],
+   "rows": [
+    [["str", "''"], ["int", "1"], ["int", "9"]],
+    [["str", "'\u4e2d'"], ["int", "2"], ["int", "7"]]
+   ]
+  },
+  {
+   "id": "t2-having-int-comparisons",
+   "fixture": "rows",
+   "postgres_sql_sha256": "cc96d32aa4e93933d16c848bcc3c7c3613b00fe39fdfe60cc1e6fad9cb44f771",
+   "parameters": [],
+   "sent": [],
+   "columns": ["b", "c"],
+   "type_oids": [16, 20],
+   "divergences": [],
+   "rows": [
+    [null, ["int", "2"]],
+    [["bool", "True"], ["int", "4"]]
+   ]
+  },
+  {
+   "id": "t2-having-float-comparisons",
+   "fixture": "rows",
+   "postgres_sql_sha256": "2c0f3bcec8a1f2a43ce46be9eff184b9b93ebaf430887f64ba28524ab8d8f1da",
+   "parameters": [],
+   "sent": [],
+   "columns": ["b", "hi"],
+   "type_oids": [16, 701],
+   "divergences": [],
+   "rows": [
+    [null, ["float", "0.0"]],
+    [["bool", "True"], ["float", "2.5"]]
+   ]
+  },
+  {
+   "id": "t2-having-text-comparisons",
+   "fixture": "rows",
+   "postgres_sql_sha256": "68e9d3657b943159b6d8c5a2d71f16b3b59934fe9540ffdd9ccd02314cbc1105",
+   "parameters": [],
+   "sent": [],
+   "columns": ["s", "c"],
+   "type_oids": [25, 20],
+   "divergences": [],
+   "rows": [
+    [["str", "'a'"], ["int", "1"]],
+    [["str", "''"], ["int", "1"]]
+   ]
+  },
+  {
+   "id": "t2-having-bool-comparisons",
+   "fixture": "rows",
+   "postgres_sql_sha256": "43b113bc2cf6d2c3f9e44c78d07a640578cd34e757117da965ec18221f8c5542",
+   "parameters": [],
+   "sent": [],
+   "columns": ["b", "c"],
+   "type_oids": [16, 20],
+   "divergences": [],
+   "rows": [
+    [["bool", "False"], ["int", "3"]],
+    [["bool", "True"], ["int", "4"]]
+   ]
+  },
+  {
+   "id": "t2-having-bool-literal-beside-an-output-named-true",
+   "fixture": "rows",
+   "postgres_sql_sha256": "c73917a98b226c8794acfc7036f7b4ee7bdba3a796aca82792159ee083b8f744",
+   "parameters": [],
+   "sent": [],
+   "columns": ["b", "TRUE"],
+   "type_oids": [16, 20],
+   "divergences": [],
+   "rows": [
+    [["bool", "True"], ["int", "4"]]
+   ]
+  },
+  {
+   "id": "t2-having-avg-and-count-distinct",
+   "fixture": "rows",
+   "postgres_sql_sha256": "00f33065b3ccd0cd527da87ba0454b8ee12698e7b1aefe087364c8b58e78f7f9",
+   "parameters": [],
+   "sent": [],
+   "columns": ["b", "a", "d"],
+   "type_oids": [16, 701, 20],
+   "divergences": [],
+   "rows": [
+    [["bool", "True"], ["float", "4.5"], ["int", "3"]],
+    [null, ["float", "5.5"], ["int", "2"]]
+   ]
+  },
+  {
+   "id": "t2-having-where-order-limit",
+   "fixture": "rows",
+   "postgres_sql_sha256": "e1a5f3002671ee916072afe7d0520960f3b7da62f25d5bb4678d0aefdab7ea6d",
+   "parameters": [],
+   "sent": [],
+   "columns": ["b", "c"],
+   "type_oids": [16, 20],
+   "divergences": [],
+   "rows": [
+    [["bool", "True"], ["int", "4"]]
+   ]
+  },
+  {
+   "id": "project-select-every-type",
+   "fixture": "rows",
+   "postgres_sql_sha256": "15a25a978e44bf788f7bf7536ac84b96b57537d92c921f4ffd1badb1064fefcd",
+   "parameters": [],
+   "sent": [],
+   "columns": ["id", "n", "s", "b", "x"],
+   "type_oids": [20, 20, 25, 16, 701],
+   "divergences": ["ZERO_SIGN"],
+   "rows": [
+    [["int", "1"], ["int", "-9223372036854775808"], ["str", "'a'"], ["bool", "True"], ["float", "-0.5"]],
+    [["int", "2"], ["int", "9223372036854775807"], ["str", "'A'"], ["bool", "False"], ["float", "1e+300"]],
+    [["int", "3"], ["int", "0"], ["str", "'\u00e9'"], null, ["float", "0.0"]],
+    [["int", "4"], null, ["str", "'e\u0301'"], ["bool", "True"], ["float", "-0.0"]],
+    [["int", "5"], ["int", "7"], null, ["bool", "False"], null],
+    [["int", "6"], ["int", "7"], ["str", "'\u4e2d'"], ["bool", "True"], ["float", "2.5"]],
+    [["int", "7"], ["int", "7"], ["str", "'\u4e2d'"], ["bool", "True"], ["float", "2.5"]],
+    [["int", "8"], null, ["str", "'\ud83d\ude00'"], null, null],
+    [["int", "9"], ["int", "1"], ["str", "''"], ["bool", "False"], ["float", "1.0"]]
+   ]
+  },
+  {
+   "id": "project-select-literals",
+   "fixture": "rows",
+   "postgres_sql_sha256": "ad362c5f940c235f419e6c9ec4325d9463179066a1988251879e816941c67a30",
+   "parameters": [],
+   "sent": [],
+   "columns": ["id", "big", "zero", "half", "nought", "quote", "wide", "truth", "falsity"],
+   "type_oids": [20, 20, 20, 701, 701, 25, 25, 16, 16],
+   "divergences": [],
+   "rows": [
+    [["int", "1"], ["int", "9223372036854775807"], ["int", "0"], ["float", "1.5"], ["float", "0.0"], ["str", "\"O'Neil\""], ["str", "'\u00e9\u4e2d\ud83d\ude00'"], ["bool", "True"], ["bool", "False"]]
+   ]
+  },
+  {
+   "id": "project-select-multiplicity",
+   "fixture": "rows",
+   "postgres_sql_sha256": "7b6e619b6f2473daeeee9c698511cb17cb7274684ebffd3c32e08bba250a2543",
+   "parameters": [],
+   "sent": [],
+   "columns": ["n", "s"],
+   "type_oids": [20, 25],
+   "divergences": [],
+   "rows": [
+    [["int", "-9223372036854775808"], ["str", "'a'"]],
+    [["int", "9223372036854775807"], ["str", "'A'"]],
+    [["int", "0"], ["str", "'\u00e9'"]],
+    [null, ["str", "'e\u0301'"]],
+    [["int", "7"], null],
+    [["int", "7"], ["str", "'\u4e2d'"]],
+    [["int", "7"], ["str", "'\u4e2d'"]],
+    [null, ["str", "'\ud83d\ude00'"]],
+    [["int", "1"], ["str", "''"]]
+   ]
+  },
+  {
+   "id": "project-select-connectives",
+   "fixture": "rows",
+   "postgres_sql_sha256": "a589c8b33fdaeb5af56d5fffc7b719e861da7f6fa40693f8fee20bc1546ce569",
+   "parameters": [],
+   "sent": [],
+   "columns": ["id", "both", "either"],
+   "type_oids": [20, 16, 16],
+   "divergences": [],
+   "rows": [
+    [["int", "1"], ["bool", "True"], ["bool", "True"]],
+    [["int", "2"], ["bool", "False"], ["bool", "False"]],
+    [["int", "3"], null, null],
+    [["int", "4"], ["bool", "True"], ["bool", "True"]],
+    [["int", "5"], ["bool", "False"], ["bool", "True"]],
+    [["int", "6"], ["bool", "True"], ["bool", "True"]],
+    [["int", "7"], ["bool", "True"], ["bool", "True"]],
+    [["int", "8"], ["bool", "False"], ["bool", "True"]],
+    [["int", "9"], ["bool", "False"], ["bool", "False"]]
+   ]
+  },
+  {
+   "id": "project-where-int-ne",
+   "fixture": "rows",
+   "postgres_sql_sha256": "ca8d5a4c0321c538f362f6a8c22cb6747c99ad6c2ea60f054af92b3aee1f8240",
+   "parameters": [],
+   "sent": [],
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "1"]],
+    [["int", "2"]],
+    [["int", "3"]],
+    [["int", "9"]]
+   ]
+  },
+  {
+   "id": "project-where-int-lt",
+   "fixture": "rows",
+   "postgres_sql_sha256": "bf6c9522d8a4ad0106f6cca214123adf1dc391a2e8ecf6cdfddcb022e760ca19",
+   "parameters": [],
+   "sent": [],
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "1"]]
+   ]
+  },
+  {
+   "id": "project-where-int-le",
+   "fixture": "rows",
+   "postgres_sql_sha256": "d9e004cc4df1aafe30c5c8b4324005b50447c9f46693cb30942bbbfeb7f13a49",
+   "parameters": [],
+   "sent": [],
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "1"]],
+    [["int", "3"]]
+   ]
+  },
+  {
+   "id": "project-where-int-gt",
+   "fixture": "rows",
+   "postgres_sql_sha256": "6fe03278a4a190ca4e55c16a06e142515c70b300e5935a7ba9339b07a8c21148",
+   "parameters": [],
+   "sent": [],
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "2"]]
+   ]
+  },
+  {
+   "id": "project-where-int-ge-max",
+   "fixture": "rows",
+   "postgres_sql_sha256": "ad0e914a8248b3e6dfc634beaa232bf7587ca3413cb599eb9218b5df7374edbd",
+   "parameters": [],
+   "sent": [],
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "2"]]
+   ]
+  },
+  {
+   "id": "project-where-text-lt-case",
+   "fixture": "rows",
+   "postgres_sql_sha256": "7421ae39a218339c2078c32486a3521fb63b12c44b219c80dbf925d6264bbfd6",
+   "parameters": [],
+   "sent": [],
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "2"]],
+    [["int", "9"]]
+   ]
+  },
+  {
+   "id": "project-where-text-gt-non-ascii",
+   "fixture": "rows",
+   "postgres_sql_sha256": "4483714ee3090fbdc72cf53a771e137c3ba111b91409cb3ce151bfa775b950c4",
+   "parameters": [],
+   "sent": [],
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "3"]],
+    [["int", "6"]],
+    [["int", "7"]],
+    [["int", "8"]]
+   ]
+  },
+  {
+   "id": "project-where-text-ge-combining",
+   "fixture": "rows",
+   "postgres_sql_sha256": "f21f13813909f8e49b20f7bf6e1049b68049207124f5cd8c876a9ff2f0ceb8c1",
+   "parameters": [],
+   "sent": [],
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "3"]],
+    [["int", "4"]],
+    [["int", "6"]],
+    [["int", "7"]],
+    [["int", "8"]]
+   ]
+  },
+  {
+   "id": "project-where-text-le-empty",
+   "fixture": "rows",
+   "postgres_sql_sha256": "cd4eb1b859b1e56cc34444951c8b91a940e1bc5bd2324d03098aefad906ac925",
+   "parameters": [],
+   "sent": [],
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "9"]]
+   ]
+  },
+  {
+   "id": "project-where-text-ne",
+   "fixture": "rows",
+   "postgres_sql_sha256": "1ef699c08e19d0f857eaa1039337fcab6e3413285aea78e91eae28c1a82147fb",
+   "parameters": [],
+   "sent": [],
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "2"]],
+    [["int", "3"]],
+    [["int", "4"]],
+    [["int", "6"]],
+    [["int", "7"]],
+    [["int", "8"]],
+    [["int", "9"]]
+   ]
+  },
+  {
+   "id": "project-where-bool-bare",
+   "fixture": "rows",
+   "postgres_sql_sha256": "6fc772235bedc7567266169b7b96593cc5d895a3a59b4f6f7e2975396e284853",
+   "parameters": [],
+   "sent": [],
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "1"]],
+    [["int", "4"]],
+    [["int", "6"]],
+    [["int", "7"]]
+   ]
+  },
+  {
+   "id": "project-where-bool-not",
+   "fixture": "rows",
+   "postgres_sql_sha256": "e07de71d4d701d0a9b1d4e1f35ddbeeec16d8ed6eeb92b36f1216ce78a3b72af",
+   "parameters": [],
+   "sent": [],
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "2"]],
+    [["int", "5"]],
+    [["int", "9"]]
+   ]
+  },
+  {
+   "id": "project-where-bool-none",
+   "fixture": "rows",
+   "postgres_sql_sha256": "cd550c30fd1c6cd37b7e34680e5994839c1f18432ddf17578c555bbcbb19d80e",
+   "parameters": [],
+   "sent": [],
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "3"]],
+    [["int", "8"]]
+   ]
+  },
+  {
+   "id": "project-where-bool-not-none",
+   "fixture": "rows",
+   "postgres_sql_sha256": "0a82a823df5682fb05989062d94aa41f48036cb209e800c92242f5ba20894bef",
+   "parameters": [],
+   "sent": [],
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "1"]],
+    [["int", "2"]],
+    [["int", "4"]],
+    [["int", "5"]],
+    [["int", "6"]],
+    [["int", "7"]],
+    [["int", "9"]]
+   ]
+  },
+  {
+   "id": "project-where-int-not-none",
+   "fixture": "rows",
+   "postgres_sql_sha256": "1da496bdaf9f2629faf725bcd561a989d5f37bb0fb9d81b922aeedb603aec3fc",
+   "parameters": [],
+   "sent": [],
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "1"]],
+    [["int", "2"]],
+    [["int", "3"]],
+    [["int", "5"]],
+    [["int", "6"]],
+    [["int", "7"]],
+    [["int", "9"]]
+   ]
+  },
+  {
+   "id": "project-where-text-none",
+   "fixture": "rows",
+   "postgres_sql_sha256": "84dbb728449d3f2042249b4ffe0c9ccceb28be2c35000a261a8927374fb940ea",
+   "parameters": [],
+   "sent": [],
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "5"]]
+   ]
+  },
+  {
+   "id": "project-where-text-not-none",
+   "fixture": "rows",
+   "postgres_sql_sha256": "40a165036e611518223b8a36e3428656d48af6bb797cff47b46fd71fb2b278dd",
+   "parameters": [],
+   "sent": [],
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "1"]],
+    [["int", "2"]],
+    [["int", "3"]],
+    [["int", "4"]],
+    [["int", "6"]],
+    [["int", "7"]],
+    [["int", "8"]],
+    [["int", "9"]]
+   ]
+  },
+  {
+   "id": "project-where-float-none",
+   "fixture": "rows",
+   "postgres_sql_sha256": "117f6c96692a48e023df9d233c658cb20ce9ed63506d2a7292a24f39bdeda6c6",
+   "parameters": [],
+   "sent": [],
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "5"]],
+    [["int", "8"]]
+   ]
+  },
+  {
+   "id": "project-where-float-not-none",
+   "fixture": "rows",
+   "postgres_sql_sha256": "356ce81cdc8eb1c2f5924044a9af3bd7689ec5ac16d102e13e746045621f7f42",
+   "parameters": [],
+   "sent": [],
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "1"]],
+    [["int", "2"]],
+    [["int", "3"]],
+    [["int", "4"]],
+    [["int", "6"]],
+    [["int", "7"]],
+    [["int", "9"]]
+   ]
+  },
+  {
+   "id": "project-where-float-eq-zero",
+   "fixture": "rows",
+   "postgres_sql_sha256": "5a9e22cc70d1e84c0f2aa13e8501c649190675006522fea080e970c3faed8fe0",
+   "parameters": [],
+   "sent": [],
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "3"]],
+    [["int", "4"]]
+   ]
+  },
+  {
+   "id": "project-where-float-lt",
+   "fixture": "rows",
+   "postgres_sql_sha256": "73fad57ac904308fadc9ac0dbee808ee92382e18c776635740006d6b09b593a4",
+   "parameters": [],
+   "sent": [],
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "1"]],
+    [["int", "3"]],
+    [["int", "4"]]
+   ]
+  },
+  {
+   "id": "project-where-float-le-zero",
+   "fixture": "rows",
+   "postgres_sql_sha256": "8a7dae70a0bc9181bfbc8a66ba9719cae2a1331484f1151d29bc903112b7cfa2",
+   "parameters": [],
+   "sent": [],
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "1"]],
+    [["int", "3"]],
+    [["int", "4"]]
+   ]
+  },
+  {
+   "id": "project-where-float-gt-zero",
+   "fixture": "rows",
+   "postgres_sql_sha256": "60f3ce79a224ee3be7cd73ec63835d7460930fc4803bd640d6afa7e31d1d754f",
+   "parameters": [],
+   "sent": [],
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "2"]],
+    [["int", "6"]],
+    [["int", "7"]],
+    [["int", "9"]]
+   ]
+  },
+  {
+   "id": "project-where-float-ge",
+   "fixture": "rows",
+   "postgres_sql_sha256": "93f2c39362c3ae77872f37851ecc1aa4369210106a70aea2a034dfab0cb23cbc",
+   "parameters": [],
+   "sent": [],
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "2"]],
+    [["int", "6"]],
+    [["int", "7"]]
+   ]
+  },
+  {
+   "id": "project-where-float-ne",
+   "fixture": "rows",
+   "postgres_sql_sha256": "074698b0477774ff4016401a1a05c24e6d730495dc8ec86e5f1f9a5824667694",
+   "parameters": [],
+   "sent": [],
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "1"]],
+    [["int", "2"]],
+    [["int", "3"]],
+    [["int", "4"]],
+    [["int", "6"]],
+    [["int", "7"]]
+   ]
+  },
+  {
+   "id": "project-where-or-none",
+   "fixture": "rows",
+   "postgres_sql_sha256": "186ed535d0c7b463e707c359dc65fbd922b16038c6f537da1ac37285efdfee71",
+   "parameters": [],
+   "sent": [],
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "1"]],
+    [["int", "4"]],
+    [["int", "5"]],
+    [["int", "6"]],
+    [["int", "7"]],
+    [["int", "8"]]
+   ]
+  },
+  {
+   "id": "project-where-not-or",
+   "fixture": "rows",
+   "postgres_sql_sha256": "07322436fde55f95a4ef9b1c9ab6cae440bcbbc7ade0a58afce5f324640bfcc0",
+   "parameters": [],
+   "sent": [],
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "2"]],
+    [["int", "3"]],
+    [["int", "6"]],
+    [["int", "7"]],
+    [["int", "9"]]
+   ]
+  },
+  {
+   "id": "project-order-int-asc",
+   "fixture": "rows",
+   "postgres_sql_sha256": "65f91eeca5bdf55990ed03b83e5cb382f11067c17fb69a7d4ef2cf315d25fe2c",
+   "parameters": [],
+   "sent": [],
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "1"]],
+    [["int", "3"]],
+    [["int", "9"]],
+    [["int", "5"]],
+    [["int", "6"]],
+    [["int", "7"]],
+    [["int", "2"]],
+    [["int", "4"]],
+    [["int", "8"]]
+   ]
+  },
+  {
+   "id": "project-order-int-desc",
+   "fixture": "rows",
+   "postgres_sql_sha256": "38eb5146b09162669d2f51ba5342da6042063d30fc38966a7ae31da248297743",
+   "parameters": [],
+   "sent": [],
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "4"]],
+    [["int", "8"]],
+    [["int", "2"]],
+    [["int", "5"]],
+    [["int", "6"]],
+    [["int", "7"]],
+    [["int", "9"]],
+    [["int", "3"]],
+    [["int", "1"]]
+   ]
+  },
+  {
+   "id": "project-order-text-asc",
+   "fixture": "rows",
+   "postgres_sql_sha256": "89317aef53c1053605ad3b432357f88d48dccef33945ca97d8465d63ee4241be",
+   "parameters": [],
+   "sent": [],
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "9"]],
+    [["int", "2"]],
+    [["int", "1"]],
+    [["int", "4"]],
+    [["int", "3"]],
+    [["int", "6"]],
+    [["int", "7"]],
+    [["int", "8"]],
+    [["int", "5"]]
+   ]
+  },
+  {
+   "id": "project-order-text-desc",
+   "fixture": "rows",
+   "postgres_sql_sha256": "71a05daa2686168dbef3f5fd42fcfd39197fcb94f1b6c24bdf2e4f3e73a2d273",
+   "parameters": [],
+   "sent": [],
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "5"]],
+    [["int", "8"]],
+    [["int", "6"]],
+    [["int", "7"]],
+    [["int", "3"]],
+    [["int", "4"]],
+    [["int", "1"]],
+    [["int", "2"]],
+    [["int", "9"]]
+   ]
+  },
+  {
+   "id": "project-order-bool-asc",
+   "fixture": "rows",
+   "postgres_sql_sha256": "1007e7665bcd2321df519f35c3f6d8a37024c7587021e82c01fc4a332d0a3f47",
+   "parameters": [],
+   "sent": [],
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "2"]],
+    [["int", "5"]],
+    [["int", "9"]],
+    [["int", "1"]],
+    [["int", "4"]],
+    [["int", "6"]],
+    [["int", "7"]],
+    [["int", "3"]],
+    [["int", "8"]]
+   ]
+  },
+  {
+   "id": "project-order-bool-desc",
+   "fixture": "rows",
+   "postgres_sql_sha256": "18d67e00f6327986aeefa7196a951de2d4485265c9d288e32a8331eff110623a",
+   "parameters": [],
+   "sent": [],
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "3"]],
+    [["int", "8"]],
+    [["int", "1"]],
+    [["int", "4"]],
+    [["int", "6"]],
+    [["int", "7"]],
+    [["int", "2"]],
+    [["int", "5"]],
+    [["int", "9"]]
+   ]
+  },
+  {
+   "id": "project-order-float-asc",
+   "fixture": "rows",
+   "postgres_sql_sha256": "85aa4fff302cadc274b8c0156e8552ee06521cb5dc8ea92ccb228c259eedbc67",
+   "parameters": [],
+   "sent": [],
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "1"]],
+    [["int", "3"]],
+    [["int", "4"]],
+    [["int", "9"]],
+    [["int", "6"]],
+    [["int", "7"]],
+    [["int", "2"]],
+    [["int", "5"]],
+    [["int", "8"]]
+   ]
+  },
+  {
+   "id": "project-order-float-desc",
+   "fixture": "rows",
+   "postgres_sql_sha256": "3d5d89bed7bf3b8cdb75e53bd61fca4995fdcae1352f6067d3d81ac4587b3a1b",
+   "parameters": [],
+   "sent": [],
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "5"]],
+    [["int", "8"]],
+    [["int", "2"]],
+    [["int", "6"]],
+    [["int", "7"]],
+    [["int", "9"]],
+    [["int", "3"]],
+    [["int", "4"]],
+    [["int", "1"]]
+   ]
+  },
+  {
+   "id": "project-order-two-keys",
+   "fixture": "rows",
+   "postgres_sql_sha256": "1868516c9677fd0529d56a37cc7a9c4b30dde22014e72e3ac7053b4fddea884d",
+   "parameters": [],
+   "sent": [],
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "5"]],
+    [["int", "2"]],
+    [["int", "9"]],
+    [["int", "6"]],
+    [["int", "7"]],
+    [["int", "4"]],
+    [["int", "1"]],
+    [["int", "8"]],
+    [["int", "3"]]
+   ]
+  },
+  {
+   "id": "project-order-id-desc",
+   "fixture": "rows",
+   "postgres_sql_sha256": "7114263cb3c21a646a40546a08c31cb6c35505c83c132b84bd47f70e83a0a20b",
+   "parameters": [],
+   "sent": [],
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "9"]],
+    [["int", "8"]],
+    [["int", "7"]],
+    [["int", "6"]],
+    [["int", "5"]],
+    [["int", "4"]],
+    [["int", "3"]],
+    [["int", "2"]],
+    [["int", "1"]]
+   ]
+  },
+  {
+   "id": "project-order-field-not-output",
+   "fixture": "rows",
+   "postgres_sql_sha256": "e4aa7b95c5f4445204942314f98b243e43e91875858e365a3e1fb4a88357cede",
+   "parameters": [],
+   "sent": [],
+   "columns": ["id", "N"],
+   "type_oids": [20, 25],
+   "divergences": [],
+   "rows": [
+    [["int", "1"], ["str", "'a'"]],
+    [["int", "3"], ["str", "'\u00e9'"]],
+    [["int", "9"], ["str", "''"]],
+    [["int", "5"], null],
+    [["int", "6"], ["str", "'\u4e2d'"]],
+    [["int", "7"], ["str", "'\u4e2d'"]],
+    [["int", "2"], ["str", "'A'"]],
+    [["int", "4"], ["str", "'e\u0301'"]],
+    [["int", "8"], ["str", "'\ud83d\ude00'"]]
+   ]
+  },
+  {
+   "id": "project-limit-three",
+   "fixture": "rows",
+   "postgres_sql_sha256": "060c7d6d4c136eb610a3c2cb3995bc54eaf7de6a3fc7d71955f1541fd40f2626",
+   "parameters": [],
+   "sent": [],
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "1"]],
+    [["int", "2"]],
+    [["int", "3"]]
+   ]
+  },
+  {
+   "id": "project-limit-zero",
+   "fixture": "rows",
+   "postgres_sql_sha256": "211f69dc402f135ea1fb7ff4e767611632e95aa1696ed2c95f5d7b8a6acc0e01",
+   "parameters": [],
+   "sent": [],
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": []
+  },
+  {
+   "id": "project-limit-keeps-duplicates",
+   "fixture": "rows",
+   "postgres_sql_sha256": "0869808d38a4d60035ffb44ed763eb09ca66400fc9d15adf02d751e123139afe",
+   "parameters": [],
+   "sent": [],
+   "columns": ["n", "s"],
+   "type_oids": [20, 25],
+   "divergences": [],
+   "rows": [
+    [["int", "7"], ["str", "'\u4e2d'"]],
+    [["int", "7"], ["str", "'\u4e2d'"]]
+   ]
+  },
+  {
+   "id": "project-limit-nulls-first",
+   "fixture": "rows",
+   "postgres_sql_sha256": "832a1bc756e412254e04c92096df65d9cded0e67e5d6a84f5601576911527027",
+   "parameters": [],
+   "sent": [],
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "5"]]
+   ]
+  },
+  {
+   "id": "project-limit-max",
+   "fixture": "rows",
+   "postgres_sql_sha256": "0e2bd68d529bf5516537aa912fe40c7c598b5f5aa09fe2032aec461fac023ac1",
+   "parameters": [],
+   "sent": [],
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "1"]],
+    [["int", "2"]],
+    [["int", "3"]],
+    [["int", "4"]],
+    [["int", "5"]],
+    [["int", "6"]],
+    [["int", "7"]],
+    [["int", "8"]],
+    [["int", "9"]]
+   ]
+  },
+  {
+   "id": "project-count-each-type",
+   "fixture": "rows",
+   "postgres_sql_sha256": "82062d6cd00831c9310cf25278be667d13b93365eb4550e28356b7bfe1880382",
+   "parameters": [],
+   "sent": [],
+   "columns": ["rows", "ns", "ss", "bs", "xs"],
+   "type_oids": [20, 20, 20, 20, 20],
+   "divergences": [],
+   "rows": [
+    [["int", "9"], ["int", "7"], ["int", "8"], ["int", "7"], ["int", "7"]]
+   ]
+  },
+  {
+   "id": "project-min-max-extremes",
+   "fixture": "rows",
+   "postgres_sql_sha256": "2d00ce02bc50fc610c5950a93ae86edc451c9275181be6659ce9fd49b92325e7",
+   "parameters": [],
+   "sent": [],
+   "columns": ["lo", "hi", "flo", "fhi"],
+   "type_oids": [20, 20, 701, 701],
+   "divergences": [],
+   "rows": [
+    [["int", "-9223372036854775808"], ["int", "9223372036854775807"], ["float", "-0.5"], ["float", "1e+300"]]
+   ]
+  },
+  {
+   "id": "project-aggregate-no-rows",
+   "fixture": "rows",
+   "postgres_sql_sha256": "8edc3d65cd23892e73e5083338c9df1ecf0bc165b56226bca3b50c909c6a46d9",
+   "parameters": [],
+   "sent": [],
+   "columns": ["rows", "seen", "lo", "hi"],
+   "type_oids": [20, 20, 20, 701],
+   "divergences": [],
+   "rows": [
+    [["int", "0"], ["int", "0"], null, null]
+   ]
+  },
+  {
+   "id": "project-group-no-rows",
+   "fixture": "rows",
+   "postgres_sql_sha256": "2db498b02aecc0bc200cf834465b76212401e0ab2376baf85e2141f05c7a0729",
+   "parameters": [],
+   "sent": [],
+   "columns": ["s", "rows"],
+   "type_oids": [25, 20],
+   "divergences": [],
+   "rows": []
+  },
+  {
+   "id": "project-aggregate-only-nulls",
+   "fixture": "rows",
+   "postgres_sql_sha256": "071e5e4d7b9d6b2328a3e04a5a8fd244eddabd3433e14255451a0ced63aaa5c1",
+   "parameters": [],
+   "sent": [],
+   "columns": ["rows", "lo", "hi", "top"],
+   "type_oids": [20, 701, 701, 20],
+   "divergences": [],
+   "rows": [
+    [["int", "2"], null, null, ["int", "7"]]
+   ]
+  },
+  {
+   "id": "project-group-text",
+   "fixture": "rows",
+   "postgres_sql_sha256": "6e80d100d236267f0ba6a225e8fd80b4fdf79a8b13c3b732ff9e521a1bb3f8a5",
+   "parameters": [],
+   "sent": [],
+   "columns": ["s", "rows", "hi"],
+   "type_oids": [25, 20, 20],
+   "divergences": [],
+   "rows": [
+    [null, ["int", "1"], ["int", "7"]],
+    [["str", "'a'"], ["int", "1"], ["int", "-9223372036854775808"]],
+    [["str", "''"], ["int", "1"], ["int", "1"]],
+    [["str", "'\u4e2d'"], ["int", "2"], ["int", "7"]],
+    [["str", "'\u00e9'"], ["int", "1"], ["int", "0"]],
+    [["str", "'\ud83d\ude00'"], ["int", "1"], null],
+    [["str", "'e\u0301'"], ["int", "1"], null],
+    [["str", "'A'"], ["int", "1"], ["int", "9223372036854775807"]]
+   ]
+  },
+  {
+   "id": "project-group-bool",
+   "fixture": "rows",
+   "postgres_sql_sha256": "116965c03c74eaa8719de7ccdfdaf7ae4b7b5b3ec96cb0271229f07ad2b2ad15",
+   "parameters": [],
+   "sent": [],
+   "columns": ["b", "rows", "lo"],
+   "type_oids": [16, 20, 701],
+   "divergences": [],
+   "rows": [
+    [null, ["int", "2"], ["float", "0.0"]],
+    [["bool", "False"], ["int", "3"], ["float", "1.0"]],
+    [["bool", "True"], ["int", "4"], ["float", "-0.5"]]
+   ]
+  },
+  {
+   "id": "project-group-float-zero",
+   "fixture": "rows",
+   "postgres_sql_sha256": "2894f699360ab29c516744e47f42421111405a3b0fcb40eca5a99e818f8eca40",
+   "parameters": [],
+   "sent": [],
+   "columns": ["x", "rows"],
+   "type_oids": [701, 20],
+   "divergences": [],
+   "rows": [
+    [null, ["int", "2"]],
+    [["float", "0.0"], ["int", "2"]],
+    [["float", "2.5"], ["int", "2"]],
+    [["float", "1e+300"], ["int", "1"]],
+    [["float", "1.0"], ["int", "1"]],
+    [["float", "-0.5"], ["int", "1"]]
+   ]
+  },
+  {
+   "id": "project-group-int-null-key",
+   "fixture": "rows",
+   "postgres_sql_sha256": "be97c9d1c6e843a12f191338f318fcf78602d40265fdaabb555e07d637c8f112",
+   "parameters": [],
+   "sent": [],
+   "columns": ["n", "rows", "xs"],
+   "type_oids": [20, 20, 20],
+   "divergences": [],
+   "rows": [
+    [null, ["int", "2"], ["int", "1"]],
+    [["int", "0"], ["int", "1"], ["int", "1"]],
+    [["int", "-9223372036854775808"], ["int", "1"], ["int", "1"]],
+    [["int", "7"], ["int", "3"], ["int", "2"]],
+    [["int", "1"], ["int", "1"], ["int", "1"]],
+    [["int", "9223372036854775807"], ["int", "1"], ["int", "1"]]
+   ]
+  },
+  {
+   "id": "project-group-two-keys",
+   "fixture": "rows",
+   "postgres_sql_sha256": "8b67b597067e94ffab50e5212e7ff14b6669881cf680910d45c7b7594e14f3c6",
+   "parameters": [],
+   "sent": [],
+   "columns": ["b", "n", "rows"],
+   "type_oids": [16, 20, 20],
+   "divergences": [],
+   "rows": [
+    [null, null, ["int", "1"]],
+    [["bool", "True"], null, ["int", "1"]],
+    [["bool", "True"], ["int", "7"], ["int", "2"]],
+    [["bool", "True"], ["int", "-9223372036854775808"], ["int", "1"]],
+    [null, ["int", "0"], ["int", "1"]],
+    [["bool", "False"], ["int", "9223372036854775807"], ["int", "1"]],
+    [["bool", "False"], ["int", "1"], ["int", "1"]],
+    [["bool", "False"], ["int", "7"], ["int", "1"]]
+   ]
+  },
+  {
+   "id": "project-group-order-by-count",
+   "fixture": "rows",
+   "postgres_sql_sha256": "d50642fcea1815480c43a0e11794df4dc4a623f458dd9b4daa2e1e3678b11679",
+   "parameters": [],
+   "sent": [],
+   "columns": ["b", "tag", "rows", "lo"],
+   "type_oids": [16, 25, 20, 20],
+   "divergences": [],
+   "rows": [
+    [["bool", "False"], ["str", "'k'"], ["int", "3"], ["int", "1"]],
+    [["bool", "True"], ["str", "'k'"], ["int", "3"], ["int", "-9223372036854775808"]],
+    [null, ["str", "'k'"], ["int", "1"], ["int", "0"]]
+   ]
+  },
+  {
+   "id": "project-group-order-by-max",
+   "fixture": "rows",
+   "postgres_sql_sha256": "f90ddd2550937d0d6af1cb36fb7bb49a4bcb2200598c6cfbcce7a514f6f54384",
+   "parameters": [],
+   "sent": [],
+   "columns": ["s", "hi"],
+   "type_oids": [25, 701],
+   "divergences": ["ZERO_SIGN"],
+   "rows": [
+    [["str", "'\ud83d\ude00'"], null],
+    [null, null],
+    [["str", "'A'"], ["float", "1e+300"]],
+    [["str", "'\u4e2d'"], ["float", "2.5"]],
+    [["str", "''"], ["float", "1.0"]],
+    [["str", "'e\u0301'"], ["float", "-0.0"]],
+    [["str", "'\u00e9'"], ["float", "0.0"]],
+    [["str", "'a'"], ["float", "-0.5"]]
+   ]
+  },
+  {
+   "id": "project-group-order-by-key-desc",
+   "fixture": "rows",
+   "postgres_sql_sha256": "39407959637202672607919b55e3989b8df97adbc50708c0f11c25c2dab72039",
+   "parameters": [],
+   "sent": [],
+   "columns": ["b", "rows"],
+   "type_oids": [16, 20],
+   "divergences": [],
+   "rows": [
+    [null, ["int", "2"]],
+    [["bool", "True"], ["int", "4"]],
+    [["bool", "False"], ["int", "3"]]
+   ]
+  },
+  {
+   "id": "project-group-limit",
+   "fixture": "rows",
+   "postgres_sql_sha256": "c9c57022a2b779b5934dca7c92eab12cd088984b5eed0b03a3e8ba2be5ed4ffe",
+   "parameters": [],
+   "sent": [],
+   "columns": ["n", "rows"],
+   "type_oids": [20, 20],
+   "divergences": [],
+   "rows": [
+    [["int", "7"], ["int", "3"]],
+    [null, ["int", "2"]]
+   ]
+  },
+  {
+   "id": "project-oracle-eq-n-0",
+   "fixture": "rows",
+   "postgres_sql_sha256": "31af71c884d04e56a958403e758e042f4ee39b71d1a1fddeb4ae9b2e0f44d8e5",
+   "parameters": [],
+   "sent": [],
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "5"]],
+    [["int", "6"]],
+    [["int", "7"]]
+   ]
+  },
+  {
+   "id": "project-oracle-not-eq-n-0",
+   "fixture": "rows",
+   "postgres_sql_sha256": "87b4f49a3a9ca5053cf8d68a927b2d19d4bca9a234d71b51793c3de05b1cc485",
+   "parameters": [],
+   "sent": [],
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "1"]],
+    [["int", "2"]],
+    [["int", "3"]],
+    [["int", "9"]]
+   ]
+  },
+  {
+   "id": "project-oracle-eq-n-1",
+   "fixture": "rows",
+   "postgres_sql_sha256": "03e959d253773f7f233ae2a38acba9cec98d792ef26aacb50ea853333cf28c4c",
+   "parameters": [],
+   "sent": [],
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "3"]]
+   ]
+  },
+  {
+   "id": "project-oracle-not-eq-n-1",
+   "fixture": "rows",
+   "postgres_sql_sha256": "8bb4fbf94c47a6d864a0743aa6f66f48756c9941db209b6e30993061e1787730",
+   "parameters": [],
+   "sent": [],
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "1"]],
+    [["int", "2"]],
+    [["int", "5"]],
+    [["int", "6"]],
+    [["int", "7"]],
+    [["int", "9"]]
+   ]
+  },
+  {
+   "id": "project-oracle-eq-n-2",
+   "fixture": "rows",
+   "postgres_sql_sha256": "9686bfda5014229848b2613a86d24bf097fc6137a927d6c4fd51b279358453a1",
+   "parameters": [],
+   "sent": [],
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "2"]]
+   ]
+  },
+  {
+   "id": "project-oracle-not-eq-n-2",
+   "fixture": "rows",
+   "postgres_sql_sha256": "4788c6c0cd6641c7e237293c20fcac8695094b703c2e86423b3afae03f716677",
+   "parameters": [],
+   "sent": [],
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "1"]],
+    [["int", "3"]],
+    [["int", "5"]],
+    [["int", "6"]],
+    [["int", "7"]],
+    [["int", "9"]]
+   ]
+  },
+  {
+   "id": "project-oracle-eq-s-3",
+   "fixture": "rows",
+   "postgres_sql_sha256": "d0c7606c693efd13ceaa1ac25f6b54a9e996c43a7f9e92cb468a117f4c547549",
+   "parameters": [],
+   "sent": [],
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "1"]]
+   ]
+  },
+  {
+   "id": "project-oracle-not-eq-s-3",
+   "fixture": "rows",
+   "postgres_sql_sha256": "47030ca34865b40461fd2c82c386d8d20f247f1f2423c118b1174a99a43bc811",
+   "parameters": [],
+   "sent": [],
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "2"]],
+    [["int", "3"]],
+    [["int", "4"]],
+    [["int", "6"]],
+    [["int", "7"]],
+    [["int", "8"]],
+    [["int", "9"]]
+   ]
+  },
+  {
+   "id": "project-oracle-eq-s-4",
+   "fixture": "rows",
+   "postgres_sql_sha256": "b812804f7a6ee050a2ce2bb81c3a0af2155a4f44b121ccf4b3686c26d061c722",
+   "parameters": [],
+   "sent": [],
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "2"]]
+   ]
+  },
+  {
+   "id": "project-oracle-not-eq-s-4",
+   "fixture": "rows",
+   "postgres_sql_sha256": "00fe1f8670e59af203292eab9017086a7162c1bbc91d3f393b8158cc3d0ee104",
+   "parameters": [],
+   "sent": [],
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "1"]],
+    [["int", "3"]],
+    [["int", "4"]],
+    [["int", "6"]],
+    [["int", "7"]],
+    [["int", "8"]],
+    [["int", "9"]]
+   ]
+  },
+  {
+   "id": "project-oracle-eq-s-5",
+   "fixture": "rows",
+   "postgres_sql_sha256": "eb2b521adfce9047390c5081f71b5a80a9258b51321e03d827b85b898bac8155",
+   "parameters": [],
+   "sent": [],
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "3"]]
+   ]
+  },
+  {
+   "id": "project-oracle-not-eq-s-5",
+   "fixture": "rows",
+   "postgres_sql_sha256": "c8e1f493c7bba2fa415b238f79406b3a81a7a98ebf8e0110cc896b27d1497173",
+   "parameters": [],
+   "sent": [],
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "1"]],
+    [["int", "2"]],
+    [["int", "4"]],
+    [["int", "6"]],
+    [["int", "7"]],
+    [["int", "8"]],
+    [["int", "9"]]
+   ]
+  },
+  {
+   "id": "project-oracle-eq-s-6",
+   "fixture": "rows",
+   "postgres_sql_sha256": "33040068d18f1c48c6f4c7ae2f5b7e9a0f7b3dd18f29c9e1cfc6621f57d2da77",
+   "parameters": [],
+   "sent": [],
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "4"]]
+   ]
+  },
+  {
+   "id": "project-oracle-not-eq-s-6",
+   "fixture": "rows",
+   "postgres_sql_sha256": "1edbcbff7a5cbf6ac8400c0e23627b2e477e1675136dd574fe8b7a92e71674a9",
+   "parameters": [],
+   "sent": [],
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "1"]],
+    [["int", "2"]],
+    [["int", "3"]],
+    [["int", "6"]],
+    [["int", "7"]],
+    [["int", "8"]],
+    [["int", "9"]]
+   ]
+  },
+  {
+   "id": "project-oracle-eq-s-7",
+   "fixture": "rows",
+   "postgres_sql_sha256": "d36dae7f16977d6cf6b5f5146589cfcfec769658a979f2a2287113064fbcee79",
+   "parameters": [],
+   "sent": [],
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "9"]]
+   ]
+  },
+  {
+   "id": "project-oracle-not-eq-s-7",
+   "fixture": "rows",
+   "postgres_sql_sha256": "2910e96f0f0ce2eed32b6288a8070a15fcbdcf8841808b7b4290ba4040ec17fd",
+   "parameters": [],
+   "sent": [],
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "1"]],
+    [["int", "2"]],
+    [["int", "3"]],
+    [["int", "4"]],
+    [["int", "6"]],
+    [["int", "7"]],
+    [["int", "8"]]
+   ]
+  },
+  {
+   "id": "project-python-select-int",
+   "fixture": "rows",
+   "postgres_sql_sha256": "33af86c76d9af23f80e06bbdbae440ae63da50a648485a3132af8b9418f67ab1",
+   "parameters": [],
+   "sent": [],
+   "columns": ["id", "eq", "ne", "lt", "le", "gt", "ge", "missing", "present"],
+   "type_oids": [20, 16, 16, 16, 16, 16, 16, 16, 16],
+   "divergences": [],
+   "rows": [
+    [["int", "1"], ["bool", "False"], ["bool", "True"], ["bool", "True"], ["bool", "True"], ["bool", "False"], ["bool", "False"], ["bool", "False"], ["bool", "True"]],
+    [["int", "2"], ["bool", "False"], ["bool", "True"], ["bool", "False"], ["bool", "False"], ["bool", "True"], ["bool", "True"], ["bool", "False"], ["bool", "True"]],
+    [["int", "3"], ["bool", "False"], ["bool", "True"], ["bool", "True"], ["bool", "True"], ["bool", "False"], ["bool", "False"], ["bool", "False"], ["bool", "True"]],
+    [["int", "4"], null, null, null, null, null, null, ["bool", "True"], ["bool", "False"]],
+    [["int", "5"], ["bool", "True"], ["bool", "False"], ["bool", "False"], ["bool", "True"], ["bool", "False"], ["bool", "True"], ["bool", "False"], ["bool", "True"]],
+    [["int", "6"], ["bool", "True"], ["bool", "False"], ["bool", "False"], ["bool", "True"], ["bool", "False"], ["bool", "True"], ["bool", "False"], ["bool", "True"]],
+    [["int", "7"], ["bool", "True"], ["bool", "False"], ["bool", "False"], ["bool", "True"], ["bool", "False"], ["bool", "True"], ["bool", "False"], ["bool", "True"]],
+    [["int", "8"], null, null, null, null, null, null, ["bool", "True"], ["bool", "False"]],
+    [["int", "9"], ["bool", "False"], ["bool", "True"], ["bool", "True"], ["bool", "True"], ["bool", "False"], ["bool", "False"], ["bool", "False"], ["bool", "True"]]
+   ]
+  },
+  {
+   "id": "project-python-select-text",
+   "fixture": "rows",
+   "postgres_sql_sha256": "60f33cb619637c81ff8300cfc0a82e49308ad9b0e0a372915f806e1e6c809f43",
+   "parameters": [],
+   "sent": [],
+   "columns": ["id", "eq", "ne", "lt", "le", "gt", "ge", "missing", "present"],
+   "type_oids": [20, 16, 16, 16, 16, 16, 16, 16, 16],
+   "divergences": [],
+   "rows": [
+    [["int", "1"], ["bool", "True"], ["bool", "False"], ["bool", "False"], ["bool", "True"], ["bool", "False"], ["bool", "True"], ["bool", "False"], ["bool", "True"]],
+    [["int", "2"], ["bool", "False"], ["bool", "True"], ["bool", "True"], ["bool", "True"], ["bool", "False"], ["bool", "False"], ["bool", "False"], ["bool", "True"]],
+    [["int", "3"], ["bool", "False"], ["bool", "True"], ["bool", "False"], ["bool", "False"], ["bool", "True"], ["bool", "True"], ["bool", "False"], ["bool", "True"]],
+    [["int", "4"], ["bool", "False"], ["bool", "True"], ["bool", "False"], ["bool", "False"], ["bool", "True"], ["bool", "True"], ["bool", "False"], ["bool", "True"]],
+    [["int", "5"], null, null, null, null, null, null, ["bool", "True"], ["bool", "False"]],
+    [["int", "6"], ["bool", "False"], ["bool", "True"], ["bool", "False"], ["bool", "False"], ["bool", "True"], ["bool", "True"], ["bool", "False"], ["bool", "True"]],
+    [["int", "7"], ["bool", "False"], ["bool", "True"], ["bool", "False"], ["bool", "False"], ["bool", "True"], ["bool", "True"], ["bool", "False"], ["bool", "True"]],
+    [["int", "8"], ["bool", "False"], ["bool", "True"], ["bool", "False"], ["bool", "False"], ["bool", "True"], ["bool", "True"], ["bool", "False"], ["bool", "True"]],
+    [["int", "9"], ["bool", "False"], ["bool", "True"], ["bool", "True"], ["bool", "True"], ["bool", "False"], ["bool", "False"], ["bool", "False"], ["bool", "True"]]
+   ]
+  },
+  {
+   "id": "project-python-select-float",
+   "fixture": "rows",
+   "postgres_sql_sha256": "24df2fa2a8d4f5362efa90f872dfbc6ccd4d711aa971108b4e5ff14bf39ea4dd",
+   "parameters": [],
+   "sent": [],
+   "columns": ["id", "eq", "ne", "lt", "le", "gt", "ge", "missing", "present"],
+   "type_oids": [20, 16, 16, 16, 16, 16, 16, 16, 16],
+   "divergences": [],
+   "rows": [
+    [["int", "1"], ["bool", "False"], ["bool", "True"], ["bool", "True"], ["bool", "True"], ["bool", "False"], ["bool", "False"], ["bool", "False"], ["bool", "True"]],
+    [["int", "2"], ["bool", "False"], ["bool", "True"], ["bool", "False"], ["bool", "False"], ["bool", "True"], ["bool", "True"], ["bool", "False"], ["bool", "True"]],
+    [["int", "3"], ["bool", "True"], ["bool", "False"], ["bool", "False"], ["bool", "True"], ["bool", "False"], ["bool", "True"], ["bool", "False"], ["bool", "True"]],
+    [["int", "4"], ["bool", "True"], ["bool", "False"], ["bool", "False"], ["bool", "True"], ["bool", "False"], ["bool", "True"], ["bool", "False"], ["bool", "True"]],
+    [["int", "5"], null, null, null, null, null, null, ["bool", "True"], ["bool", "False"]],
+    [["int", "6"], ["bool", "False"], ["bool", "True"], ["bool", "False"], ["bool", "False"], ["bool", "True"], ["bool", "True"], ["bool", "False"], ["bool", "True"]],
+    [["int", "7"], ["bool", "False"], ["bool", "True"], ["bool", "False"], ["bool", "False"], ["bool", "True"], ["bool", "True"], ["bool", "False"], ["bool", "True"]],
+    [["int", "8"], null, null, null, null, null, null, ["bool", "True"], ["bool", "False"]],
+    [["int", "9"], ["bool", "False"], ["bool", "True"], ["bool", "False"], ["bool", "False"], ["bool", "True"], ["bool", "True"], ["bool", "False"], ["bool", "True"]]
+   ]
+  },
+  {
+   "id": "project-t2-count-distinct-every-type",
+   "fixture": "rows",
+   "postgres_sql_sha256": "db30462a43f88a3ba1e9d2e1bae3ea754fd9119dc59773b0feec3c29ee01b3d5",
+   "parameters": [],
+   "sent": [],
+   "columns": ["did", "dn", "ds", "db"],
+   "type_oids": [20, 20, 20, 20],
+   "divergences": [],
+   "rows": [
+    [["int", "9"], ["int", "5"], ["int", "7"], ["int", "2"]]
+   ]
+  },
+  {
+   "id": "project-t2-count-distinct-grouped-ordered",
+   "fixture": "rows",
+   "postgres_sql_sha256": "964a28815434f759da9b1186181af819eeb92da423d09bfb9484716a55747152",
+   "parameters": [],
+   "sent": [],
+   "columns": ["b", "ds"],
+   "type_oids": [16, 20],
+   "divergences": [],
+   "rows": [
+    [["bool", "True"], ["int", "3"]],
+    [["bool", "False"], ["int", "2"]],
+    [null, ["int", "2"]]
+   ]
+  },
+  {
+   "id": "project-t2-avg-int-grouped",
+   "fixture": "rows",
+   "postgres_sql_sha256": "6a44b036598fe91088a5546c595423cbb6d54d4c9b9b2ba1fec17d0c15fd069a",
+   "parameters": [],
+   "sent": [],
+   "columns": ["b", "a", "e"],
+   "type_oids": [16, 701, 701],
+   "divergences": [],
+   "rows": [
+    [null, ["float", "0.0"], ["float", "5.5"]],
+    [["bool", "False"], ["float", "3.0744573456182584e+18"], ["float", "5.333333333333333"]],
+    [["bool", "True"], ["float", "-3.0744573456182584e+18"], ["float", "4.5"]]
+   ]
+  },
+  {
+   "id": "project-t2-avg-int-cancelling",
+   "fixture": "cancel",
+   "postgres_sql_sha256": "74560f9132ea9f35c7970a06f5c7ad1546cc9ab288d6601b5be4c450ba924519",
+   "parameters": [],
+   "sent": [],
+   "columns": ["b", "a"],
+   "type_oids": [16, 701],
+   "divergences": ["AVG_ORDER"],
+   "rows": [
+    [["bool", "False"], ["float", "0.0"]],
+    [["bool", "True"], ["float", "3002399751580330.5"]]
+   ],
+   "observed_difference": {
+    "candidates": [
+     [[["float", "0.0"], ["float", "0.3333333333333333"]]],
+     [[["float", "3002399751580330.5"], ["float", "3002399751580331.5"]]]
+    ],
+    "columns": ["a"],
+    "kind": "AVG_ORDER"
+   }
+  },
+  {
+   "id": "project-t2-empty-input",
+   "fixture": "rows",
+   "postgres_sql_sha256": "89c7bbee5d9f1a3b129941a57f171b4878d720bb92dd2ef4ebb18024e4410df1",
+   "parameters": [],
+   "sent": [],
+   "columns": ["a", "d", "c"],
+   "type_oids": [701, 20, 20],
+   "divergences": [],
+   "rows": [
+    [null, ["int", "0"], ["int", "0"]]
+   ]
+  },
+  {
+   "id": "project-t2-all-null-input",
+   "fixture": "rows",
+   "postgres_sql_sha256": "59d9ebcfbf35b87ec31ef3e7ac2e395cb830ddfb71f7c84b9540b31fcf709c2f",
+   "parameters": [],
+   "sent": [],
+   "columns": ["a", "d"],
+   "type_oids": [701, 20],
+   "divergences": [],
+   "rows": [
+    [null, ["int", "0"]]
+   ]
+  },
+  {
+   "id": "project-t2-having-outputs-named-like-columns",
+   "fixture": "rows",
+   "postgres_sql_sha256": "6fe71738ca70c133104a8bd78d094102215abfb9a77d8fbe46ba17eaedc464ce",
+   "parameters": [],
+   "sent": [],
+   "columns": ["s", "n", "x"],
+   "type_oids": [25, 20, 20],
+   "divergences": [],
+   "rows": [
+    [["str", "''"], ["int", "1"], ["int", "9"]],
+    [["str", "'\u4e2d'"], ["int", "2"], ["int", "7"]]
+   ]
+  },
+  {
+   "id": "project-t2-having-int-comparisons",
+   "fixture": "rows",
+   "postgres_sql_sha256": "69f5df0594ae72ef4ef36d80898403f67c99e47074ebac11769907d4009f621c",
+   "parameters": [],
+   "sent": [],
+   "columns": ["b", "c"],
+   "type_oids": [16, 20],
+   "divergences": [],
+   "rows": [
+    [null, ["int", "2"]],
+    [["bool", "True"], ["int", "4"]]
+   ]
+  },
+  {
+   "id": "project-t2-having-float-comparisons",
+   "fixture": "rows",
+   "postgres_sql_sha256": "14c540177cb25f21af95f2dfd0b22f6e3485cace5f82e122a8121e568082b613",
+   "parameters": [],
+   "sent": [],
+   "columns": ["b", "hi"],
+   "type_oids": [16, 701],
+   "divergences": [],
+   "rows": [
+    [null, ["float", "0.0"]],
+    [["bool", "True"], ["float", "2.5"]]
+   ]
+  },
+  {
+   "id": "project-t2-having-text-comparisons",
+   "fixture": "rows",
+   "postgres_sql_sha256": "d2c00eeb1f3346c1e156f3fbb7a7fa1bce695f853a95219e6771235c22e74103",
+   "parameters": [],
+   "sent": [],
+   "columns": ["s", "c"],
+   "type_oids": [25, 20],
+   "divergences": [],
+   "rows": [
+    [["str", "'a'"], ["int", "1"]],
+    [["str", "''"], ["int", "1"]]
+   ]
+  },
+  {
+   "id": "project-t2-having-avg-and-count-distinct",
+   "fixture": "rows",
+   "postgres_sql_sha256": "b52133272f3dc964a707bbc30455f916d9e81d11412e41e2905a6222de4908b6",
+   "parameters": [],
+   "sent": [],
+   "columns": ["b", "a", "d"],
+   "type_oids": [16, 701, 20],
+   "divergences": [],
+   "rows": [
+    [["bool", "True"], ["float", "4.5"], ["int", "3"]],
+    [null, ["float", "5.5"], ["int", "2"]]
+   ]
+  },
+  {
+   "id": "project-t2-having-where-order-limit",
+   "fixture": "rows",
+   "postgres_sql_sha256": "df516de9b0665f3fc40ffacda47f10b6b0309b73595103088b72ad7cb9eb495b",
+   "parameters": [],
+   "sent": [],
+   "columns": ["b", "c"],
+   "type_oids": [16, 20],
+   "divergences": [],
+   "rows": [
+    [["bool", "True"], ["int", "4"]]
+   ]
+  },
+  {
+   "id": "project-parameter-select-int",
+   "fixture": "rows",
+   "postgres_sql_sha256": "d288609111e3266bf8abe7cb706daa6ef60a9dc05a3f704fc3f515f4d2340b77",
+   "parameters": [
+    ["pg_int8", ["int", "7"]]
+   ],
+   "sent": [[20, 1, "0000000000000007"]],
+   "columns": ["id", "got", "eq", "ne", "lt", "le", "gt", "ge", "rev"],
+   "type_oids": [20, 20, 16, 16, 16, 16, 16, 16, 16],
+   "divergences": [],
+   "rows": [
+    [["int", "1"], ["int", "7"], ["bool", "False"], ["bool", "True"], ["bool", "True"], ["bool", "True"], ["bool", "False"], ["bool", "False"], ["bool", "False"]],
+    [["int", "2"], ["int", "7"], ["bool", "False"], ["bool", "True"], ["bool", "False"], ["bool", "False"], ["bool", "True"], ["bool", "True"], ["bool", "True"]],
+    [["int", "3"], ["int", "7"], ["bool", "False"], ["bool", "True"], ["bool", "True"], ["bool", "True"], ["bool", "False"], ["bool", "False"], ["bool", "False"]],
+    [["int", "4"], ["int", "7"], null, null, null, null, null, null, null],
+    [["int", "5"], ["int", "7"], ["bool", "True"], ["bool", "False"], ["bool", "False"], ["bool", "True"], ["bool", "False"], ["bool", "True"], ["bool", "False"]],
+    [["int", "6"], ["int", "7"], ["bool", "True"], ["bool", "False"], ["bool", "False"], ["bool", "True"], ["bool", "False"], ["bool", "True"], ["bool", "False"]],
+    [["int", "7"], ["int", "7"], ["bool", "True"], ["bool", "False"], ["bool", "False"], ["bool", "True"], ["bool", "False"], ["bool", "True"], ["bool", "False"]],
+    [["int", "8"], ["int", "7"], null, null, null, null, null, null, null],
+    [["int", "9"], ["int", "7"], ["bool", "False"], ["bool", "True"], ["bool", "True"], ["bool", "True"], ["bool", "False"], ["bool", "False"], ["bool", "False"]]
+   ]
+  },
+  {
+   "id": "project-parameter-where-int",
+   "fixture": "rows",
+   "postgres_sql_sha256": "0969b212e5b352225da25895868937aea420e5d1e57398aca449ccf6510c95aa",
+   "parameters": [
+    ["pg_int8", ["int", "7"]]
+   ],
+   "sent": [[20, 1, "0000000000000007"]],
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "2"]],
+    [["int", "5"]],
+    [["int", "6"]],
+    [["int", "7"]]
+   ]
+  },
+  {
+   "id": "project-parameter-select-text",
+   "fixture": "rows",
+   "postgres_sql_sha256": "e43ee65b60036e746b298e371db7fd9fe675d7286f9595ad3215a28538b5040e",
+   "parameters": [
+    ["pg_text", ["str", "'a'"]]
+   ],
+   "sent": [[0, 0, "61"]],
+   "columns": ["id", "got", "eq", "ne", "lt", "le", "gt", "ge", "rev"],
+   "type_oids": [20, 25, 16, 16, 16, 16, 16, 16, 16],
+   "divergences": [],
+   "rows": [
+    [["int", "1"], ["str", "'a'"], ["bool", "True"], ["bool", "False"], ["bool", "False"], ["bool", "True"], ["bool", "False"], ["bool", "True"], ["bool", "False"]],
+    [["int", "2"], ["str", "'a'"], ["bool", "False"], ["bool", "True"], ["bool", "True"], ["bool", "True"], ["bool", "False"], ["bool", "False"], ["bool", "False"]],
+    [["int", "3"], ["str", "'a'"], ["bool", "False"], ["bool", "True"], ["bool", "False"], ["bool", "False"], ["bool", "True"], ["bool", "True"], ["bool", "True"]],
+    [["int", "4"], ["str", "'a'"], ["bool", "False"], ["bool", "True"], ["bool", "False"], ["bool", "False"], ["bool", "True"], ["bool", "True"], ["bool", "True"]],
+    [["int", "5"], ["str", "'a'"], null, null, null, null, null, null, null],
+    [["int", "6"], ["str", "'a'"], ["bool", "False"], ["bool", "True"], ["bool", "False"], ["bool", "False"], ["bool", "True"], ["bool", "True"], ["bool", "True"]],
+    [["int", "7"], ["str", "'a'"], ["bool", "False"], ["bool", "True"], ["bool", "False"], ["bool", "False"], ["bool", "True"], ["bool", "True"], ["bool", "True"]],
+    [["int", "8"], ["str", "'a'"], ["bool", "False"], ["bool", "True"], ["bool", "False"], ["bool", "False"], ["bool", "True"], ["bool", "True"], ["bool", "True"]],
+    [["int", "9"], ["str", "'a'"], ["bool", "False"], ["bool", "True"], ["bool", "True"], ["bool", "True"], ["bool", "False"], ["bool", "False"], ["bool", "False"]]
+   ]
+  },
+  {
+   "id": "project-parameter-where-text",
+   "fixture": "rows",
+   "postgres_sql_sha256": "bd20c107dbaff293d81bb471994ed70737eceb0980e084926c516609d17a0a50",
+   "parameters": [
+    ["pg_text", ["str", "'a'"]]
+   ],
+   "sent": [[0, 0, "61"]],
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "1"]],
+    [["int", "3"]],
+    [["int", "4"]],
+    [["int", "6"]],
+    [["int", "7"]],
+    [["int", "8"]]
+   ]
+  },
+  {
+   "id": "project-parameter-select-float",
+   "fixture": "rows",
+   "postgres_sql_sha256": "f260495b36c2727a5ad0ac7237587a722f2818f1fa61575fec9d915659f4c33a",
+   "parameters": [
+    ["pg_float8", ["float", "-0.0"]]
+   ],
+   "sent": [[701, 1, "8000000000000000"]],
+   "columns": ["id", "got", "eq", "ne", "lt", "le", "gt", "ge", "rev"],
+   "type_oids": [20, 701, 16, 16, 16, 16, 16, 16, 16],
+   "divergences": [],
+   "rows": [
+    [["int", "1"], ["float", "-0.0"], ["bool", "False"], ["bool", "True"], ["bool", "True"], ["bool", "True"], ["bool", "False"], ["bool", "False"], ["bool", "False"]],
+    [["int", "2"], ["float", "-0.0"], ["bool", "False"], ["bool", "True"], ["bool", "False"], ["bool", "False"], ["bool", "True"], ["bool", "True"], ["bool", "True"]],
+    [["int", "3"], ["float", "-0.0"], ["bool", "True"], ["bool", "False"], ["bool", "False"], ["bool", "True"], ["bool", "False"], ["bool", "True"], ["bool", "False"]],
+    [["int", "4"], ["float", "-0.0"], ["bool", "True"], ["bool", "False"], ["bool", "False"], ["bool", "True"], ["bool", "False"], ["bool", "True"], ["bool", "False"]],
+    [["int", "5"], ["float", "-0.0"], null, null, null, null, null, null, null],
+    [["int", "6"], ["float", "-0.0"], ["bool", "False"], ["bool", "True"], ["bool", "False"], ["bool", "False"], ["bool", "True"], ["bool", "True"], ["bool", "True"]],
+    [["int", "7"], ["float", "-0.0"], ["bool", "False"], ["bool", "True"], ["bool", "False"], ["bool", "False"], ["bool", "True"], ["bool", "True"], ["bool", "True"]],
+    [["int", "8"], ["float", "-0.0"], null, null, null, null, null, null, null],
+    [["int", "9"], ["float", "-0.0"], ["bool", "False"], ["bool", "True"], ["bool", "False"], ["bool", "False"], ["bool", "True"], ["bool", "True"], ["bool", "True"]]
+   ]
+  },
+  {
+   "id": "project-parameter-where-float",
+   "fixture": "rows",
+   "postgres_sql_sha256": "3b7574fc5443f6065fcaf2cfd16d95a19a0dc296542a8ae2e1775cdc8eb093ca",
+   "parameters": [
+    ["pg_float8", ["float", "-0.0"]]
+   ],
+   "sent": [[701, 1, "8000000000000000"]],
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "2"]],
+    [["int", "3"]],
+    [["int", "4"]],
+    [["int", "6"]],
+    [["int", "7"]],
+    [["int", "9"]]
+   ]
+  },
+  {
+   "id": "project-parameter-optional-null",
+   "fixture": "rows",
+   "postgres_sql_sha256": "dbd365755d8b1a0220b78ca51f20d6ad62e770dfd8b0bc771d965ca8c0b99d28",
+   "parameters": [
+    ["pg_text", null]
+   ],
+   "sent": [
+    [0, 0, null]
+   ],
+   "columns": ["id", "missing", "eq"],
+   "type_oids": [20, 16, 16],
+   "divergences": [],
+   "rows": [
+    [["int", "1"], ["bool", "True"], null],
+    [["int", "2"], ["bool", "True"], null],
+    [["int", "3"], ["bool", "True"], null],
+    [["int", "4"], ["bool", "True"], null],
+    [["int", "5"], ["bool", "True"], null],
+    [["int", "6"], ["bool", "True"], null],
+    [["int", "7"], ["bool", "True"], null],
+    [["int", "8"], ["bool", "True"], null],
+    [["int", "9"], ["bool", "True"], null]
+   ]
+  },
+  {
+   "id": "project-parameter-optional-bound",
+   "fixture": "rows",
+   "postgres_sql_sha256": "dbd365755d8b1a0220b78ca51f20d6ad62e770dfd8b0bc771d965ca8c0b99d28",
+   "parameters": [
+    ["pg_text", ["str", "'a'"]]
+   ],
+   "sent": [[0, 0, "61"]],
+   "columns": ["id", "missing", "eq"],
+   "type_oids": [20, 16, 16],
+   "divergences": [],
+   "rows": [
+    [["int", "1"], ["bool", "False"], ["bool", "True"]],
+    [["int", "2"], ["bool", "False"], ["bool", "False"]],
+    [["int", "3"], ["bool", "False"], ["bool", "False"]],
+    [["int", "4"], ["bool", "False"], ["bool", "False"]],
+    [["int", "5"], ["bool", "False"], null],
+    [["int", "6"], ["bool", "False"], ["bool", "False"]],
+    [["int", "7"], ["bool", "False"], ["bool", "False"]],
+    [["int", "8"], ["bool", "False"], ["bool", "False"]],
+    [["int", "9"], ["bool", "False"], ["bool", "False"]]
+   ]
+  },
+  {
+   "id": "project-parameter-numbered-by-first-read",
+   "fixture": "rows",
+   "postgres_sql_sha256": "ffdb34b573309b070cd5e6f4582fec9fe8b95919c56a918e2e0de8ac3d6974d3",
+   "parameters": [
+    ["pg_int8", ["int", "0"]],
+    ["pg_int8", ["int", "7"]]
+   ],
+   "sent": [[20, 1, "0000000000000000"], [20, 1, "0000000000000007"]],
+   "columns": ["id", "top"],
+   "type_oids": [20, 20],
+   "divergences": [],
+   "rows": [
+    [["int", "3"], ["int", "7"]],
+    [["int", "5"], ["int", "7"]],
+    [["int", "6"], ["int", "7"]],
+    [["int", "7"], ["int", "7"]],
+    [["int", "9"], ["int", "7"]]
+   ]
+  },
+  {
+   "id": "project-parameter-int-extremes",
+   "fixture": "rows",
+   "postgres_sql_sha256": "c961b77eac69b24b01c626f97fa5c5159779f0ca7aee97c24148da5962a0fbec",
+   "parameters": [
+    ["pg_int8", ["int", "-9223372036854775808"]],
+    ["pg_int8", ["int", "9223372036854775807"]]
+   ],
+   "sent": [[20, 1, "8000000000000000"], [20, 1, "7fffffffffffffff"]],
+   "columns": ["id", "low", "high"],
+   "type_oids": [20, 20, 20],
+   "divergences": [],
+   "rows": [
+    [["int", "1"], ["int", "-9223372036854775808"], ["int", "9223372036854775807"]],
+    [["int", "2"], ["int", "-9223372036854775808"], ["int", "9223372036854775807"]]
+   ]
+  },
+  {
+   "id": "project-parameter-text-decomposed",
+   "fixture": "rows",
+   "postgres_sql_sha256": "decf3abba59de6638fe72047a4a5ff60d8aa695001ddbf88f6c4e91cc93a2c9d",
+   "parameters": [
+    ["pg_text", ["str", "'e\u0301'"]]
+   ],
+   "sent": [[0, 0, "65cc81"]],
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "4"]]
+   ]
+  },
+  {
+   "id": "project-parameter-where-grouped",
+   "fixture": "rows",
+   "postgres_sql_sha256": "22b37ca2edfb6e08f82e292f8e439d3db2706737a5315ed32b69f33029536ef2",
+   "parameters": [
+    ["pg_text", ["str", "'a'"]]
+   ],
+   "sent": [[0, 0, "61"]],
+   "columns": ["b", "rows"],
+   "type_oids": [16, 20],
+   "divergences": [],
+   "rows": [
+    [null, ["int", "2"]],
+    [["bool", "False"], ["int", "2"]],
+    [["bool", "True"], ["int", "3"]]
+   ]
+  },
+  {
+   "id": "project-t2-sum-up-to-the-bound",
+   "fixture": "sum-up",
+   "postgres_sql_sha256": "a7acbff6cd6c730428867fa99305a657d083fe8256a4c2f2b3a55ec869113433",
+   "parameters": [],
+   "sent": [],
+   "columns": ["b", "s", "c"],
+   "type_oids": [16, 20, 20],
+   "divergences": [],
+   "rows": [
+    [null, null, ["int", "0"]],
+    [["bool", "False"], ["int", "5"], ["int", "2"]],
+    [["bool", "True"], ["int", "9223372036854775807"], ["int", "3"]]
+   ]
+  },
+  {
+   "id": "project-t2-sum-down-to-the-bound",
+   "fixture": "sum-down",
+   "postgres_sql_sha256": "9508f7e77737049bb4c12896fb71fff7f968b5afee47cbcba944b0bf7ea3abd0",
+   "parameters": [],
+   "sent": [],
+   "columns": ["b", "s"],
+   "type_oids": [16, 20],
+   "divergences": [],
+   "rows": [
+    [["bool", "False"], ["int", "0"]],
+    [["bool", "True"], ["int", "-9223372036854775808"]]
+   ]
+  },
+  {
+   "id": "project-t2-sum-having-order",
+   "fixture": "sum-up",
+   "postgres_sql_sha256": "6467be2e21c499163bff0b5589ba60409eccee7aca618084815112f9c2ebdb70",
+   "parameters": [],
+   "sent": [],
+   "columns": ["b", "s"],
+   "type_oids": [16, 20],
+   "divergences": [],
+   "rows": [
+    [["bool", "True"], ["int", "9223372036854775807"]],
+    [["bool", "False"], ["int", "5"]]
+   ]
+  },
+  {
+   "id": "project-t2-sum-empty-input",
+   "fixture": "sum-up",
+   "postgres_sql_sha256": "05974ff9425734e2cc045ae8f9c01edf1f7b242b658eec7a558b39fe426aa1d1",
+   "parameters": [],
+   "sent": [],
+   "columns": ["s"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [null]
+   ]
+  },
+  {
+   "id": "project-aliased-read",
+   "fixture": "aliased",
+   "postgres_sql_sha256": "50755d59618c9ca76db972e45fed146444b3ab5eb9c87881fcdc51f501a8aa14",
+   "parameters": [],
+   "sent": [],
+   "columns": ["id", "n", "s", "b", "x", "low"],
+   "type_oids": [20, 20, 25, 16, 701, 16],
+   "divergences": [],
+   "rows": [
+    [["int", "6"], ["int", "7"], ["str", "'\u4e2d'"], ["bool", "True"], ["float", "2.5"], ["bool", "False"]],
+    [["int", "7"], ["int", "7"], ["str", "'\u4e2d'"], ["bool", "True"], ["float", "2.5"], ["bool", "False"]],
+    [["int", "3"], ["int", "0"], ["str", "'\u00e9'"], null, ["float", "0.0"], ["bool", "False"]],
+    [["int", "2"], ["int", "9223372036854775807"], ["str", "'A'"], ["bool", "False"], ["float", "1e+300"], ["bool", "True"]],
+    [["int", "9"], ["int", "1"], ["str", "''"], ["bool", "False"], ["float", "1.0"], ["bool", "True"]]
+   ]
+  },
+  {
+   "id": "project-aliased-group-order-by-min",
+   "fixture": "aliased",
+   "postgres_sql_sha256": "b0109af362318a6afa00363167acb68185f72dec2fc981485cc8b87aeb317f98",
+   "parameters": [],
+   "sent": [],
+   "columns": ["b", "rows", "lo", "hi"],
+   "type_oids": [16, 20, 20, 701],
+   "divergences": [],
+   "rows": [
+    [["bool", "True"], ["int", "4"], ["int", "-9223372036854775808"], ["float", "2.5"]],
+    [null, ["int", "1"], ["int", "0"], ["float", "0.0"]],
+    [["bool", "False"], ["int", "2"], ["int", "1"], ["float", "1e+300"]]
+   ]
+  }
+ ]
+}

@@ -432,6 +432,19 @@ changed entries run again under a reviewed preregistration delta and
 D78.08's conditions, and a reviewed edit replaces only those entries and
 the source block; every unchanged entry keeps its saved rows.
 
+`tests/fixtures/sqlite/postgres_replay_r1.json` keeps SQLite B2's replay
+(R1) by the same rules for what the first file does not hold: the
+single-file T2 cells and every project cell that the PostgreSQL project
+pipeline emits, each over a PostgreSQL contract derived from the cell's
+SQLite contract, with its bound arguments and the type OID, format and bytes
+the client sent for each. It also lists the project cells that pipeline
+refuses and what R1 does not verify.
+`test_each_r1_postgres_replay_binds_the_bytes_it_ran` derives each contract
+again, re-emits each statement and its arguments, requires every refused
+cell to stay refused, decodes the sent arguments, and judges the saved rows
+by the same rule, where a cancelling `avg` may differ from the compensated
+oracle only as one of the left-to-right sums the file lists (`AVG_ORDER`).
+
 ## DuckDB native qualification
 
 The [DuckDB Arrow route](spec/duckdb-arrow-route-v1.md) is qualified in

@@ -27,11 +27,13 @@ import operator
 import os
 import re
 import sqlite3
+import struct
 from collections import Counter
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import closing
 from dataclasses import dataclass, replace
 from decimal import Decimal
+from itertools import permutations
 from pathlib import Path
 from typing import Any
 
@@ -61,6 +63,7 @@ SQL_GOLDEN = REPO_ROOT / "tests/fixtures/golden/emit_sqlite_single_file.sql"
 # One PASS run of PostgreSQL 18.6 over the PostgreSQL bytes of every law cell
 # and golden statement (D78.08); the file states its source and regeneration.
 POSTGRES_REPLAY = REPO_ROOT / "tests/fixtures/sqlite/postgres_replay_v1.json"
+POSTGRES_REPLAY_R1 = REPO_ROOT / "tests/fixtures/sqlite/postgres_replay_r1.json"
 INT_MIN = -9_223_372_036_854_775_808
 INT_MAX = 9_223_372_036_854_775_807
 _RecordProperty = Callable[[str, object], None]
@@ -907,10 +910,10 @@ def _avg(values: Sequence[object]) -> float | None:
 
 # The T2 forms (PL.47, S10), each cell run as a single file and as a project
 # module. They stay out of `_LAW_CELLS`, whose PostgreSQL replay
-# `postgres_replay_v1.json` binds, until R1 replays them. Each comparisons
-# cell writes HAVING's six comparisons of one type with `and` and `or`; an
-# output named like a column (`n`, `x`) or `TRUE` would change the result if
-# HAVING read an output alias or a Bool literal as a name.
+# `postgres_replay_v1.json` binds; R1's `postgres_replay_r1.json` binds them.
+# Each comparisons cell writes HAVING's six comparisons of one type with `and`
+# and `or`; an output named like a column (`n`, `x`) or `TRUE` would change the
+# result if HAVING read an output alias or a Bool literal as a name.
 _T2_CELLS: tuple[_Cell, ...] = (
     _Cell(
         "t2-count-distinct-every-type",
@@ -1707,6 +1710,72 @@ def _loaded(value: object, saved: object) -> bool:
     return saved == (None if value is None else [type(value).__name__, repr(value)])
 
 
+def _masked(
+    rows: list[tuple[object, ...]], masked: Sequence[int]
+) -> list[tuple[object, ...]]:
+    """Rows whose `masked` columns keep only whether each value is NULL."""
+
+    return [
+        tuple(key is None if i in masked else key for i, key in enumerate(row))
+        for row in rows
+    ]
+
+
+def _pg_judge(
+    name: str,
+    cell: _Cell,
+    columns: dict[str, tuple[str, bool]],
+    entry: dict[str, Any],
+) -> None:
+    """Judges a saved PostgreSQL run against the cell's prewritten oracle:
+    types kept, carriers by type OID, rows as a sequence or a bag, a zero
+    sign as the declared `ZERO_SIGN`, and R1's cancelling `avg` as the
+    declared `AVG_ORDER`, whose values must be among the saved candidates."""
+
+    assert tuple(entry["columns"]) == cell.columns == tuple(columns), name
+    kinds = [columns[column][0] for column in cell.columns]
+    oids = entry["type_oids"]
+    for column, oid in zip(cell.columns, oids, strict=True):
+        kind, literal = columns[column]
+        assert oid in _PG_OIDS[kind] + ((1700,) if literal else ()), (name, oid)
+    observed = [
+        [None if item is None else _PG_VALUES[item[0]](item[1]) for item in row]
+        for row in entry["rows"]
+    ]
+    # The prewritten oracle, with a Bool column's 0 and 1 as booleans.
+    wanted = [
+        [
+            _PG_BOOLS[value] if kind == "Bool" and value is not None else value
+            for kind, value in zip(kinds, row, strict=True)
+        ]
+        for row in cell.rows
+    ]
+    canonical = [_PG_OIDS[kind][0] for kind in kinds]
+
+    def agree(signed: bool, masked: Sequence[int] = ()) -> bool:
+        seen = _masked(_pg_rows(kinds, observed, oids, signed), masked)
+        want = _masked(_pg_rows(kinds, wanted, canonical, signed), masked)
+        return seen == want if cell.ordered else Counter(seen) == Counter(want)
+
+    difference = entry.get("observed_difference")
+    assert difference is None or name in _AVG_ORDER, name
+    if difference is not None and not agree(False):
+        masked = [cell.columns.index(column) for column in difference["columns"]]
+        assert all(kinds[i] == "Float" for i in masked), name
+        assert agree(False, masked), (name, entry["rows"])
+        want = _masked(_pg_rows(kinds, wanted, canonical, False), masked)
+        allowed = dict(zip(want, difference["candidates"], strict=True))
+        assert len(allowed) == len(want), name
+        seen = _masked(_pg_rows(kinds, observed, oids, False), masked)
+        for row, key in zip(observed, seen, strict=True):
+            for i, values in zip(masked, allowed[key], strict=True):
+                assert row[i] is None or _typed_value(row[i]) in values, (name, row)
+        assert entry["divergences"] == ["AVG_ORDER"], name
+        return
+    assert agree(False), (name, entry["rows"])
+    assert entry["divergences"] == ([] if agree(True) else ["ZERO_SIGN"]), name
+
+
 def test_each_postgres_replay_binds_the_bytes_it_ran() -> None:
     """A saved PostgreSQL result counts for a cell only while the tree emits
     the PostgreSQL bytes that ran, on the fixture rows the run loaded, and
@@ -1737,34 +1806,193 @@ def test_each_postgres_replay_binds_the_bytes_it_ran() -> None:
         assert entry["fixture"] == fixture, name
         digest = hashlib.sha256(sql.encode("utf-8")).hexdigest()
         assert entry["postgres_sql_sha256"] == digest, name
-        assert tuple(entry["columns"]) == cell.columns == tuple(columns), name
-        kinds = [columns[column][0] for column in cell.columns]
-        oids = entry["type_oids"]
-        for column, oid in zip(cell.columns, oids, strict=True):
-            kind, literal = columns[column]
-            assert oid in _PG_OIDS[kind] + ((1700,) if literal else ()), (name, oid)
-        observed = [
-            [None if item is None else _PG_VALUES[item[0]](item[1]) for item in row]
-            for row in entry["rows"]
-        ]
-        # The prewritten oracle, with a Bool column's 0 and 1 as booleans.
-        wanted = [
-            [
-                _PG_BOOLS[value] if kind == "Bool" and value is not None else value
-                for kind, value in zip(kinds, row, strict=True)
+        _pg_judge(name, cell, columns, entry)
+
+
+# R1's cancelling `avg` cells (route, B2 qualification and replay): the output
+# column and the Int field it averages, grouped by `b`.
+_AVG_ORDER = {
+    "t2-avg-int-cancelling": {"a": "n"},
+    "project-t2-avg-int-cancelling": {"a": "n"},
+}
+# A project contract's SQLite storage kinds and their PostgreSQL counterparts.
+_PG_STORAGE = {
+    "sqlite_integer": "pg_int8",
+    "sqlite_text": "pg_text",
+    "sqlite_bool01": "pg_bool",
+    "sqlite_real": "pg_float8",
+}
+# How psycopg 3.3.8 sends an argument of each physical type: type OID,
+# format (1 binary) and how its bytes read back. NULL is sent as 0, 0, None.
+_PG_SENT: dict[str, tuple[int, int, Callable[[bytes], object]]] = {
+    "pg_int8": (20, 1, lambda raw: int.from_bytes(raw, "big", signed=True)),
+    "pg_float8": (701, 1, lambda raw: struct.unpack(">d", raw)[0]),
+    "pg_text": (0, 0, lambda raw: raw.decode("utf-8")),
+    "pg_bool": (16, 1, {b"\x01": True, b"\x00": False}.__getitem__),
+}
+_PG_SENT_WIDTH = {"pg_int8": 8, "pg_float8": 8, "pg_bool": 1}
+
+
+def _typed_value(value: object) -> list[str]:
+    return [type(value).__name__, repr(value)]
+
+
+def _order_avgs(values: Sequence[object]) -> list[list[str]]:
+    """Each order's left-to-right float8 sum from 0.0 divided by the count,
+    as PostgreSQL's float8 `avg` sums in scan order (`float8_accum`)."""
+
+    present = [float(value) for value in values if isinstance(value, int)]
+    averages = set()
+    for order in permutations(present):
+        total = 0.0
+        for value in order:
+            total += value
+        averages.add(total / len(present))
+    return [_typed_value(value) for value in sorted(averages)]
+
+
+def _pg_contract(fixture: str) -> dict[str, Any]:
+    """A fixture's PostgreSQL 18.6 contract (R1): its SQLite contract entry
+    with each storage and text domain restated for PostgreSQL, in schema
+    `public`; selector, names, nullability, ranges and premises unchanged."""
+
+    entry = _project_source(fixture)
+    entry["relation"]["namespace"] = "public"
+    for field in entry["fields"]:
+        representation = field["representation"]
+        storage = representation["storage"]["kind"]
+        representation["storage"] = {"kind": _PG_STORAGE[storage]}
+        domain = representation["domain"]
+        if domain["kind"] == "text":
+            assert (domain["encoding"], domain["collation"]) == ("UTF-8", "BINARY")
+            domain.update(encoding="UTF8", collation="C")
+    settings = (
+        ("client_encoding", "UTF8"),
+        ("operator_environment", "builtin_only"),
+        ("identifier_case", "quoted_exact"),
+        ("parameter_protocol", "postgres_extended"),
+    )
+    return {
+        "format": "pietto.emission-contract.v1",
+        "target": {"family": "postgres", "release": "18.6"},
+        "sources": [entry],
+        "environment": [project_files.statement(*item) for item in settings],
+    }
+
+
+def _pg_sent(kind: str, sent: object) -> object:
+    """The argument that one `[oid, format, hex]` sent item carried."""
+
+    assert isinstance(sent, list) and len(sent) == 3, sent
+    oid, form, data = sent
+    if data is None:
+        assert (oid, form) == (0, 0), sent
+        return None
+    want_oid, want_form, read = _PG_SENT[kind]
+    assert (oid, form) == (want_oid, want_form), (kind, sent)
+    raw = bytes.fromhex(data)
+    assert len(raw) == _PG_SENT_WIDTH.get(kind, len(raw)), (kind, sent)
+    return read(raw)
+
+
+def test_each_r1_postgres_replay_binds_the_bytes_it_ran(tmp_path: Path) -> None:
+    """R1's saved PostgreSQL result counts for a T2 or project cell only while
+    the tree emits the bytes and arguments that ran, over the fixture rows and
+    the PostgreSQL contract the run loaded, while each argument was sent in
+    its physical type's form, and while it meets the cell's prewritten oracle
+    under the replay judge; a project cell that PostgreSQL refuses stays
+    listed, so one that starts to emit has no saved run. No database opens."""
+
+    replay = json.loads(POSTGRES_REPLAY_R1.read_text(encoding="utf-8"))
+    assert replay["format"] == "pietto.phase78.b2-r1.postgres-replay.v1"
+    assert set(replay["fixtures"]) == {entry["fixture"] for entry in replay["entries"]}
+    for name, saved in replay["fixtures"].items():
+        table, _schema, rows = _FIXTURES[name]
+        assert saved["table"] == table, name
+        assert len(saved["rows"]) == len(rows), name
+        for row, saved_row in zip(rows, saved["rows"]):
+            pairs = zip(row, saved_row, strict=True)
+            assert all(_loaded(value, item) for value, item in pairs), (name, row)
+    subjects: list[tuple[_Cell, dict[str, tuple[str, bool]], str, list[Any]]] = []
+    for cell in _T2_CELLS:
+        ((sql, columns),) = _postgres(cell.program).values()
+        subjects.append((cell, columns, sql, []))
+    refused: list[list[Any]] = []
+    for index, cell in enumerate(_PROJECT_CELLS):
+        if cell.name.startswith("project-premise-"):
+            continue  # SQLite-only premises
+        if cell.fixture.endswith("nocase"):
+            # Same program and PostgreSQL contract as its base cell.
+            base_name = cell.name.removesuffix("-nocase")
+            base = next(c for c in _PROJECT_CELLS if c.name == base_name)
+            assert cell.program == base.program, cell.name
+            assert _pg_contract(cell.fixture) == _pg_contract(base.fixture)
+            continue
+        contract = _pg_contract(cell.fixture)
+        if cell.fixture in replay["fixtures"]:
+            assert replay["fixtures"][cell.fixture]["postgres_contract"] == contract
+        program = cell.program.replace('sqlite.table("', 'postgres.table("')
+        root = project_files.write(tmp_path / str(index), program, contract, "")
+        outcome, _ = emission_cli.emit_project(
+            root,
+            "main.pietto",
+            "query",
+            "q",
+            "postgres",
+            "contract.json",
+            emission_cli.POLICIES["preserve"],
+        )
+        if outcome.artifact is None:
+            refused.append([cell.name, [blocker.code for blocker in outcome.blockers]])
+            continue
+        document = json.loads(emission_cli.serialize_emission(outcome))
+        bound: dict[int, list[Any]] = {}
+        for use in document["parameter_uses"]:
+            assert cell.arguments is not None
+            argument = cell.arguments[use["owner"]["parameter"]]
+            item = [
+                use["physical_type"],
+                _typed_value(argument) if argument is not None else None,
             ]
-            for row in cell.rows
-        ]
-        canonical = [_PG_OIDS[kind][0] for kind in kinds]
-        agree = []
-        for signed in (False, True):
-            seen = _pg_rows(kinds, observed, oids, signed)
-            want = _pg_rows(kinds, wanted, canonical, signed)
-            agree.append(
-                seen == want if cell.ordered else Counter(seen) == Counter(want)
-            )
-        assert agree[0], (name, entry["rows"])
-        assert entry["divergences"] == ([] if agree[1] else ["ZERO_SIGN"]), name
+            assert bound.setdefault(use["server_index"], item) == item, cell.name
+        assert sorted(bound) == list(range(1, len(bound) + 1)), cell.name
+        columns = {
+            column["label"]: (column["logical_type"]["name"], False)
+            for column in document["columns"]
+        }
+        sql = outcome.artifact.rendered.sql.decode("utf-8")
+        subjects.append((cell, columns, sql, [bound[i] for i in sorted(bound)]))
+    assert replay["postgres_refused"] == refused
+    # One saved run per emitted cell, in that order, and no other.
+    assert [entry["id"] for entry in replay["entries"]] == [s[0].name for s in subjects]
+    for entry, (cell, columns, sql, parameters) in zip(replay["entries"], subjects):
+        name = cell.name
+        assert entry["fixture"] == cell.fixture, name
+        digest = hashlib.sha256(sql.encode("utf-8")).hexdigest()
+        assert entry["postgres_sql_sha256"] == digest, name
+        assert entry["parameters"] == parameters, name
+        sent = entry["sent"]
+        assert len(sent) == len(parameters), name
+        for (kind, value), item in zip(parameters, sent, strict=True):
+            argument = _pg_sent(kind, item)
+            assert (None if argument is None else _typed_value(argument)) == value, name
+        assert ("observed_difference" in entry) == (name in _AVG_ORDER), name
+        if name in _AVG_ORDER:
+            difference = entry["observed_difference"]
+            assert difference["kind"] == "AVG_ORDER", name
+            assert difference["columns"] == list(_AVG_ORDER[name]), name
+            key = cell.columns.index("b")
+            candidates = []
+            for row in cell.rows:
+                options = []
+                for column, field in _AVG_ORDER[name].items():
+                    values = _values(cell.fixture, field, row[key])
+                    options.append(_order_avgs(values))
+                    oracle = row[cell.columns.index(column)]
+                    assert _typed_value(oracle) in options[-1], name
+                candidates.append(options)
+            assert difference["candidates"] == candidates, name
+        _pg_judge(name, cell, columns, entry)
 
 
 _WIDE = """shape Wide:
