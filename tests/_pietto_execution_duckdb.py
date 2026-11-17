@@ -1,7 +1,8 @@
 """A compiled DuckDB B1 query and Arrow inputs for the `duckdb_arrow` route
 (docs/spec/duckdb-arrow-route-v1.md). The project is `_pietto_sql_duckdb`'s
-`orders` source; tables are built from the caller's PyArrow module, so this
-helper imports no PyArrow itself."""
+`orders` source, or with `joined` its three sources over the `orders` and
+`customers` tables; tables are built from the caller's PyArrow module, so
+this helper imports no PyArrow itself."""
 
 from __future__ import annotations
 
@@ -11,11 +12,13 @@ from typing import Any
 from _pietto_sql_duckdb import (
     FIELDS,
     HEADER,
+    JOINED_HEADER,
     PROJECTION,
     TYPED_FIELDS,
     TYPED_HEADER,
     contract,
     filtered,
+    joined_contract,
     source_entry,
     write,
 )
@@ -30,6 +33,8 @@ ROWS = (
     (5, 2**63 - 1, "é", True, 0.0),
 )
 COLUMNS = ("id", "amount", "note", "ok", "price")
+# `customers` rows (id, name, rate): ids 5, 10 and 15 are amounts of ROWS.
+CUSTOMERS = ((1, "p", 2.5), (5, "a", 0.5), (10, "x", None), (15, "c", -0.0))
 
 
 def compiled(
@@ -52,6 +57,36 @@ def compiled(
 
 def projection(root: Path) -> execution.CompiledQuery:
     return compiled(root, PROJECTION)
+
+
+def joined(
+    root: Path,
+    body: str,
+    header: str = JOINED_HEADER,
+    document: dict[str, Any] | None = None,
+) -> execution.CompiledQuery:
+    """compile_query of `body` over the three joined sources, or over
+    `header`'s sources with the contract `document`."""
+    write(root, body, joined_contract() if document is None else document, header)
+    return execution.compile_query(
+        root,
+        module="main.pietto",
+        kind="query" if body.startswith("query") else "table",
+        name="result",
+        dialect="duckdb",
+        emission_contract="contract.json",
+    )
+
+
+def customers(pa: Any, rows: tuple[tuple[Any, ...], ...] = CUSTOMERS) -> Any:
+    """The `customers` table of `rows`."""
+    types = (pa.int64(), pa.string(), pa.float64())
+    return pa.table(
+        {
+            name: pa.array([row[k] for row in rows], type=types[k])
+            for k, name in enumerate(("id", "name", "rate"))
+        }
+    )
 
 
 def orders(pa: Any, rows: tuple[tuple[Any, ...], ...] = ROWS, **columns: Any) -> Any:

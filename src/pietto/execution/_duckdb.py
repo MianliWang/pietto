@@ -1,7 +1,8 @@
 """The ``duckdb_arrow`` route (docs/spec/duckdb-arrow-route-v1.md; D79.03,
-D79.04 as PL.47 revises it, D79.06 and AD79.01): request checks 7 to 13 of
-execute(), the owned capture of the caller's table, and one attempt's
-private in-memory session.
+D79.04 as PL.47 and D79.19 revise it, D79.06, D79.24 and AD79.01): request
+checks 7 to 13 of execute(), the owned
+capture of the caller's tables, and one attempt's private in-memory
+session.
 
 Importing this module loads no DuckDB and no PyArrow. Checks 7 to 11 import
 nothing; check 12 verifies the PyArrow the caller already loaded (and the
@@ -27,7 +28,7 @@ from pietto._project.project_compiled_loading import (
     owner_versions,
     supported_compatibility,
 )
-from pietto._project.project_duckdb_sql import RELATION
+from pietto._project.project_duckdb_sql import relation
 from pietto._project.project_execution_template import BindingError
 from pietto._project.project_result_contract import ResultError
 from pietto._project.project_sql_emission_parameters import (
@@ -41,12 +42,13 @@ __all__: tuple[str, ...] = ()
 PYARROW = ("pyarrow", "26.0.1", "pyarrow")
 DRIVER = ("duckdb", "2.0.0", "duckdb")
 ENGINE = [("v2.0.0", "d54cbbe3df")]
+# Of each input (D79.19).
 MAX_ROWS = 1_048_576
 # The civil interval of a `Date` in days and of a `Timestamp` in microseconds
 # from the Unix epoch (1000-01-01 to 9999-12-31 23:59:59.499999).
 CIVIL_DAYS = (-354_285, 2_932_896)
 CIVIL_MICROSECONDS = (-30_610_224_000_000_000, 253_402_300_799_499_999)
-# Of the selected columns only (PL.47).
+# Of the selected columns of all inputs together (PL.47, D79.19).
 MAX_BYTES = 256 * 1024 * 1024
 # DuckDB drops an interrupt that reaches the connection before its statement
 # starts, so a sent cancellation is sent again at this interval until the
@@ -222,35 +224,74 @@ def _copy(pa, column):
     return copy
 
 
-def capture(pa, pc, table, fields):
-    """Check 13 (the spec's "Capture"): the owned copy of the selected
-    columns named c0, c1, ... in shape order, or the refusal's detail."""
-    if table.num_rows > MAX_ROWS:
+def _unique(pa, pc, columns, fields):
+    """D79.24 over the owned copies of one declared key's columns: no two
+    rows are equal under Pietto's ``==``, where a ``Float`` ``-0.0`` equals
+    ``0.0`` and ``Text`` compares by code point; a row with a NULL in the
+    key is left out (NULLS_DISTINCT)."""
+    arrays = [
+        pc.if_else(pc.equal(column, 0.0), 0.0, column)
+        if field.tag == "Float"
+        else column
+        for column, field in zip(columns, fields, strict=True)
+    ]
+    names = [f"k{k}" for k in range(len(arrays))]
+    table = pa.Table.from_arrays(arrays, names=names).drop_null()
+    if table.num_rows < 2:
+        return True
+    table = table.take(pc.sort_indices(table, [(name, "ascending") for name in names]))
+    same = None
+    for column in table.columns:
+        equal = pc.equal(column.slice(1), column.slice(0, table.num_rows - 1))
+        same = equal if same is None else pc.and_(same, equal)
+    return pc.any(same).as_py() is not True
+
+
+def capture(pa, pc, tables, sources):
+    """Check 13 (the spec's "Capture"): each source's owned copy of its
+    selected columns, in FROM and JOIN order, named on from c0 across the
+    sources, or the refusal's detail. ``tables`` maps each input's name to
+    its table; sources that share a name share its input, whose columns are
+    checked against each and copied once."""
+    if any(table.num_rows > MAX_ROWS for table in tables.values()):
         return None, "DUCKDB_ARROW_CAPTURE_LIMIT"
-    schema = table.schema
-    selected = []
-    for field in fields:
-        found = schema.get_all_field_indices(field.column)
-        expected = results.arrow_type(pa, field.tag, field.decimal)
-        if len(found) != 1:
-            return None, "DUCKDB_ARROW_SCHEMA"
-        actual = schema.field(found[0]).type
-        if type(actual) is not type(expected) or not actual.equals(expected):
-            return None, "DUCKDB_ARROW_SCHEMA"
-        selected.append(table.column(found[0]))
-    if sum(column.nbytes for column in selected) > MAX_BYTES:
+    selected = {}
+    for source in sources:
+        schema = tables[source.key].schema
+        for field in source.fields:
+            found = schema.get_all_field_indices(field.column)
+            expected = results.arrow_type(pa, field.tag, field.decimal)
+            if len(found) != 1:
+                return None, "DUCKDB_ARROW_SCHEMA"
+            actual = schema.field(found[0]).type
+            if type(actual) is not type(expected) or not actual.equals(expected):
+                return None, "DUCKDB_ARROW_SCHEMA"
+            place = (source.key, field.column)
+            selected.setdefault(place, tables[source.key].column(found[0]))
+    if sum(column.nbytes for column in selected.values()) > MAX_BYTES:
         return None, "DUCKDB_ARROW_CAPTURE_LIMIT"
-    for field, column in zip(fields, selected, strict=True):
-        if not _admitted(pa, pc, field, column):
-            return None, "DUCKDB_ARROW_SCHEMA"
-    copies = [_copy(pa, column) for column in selected]
-    names = [f"c{k}" for k in range(len(copies))]
-    return pa.Table.from_arrays(copies, names=names), None
+    for source in sources:
+        for field in source.fields:
+            if not _admitted(pa, pc, field, selected[source.key, field.column]):
+                return None, "DUCKDB_ARROW_SCHEMA"
+    copies = {place: _copy(pa, column) for place, column in selected.items()}
+    owned = []
+    for source in sources:
+        columns = [copies[source.key, field.column] for field in source.fields]
+        for key in source.unique:
+            keyed = [columns[k] for k in key]
+            if not _unique(pa, pc, keyed, [source.fields[k] for k in key]):
+                return None, "DUCKDB_ARROW_SCHEMA"
+        start = sum(len(item.fields) for item in sources[: len(owned)])
+        names = [f"c{start + k}" for k in range(len(columns))]
+        owned.append(pa.Table.from_arrays(columns, names=names))
+    return tuple(owned), None
 
 
 def prepare(template, access, *, limits, isolation, values, parameters):
     """Checks 7 to 13, in order, after execute()'s shared checks 1 to 6:
-    (an unopened attempt, None) or (None, the first refusal's Failure)."""
+    (an unopened attempt, None) or (None, the first refusal's Failure).
+    ``access`` is one DuckDBArrowInput or a tuple of them."""
     try:
         facts = adapter.execution_facts(template)
         arguments = _bound(facts, values, parameters)
@@ -259,14 +300,20 @@ def prepare(template, access, *, limits, isolation, values, parameters):
     except Exception as caught:
         return None, request_failure(caught, preparing=True)
     lib = sys.modules.get("pyarrow.lib")
-    if (
-        type(access.name) is not str
-        or not access.name
+    inputs = access if type(access) is tuple else (access,)
+    if any(
+        type(item.name) is not str
+        or not item.name
         or lib is None
-        or type(access.table) is not getattr(lib, "Table", None)
+        or type(item.table) is not getattr(lib, "Table", None)
+        for item in inputs
     ):
         return None, failure("PIE-R1002", "EXECUTION_ACCESS")
-    if access.name != facts.key:
+    # One input per relation name that the statement reads, matched by name.
+    names = [item.name for item in inputs]
+    if len(set(names)) != len(names) or set(names) != {
+        source.key for source in facts.sources
+    }:
         return None, failure("PIE-R1002", "DUCKDB_ARROW_SCHEMA")
     if type(isolation) is not str or isolation != "stable":
         return None, failure("PIE-R1002", "EXECUTION_ISOLATION")
@@ -280,7 +327,8 @@ def prepare(template, access, *, limits, isolation, values, parameters):
         return None, failure(code, detail)
     pa, pc = modules
     try:
-        owned, detail = capture(pa, pc, access.table, facts.fields)
+        tables = {item.name: item.table for item in inputs}
+        owned, detail = capture(pa, pc, tables, facts.sources)
     except Exception as caught:
         return None, request_failure(caught, preparing=True)
     if detail is not None:
@@ -318,7 +366,8 @@ class DuckDBAttempt:
         self._gate = threading.RLock()
         self._driver: Any = None
         self._connection: Any = None
-        self._registered = self._running = False
+        self._registered = 0
+        self._running = False
         self._ended = threading.Event()
         self._timer: Any = None
         self._reader: Any = None
@@ -360,8 +409,9 @@ class DuckDBAttempt:
             raise TimeoutError("EXECUTION_DEADLINE")
 
     def _session(self, duckdb):
-        """Steps 1 (the engine's own profile) and 2, then the registration:
-        any failure is DUCKDB_DRIVER_PROFILE or DUCKDB_SESSION_CONTEXT."""
+        """Steps 1 (the engine's own profile) and 2, then the registration of
+        each source's capture: any failure is DUCKDB_DRIVER_PROFILE or
+        DUCKDB_SESSION_CONTEXT."""
         try:
             connection = duckdb.connect(":memory:")
         except Exception:
@@ -386,11 +436,12 @@ class DuckDBAttempt:
             raise ex.ExecutionError("DUCKDB_SESSION_CONTEXT") from None
         if any(observed.get(name, _ABSENT) != value for name, value in READ_BACK):
             raise ex.ExecutionError("DUCKDB_SESSION_CONTEXT")
-        try:
-            connection.register(RELATION, self._capture)
-        except Exception:
-            raise ex.ExecutionError("DUCKDB_SESSION_CONTEXT") from None
-        self._registered = True
+        for position, table in enumerate(self._capture or ()):
+            try:
+                connection.register(relation(position), table)
+            except Exception:
+                raise ex.ExecutionError("DUCKDB_SESSION_CONTEXT") from None
+            self._registered += 1
 
     def open(self):
         if self._started is not None or self._closed:
@@ -542,7 +593,7 @@ class DuckDBAttempt:
                 self._connection.interrupt()
 
     def _finish(self):
-        """Step 5: close an open reader, unregister a registered capture,
+        """Step 5: close an open reader, unregister each registered capture,
         then close, whatever ended the attempt; a reader outlives its
         connection."""
         with self._gate:
@@ -562,9 +613,9 @@ class DuckDBAttempt:
                     ex.ExecutionFailure("reader", type(error).__name__)
                 )
         if connection is not None:
-            if self._registered:
+            for position in range(self._registered):
                 try:
-                    connection.unregister(RELATION)
+                    connection.unregister(relation(position))
                 except BaseException as error:
                     self._cleanup_errors.append(
                         ex.ExecutionFailure("unregister", type(error).__name__)
@@ -577,7 +628,7 @@ class DuckDBAttempt:
                 )
         with self._gate:
             self._connection = self._capture = self._reader = None
-            self._registered = False
+            self._registered = 0
             self._closed = True
             self._finalizing = False
             self._cleanup = (

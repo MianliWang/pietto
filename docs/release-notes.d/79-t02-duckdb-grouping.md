@@ -103,10 +103,8 @@ query totals(min_total: Int):
   text`.
 - The suggestions of five DuckDB refusals change, and scripts that match
   their text must follow. `duckdb_relation_shape_not_admitted` now reads
-  `DuckDB emission admits one source read with where, group by, having,
-  select, order by and limit; JOIN, windows, qualify, distinct, set
-  operations, relation lets and derived sources are not available on
-  DuckDB`; `duckdb_projection_not_admitted` `select source fields directly,
+  the text that the note on several sources and their JOINs gives;
+  `duckdb_projection_not_admitted` `select source fields directly,
   or group by keys and aggregates of fields, such as select: customer, total
   = sum(amount), or add, subtract or multiply two Int or two Float values,
   one at least a field or key, such as net = price - discount; other

@@ -24,6 +24,11 @@ from _pietto_sql_duckdb import (
     GROUPED_SQL,
     HEADER,
     INT,
+    JOINED,
+    JOINED_GROUPED,
+    JOINED_GROUPED_SQL,
+    JOINED_HEADER,
+    JOINED_SQL,
     ORDERED,
     ORDERED_SQL,
     PREDICATED,
@@ -34,6 +39,7 @@ from _pietto_sql_duckdb import (
     TYPED_HEADER,
     contract,
     filtered,
+    joined_contract,
     source_entry,
     statement,
     write,
@@ -587,6 +593,15 @@ SHAPES = {
         PROJECTION.replace("from orders", "from pending"),
         [("PIE-B1003", "duckdb_relation_shape_not_admitted")],
     ),
+    # Rule 6 refuses only a statement that reads no source.
+    "no_source": (
+        "query result:\n    values(id: Int):\n        1\n",
+        [
+            ("PIE-B1003", "duckdb_relation_shape_not_admitted"),
+            ("PIE-B1003", "duckdb_source_count_not_admitted"),
+            ("PIE-B1003", "duckdb_projection_not_admitted"),
+        ],
+    ),
 }
 
 
@@ -1021,31 +1036,219 @@ JOIN = """table result:
     select:
         a = orders.id
 """
-JOINED = [
-    ("PIE-B1003", "duckdb_relation_shape_not_admitted"),
-    ("PIE-B1003", "duckdb_source_count_not_admitted"),
-    ("PIE-B1003", "duckdb_projection_not_admitted"),
-]
 
 
-def test_a_second_source_is_refused_at_its_declaration(tmp_path: Path) -> None:
-    header = HEADER + 'source more: Order = duckdb.arrow("more")\n'
-    document = contract(source_entry(), source_entry("more"))
-    status, emitted = emit(write(tmp_path / "duckdb", JOIN, document, header), JOIN)
-    assert (status, blockers(emitted)) == ("BLOCKED", JOINED)
-    assert emitted["blockers"][1]["location"]["line"] == 9  # source more
-    # Rule 27 of the first source is found before rules 19 and 20 of the
-    # second, and listed after them.
+def test_a_later_sources_refusals_come_before_the_first_sources_rule_27(
+    tmp_path: Path,
+) -> None:
+    """Rule 27 of the first source is found before rules 19 and 20 of the
+    second, and listed after them, by rule order."""
     header = HEADER + 'source more: Order = postgres.table("more")\n'
     document = _change(contract(), "sources/0/fields/2/representation/nullable", False)
     status, emitted = emit(write(tmp_path / "postgres", JOIN, document, header), JOIN)
-    assert blockers(emitted) == JOINED + [
-        ("PIE-B1006", "negative_original_target_evidence"),
-        ("PIE-B1001", "source_family_mismatch"),
-        ("PIE-B1001", "source_mapping_missing"),
-        ("PIE-B1002", "nullability_mismatch"),
+    assert (status, blockers(emitted)) == (
+        "BLOCKED",
+        [
+            ("PIE-B1006", "negative_original_target_evidence"),
+            ("PIE-B1001", "source_family_mismatch"),
+            ("PIE-B1001", "source_mapping_missing"),
+            ("PIE-B1002", "nullability_mismatch"),
+        ],
+    )
+    assert [b["location"]["line"] for b in emitted["blockers"][1:]] == [9, 9, 4]
+
+
+def _joined(tmp_path: Path, body: str) -> tuple[str, dict[str, Any]]:
+    return emit(write(tmp_path / "p", body, joined_contract(), JOINED_HEADER), body)
+
+
+def test_joined_sources_number_their_fields_across_the_inputs(tmp_path: Path) -> None:
+    """Fields are c0.. across the inputs in FROM and JOIN order; a source that
+    reads the relation of another is an input of its own. Each column names
+    its source and its field's ordinal there, and a LEFT JOIN's fields are
+    nullable."""
+    status, emitted = _joined(tmp_path, JOINED)
+    assert (status, emitted["sql"]) == ("VERIFIED", JOINED_SQL)
+    assert [
+        (
+            c["label"],
+            c["correspondence"]["source"]["name"],
+            c["correspondence"]["field"],
+            c["nullable"],
+            c["representation"]["nullable"],
+        )
+        for c in emitted["columns"]
+    ] == [
+        ("id", "orders", 0, False, False),
+        ("name", "customers", 1, False, False),
+        ("rate", "buyers", 2, True, True),
+        ("buyer", "buyers", 0, True, True),
     ]
-    assert [b["location"]["line"] for b in emitted["blockers"][4:]] == [9, 9, 4]
+    sql = emitted["sql"].encode()
+    named = {
+        sql[r["start"] : r["end"]].decode(): (r["role"], r["subject"]["kind"])
+        for r in emitted["ranges"]
+    }
+    assert named[" INNER JOIN temp.main."] == ("join", "join")
+    assert named['"pietto_arrow_2"'] == ("relation", "definition")
+    assert named[" = "] == ("operator", "expression")
+    assert b"".join(
+        sql[r["start"] : r["end"]] for r in emitted["ranges"]
+    ) == sql and all(
+        a["end"] == b["start"] for a, b in zip(emitted["ranges"], emitted["ranges"][1:])
+    )
+    query = execution.compile_query(
+        tmp_path / "p",
+        **selected(JOINED),
+        dialect="duckdb",
+        emission_contract="contract.json",
+    )
+    facts = adapter.execution_facts(query._template)
+    assert [(s.key, len(s.fields), s.unique) for s in facts.sources] == [
+        ("orders", 5, ()),
+        ("customers", 3, ()),
+        ("customers", 3, ()),
+    ]
+
+
+def test_aggregates_over_join_rows_read_each_field_from_its_input(
+    tmp_path: Path,
+) -> None:
+    """Grouped, having and order reads are qualified by their own input; the
+    route checks every declared key of each input (D79.24)."""
+    status, emitted = _joined(tmp_path, JOINED_GROUPED)
+    assert (status, emitted["sql"]) == ("VERIFIED", JOINED_GROUPED_SQL)
+    query = execution.compile_query(
+        tmp_path / "p",
+        **selected(JOINED_GROUPED),
+        dialect="duckdb",
+        emission_contract="contract.json",
+    )
+    facts = adapter.execution_facts(query._template)
+    assert [(s.key, s.unique) for s in facts.sources] == [
+        ("orders", ()),
+        ("customers", ((0,),)),
+    ]
+
+
+SHAPE_REFUSED = ("PIE-B1003", "duckdb_relation_shape_not_admitted")
+
+
+@pytest.mark.parametrize(
+    "join",
+    (
+        "right join customers on orders.amount == customers.id",
+        "full join customers on orders.amount == customers.id",
+        "cross join customers",
+        "inner join customers on orders.amount < customers.id",
+        "inner join customers on orders.amount != customers.id",
+        "inner join customers on orders.amount == orders.id",
+        "inner join customers on orders.amount == customers.id or orders.id == 1",
+        "inner join customers on orders.amount == customers.id and orders.ok",
+        "left join customers on orders.amount == 1 and orders.id == customers.id",
+        "inner join customers on orders.amount == customers.rate",
+    ),
+)
+def test_other_joins_are_rule_5_at_the_join(tmp_path: Path, join: str) -> None:
+    """A JOIN of another kind, or an `on` that is not an `and` of `==` between
+    one field of each side, is refused by rule 5 alone, at its clause; the
+    rest of the statement is admitted."""
+    body = (
+        "table result:\n    from orders\n"
+        f"    {join}\n"
+        "    left join buyers on buyers.id == orders.id\n"
+        "    select:\n        id = orders.id\n"
+    )
+    status, emitted = _joined(tmp_path, body)
+    assert (status, blockers(emitted)) == ("BLOCKED", [SHAPE_REFUSED]), emitted
+    assert emitted["blockers"][0]["location"]["line"] == 21
+    assert emitted["blockers"][0]["suggestion"] == B2_SUGGESTIONS[SHAPE_REFUSED[1]]
+
+
+def test_arithmetic_over_left_join_rows_is_null_on_the_joined_side(
+    tmp_path: Path,
+) -> None:
+    """Arithmetic reads JOIN rows as a projection does: its Int range is
+    proved from each input's int_range, and a column whose operand lies on a
+    LEFT JOIN's joined side is nullable, a declared non-null field too, while
+    over an INNER JOIN it keeps its operands' declared nullability."""
+    document = joined_contract()
+    for entry in document["sources"]:
+        for field in entry["fields"]:
+            if field["representation"]["domain"]["kind"] == "int_range":
+                field["representation"]["domain"].update(min="-1000", max="1000")
+    body = (
+        "table result:\n    from orders\n"
+        "    left join customers on orders.amount == customers.id\n"
+        "    select:\n        id = orders.id\n        s = orders.amount + customers.id\n"
+        "        r = customers.rate * orders.price\n        d = orders.id - orders.amount\n"
+    )
+    status, emitted = emit(write(tmp_path / "p", body, document, JOINED_HEADER), body)
+    assert status == "VERIFIED", emitted
+    assert emitted["sql"].startswith(
+        'SELECT "c0" AS "id", "c1" + "c5" AS "s", CASE WHEN isinf("c7" * "c4")'
+    )
+    assert [
+        (c["label"], c["nullable"], c["representation"]["domain"].get("max"))
+        for c in emitted["columns"]
+    ] == [
+        ("id", False, "1000"),
+        ("s", True, "2000"),
+        ("r", True, None),
+        ("d", False, "2000"),
+    ]
+    # An INNER JOIN keeps its operands' declared nullability.
+    inner = body.replace("left join", "inner join")
+    status, emitted = emit(write(tmp_path / "i", inner, document, JOINED_HEADER), inner)
+    assert status == "VERIFIED", emitted
+    assert [
+        (c["nullable"], c["representation"]["domain"].get("max"))
+        for c in emitted["columns"][:2]
+    ] == [(False, "1000"), (False, "2000")]
+    # Over the default ranges of all signed 64 bits the product is not proved.
+    wide = (
+        "table result:\n    from orders\n"
+        "    inner join customers on orders.amount == customers.id\n"
+        "    select:\n        id = orders.id\n        p = orders.amount * customers.id\n"
+    )
+    status, emitted = _joined(tmp_path / "w", wide)
+    assert (status, blockers(emitted)) == (
+        "BLOCKED",
+        [("PIE-B1003", "duckdb_arithmetic_range_not_proved")],
+    )
+
+
+@pytest.mark.parametrize(
+    "key,refused",
+    (("day", False), ("at", False), ("cost", True)),
+)
+def test_a_date_or_timestamp_key_joins_and_a_decimal_key_is_rule_5(
+    tmp_path: Path, key: str, refused: bool
+) -> None:
+    """A JOIN key may be a `Date` or a `Timestamp`; a `Decimal` key is refused
+    by rule 5 alone, at the JOIN."""
+    header = TYPED_HEADER + 'source later: Event = duckdb.arrow("later")\n'
+    document = contract(
+        source_entry(fields=TYPED_FIELDS), source_entry("later", TYPED_FIELDS)
+    )
+    body = (
+        "table result:\n    from orders\n"
+        f"    inner join later on orders.{key} == later.{key}\n"
+        "    select:\n        id = orders.id\n        other = later.id\n"
+    )
+    status, emitted = emit(write(tmp_path / "p", body, document, header), body)
+    if refused:
+        assert (status, blockers(emitted)) == ("BLOCKED", [SHAPE_REFUSED])
+    else:
+        assert (status, emitted["sql"]) == (
+            "VERIFIED",
+            'SELECT "c0" AS "id", "c5" AS "other" FROM temp.main."pietto_arrow_0"'
+            ' INNER JOIN temp.main."pietto_arrow_1"'
+            f' ON "c{TYPED_KEYS[key]}" = "c{TYPED_KEYS[key] + 5}"',
+        )
+
+
+TYPED_KEYS = {name: k for k, (name, _kind, _nullable) in enumerate(TYPED_FIELDS)}
 
 
 @pytest.mark.parametrize("logical", ("UUID", "Decimal", "Decimal(39, 2)"))
@@ -1111,7 +1314,7 @@ def test_an_unfulfilled_single_match_obligation_is_rule_18(tmp_path: Path) -> No
     header = HEADER + 'source more: Order = duckdb.arrow("more")\n'
     document = contract(source_entry(), source_entry("more"))
     root = write(tmp_path / "p", JOIN, document, header)
-    assert blockers(emit(root, JOIN)[1]) == JOINED
+    assert emit(root, JOIN)[0] == "VERIFIED"
     completed = build_project_completed_semantic_result(
         build_empty_project_semantic_result(check_project_parse_only(root))
     )
@@ -1134,8 +1337,10 @@ def test_an_unfulfilled_single_match_obligation_is_rule_18(tmp_path: Path) -> No
         emission_cli.POLICIES["preserve"],
     )
     assert outcome.status == "BLOCKED"
-    assert [(b.code, b.detail) for b in outcome.blockers] == JOINED + [
-        ("PIE-B1006", "original_enforcement_not_fulfilled")
+    # The plan's single-match obligation is beyond the relational shape.
+    assert [(b.code, b.detail) for b in outcome.blockers] == [
+        SHAPE_REFUSED,
+        ("PIE-B1006", "original_enforcement_not_fulfilled"),
     ]
 
 
@@ -1174,10 +1379,21 @@ def test_suggestions_are_the_routes_or_the_existing_texts() -> None:
 
 B2_SUGGESTIONS = {
     "duckdb_relation_shape_not_admitted": (
-        "DuckDB emission admits one source read with where, group by, having,"
-        " select, order by and limit; JOIN, windows, qualify, distinct, set"
-        " operations, relation lets and derived sources are not available on"
-        " DuckDB"
+        "DuckDB emission admits duckdb.arrow source reads joined by inner or"
+        " left joins on equalities of fields of one type, such as inner join"
+        " customers on orders.customer_id == customers.id, then where, group"
+        " by, having, select, order by and limit; right, full and cross joins,"
+        " other on conditions, Decimal join keys, windows, qualify, distinct,"
+        " set operations, relation lets and derived sources are not available"
+        " on DuckDB"
+    ),
+    "duckdb_source_count_not_admitted": (
+        "read one or more duckdb.arrow sources; the DuckDB route runs one query"
+        " over the Arrow tables passed to execute()"
+    ),
+    "source_identifier_unrepresentable": (
+        'use the relation namespace "arrow"; the DuckDB route reads registered'
+        " Arrow tables"
     ),
     "duckdb_projection_not_admitted": (
         "select source fields directly, or group by keys and aggregates of"
@@ -1490,6 +1706,83 @@ def test_a_forged_artifact_is_refused(
         "PIE-R1004",
         "BINDING_ARTIFACT",
     )
+
+
+def test_a_source_read_twice_is_rule_5_and_two_sources_of_one_key_are_not(
+    tmp_path: Path,
+) -> None:
+    alias = (
+        "table result:\n    from customers\n    let c = customers\n"
+        "    inner join c on c.id == customers.id\n"
+        "    select:\n        id = customers.id\n        other = c.name\n"
+    )
+    status, emitted = _joined(tmp_path / "alias", alias)
+    assert (status, blockers(emitted)) == ("BLOCKED", [SHAPE_REFUSED])
+    twice = (
+        "table result:\n    from customers\n"
+        "    inner join buyers on buyers.id == customers.id\n"
+        "    select:\n        id = customers.id\n        other = buyers.name\n"
+    )
+    status, emitted = _joined(tmp_path / "twice", twice)
+    assert (status, emitted["sql"]) == (
+        "VERIFIED",
+        'SELECT "c0" AS "id", "c4" AS "other" FROM temp.main."pietto_arrow_0"'
+        ' INNER JOIN temp.main."pietto_arrow_1" ON "c3" = "c0"',
+    )
+
+
+def test_a_forged_join_is_refused(tmp_path: Path) -> None:
+    """Forgery: a JOIN AST that keeps every SQL rule, rendered and documented
+    afresh, does not correspond to the plan; one that breaks a rule is
+    refused by the rules themselves."""
+    root = write(tmp_path / "p", JOINED, joined_contract(), JOINED_HEADER)
+    outcome, _ = emission_cli.emit_project(
+        root,
+        "main.pietto",
+        "query",
+        "result",
+        "duckdb",
+        "contract.json",
+        emission_cli.POLICIES["preserve"],
+        read_sources_only=True,
+    )
+    assert type(outcome) is adapter.DuckDBEmission and outcome.status == "VERIFIED"
+    artifact: Any = outcome.artifact
+    ast, plan = artifact.ast, artifact.checked.plan
+    fields, labels = len(plan.source_ports), adapter._labels(plan)
+    assert fields == 11 and duckdb_sql.ast_rules_hold(ast, fields, labels)
+    replace = dataclasses.replace
+    first, second = ast.joins
+    for forged in (
+        replace(ast, joins=(replace(first, kind="LEFT"), second)),
+        replace(ast, joins=(first, replace(second, kind="INNER"))),
+        replace(ast, joins=(replace(first, on=first.on[::-1]), second)),
+        replace(ast, joins=(replace(first, on=first.on[:1]), second)),
+        replace(ast, joins=(first, replace(second, on=((0, 8),)))),
+        replace(ast, joins=(first, replace(second, on=((9, 0),)))),
+        # Its fields then belong to the first JOIN's input.
+        replace(ast, joins=(first,)),
+    ):
+        assert duckdb_sql.ast_rules_hold(forged, fields, labels)
+        assert not adapter.verify_artifact(
+            replace(artifact, **_rendered(artifact, forged))
+        )
+    for broken in (
+        replace(ast, joins=(replace(first, kind="RIGHT"), second)),
+        replace(ast, joins=(replace(first, start=0), second)),
+        replace(ast, joins=(first, replace(second, start=5))),
+        replace(ast, joins=(first, replace(second, start=11))),
+        replace(ast, joins=(replace(first, on=()), second)),
+        replace(ast, joins=(replace(first, on=((5, 6),)), second)),
+        replace(ast, joins=(replace(first, on=((0, 1),)), second)),
+        replace(ast, joins=(replace(first, on=((1, 8),)), second)),
+        # One side of an equality in a later input, or before the first.
+        replace(ast, joins=(replace(first, on=((6, 9),)), second)),
+        replace(ast, joins=(replace(first, on=((-1, 6),)), second)),
+        replace(ast, joins=(replace(first, on=[(1, 5)]), second)),
+        replace(ast, joins=[first, second]),
+    ):
+        assert not duckdb_sql.ast_rules_hold(broken, fields, labels)
 
 
 def test_a_forged_grouped_artifact_is_refused(tmp_path: Path) -> None:

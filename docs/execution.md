@@ -58,7 +58,7 @@ The alpha covers `postgres_rows` and `postgres_adbc`, against PostgreSQL 18.6,
 and `mysql_rows`, against MySQL 8.4.12. Both PostgreSQL routes use the same
 explicit TCP inputs and deployment premise; `postgres_adbc` selects only its
 pinned ADBC driver closure. `duckdb_arrow` runs one limited query in process
-over an Arrow table that you supply, on DuckDB `2.0.0`, with no connection or
+over the Arrow tables that you supply, on DuckDB `2.0.0`, with no connection or
 premise (see [DuckDB Arrow route](#duckdb-arrow-route)). `sqlite_file` runs
 one limited query in process over one SQLite file that you name, read-only,
 on one measured SQLite build (see [SQLite file route](#sqlite-file-route)).
@@ -86,7 +86,7 @@ Linux-only (see [Known limitations](#known-limitations)).
 | `postgres_rows` | PostgreSQL 18.6; `psycopg[binary]==3.3.8`; `pyarrow==26.0.1` (the published `0.1.10` selects `3.3.5` and `26.0.0`) | One TCP host, `PostgresAccess`, `PostgresDeploymentPremise`, and SCRAM-SHA-256; TLS `require`, or `verify-full` against a caller-supplied `ca_file`. | Linux x86-64, CPython 3.13.13 with 3.3.5/26.0.0; the new pins passed the maintenance runs listed above. | Windows native execution; another PostgreSQL release, libpq closure or TLS profile (client certificates, revocation lists, `verify-ca`, a system CA store). |
 | `mysql_rows` | MySQL 8.4.12; `mysql-connector-python==26.10.0`; `pyarrow==26.0.1` (the published `0.1.10` selects `26.0.0`) | One TCP host, `MySQLAccess`, `MySQLDeploymentPremise`, and caller-supplied CA with certificate and server-identity verification. | Linux x86-64, CPython 3.13.13 with 26.0.0; the new pin passed the maintenance runs listed above. | Windows native execution; another MySQL release, connector version or provider profile. |
 | `postgres_adbc` | PostgreSQL 18.6; `adbc-driver-postgresql==1.13.0`; `adbc-driver-manager==1.13.0`; `pyarrow==26.0.1` (the published `0.1.10` selects `26.0.0`) | PostgreSQL TCP access, deployment premise, SCRAM profile with the same two TLS profiles as `postgres_rows`, and the selected driver closure. | Linux x86-64, CPython 3.13.13 with 26.0.0; the new pin passed the maintenance runs listed above. | Windows native execution; another ADBC/libpq closure, PostgreSQL release, TLS profile or platform. |
-| `duckdb_arrow` | DuckDB `2.0.0` in process; `duckdb==2.0.0`; `pyarrow==26.0.1` | A query compiled with `--dialect duckdb` from one `duckdb.arrow` source, `DuckDBArrowInput(name, table)` and `premise=None`. | Linux x86-64, CPython 3.13.13 and 3.12.13 with the locked closure: the in-process native matrices of Phase79 S06 for B1 and T06 for B2, every unit accepted on its first attempt on 2026-11-14 (D79.07) and 2026-11-16 (PL.47); and the `arrow-ready` cell of natural CI on CPython 3.12 and 3.13. | Any form beyond the [DuckDB Arrow route](spec/duckdb-arrow-route-v1.md); the second tier's types, arithmetic and batch reading, whose qualification has not run; another DuckDB release, Windows, macOS and platforms other than Linux x86-64 with glibc 2.28 or later. |
+| `duckdb_arrow` | DuckDB `2.0.0` in process; `duckdb==2.0.0`; `pyarrow==26.0.1` | A query compiled with `--dialect duckdb` from one or more `duckdb.arrow` sources, a `DuckDBArrowInput(name, table)` or a tuple of them, one for each key, and `premise=None`. | Linux x86-64, CPython 3.13.13 and 3.12.13 with the locked closure: the in-process native matrices of Phase79 S06 for B1 and T06 for B2, every unit accepted on its first attempt on 2026-11-14 (D79.07) and 2026-11-16 (PL.47); and the `arrow-ready` cell of natural CI on CPython 3.12 and 3.13. | Any form beyond the [DuckDB Arrow route](spec/duckdb-arrow-route-v1.md); the second tier's types, arithmetic, batch reading, several inputs and JOINs, whose qualification has not run; another DuckDB release, Windows, macOS and platforms other than Linux x86-64 with glibc 2.28 or later. |
 | `sqlite_file` | SQLite `3.53.1` with the measured source id and compile options, in process through the standard library's `sqlite3`; `pyarrow==26.0.1` | A query compiled with `--dialect sqlite` from one `sqlite.table` source, `SQLiteFileInput(path)` naming a file of `STRICT` tables and `premise=None`. | Linux x86-64 under CPython 3.13.13 and 3.12.13, qualified by the route's native cells ([SQLite project mode](spec/sqlite-project-v1.md#qualification)). | Any other SQLite build or platform, which `execute()` refuses; the library's memory safety on a malformed file; any form beyond [SQLite project mode](spec/sqlite-project-v1.md). |
 
 The qualified profile is the integration host with the lock's exact artifacts.
@@ -857,7 +857,7 @@ again (`PIE-R1005`), refuses a result wider than one batch on the PostgreSQL
 and MySQL routes (`PIE-R1004` `LIMIT`, see [Results](#results)) and checks
 the values of `premise`, `access`, `isolation` (its type included) and
 `limits`, in this order, and raises the first refusal. On `duckdb_arrow` the
-input name is checked against the contract's relation name right after
+input names are checked against the contract's relation names right after
 `access`, and the loaded PyArrow (`PIE-R2001`, `PIE-R2002`) and the capture
 (`PIE-R1002`) after `limits`, in the order of the
 [DuckDB Arrow route](spec/duckdb-arrow-route-v1.md#execute-api). On
@@ -1417,7 +1417,7 @@ PIE-R3004 FAILED 2
 ## DuckDB Arrow route
 
 `duckdb_arrow` runs one read-only query of an explicit-module project over
-one Arrow table that your program supplies, in process, on DuckDB `2.0.0`.
+the Arrow tables that your program supplies, in process, on DuckDB `2.0.0`.
 The [DuckDB Arrow route](spec/duckdb-arrow-route-v1.md) states every rule; in
 short:
 
@@ -1426,7 +1426,9 @@ short:
   attempt opens (`PIE-R2002`).
 - **Query.** One `duckdb.arrow("key")` source of `Int`, `Text`, `Bool`,
   finite `Float`, `Date`, `Timestamp` and `Decimal(p, s)` fields, `p` at
-  most 38, read directly or grouped with `count`, `sum`, `min` and `max`,
+  most 38, or several joined to the first by `inner join` and `left join`
+  on equalities of fields of one type other than `Decimal`, read directly
+  or grouped with `count`, `sum`, `min` and `max`,
   filtered in `where` and `having` by comparisons with literals and with
   non-null parameters of those types (a `having` only of the first four),
   joined by `and` and `or`, a `where` also with `not` and NULL tests, then
@@ -1440,15 +1442,19 @@ short:
   direct projection with at most one comparison of an `Int` field with one
   `Int` parameter.
 - **Input.** `access=DuckDBArrowInput(name, table)`, whose `name` is the
-  source's key, and `premise=None`. `DuckDBArrowInput` does no I/O and cannot
-  be copied or pickled. `isolation` is `"stable"`.
+  source's key, or a tuple of them, one for each key that the query reads,
+  matched by name (a repeated, missing or extra name is `PIE-R1002`
+  `DUCKDB_ARROW_SCHEMA`), and `premise=None`. `DuckDBArrowInput` does no I/O
+  and cannot be copied or pickled. `isolation` is `"stable"`.
 - **Capture.** `execute()` copies the selected columns before it returns, so
   a later change of your buffers does not reach the query. It refuses, in
   this order, a table of more than 1,048,576 rows
   (`DUCKDB_ARROW_CAPTURE_LIMIT`), a column or type that does not fit the
   compiled source (`DUCKDB_ARROW_SCHEMA`), selected columns of more than
-  256 MiB of PyArrow `nbytes` together (`DUCKDB_ARROW_CAPTURE_LIMIT`), and a
-  null, NaN, infinity, invalid UTF-8 or out-of-domain value
+  256 MiB of PyArrow `nbytes` together over all inputs
+  (`DUCKDB_ARROW_CAPTURE_LIMIT`), a null, NaN, infinity, invalid UTF-8 or
+  out-of-domain value (`DUCKDB_ARROW_SCHEMA`) and, when the query aggregates
+  JOIN rows, an input that breaks a `unique(...)` key its shape declares
   (`DUCKDB_ARROW_SCHEMA`), all `PIE-R1002`; a table field that the source
   does not read does not count. `0.2.0` and `0.2.1` refuse more than 65,536
   rows or 16 MiB of the whole table, before the schema.

@@ -1,12 +1,15 @@
 """The DuckDB adapter's own SQL AST and renderer (AD78.03).
 
-One statement over the registered capture: its columns, or with `group by`
-and aggregates their grouped values, and `Int` and `Float` arithmetic over
-them in the final projection, filtered in `where` and `having` by
-comparisons of a read with a literal or a parameter, null tests and `AND`,
-`OR` and `NOT` of these, then its order keys and its static limit. Every
-identifier is Pietto-owned except the quoted result labels, so the SQL never
-holds the caller's key or column names (docs/spec/duckdb-arrow-route-v1.md).
+One statement over the registered captures, the first input joined to each
+later one by `INNER JOIN` or `LEFT JOIN` on equalities of fields: its
+columns, or with `group by` and aggregates their grouped values, and `Int`
+and `Float` arithmetic over them in the final projection, filtered in
+`where` and `having` by comparisons of a read with a literal or a parameter,
+null tests and `AND`, `OR` and `NOT` of these, then its order keys and its
+static limit. Every identifier is Pietto-owned except the quoted result
+labels, so the SQL never holds the caller's key or column names
+(docs/spec/duckdb-arrow-route-v1.md). Fields are numbered across the inputs
+in their order, so each capture column's name `"c<k>"` is unique.
 """
 
 from __future__ import annotations
@@ -19,6 +22,7 @@ import math
 __all__: tuple[str, ...] = ()
 
 RELATION = "pietto_arrow_0"
+JOINS = ("INNER", "LEFT")
 OPERATORS = {"==": "=", "!=": "<>", "<": "<", "<=": "<=", ">": ">", ">=": ">="}
 # The type each parameter's placeholder is cast to: DuckDB types a bound
 # Python value by its value.
@@ -156,6 +160,17 @@ class DuckDBOrderKey:
 
 
 @dataclass(frozen=True, slots=True)
+class DuckDBJoin:
+    """`<kind> JOIN temp.main."pietto_arrow_<k>"` of the next input, whose
+    fields are `"c<start>"` onward, `ON` the `AND` of `<a> = <b>` for each
+    pair of fields in `on`, one of this input and one of an earlier one."""
+
+    kind: str
+    start: int
+    on: tuple[tuple[int, int], ...]
+
+
+@dataclass(frozen=True, slots=True)
 class DuckDBSelect:
     relation: str
     columns: tuple[DuckDBColumn, ...]
@@ -164,6 +179,7 @@ class DuckDBSelect:
     having: Predicate | None = None
     order_by: tuple[DuckDBOrderKey, ...] = ()
     limit: int | None = None
+    joins: tuple[DuckDBJoin, ...] = ()
 
     @property
     def nodes(self) -> int:
@@ -175,6 +191,7 @@ class DuckDBSelect:
             sum(_size(p) for p in (self.where, self.having) if p is not None),
             len(self.order_by),
             self.limit is not None,
+            sum(1 + 4 * len(j.on) for j in self.joins),
         )
 
 
@@ -185,15 +202,22 @@ def _size(node: Predicate) -> int:
 
 
 def node_count(
-    columns: int, arguments: int, keys: int, predicates: int, orders: int, limits: int
+    columns: int,
+    arguments: int,
+    keys: int,
+    predicates: int,
+    orders: int,
+    limits: int,
+    joins: int = 0,
 ) -> int:
     """The statement and its relation; a value and a label per column, and the
     read of each column's aggregate that has one or each operand of its
     arithmetic (both `arguments`); a read per group key; the
     `predicates` nodes of `where` and `having`, one per logical operator,
     comparison, null test, read, literal and placeholder; a key and the value
-    it reads per order key; and the limit's value."""
-    return 2 + 2 * columns + arguments + keys + predicates + 2 * orders + limits
+    it reads per order key; the limit's value; and the `joins` nodes, per
+    JOIN itself, its relation and, as a predicate, its `ON`."""
+    return 2 + 2 * columns + arguments + keys + predicates + 2 * orders + limits + joins
 
 
 @dataclass(frozen=True, slots=True)
@@ -203,8 +227,10 @@ class Token:
     ("argument", i), ("computed", i), ("computed", i, k) for the k-th operand
     of an arithmetic column, ("source",), ("filter",), ("aggregation",),
     ("group_key", i), ("having",), ("order",), ("order_key", i), ("limit",),
-    or ("predicate", *path) and ("having_predicate", *path), the node of the
-    `where` or `having` predicate at that path of operand positions."""
+    ("predicate", *path) and ("having_predicate", *path), the node of the
+    `where` or `having` predicate at that path of operand positions, or of
+    JOIN j: ("join", j), its input ("join_source", j), its equality p
+    ("join_on", j, p) and that equality's side s ("join_on", j, p, s)."""
 
     start: int
     end: int
@@ -215,6 +241,11 @@ class Token:
 
 def _quoted(name: str) -> str:
     return '"' + name.replace('"', '""') + '"'
+
+
+def relation(position: int) -> str:
+    """The registered name of input `position`, in FROM and JOIN order."""
+    return f"pietto_arrow_{position}"
 
 
 def render(ast: DuckDBSelect) -> tuple[bytes, tuple[Token, ...]]:
@@ -229,14 +260,22 @@ def render(ast: DuckDBSelect) -> tuple[bytes, tuple[Token, ...]]:
         tokens.append(Token(offset, offset + len(chunk), kind, role, subject))
         offset += len(chunk)
 
+    def qualifier(field: int) -> str:
+        position = sum(join.start <= field for join in ast.joins)
+        return _quoted(relation(position)) + "."
+
     def value(
         field: int | None,
         function: str | None,
-        qualifier: str,
+        qualified: bool,
         outer: tuple[object, ...],
         inner: tuple[object, ...],
     ) -> None:
-        column = None if field is None else qualifier + _quoted(f"c{field}")
+        column = (
+            None
+            if field is None
+            else (qualifier(field) if qualified else "") + _quoted(f"c{field}")
+        )
         if column is None:
             emit("count(*)", "syntax", "aggregate", *outer)
         elif function is None:
@@ -247,9 +286,9 @@ def render(ast: DuckDBSelect) -> tuple[bytes, tuple[Token, ...]]:
             emit(column, "identifier", "column", *inner)
             emit(after, "syntax", "aggregate_close", *outer)
 
-    def term(node: object, qualifier: str, subject: tuple[object, ...]) -> None:
+    def term(node: object, qualified: bool, subject: tuple[object, ...]) -> None:
         if type(node) is DuckDBRead:
-            value(node.field, node.function, qualifier, subject, subject)
+            value(node.field, node.function, qualified, subject, subject)
         elif type(node) is DuckDBParameter:
             emit("CAST(", "syntax", "anchor_open", *subject)
             emit(f"${node.placeholder}", "parameter", "parameter", *subject)
@@ -270,11 +309,11 @@ def render(ast: DuckDBSelect) -> tuple[bytes, tuple[Token, ...]]:
             if len(node.operands) == 1:
                 if node.operator == "-":
                     emit("-", "syntax", "operator", *subject)
-                term(node.operands[0], "", (*subject, 0))
+                term(node.operands[0], False, (*subject, 0))
                 return
-            term(node.operands[0], "", (*subject, 0))
+            term(node.operands[0], False, (*subject, 0))
             emit(f" {node.operator} ", "syntax", "operator", *subject)
-            term(node.operands[1], "", (*subject, 1))
+            term(node.operands[1], False, (*subject, 1))
 
         if node.tag != "Float" or len(node.operands) == 1:
             operation()
@@ -286,16 +325,18 @@ def render(ast: DuckDBSelect) -> tuple[bytes, tuple[Token, ...]]:
             emit(" WHEN (", "syntax", "guard", *subject)
             operation()
             emit(") = 0 AND ", "syntax", "guard", *subject)
-            term(node.operands[0], "", (*subject, 0))
+            term(node.operands[0], False, (*subject, 0))
             emit(" <> 0 AND ", "syntax", "guard", *subject)
-            term(node.operands[1], "", (*subject, 1))
+            term(node.operands[1], False, (*subject, 1))
             text = f" <> 0 THEN error({_text(FLOAT_UNDERFLOW)})"
             emit(text, "syntax", "guard", *subject)
         emit(" ELSE (", "syntax", "guard", *subject)
         operation()
         emit(") END", "syntax", "guard", *subject)
 
-    def predicate(node: Predicate, qualifier: str, subject: tuple[object, ...]) -> None:
+    def predicate(
+        node: Predicate, qualified: bool, subject: tuple[object, ...]
+    ) -> None:
         if type(node) is DuckDBLogic:
             for position, operand in enumerate(node.operands):
                 if node.operator == "NOT":
@@ -306,19 +347,18 @@ def render(ast: DuckDBSelect) -> tuple[bytes, tuple[Token, ...]]:
                 grouped = type(operand) is DuckDBLogic
                 if grouped:
                     emit("(", "syntax", "group_open", *inner)
-                predicate(operand, qualifier, inner)
+                predicate(operand, qualified, inner)
                 if grouped:
                     emit(")", "syntax", "group_close", *inner)
         elif type(node) is DuckDBNullTest:
-            term(node.read, qualifier, (*subject, 0))
+            term(node.read, qualified, (*subject, 0))
             test = " IS NOT NULL" if node.negated else " IS NULL"
             emit(test, "syntax", "null_test", *subject)
         elif type(node) is DuckDBComparison:
-            term(node.left, qualifier, (*subject, 0))
+            term(node.left, qualified, (*subject, 0))
             emit(f" {node.operator} ", "syntax", "operator", *subject)
-            term(node.right, qualifier, (*subject, 1))
+            term(node.right, qualified, (*subject, 1))
 
-    qualified = _quoted(ast.relation) + "."
     emit("SELECT ", "syntax", "select", "statement")
     for position, column in enumerate(ast.columns):
         if position:
@@ -327,30 +367,48 @@ def render(ast: DuckDBSelect) -> tuple[bytes, tuple[Token, ...]]:
             arithmetic(column.value, ("computed", position))
         else:
             read = ("projection" if column.function is None else "argument", position)
-            value(column.field, column.function, "", ("aggregate", position), read)
+            value(column.field, column.function, False, ("aggregate", position), read)
         emit(" AS ", "syntax", "alias", "projection", position)
         emit(_quoted(column.label), "identifier", "label", "export", position)
     emit(" FROM temp.main.", "syntax", "from", "statement")
     emit(_quoted(ast.relation), "identifier", "relation", "source")
+    for position, join in enumerate(ast.joins):
+        emit(f" {join.kind} JOIN temp.main.", "syntax", "join", "join", position)
+        emit(
+            _quoted(relation(position + 1)),
+            "identifier",
+            "relation",
+            "join_source",
+            position,
+        )
+        emit(" ON ", "syntax", "on", "join", position)
+        for pair, sides in enumerate(join.on):
+            equality = ("join_on", position, pair)
+            if pair:
+                emit(" AND ", "syntax", "logical_operator", "join", position)
+            for side, field in enumerate(sides):
+                if side:
+                    emit(" = ", "syntax", "operator", *equality)
+                value(field, None, False, (), (*equality, side))
     if ast.where is not None:
         emit(" WHERE ", "syntax", "where", "filter")
-        predicate(ast.where, "", ("predicate",))
+        predicate(ast.where, False, ("predicate",))
     if ast.group_by:
         emit(" GROUP BY ", "syntax", "group_by", "aggregation")
         for position, field in enumerate(ast.group_by):
             if position:
                 emit(", ", "syntax", "separator", "aggregation")
-            value(field, None, qualified, (), ("group_key", position))
+            value(field, None, True, (), ("group_key", position))
     if ast.having is not None:
         emit(" HAVING ", "syntax", "having", "having")
-        predicate(ast.having, qualified, ("having_predicate",))
+        predicate(ast.having, True, ("having_predicate",))
     if ast.order_by:
         emit(" ORDER BY ", "syntax", "order_by", "order")
         for position, key in enumerate(ast.order_by):
             item = ("order_key", position)
             if position:
                 emit(", ", "syntax", "order_separator", *item)
-            value(key.field, key.function, qualified, item, item)
+            value(key.field, key.function, True, item, item)
             emit(DIRECTIONS[key.descending], "syntax", "order_direction", *item)
     if ast.limit is not None:
         emit(" LIMIT ", "syntax", "limit", "limit")
@@ -468,10 +526,44 @@ def literal_holds(value: object) -> bool:
     return type(value) is bool
 
 
+def _joins_hold(joins: object, fields: int) -> bool:
+    """Each JOIN's input starts after the previous one's and before the last
+    field, and each equality pairs one of its fields with an earlier one."""
+    if type(joins) is not tuple:
+        return False
+    if not joins:
+        return True
+    starts = [0]
+    for join in joins:
+        if (
+            type(join) is not DuckDBJoin
+            or join.kind not in JOINS
+            or type(join.start) is not int
+            or not starts[-1] < join.start < fields
+            or type(join.on) is not tuple
+            or not join.on
+        ):
+            return False
+        starts.append(join.start)
+    for join, end in zip(joins, (*starts[2:], fields), strict=True):
+        for pair in join.on:
+            if (
+                type(pair) is not tuple
+                or len(pair) != 2
+                or any(type(field) is not int for field in pair)
+                or sorted(join.start <= field < end for field in pair) != [False, True]
+                or not all(0 <= field < end for field in pair)
+            ):
+                return False
+    return True
+
+
 def ast_rules_hold(ast: DuckDBSelect, fields: int, labels: tuple[str, ...]) -> bool:
-    """The SQL rules of the route over a source of `fields` fields and the
-    statement's result `labels`."""
+    """The SQL rules of the route over inputs of `fields` fields in all and
+    the statement's result `labels`."""
     if type(ast) is not DuckDBSelect or ast.relation != RELATION:
+        return False
+    if not _joins_hold(ast.joins, fields):
         return False
     if type(ast.columns) is not tuple or not ast.columns:
         return False

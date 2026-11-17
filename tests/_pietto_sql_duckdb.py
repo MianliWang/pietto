@@ -142,6 +142,76 @@ def representation(kind: str) -> dict[str, Any]:
     return copy.deepcopy(REPRESENTATIONS[kind])
 
 
+# Two more sources: `customers`, whose shape declares a unique key, and
+# `buyers`, a second source of that shape that reads the same Arrow table.
+CUSTOMER = (("id", "Int", False), ("name", "Text", False), ("rate", "Float", True))
+JOINED_HEADER = (
+    HEADER
+    + """
+shape Customer:
+    id: Int
+    name: Text
+    rate: Float | None
+    key = unique(id)
+
+source customers: Customer = duckdb.arrow("customers")
+source buyers: Customer = duckdb.arrow("customers")
+"""
+)
+# Orders joined to their customer on two equalities, one written the other
+# way round, then left-joined to a buyer, filtered by a parameter.
+JOINED = """query result(least: Int):
+    from orders
+    inner join customers on orders.amount == customers.id and customers.name == orders.note
+    left join buyers on buyers.id == orders.id
+    where orders.amount >= least
+    select:
+        id = orders.id
+        name = customers.name
+        rate = buyers.rate
+        buyer = buyers.id
+"""
+JOINED_SQL = (
+    'SELECT "c0" AS "id", "c6" AS "name", "c10" AS "rate", "c8" AS "buyer"'
+    ' FROM temp.main."pietto_arrow_0"'
+    ' INNER JOIN temp.main."pietto_arrow_1" ON "c1" = "c5" AND "c6" = "c2"'
+    ' LEFT JOIN temp.main."pietto_arrow_2" ON "c8" = "c0"'
+    ' WHERE "c1" >= CAST($1 AS BIGINT)'
+)
+# Aggregates over JOIN rows, each orders row matching one customer by its
+# declared key; each qualified read names its own input.
+JOINED_GROUPED = """query result(least: Int):
+    from orders
+    inner join customers on orders.amount == customers.id
+    group by customers.name
+    select:
+        name = customers.name
+        n = count()
+        total = sum(orders.amount)
+        top = max(orders.price)
+    having total >= least
+    order by:
+        total desc
+"""
+JOINED_GROUPED_SQL = (
+    'SELECT "c6" AS "name", count(*) AS "n", CAST(sum("c1") AS BIGINT) AS "total",'
+    ' max("c4") AS "top" FROM temp.main."pietto_arrow_0"'
+    ' INNER JOIN temp.main."pietto_arrow_1" ON "c1" = "c5"'
+    ' GROUP BY "pietto_arrow_1"."c6"'
+    ' HAVING CAST(sum("pietto_arrow_0"."c1") AS BIGINT) >= CAST($1 AS BIGINT)'
+    ' ORDER BY CAST(sum("pietto_arrow_0"."c1") AS BIGINT) DESC NULLS FIRST'
+)
+
+
+def joined_contract() -> dict[str, Any]:
+    """The contract of JOINED_HEADER's three sources."""
+    return contract(
+        source_entry(),
+        source_entry("customers", CUSTOMER),
+        source_entry("buyers", CUSTOMER, "customers"),
+    )
+
+
 def filtered(operator: str, parameter: str = "min_amount: Int") -> str:
     return f"""query result({parameter}):
     from orders
@@ -157,11 +227,13 @@ def statement(name: str, value: object) -> dict[str, object]:
 
 
 def source_entry(
-    name: str = "orders", fields: tuple[tuple[str, str, bool], ...] = FIELDS
+    name: str = "orders",
+    fields: tuple[tuple[str, str, bool], ...] = FIELDS,
+    relation: str | None = None,
 ) -> dict[str, Any]:
     return {
         "selector": {"module": "main.pietto", "kind": "source", "name": name},
-        "relation": {"namespace": "arrow", "name": name},
+        "relation": {"namespace": "arrow", "name": relation or name},
         "scan": "arrow_registration",
         "fields": [
             {

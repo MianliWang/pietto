@@ -165,20 +165,21 @@ refused alike for every target.
 
 ## DuckDB local path
 
-An explicit-module project can compile one limited query over a
-`duckdb.arrow("key")` source with `emit-sql --project ... --dialect duckdb`,
-`compile_sql` or `compile_query`, and run it in process over an Arrow table
+An explicit-module project can compile one limited query over
+`duckdb.arrow("key")` sources with `emit-sql --project ... --dialect duckdb`,
+`compile_sql` or `compile_query`, and run it in process over the Arrow tables
 that the program supplies with `execute(route="duckdb_arrow")`
 ([DuckDB Arrow route](spec/duckdb-arrow-route-v1.md)), since `0.2.0`.
 
-The path is an alpha, read-only executor of one query over one Arrow table:
-one `duckdb.arrow` source, read directly or grouped with `count`, `sum`,
-`min` and `max`, filtered by comparisons with literals and query parameters,
-ordered and limited, and with `Int` and `Float` arithmetic in the final
-projection. JOINs, other computed values and other aggregates are BLOCKED,
-an input table of more than 1,048,576 rows, or whose columns named by the
-source's fields measure more than 256 MiB together (read by the query or not),
-is refused, and it is qualified only with CPython 3.12 and
+The path is an alpha, read-only executor of one query over Arrow tables:
+`duckdb.arrow` sources joined by `inner` and `left` JOINs on equalities of
+fields, read directly or grouped with `count`, `sum`, `min` and `max`,
+filtered by comparisons with literals and query parameters, ordered and
+limited, and with `Int` and `Float` arithmetic in the final projection.
+Other JOINs, other computed values and other aggregates are BLOCKED, an
+input table of more than 1,048,576 rows, or inputs whose columns named by
+the sources' fields measure more than 256 MiB together (read by the query or
+not), are refused, and it is qualified only with CPython 3.12 and
 3.13 on Linux x86-64 with glibc 2.28 or later (see *Support* below).
 `0.2.0` and `0.2.1` carry only its first part, B1: a direct projection with
 at most one comparison of an `Int` field with one non-null `Int` parameter,
@@ -186,14 +187,14 @@ over at most 65,536 rows and 16 MiB. Its second part, Phase79 B2 (PL.47),
 adds the grouping, `having`, `order by`, `limit`, the wider filters and the
 higher limits; no release carries it yet, and it enters `0.2.2` (PL.55).
 B2's second tier adds `Date`, `Timestamp` and `Decimal(p, s)` fields, the
-arithmetic and the batch reading of every result, which are not qualified
-yet, and enters `0.2.2` too (D79.21).
+arithmetic, several sources with their JOINs and the batch reading of every
+result, which are not qualified yet, and enters `0.2.2` too (D79.21).
 
 Each row was recorded by running one plain example through
 `check --project` and `emit-sql --project --dialect duckdb`, with a DuckDB
 contract that declares every premise, on the tree of B2's closeout, the
-rows of the second tier's types on that slice's tree, the arithmetic rows
-on the tree that added the arithmetic, and its cell follows
+rows of the second tier's types, arithmetic, several sources and JOINs on
+the trees of the slices that added them, and its cell follows
 the legend above.
 
 | Feature | Project, DuckDB | Stated in |
@@ -214,7 +215,8 @@ the legend above.
 | `+`, `-` and `*` of two `Int` or two `Float` values in the final projection, one at least a field (a key in a grouped query) and the other a field, key, literal, signed literal or parameter of its type, and a `Float`'s `-` and `+` (`t = amount + id`, `f = price * 2.0`, `f = price * -2.0`, `g = -price`), where the `int_range` of each `Int` field read proves that the result fits signed 64 bits | yes; a `Float` result outside binary64, or a product of non-zero values that underflows to 0, fails with PIE-R3003 when it runs | [Arithmetic](spec/duckdb-arrow-route-v1.md#arithmetic) |
 | `Int` arithmetic that the fields' `int_range`s do not prove, such as `more = amount + 1` over the default range of all signed 64 bits, or `amount + k` of an `Int` parameter `k` | BLOCKED PIE-B1003 `duckdb_arithmetic_range_not_proved` | [Compile refusals](spec/duckdb-arrow-route-v1.md#compile-refusals) |
 | Nested arithmetic (`amount + id + 1`), a mix of `Int` and `Float` (`amount + 1.5`), an `Int` sign (`-amount`), arithmetic over an aggregate (`count() + 1`) or of constants only (`-1.5`) | BLOCKED PIE-B1003 `duckdb_projection_not_admitted` | [Compile refusals](spec/duckdb-arrow-route-v1.md#compile-refusals) |
-| `distinct`, a table that reads another, a JOIN | BLOCKED PIE-B1003 `duckdb_relation_shape_not_admitted`, beside `duckdb_source_count_not_admitted` and `duckdb_projection_not_admitted` for a JOIN of a second source | [Compile refusals](spec/duckdb-arrow-route-v1.md#compile-refusals) |
+| Several `duckdb.arrow` sources joined by `inner join` or `left join` on an `and` of `==` between a field of each side, of one type other than `Decimal`, executed over a tuple of `DuckDBArrowInput` values, one for each key | yes | [Admission](spec/duckdb-arrow-route-v1.md#admission) |
+| `distinct`, a table that reads another, a `right`, `full` or `cross` JOIN, or a JOIN on another condition (`orders.amount < customers.id`) or on `Decimal` fields | BLOCKED PIE-B1003 `duckdb_relation_shape_not_admitted` | [Compile refusals](spec/duckdb-arrow-route-v1.md#compile-refusals) |
 | A source field of type `UUID`, a plain `Decimal` or a `Decimal(p, s)` with `p` above 38 | BLOCKED PIE-B1003 `duckdb_field_type_not_admitted`, beside the contract's own blocker for that field | [Compile refusals](spec/duckdb-arrow-route-v1.md#compile-refusals) |
 | `--literal-policy bind-safe` | BLOCKED PIE-B1003 `literal_policy_not_admitted_on_target` | [Compile refusals](spec/duckdb-arrow-route-v1.md#compile-refusals) |
 | A `postgres.table` or `mysql.table` source under `--dialect duckdb` | BLOCKED PIE-B1001 `source_family_mismatch`, beside PIE-B1006 `negative_original_target_evidence` | [Compile refusals](spec/duckdb-arrow-route-v1.md#compile-refusals) |
@@ -223,10 +225,13 @@ the legend above.
 - **Single files.** `check FILE` refuses `duckdb.arrow` with PIE-S2306
   `Unknown source connector: duckdb.arrow`, and there is no single-file
   `--dialect duckdb`. `pietto fmt` keeps the spelling.
-- **Execution.** `execute(route="duckdb_arrow")` takes
-  `DuckDBArrowInput(name, table)`, `premise=None` and the query's
-  parameters, copies the columns named by the source's fields, of at most
-  1,048,576 rows and 256 MiB, and returns the usual `ResultHandle`; results
+- **Execution.** `execute(route="duckdb_arrow")` takes a
+  `DuckDBArrowInput(name, table)`, or a tuple of them, one for each key that
+  the query reads, matched by name, `premise=None` and the query's
+  parameters. It copies the columns named by each source's fields, of at
+  most 1,048,576 rows for each input and 256 MiB over all inputs, refuses,
+  when the query aggregates JOIN rows, an input that breaks a `unique(...)`
+  key its shape declares (PIE-R1002), and returns the usual `ResultHandle`; results
   are bags unless the query has `order by`, and a `sum` outside signed
   64 bits fails with PIE-R3003, as does a `Float` `+`, `-` or `*` whose
   result is outside binary64 (`DUCKDB_FLOAT_OVERFLOW`) or a `*` of non-zero
@@ -244,9 +249,9 @@ the legend above.
   B2, every unit accepted on 2026-11-16 (PL.47), on CPython 3.13.13 and
   3.12.13, Linux x86-64, and the `arrow-ready` cell of natural CI, which
   runs one B1 and three B2 queries. The second tier's `Date`, `Timestamp`
-  and `Decimal` forms and its arithmetic have the route's own native test
-  cells, and its batch reading is not in that evidence yet; their
-  preregistered qualification is still to run.
+  and `Decimal` forms, its arithmetic, several inputs and JOINs and its
+  batch reading have the route's own native test cells but are not in that
+  evidence yet; their preregistered qualification is still to run.
   Other DuckDB releases and platforms are not qualified.
 
 ## Platforms and qualification

@@ -25,21 +25,30 @@ import pytest
 
 import _pietto_execution_api as api
 from _pietto_execution_duckdb import (
+    CUSTOMERS,
     ROWS,
     bag,
     compiled,
+    customers,
     events,
+    joined,
     orders,
     projection,
     run,
 )
 from _pietto_sql_duckdb import (
     GROUPED,
+    JOINED,
+    JOINED_GROUPED,
+    JOINED_HEADER,
     ORDERED,
     PREDICATED,
     PROJECTION,
+    TYPED_FIELDS,
+    TYPED_HEADER,
     contract,
     filtered,
+    joined_contract,
     source_entry,
     write,
 )
@@ -140,6 +149,11 @@ def projection_query(
     tmp_path_factory: pytest.TempPathFactory,
 ) -> execution.CompiledQuery:
     return projection(tmp_path_factory.mktemp("projection") / "p")
+
+
+@pytest.fixture(scope="module")
+def joined_query(tmp_path_factory: pytest.TempPathFactory) -> execution.CompiledQuery:
+    return joined(tmp_path_factory.mktemp("joined") / "p", JOINED)
 
 
 def _refusal(query: Any, **arguments: Any) -> tuple[str, str | None]:
@@ -657,7 +671,7 @@ def test_the_capture_is_an_owned_copy_of_the_selected_columns(
     table = orders(pa, rows, id=ids).append_column("extra", pa.array([1, 2, 3, 4]))
     table = table.slice(1, 2)
     handle = _handle(pa, query, table, parameters={"min_amount": 1})
-    owned = handle._owner._capture
+    (owned,) = handle._owner._capture
     assert owned.column_names == ["c0", "c1", "c2", "c3", "c4"]
     assert owned.num_rows == 2 and owned.column(0).to_pylist() == [7, 7]
     caller = route._ranges(
@@ -673,6 +687,330 @@ def test_the_capture_is_an_owned_copy_of_the_selected_columns(
         7,
     ]
     handle.close()
+
+
+def _inputs(pa: Any, *names: str, **tables: Any) -> tuple[Any, ...]:
+    """DuckDBArrowInput values of the named tables, `orders` and
+    `customers` by default."""
+    built = {"orders": orders(pa), "customers": customers(pa)} | tables
+    return tuple(execution.DuckDBArrowInput(name, built[name]) for name in names)
+
+
+def _joined_oracle(least: int) -> list[tuple[Any, ...]]:
+    """JOINED computed in Python: orders whose amount and note match a
+    customer's id and name, left-joined to the customer whose id is the
+    order's id."""
+    found = []
+    for o_id, amount, note, _ok, _price in ROWS:
+        if amount < least:
+            continue
+        for c_id, name, _rate in CUSTOMERS:
+            if amount == c_id and note is not None and name == note:
+                buyers = [b for b in CUSTOMERS if b[0] == o_id] or [(None, None, None)]
+                for b_id, _name, rate in buyers:
+                    found.append(
+                        (("id", o_id), ("name", name), ("rate", rate), ("buyer", b_id))
+                    )
+    return sorted(found, key=repr)
+
+
+def test_joined_inputs_are_matched_by_name_and_captured_once(
+    joined_query: execution.CompiledQuery, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """D79.19: `access` is a tuple of inputs in any order, one for each
+    relation name; `buyers` reads the `customers` input, captured once and
+    registered for each source, in FROM and JOIN order."""
+    pa = _engine()
+    query = joined_query
+    calls, _hooks = _recorded(monkeypatch)
+    for names in (("orders", "customers"), ("customers", "orders")):
+        calls.clear()
+        handle = execution.execute(
+            query,
+            route="duckdb_arrow",
+            access=_inputs(pa, *names),
+            premise=None,
+            parameters={"least": 0},
+        )
+        owned = handle._owner._capture
+        assert [table.column_names for table in owned] == [
+            ["c0", "c1", "c2", "c3", "c4"],
+            ["c5", "c6", "c7"],
+            ["c8", "c9", "c10"],
+        ]
+        for left, right in zip(owned[1].columns, owned[2].columns, strict=True):
+            assert left.chunks[0].buffers()[1].address == (
+                right.chunks[0].buffers()[1].address
+            )
+        with handle as result:
+            rows = [r for batch in result for r in pa.record_batch(batch).to_pylist()]
+        assert bag(rows) == _joined_oracle(0) and len(rows) == 2
+        registered = [("register", f"pietto_arrow_{k}") for k in range(3)]
+        assert calls == [
+            ("connect", ":memory:"),
+            *registered,
+            *[("unregister", name) for _step, name in registered],
+            ("close",),
+        ]
+
+
+def test_a_float_join_key_matches_minus_zero_and_zero(tmp_path: Path) -> None:
+    """Pietto's `==` on the JOIN key: -0.0 matches 0.0, and each value keeps
+    its sign."""
+    pa = _engine()
+    body = (
+        "table result:\n    from orders\n"
+        "    inner join customers on orders.price == customers.rate\n"
+        "    select:\n        id = orders.id\n        price = orders.price\n"
+        "        rate = customers.rate\n"
+    )
+    query = joined(tmp_path / "p", body)
+    handle = execution.execute(
+        query,
+        route="duckdb_arrow",
+        access=_inputs(pa, "orders", "customers"),
+        premise=None,
+    )
+    with handle as result:
+        rows = [r for batch in result for r in pa.record_batch(batch).to_pylist()]
+    found = sorted(
+        (r["id"], math.copysign(1, r["price"]), math.copysign(1, r["rate"]))
+        for r in rows
+    )
+    assert found == [(2, -1, -1), (3, 1, 1), (5, 1, -1)]
+
+
+def test_arithmetic_and_typed_keys_run_over_join_rows(tmp_path: Path) -> None:
+    """Arithmetic over LEFT JOIN rows is NULL where the joined side has no
+    match or a NULL operand, and a `Date` key joins equal days."""
+    pa = _engine()
+    document = joined_contract()
+    for entry in document["sources"]:
+        for field in entry["fields"]:
+            if field["representation"]["domain"]["kind"] == "int_range":
+                field["representation"]["domain"].update(min="-1000", max="1000")
+    body = (
+        "table result:\n    from orders\n"
+        "    left join customers on orders.amount == customers.id\n"
+        "    select:\n        id = orders.id\n        s = orders.amount + customers.id\n"
+        "        r = customers.rate * orders.price\n"
+    )
+    query = joined(tmp_path / "arith", body, document=document)
+    rows = ((1, 5, "a", True, 1.5), (2, 10, None, False, -0.0), (3, 7, "z", True, 2.0))
+    access = _inputs(pa, "orders", "customers", orders=orders(pa, rows))
+    handle = execution.execute(query, route="duckdb_arrow", access=access, premise=None)
+    with handle as result:
+        got = [r for batch in result for r in pa.record_batch(batch).to_pylist()]
+    assert sorted(got, key=lambda r: r["id"]) == [
+        {"id": 1, "s": 10, "r": 0.75},
+        {"id": 2, "s": 20, "r": None},
+        {"id": 3, "s": None, "r": None},
+    ]
+    header = TYPED_HEADER + 'source later: Event = duckdb.arrow("later")\n'
+    document = contract(
+        source_entry(fields=TYPED_FIELDS), source_entry("later", TYPED_FIELDS)
+    )
+    body = (
+        "table result:\n    from orders\n"
+        "    inner join later on orders.day == later.day\n"
+        "    select:\n        id = orders.id\n        other = later.id\n"
+    )
+    query = joined(tmp_path / "day", body, header, document)
+    at, cost, big = datetime(2024, 1, 1), Decimal("1.00"), Decimal("0")
+    days = (date(2024, 1, 1), date(2024, 2, 29), None)
+    left = events(pa, tuple((k, day, at, cost, big) for k, day in enumerate(days)))
+    right = events(
+        pa, tuple((10 + k, day, at, cost, big) for k, day in enumerate(days))
+    )
+    access = (
+        execution.DuckDBArrowInput("orders", left),
+        execution.DuckDBArrowInput("later", right),
+    )
+    handle = execution.execute(query, route="duckdb_arrow", access=access, premise=None)
+    with handle as result:
+        got = [r for batch in result for r in pa.record_batch(batch).to_pylist()]
+    assert sorted((r["id"], r["other"]) for r in got) == [(0, 10), (1, 11)]
+
+
+def test_the_inputs_must_name_each_relation_once(
+    joined_query: execution.CompiledQuery,
+    projection_query: execution.CompiledQuery,
+) -> None:
+    """Check 3 takes one input or a tuple of inputs; check 8 each input's
+    name and table; check 9 the names, which must be exactly the relation
+    names that the query reads, each once."""
+    pa = _pyarrow()
+    query = joined_query
+    arguments: dict[str, Any] = {"parameters": {"least": 0}}
+    schema = ("PIE-R1002", "DUCKDB_ARROW_SCHEMA")
+    for access, refused in (
+        (_inputs(pa, "orders", "customers", "orders"), schema),
+        (_inputs(pa, "orders"), schema),
+        (_inputs(pa, "orders")[0], schema),
+        ((), schema),
+        (_inputs(pa, "orders", "customers", "more", more=orders(pa)), schema),
+        (list(_inputs(pa, "orders", "customers")), ("PIE-R1002", "PUBLIC_ACCESS_TYPE")),
+        (
+            (*_inputs(pa, "orders"), ("customers", customers(pa))),
+            ("PIE-R1002", "PUBLIC_ACCESS_TYPE"),
+        ),
+        (
+            (*_inputs(pa, "orders"), execution.DuckDBArrowInput("", customers(pa))),
+            ("PIE-R1002", "EXECUTION_ACCESS"),
+        ),
+        (
+            (*_inputs(pa, "orders"), execution.DuckDBArrowInput("customers", object())),
+            ("PIE-R1002", "EXECUTION_ACCESS"),
+        ),
+    ):
+        assert _refusal(query, access=access, **arguments) == refused, access
+    single = projection_query
+    rows, _handle_ = run(pa, single, orders(pa))
+    handle = execution.execute(
+        single, route="duckdb_arrow", access=_inputs(pa, "orders"), premise=None
+    )
+    with handle as result:
+        assert [r for b in result for r in pa.record_batch(b).to_pylist()] == rows
+
+
+def test_the_capture_limits_count_rows_per_input_and_bytes_once_in_all(
+    joined_query: execution.CompiledQuery, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """D79.19 (ii): rows are counted for each input and the selected columns'
+    bytes over all inputs together, an input that two sources read once."""
+    pa = _pyarrow()
+    query = joined_query
+    arguments: dict[str, Any] = {"parameters": {"least": 0}}
+    limit = ("PIE-R1002", "DUCKDB_ARROW_CAPTURE_LIMIT")
+    tables = {"orders": orders(pa), "customers": customers(pa)}
+    selected = sum(table.nbytes for table in tables.values())
+    monkeypatch.setattr(route, "MAX_ROWS", len(ROWS))
+    monkeypatch.setattr(route, "MAX_BYTES", selected)
+    access = _inputs(pa, "orders", "customers")
+    execution.execute(
+        query, route="duckdb_arrow", access=access, premise=None, **arguments
+    ).close()
+    monkeypatch.setattr(route, "MAX_BYTES", selected - 1)
+    assert _refusal(query, access=access, **arguments) == limit
+    monkeypatch.setattr(route, "MAX_BYTES", 2**40)
+    six = customers(pa, CUSTOMERS + ((20, "y", 1.0), (25, "z", 1.0)))
+    access = _inputs(pa, "orders", "customers", customers=six)
+    assert _refusal(query, access=access, **arguments) == limit
+
+
+def test_aggregates_over_join_rows_check_every_declared_key(
+    tmp_path: Path, joined_query: execution.CompiledQuery
+) -> None:
+    """D79.24: with an aggregate over JOIN rows, an input that breaks a
+    declared `unique(...)` key is refused before any session; without an
+    aggregate it is not checked."""
+    pa = _engine()
+    grouped = joined(tmp_path / "grouped", JOINED_GROUPED)
+    rows = [
+        r
+        for batch in _joined_result(pa, grouped, _inputs(pa, "orders", "customers"))
+        for r in pa.record_batch(batch).to_pylist()
+    ]
+    assert [(r["name"], r["n"], r["total"]) for r in rows] == [
+        ("c", 1, 15),
+        ("x", 1, 10),
+    ]
+    assert math.copysign(1, rows[1]["top"]) == -1
+    twice = customers(pa, CUSTOMERS + ((5, "b", None),))
+    access = _inputs(pa, "orders", "customers", customers=twice)
+    assert _refusal(grouped, access=access, parameters={"least": 6}) == (
+        "PIE-R1002",
+        "DUCKDB_ARROW_SCHEMA",
+    )
+    execution.execute(
+        joined_query,
+        route="duckdb_arrow",
+        access=access,
+        premise=None,
+        parameters={"least": 0},
+    ).close()
+    # Every declared key, not only the one a proof used: a second key on
+    # `name` breaks where the first, on `id`, holds.
+    header = JOINED_HEADER.replace(
+        "    key = unique(id)\n", "    key = unique(id)\n    other = unique(name)\n"
+    )
+    keyed = joined(tmp_path / "keyed", JOINED_GROUPED, header)
+    named = customers(pa, CUSTOMERS + ((99, "a", None),))
+    access = _inputs(pa, "orders", "customers", customers=named)
+    assert _joined_result(pa, grouped, access)
+    assert _refusal(keyed, access=access, parameters={"least": 6}) == (
+        "PIE-R1002",
+        "DUCKDB_ARROW_SCHEMA",
+    )
+    handle = execution.execute(
+        keyed,
+        route="duckdb_arrow",
+        access=_inputs(pa, "orders", "customers"),
+        premise=None,
+        parameters={"least": 6},
+    )
+    assert [s.unique for s in handle._owner.facts.sources] == [(), ((0,), (1,))]
+    handle.close()
+
+
+def _joined_result(pa: Any, query: Any, access: Any) -> list[Any]:
+    handle = execution.execute(
+        query,
+        route="duckdb_arrow",
+        access=access,
+        premise=None,
+        parameters={"least": 6},
+    )
+    with handle as result:
+        return list(result)
+
+
+def test_a_key_is_unique_under_piettos_equality() -> None:
+    """D79.24's check: -0.0 equals 0.0, Text compares by code point, a row
+    with a NULL in the key is left out, and a key of two fields repeats only
+    when both repeat."""
+    pa = _pyarrow()
+    pc = pytest.importorskip("pyarrow.compute")
+
+    def holds(*columns: Any) -> bool:
+        fields = [
+            SimpleNamespace(tag="Float" if c.type == pa.float64() else "")
+            for c in columns
+        ]
+        return route._unique(pa, pc, list(columns), fields)
+
+    floats = pa.array([0.0, -0.0])
+    assert not holds(floats) and holds(pa.array([0.0, 1.0, None, None]))
+    assert holds(pa.array(["\u00e9", "e\u0301"])) and not holds(pa.array(["a", "a"]))
+    ids, names = pa.array([1, 1, 2]), pa.array(["a", "b", "a"])
+    assert holds(ids, names) and not holds(pa.array([1, 1]), pa.array(["a", "a"]))
+    assert holds(pa.array([1, 1]), pa.array(["a", None]))
+    assert holds(pa.array([], pa.int64()))
+
+
+def test_a_join_that_repeats_rows_stops_at_the_limit(tmp_path: Path) -> None:
+    """D79.20: a JOIN of 1,000 by 1,000 rows on one value reads only the
+    batches up to max_rows, then refuses the next one."""
+    pa = _engine()
+    body = (
+        "table result:\n    from orders\n"
+        "    inner join customers on orders.note == customers.name\n"
+        "    select:\n        id = orders.id\n        other = customers.id\n"
+    )
+    query = joined(tmp_path / "p", body)
+    many = orders(pa, ((1, 5, "a", True, 1.0),) * 1000)
+    names = customers(pa, tuple((k, "a", None) for k in range(1000)))
+    handle = execution.execute(
+        query,
+        route="duckdb_arrow",
+        access=_inputs(pa, "orders", "customers", orders=many, customers=names),
+        premise=None,
+        limits=execution.ExecutionLimits(batch_rows=1000, max_rows=3000),
+    )
+    failure = _failed(handle)
+    outcome = handle.outcome
+    assert (failure.code, outcome.rows, outcome.batches) == ("PIE-R3004", 3000, 3)
+    assert outcome.transaction == "UNKNOWN"
 
 
 def test_each_operator_returns_the_oracle_bag_and_keeps_its_values(
@@ -949,7 +1287,7 @@ def test_a_nul_in_text_reaches_duckdb_and_the_caller_unchanged(
     table = orders(pa, rows)
     query = projection_query
     handle = _handle(pa, query, table)
-    assert handle._owner._capture.column(2).to_pylist() == list(NUL_NOTES)
+    assert handle._owner._capture[0].column(2).to_pylist() == list(NUL_NOTES)
     handle.close()
     delivered, handle = run(pa, query, table)
     assert handle.outcome.end == "COMPLETE"

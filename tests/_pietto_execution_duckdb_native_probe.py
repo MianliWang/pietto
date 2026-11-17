@@ -1141,7 +1141,7 @@ def c09(ctx: Context, sub: str) -> dict:
     handle = ctx.handle(
         ctx.query("P0", cases.q_body(">=")), table, parameters={"min_amount": 1}
     )
-    owned = handle._owner._capture
+    (owned,) = handle._owner._capture
     facts = {
         "capture_names": owned.column_names,
         "capture_rows": owned.num_rows,
@@ -1421,7 +1421,7 @@ def c14(ctx: Context, sub: str) -> dict:
         handle = ctx.handle(query, table, **arguments)
         capture = [
             cases.encode(value)
-            for value in handle._owner._capture.column(2).to_pylist()
+            for value in handle._owner._capture[0].column(2).to_pylist()
         ]
         facts = _attempt(ctx, handle, schema=True)
     facts.update(

@@ -143,7 +143,8 @@ class MySQLDeploymentPremise:
 
 @dataclass(frozen=True, slots=True, eq=False)
 class DuckDBArrowInput:
-    """The one Arrow table of one ``duckdb_arrow`` execute() call.
+    """One Arrow table of a ``duckdb_arrow`` execute() call, which takes
+    one input or a tuple of them, one for each ``relation.name`` it reads.
 
     ``name`` is the ``duckdb.arrow`` key, which must equal the contract's
     ``relation.name``; ``table`` is a ``pyarrow.Table`` that the caller

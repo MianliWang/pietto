@@ -421,7 +421,11 @@ def execute(
     query: CompiledQuery,
     *,
     route: str,
-    access: PostgresAccess | MySQLAccess | DuckDBArrowInput | SQLiteFileInput,
+    access: PostgresAccess
+    | MySQLAccess
+    | DuckDBArrowInput
+    | tuple[DuckDBArrowInput, ...]
+    | SQLiteFileInput,
     premise: PostgresDeploymentPremise | MySQLDeploymentPremise | None,
     limits: ExecutionLimits = ExecutionLimits(),
     isolation: str = "stable",
@@ -457,19 +461,19 @@ def execute(
     attempt.
 
     On ``route="duckdb_arrow"`` (a ``duckdb`` query), ``access`` is a
-    DuckDBArrowInput and ``premise`` is None (another value is PIE-R1002),
-    since the route takes no deployment premise, and ``isolation`` is
-    exactly ``stable``, the owned capture snapshot. After the binding and
-    code identity checks (PIE-R1006, PIE-R1004, PIE-R1005), these checks
-    take the place of the premise, access, isolation and limits values, in
-    this order: the input's name is a non-empty string and its table a
-    ``pyarrow.Table`` already loaded, the name equals the contract's
-    ``relation.name``, then isolation and limits; then the loaded PyArrow
-    is the pinned distribution (PIE-R2001 when it is not installed,
-    otherwise PIE-R2002, raised here as RequestRejected), and the table's
-    selected columns are admitted and copied (PIE-R1002 details
-    ``DUCKDB_ARROW_*``). The handle
-    is returned only after that copy exists. The pinned duckdb and the
+    DuckDBArrowInput or a tuple of them and ``premise`` is None (another
+    value is PIE-R1002), since the route takes no deployment premise, and
+    ``isolation`` is exactly ``stable``, the owned capture snapshot. After
+    the binding and code identity checks (PIE-R1006, PIE-R1004, PIE-R1005),
+    these checks take the place of the premise, access, isolation and
+    limits values, in this order: each input's name is a non-empty string
+    and its table a ``pyarrow.Table`` already loaded, the names are distinct
+    and are exactly the contract's ``relation.name`` values that the query
+    reads, then isolation and limits; then the loaded PyArrow is the pinned
+    distribution (PIE-R2001 when it is not installed, otherwise PIE-R2002,
+    raised here as RequestRejected), and each table's selected columns are
+    admitted and copied (PIE-R1002 details ``DUCKDB_ARROW_*``). The handle
+    is returned only after those copies exist. The pinned duckdb and the
     session are checked when the attempt opens.
 
     On ``route="sqlite_file"`` (a ``sqlite`` query), ``access`` is a
@@ -505,8 +509,14 @@ def execute(
     if access is None:
         raise _refuse("PIE-R1001", "PUBLIC_ACCESS_REQUIRED")
     if route in _LOCAL:
-        # D79.03 and PL.47: the route's one input, and no deployment premise.
-        if type(access) is not _LOCAL[route][0]:
+        # D79.03 and PL.47: the route's input, and no deployment premise; a
+        # tuple of inputs on duckdb_arrow (D79.19).
+        local = _LOCAL[route][0]
+        if type(access) is not local and not (
+            local is DuckDBArrowInput
+            and type(access) is tuple
+            and all(type(item) is DuckDBArrowInput for item in access)
+        ):
             raise _refuse("PIE-R1002", "PUBLIC_ACCESS_TYPE")
         if premise is not None:
             raise _refuse("PIE-R1002", "PUBLIC_PREMISE_TYPE")

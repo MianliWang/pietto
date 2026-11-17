@@ -30,12 +30,16 @@ from pietto._project.project_duckdb_contract import (
     conflicts,
     read_duckdb_contract,
 )
+from pietto._project.project_joined_aggregation import (
+    ProjectJoinedAggregateOccurrence,
+)
 from pietto._project.project_duckdb_sql import (
     OPERATORS,
     RELATION,
     DuckDBArithmetic,
     DuckDBColumn,
     DuckDBComparison,
+    DuckDBJoin,
     DuckDBLiteral,
     DuckDBLogic,
     DuckDBNullTest,
@@ -74,7 +78,9 @@ from pietto._project.project_sql_plan_expressions import (
     ProjectSQLBoundLiteral,
     ProjectSQLComparison,
     ProjectSQLIsNull,
+    ProjectSQLJoinedReference,
     ProjectSQLLiteral,
+    ProjectSQLMatchReference,
     ProjectSQLParameterRead,
     ProjectSQLReference,
     ProjectSQLUnary,
@@ -92,6 +98,10 @@ MAX_PRECISION = 38
 TYPES = ("Int", "Text", "Bool", "Float", "Date", "Timestamp", "Decimal")
 # A `having` compares outputs of these types only (the spec's predicates row).
 HAVING_TYPES = TYPES[:4]
+# The types of a JOIN key: a Decimal key stays refused (D79.28).
+KEYS = tuple(name for name in TYPES if name != "Decimal")
+# Each admitted JOIN: its kind's keyword and the rows the plan gives it.
+_JOINS = {"inner": ("INNER", "matched_pairs"), "left": ("LEFT", "left_preserved")}
 # The Python value type of each literal type that the source writes.
 _VALUES = {"Int": int, "Text": str, "Bool": bool, "Float": float}
 PHYSICAL = {
@@ -112,8 +122,6 @@ NOT_ADMITTED = ("identifier_case", "session_sql_mode", "session_time_zone")
 # Every plan collection that an admitted statement leaves empty.
 _EMPTY = (
     "let_values",
-    "joins",
-    "join_inputs",
     "relationship_matches",
     "single_matches",
     "windows",
@@ -142,6 +150,8 @@ _SHAPES = (
         ("final_projection",),
     ),
 )
+# After a JOIN the first block has no relation input of its own.
+_JOINED_SHAPES = tuple(((*shape[0][1:],), *shape[1:]) for shape in _SHAPES)
 _FILTERS = ("row_filter", "result_filter")
 # A number literal as the grammar writes it: no sign and no exponent.
 _NUMBER = re.compile(r"[0-9](?:_?[0-9])*(?:\.[0-9](?:_?[0-9])*)?")
@@ -164,14 +174,17 @@ _SUGGESTIONS = {
         "remove this premise; the DuckDB route does not use it"
     ),
     "duckdb_relation_shape_not_admitted": (
-        "DuckDB emission admits one source read with where, group by, having,"
-        " select, order by and limit; JOIN, windows, qualify, distinct, set"
-        " operations, relation lets and derived sources are not available on"
-        " DuckDB"
+        "DuckDB emission admits duckdb.arrow source reads joined by inner or"
+        " left joins on equalities of fields of one type, such as inner join"
+        " customers on orders.customer_id == customers.id, then where, group"
+        " by, having, select, order by and limit; right, full and cross joins,"
+        " other on conditions, Decimal join keys, windows, qualify, distinct,"
+        " set operations, relation lets and derived sources are not available"
+        " on DuckDB"
     ),
     "duckdb_source_count_not_admitted": (
-        "read exactly one duckdb.arrow source; the DuckDB route runs one query"
-        " over one Arrow table"
+        "read one or more duckdb.arrow sources; the DuckDB route runs one query"
+        " over the Arrow tables passed to execute()"
     ),
     "duckdb_projection_not_admitted": (
         "select source fields directly, or group by keys and aggregates of"
@@ -218,8 +231,8 @@ _SUGGESTIONS = {
         " and Decimal(p, s) fields with p at most 38"
     ),
     "source_identifier_unrepresentable": (
-        'use the relation namespace "arrow"; the DuckDB route reads one'
-        " registered Arrow table"
+        'use the relation namespace "arrow"; the DuckDB route reads registered'
+        " Arrow tables"
     ),
     "duckdb_arrow_key_mismatch": (
         "make the contract relation name equal the duckdb.arrow key"
@@ -395,19 +408,20 @@ def _arithmetic(expression: Any) -> tuple[Any, ...]:
     return ()
 
 
-def _bounds(contract: DuckDBContract, plan: Any) -> dict[int, tuple[int, int]]:
-    """The declared `int_range` of each field of the statement's first source
-    that has one, by ordinal; the capture admits no value outside it."""
+def _bounds(contract: DuckDBContract, values: Any) -> dict[int, tuple[int, int]]:
+    """The declared `int_range` of each read source field that has one, by
+    its number across the sources; the capture admits no value outside it."""
+    entries = {entry.owner: entry for entry in contract.sources}
     result = {}
-    for entry in contract.sources:
-        if plan.sources and entry.owner is plan.sources[0].source.owner:
-            for field in entry.fields:
-                domain = field.representation["domain"]
-                if domain.get("kind") == "int_range":
-                    low, high = int(domain["min"]), int(domain["max"])
-                    # A range beyond signed 64 bits is rule 28's.
-                    if -(2**63) <= low and high <= 2**63 - 1:
-                        result[field.ordinal] = (low, high)
+    for source in values.chain or ():
+        entry = entries.get(source.source.owner)
+        for field in () if entry is None else entry.fields:
+            domain = field.representation["domain"]
+            if domain.get("kind") == "int_range":
+                low, high = int(domain["min"]), int(domain["max"])
+                # A range beyond signed 64 bits is rule 28's.
+                if -(2**63) <= low and high <= 2**63 - 1:
+                    result[values.starts[source.ref] + field.ordinal] = (low, high)
     return result
 
 
@@ -425,19 +439,62 @@ def _operands(expression: Any) -> tuple[Any, ...]:
     return (expression.value,) if kind is ProjectSQLIsNull else ()
 
 
+def _chain(plan: Any) -> tuple[Any, ...] | None:
+    """The read sources in FROM and JOIN order: the first JOIN's two inputs,
+    then each later JOIN's right input, which joins the rows so far; None
+    when the JOINs do not chain source reads so, each source once."""
+    if not plan.joins:
+        return tuple(plan.sources)
+    sources = {source.ref: source for source in plan.sources}
+    inputs = {item.ref: item for item in plan.join_inputs}
+    chain: list[Any] = []
+    previous = None
+    for position, join in enumerate(plan.joins):
+        left, right = (inputs.get(ref) for ref in join.inputs)
+        if left is None or right is None or join.position != position:
+            return None
+        if previous is None:
+            chain.append(sources.get(left.producer))
+        elif left.producer is not None or left.predecessor is not previous.ref:
+            return None
+        chain.append(sources.get(right.producer))
+        previous = join
+    if None in chain or not len({id(s) for s in chain}) == len(chain) == len(
+        plan.sources
+    ):
+        return None
+    return tuple(chain)
+
+
 class _Values:
-    """What the plan's values read: source ports, group keys and aggregates."""
+    """What the plan's values read: source ports, group keys and aggregates.
+    Source fields are numbered across the read sources in FROM and JOIN
+    order."""
 
     def __init__(self, plan: Any) -> None:
         self.plan = plan
         self.refs = reference_source_ports(plan)
         self.origins = stage_origins(plan)
         self.sources = {port.ref: port for port in plan.source_ports}
-        self.index = {
-            port.ref: k
-            for source in plan.sources
-            for k, port in enumerate(_ports(plan, source))
+        self.chain = _chain(plan)
+        self.starts: dict[Any, int] = {}
+        self.index: dict[Any, int] = {}
+        for source in plan.sources if self.chain is None else self.chain:
+            self.starts[source.ref] = len(self.index)
+            for port in _ports(plan, source):
+                self.index[port.ref] = len(self.index)
+        self.width = len(self.index)
+        self.inputs = {item.ref: item for item in plan.join_inputs}
+        # Each port's source port or the port it carries unmodified, through
+        # stages and JOINs.
+        self.carried = {
+            port.ref: port.producer_port
+            for port in plan.input_ports
+            if port.producer_port is not None
         }
+        self.carried.update(
+            {port.ref: port.source for port in (*plan.stage_ports, *plan.join_ports)}
+        )
         self.results = {port.ref: port for port in plan.result_ports}
         self.decimals = {
             port.ref: _decimal(plan, port)
@@ -464,8 +521,18 @@ class _Values:
         decimal = self.decimals.get(port.ref)
         return None if decimal is None else ("Decimal", *decimal)
 
+    def origin(self, ref: Any) -> Any:
+        """The source port that a port carries unmodified, else None."""
+        seen = set()
+        while ref not in self.sources and ref in self.carried and ref not in seen:
+            seen.add(ref)
+            ref = self.carried[ref]
+        return self.sources.get(ref)
+
     def direct(self, expression: Any) -> Any:
         """The source port that `expression` reads directly, else None."""
+        if type(expression) is ProjectSQLJoinedReference:
+            return self.origin(expression.port)
         if type(expression) is not ProjectSQLReference:
             return None
         found = self.refs.get(expression.ref)
@@ -478,7 +545,61 @@ class _Values:
     def stage(self, ref: Any) -> Any:
         """The source port that a stage port carries unmodified, else None."""
         port = self.origins.get(ref)
-        return None if port is None else self.sources.get(port.producer_port)
+        if port is None:
+            return self.origin(ref) if self.plan.joins else None
+        return self.sources.get(port.producer_port)
+
+    def on(self, join: Any) -> tuple[tuple[Any, int, int], ...] | None:
+        """Each `==` of an admitted JOIN's `on`, an `and` of them, as
+        (comparison, left field, right field): both sides read fields of one
+        key type, one of the joined source and one of an earlier source;
+        None for any other JOIN."""
+        kind = _JOINS.get(join.kind.value)
+        joined = self.inputs.get(join.inputs[1])
+        if joined is None:
+            return None
+        start = self.starts.get(joined.producer)
+        if (
+            kind is None
+            or kind[1] != join.rows.value
+            or start is None
+            or join.on is None
+            or join.equalities
+        ):
+            return None
+        plan = self.plan
+        end = start + sum(port.owner == joined.producer for port in plan.source_ports)
+
+        def equalities(ref: Any) -> tuple[tuple[Any, int, int], ...] | None:
+            expression = plan.expressions[ref.position]
+            operator = getattr(expression.expression, "operator", None)
+            if type(expression) is ProjectSQLBinary and operator == "and":
+                first = equalities(expression.left)
+                second = equalities(expression.right)
+                return None if first is None or second is None else first + second
+            if type(expression) is not ProjectSQLComparison or operator != "==":
+                return None
+            ports = []
+            for operand in (expression.left, expression.right):
+                read = plan.expressions[operand.position]
+                port = (
+                    self.origin(read.port)
+                    if type(read) is ProjectSQLMatchReference
+                    else None
+                )
+                if port is None or _type_name(port) not in KEYS:
+                    return None
+                ports.append(port)
+            left, right = (self.index[port.ref] for port in ports)
+            if (
+                _type_name(ports[0]) != _type_name(ports[1])
+                or (start <= left < end) == (start <= right < end)
+                or max(left, right) >= end
+            ):
+                return None
+            return ((expression, left, right),)
+
+        return equalities(join.on)
 
     def order(
         self, item: Any, outputs: tuple[tuple[Any, Any, Any], ...]
@@ -519,10 +640,16 @@ class _Values:
         """(function, the source port it reads, None in count()) of an
         aggregate that rule 7a admits, else None."""
         source = aggregate.source
-        if type(source) is not aggregation.ProjectAggregateExpressionAnalysis:
+        if type(source) is aggregation.ProjectAggregateExpressionAnalysis:
+            call = aggregation.aggregate_call(source)
+            function = aggregation.filtered_function(call) or source.fact.function
+        elif type(source) is ProjectJoinedAggregateOccurrence:
+            # An aggregate over JOIN rows.
+            function = (
+                aggregation.filtered_function(source.call) or source.function_name
+            )
+        else:
             return None
-        call = aggregation.aggregate_call(source)
-        function = aggregation.filtered_function(call) or source.fact.function
         reads = tuple(
             self.direct(self.plan.expressions[argument.position])
             for argument in aggregate.arguments
@@ -550,7 +677,9 @@ class _Values:
             projection = projections.get(export.ref)
             port = owner = None
             if type(projection) is plans.ProjectSQLProjection:
-                if not plan.aggregations and projection.input_port is not None:
+                if not plan.aggregations and (
+                    projection.input_port is not None or plan.joins
+                ):
                     expression = plan.expressions[projection.expression.position]
                     port = self.direct(expression)
             elif (
@@ -795,6 +924,7 @@ class _Values:
             sum(self.size(f.predicate) for f in plan.filters),
             len(plan.order_items),
             len(plan.result_limits),
+            sum(2 + (0 if j.on is None else self.size(j.on)) for j in plan.joins),
         )
 
 
@@ -862,7 +992,7 @@ class _Rules:
         return tuple(self.found[rule] for rule in sorted(self.found))
 
     def shape(self) -> None:
-        plan = self.plan
+        plan, values = self.plan, self.values
         named = tuple(
             d
             for d in plan.bindings.definitions
@@ -874,27 +1004,34 @@ class _Rules:
         results = ("relation_ordering",) * len(plan.orders) + ("limit",) * len(
             plan.result_limits
         )
+        refused = [values.on(join) is None for join in plan.joins]
         if not (
             len(named) == 1
-            and len(plan.sources) == 1
-            and len(plan.input_uses) == 1
-            and operators in _SHAPES
+            and values.chain is not None
+            and len(plan.input_uses) == len(plan.sources)
+            and operators in (_JOINED_SHAPES if plan.joins else _SHAPES)
             and len(plan.filters)
             == sum(o in _FILTERS for block in operators for o in block)
             and results in _RESULTS
             and tuple(b.kind.value for b in plan.result_boundaries) == results
+            and not any(refused)
             and not any(getattr(plan, name) for name in _EMPTY)
         ):
             definition = self.checked.selected_owner.definition
             clauses = ()
             if type(definition) in (QueryDef, TableDef):
+                joins = definition.join_clauses
+                # A JOIN that the plan admits is no site; the plan's JOINs
+                # are the authored ones, in order.
+                if len(joins) == len(refused) and values.chain is not None:
+                    joins = tuple(j for j, no in zip(joins, refused) if no)
                 clauses = tuple(
                     clause
                     for clause in (
                         definition.let_clause,
                         definition.qualify_clause,
                         definition.distinct_clause,
-                        *definition.join_clauses,
+                        *joins,
                         *definition.join_filters,
                         *definition.named_windows,
                         *definition.naming_declarations,
@@ -916,20 +1053,11 @@ class _Rules:
         )
         if not self.ordered:
             self.fail(6, "PIE-B1003", "duckdb_source_count_not_admitted", at=True)
-        elif len(self.ordered) > 1:
-            second = self.ordered[1]
-            self.fail(
-                6,
-                "PIE-B1003",
-                "duckdb_source_count_not_admitted",
-                second.ref,
-                second.declaration.span,
-            )
 
     def projections(self) -> None:
         plan, values = self.plan, self.values
         outputs = values.outputs()
-        bounds = _bounds(self.contract, plan)
+        bounds = _bounds(self.contract, values)
         for export, (projection, port, owner) in zip(
             plan.exports, outputs, strict=True
         ):
@@ -1235,11 +1363,10 @@ class _Rules:
 
 
 def _expected_ast(plan: Any) -> DuckDBSelect:
-    """The statement the plan admits, read from the source ports, group keys
-    and aggregates that its values read."""
-    (source,) = plan.sources
-    index = {port.ref: k for k, port in enumerate(_ports(plan, source))}
+    """The statement the plan admits, read from the JOINs, source ports,
+    group keys and aggregates that its values read."""
     values = _Values(plan)
+    index = values.index
 
     def field(port: Any) -> int | None:
         return None if port is None else index[port.ref]
@@ -1272,8 +1399,27 @@ def _expected_ast(plan: Any) -> DuckDBSelect:
         descending = item.source.direction.value == "desc"
         order_by.append(DuckDBOrderKey(field(port), function, descending))
     limit = plan.result_limits[0].value if plan.result_limits else None
+    joins = []
+    for join in plan.joins:
+        equalities = values.on(join)
+        if equalities is None:
+            raise ValueError("Every JOIN of the statement must be admitted.")
+        joins.append(
+            DuckDBJoin(
+                _JOINS[join.kind.value][0],
+                values.starts[values.inputs[join.inputs[1]].producer],
+                tuple((left, right) for _, left, right in equalities),
+            )
+        )
     return DuckDBSelect(
-        RELATION, tuple(columns), where, group_by, having, tuple(order_by), limit
+        RELATION,
+        tuple(columns),
+        where,
+        group_by,
+        having,
+        tuple(order_by),
+        limit,
+        tuple(joins),
     )
 
 
@@ -1298,16 +1444,22 @@ def _location(value: Any) -> dict[str, Any] | None:
     }
 
 
-def _subjects(
-    plan: Any, outputs: tuple[tuple[Any, Any, Any], ...]
-) -> dict[tuple[object, ...], Any]:
-    """The plan owner of each symbolic token subject, given the plan's
-    `_Values` outputs."""
-    (source,) = plan.sources
+def _subjects(plan: Any, values: _Values) -> dict[tuple[object, ...], Any]:
+    """The plan owner of each symbolic token subject."""
+    outputs = values.outputs()
+    chain: tuple[Any, ...] = values.chain or ()
     result: dict[tuple[object, ...], Any] = {
         ("statement",): plan.scope,
-        ("source",): source.ref,
+        ("source",): chain[0].ref,
     }
+    for position, join in enumerate(plan.joins):
+        result["join", position] = join.ref
+        result["join_source", position] = chain[position + 1].ref
+        for pair, (equality, _, _) in enumerate(values.on(join) or ()):
+            result["join_on", position, pair] = equality.ref
+            for side, operand in enumerate((equality.left, equality.right)):
+                operand = plan.expressions[operand.position]
+                result["join_on", position, pair, side] = operand.ref
     for position, (export, (projection, _, owner)) in enumerate(
         zip(plan.exports, outputs, strict=True)
     ):
@@ -1349,18 +1501,35 @@ def _subjects(
     return result
 
 
+def _left_joined(joins: tuple[DuckDBJoin, ...], field: int) -> bool:
+    """Whether source field `field` lies in an input that a LEFT JOIN
+    joins, which makes it nullable."""
+    position = sum(join.start <= field for join in joins)
+    return position > 0 and joins[position - 1].kind == "LEFT"
+
+
+def _entry(contract: DuckDBContract, source: Any) -> Any:
+    (entry,) = (s for s in contract.sources if s.owner is source.source.owner)
+    return entry
+
+
 def _document(artifact: DuckDBArtifact) -> bytes:
     checked, plan = artifact.checked, artifact.checked.plan
     semantic, owner = checked.completed.semantic_result, checked.selected_owner
     contract = json.loads(artifact.contract.normalized)
-    (source,) = plan.sources
-    ports = _ports(plan, source)
-    (entry,) = (s for s in artifact.contract.sources if s.owner is source.source.owner)
-    fields = {f.ordinal: f for f in entry.fields}
-    outputs = _Values(plan).outputs()
-    subjects = _subjects(plan, outputs)
+    values = _Values(plan)
+    chain: tuple[Any, ...] = values.chain or ()
+    # Each source field's (source port, contract entry, its field) by number.
+    fields: list[tuple[Any, Any, Any]] = []
+    for source in chain:
+        entry = _entry(artifact.contract, source)
+        described = {f.ordinal: f for f in entry.fields}
+        for k, port in enumerate(_ports(plan, source)):
+            fields.append((port, entry, described[k]))
+    outputs = values.outputs()
+    subjects = _subjects(plan, values)
     indexes = artifact.source_map.indexes
-    bounds = _bounds(artifact.contract, plan)
+    bounds = _bounds(artifact.contract, values)
     ranges = []
     for token in artifact.tokens:
         subject = subjects[token.subject]
@@ -1392,13 +1561,18 @@ def _document(artifact: DuckDBArtifact) -> bytes:
     for position, (column, export, (projection, _, item)) in enumerate(
         zip(artifact.ast.columns, plan.exports, outputs, strict=True)
     ):
-        read = None if column.field is None else ports[column.field]
+        k, logical, node = column.field, None, column.value
+        read = entry = described = None
+        if k is not None:
+            read, entry, described = fields[k]
+        elif not plan.joins:
+            entry = fields[0][1]
         correspondence: dict[str, Any] = {
-            "source": entry.selector,
-            "field": column.field,
+            "source": None if entry is None else entry.selector,
+            # A field's ordinal in its own source.
+            "field": None if described is None else described.ordinal,
             "source_port": None if read is None else _ref(read.ref),
         }
-        k, logical, node = column.field, None, column.value
         if column.function is not None:
             correspondence["aggregate"] = _ref(item.ref)
             correspondence["function"] = column.function
@@ -1415,7 +1589,10 @@ def _document(artifact: DuckDBArtifact) -> bytes:
                 any(
                     type(o) is DuckDBRead
                     and o.field is not None
-                    and fields[o.field].representation["nullable"]
+                    and (
+                        fields[o.field][2].representation["nullable"]
+                        or _left_joined(artifact.ast.joins, o.field)
+                    )
                     for o in node.operands
                 ),
             )
@@ -1446,10 +1623,14 @@ def _document(artifact: DuckDBArtifact) -> bytes:
             }
         else:
             # A read, or a min or max, which keeps its field's type and domain.
-            representation = fields[k].representation
-            name, nullable = _type_name(ports[k]), representation["nullable"]
+            representation = fields[k][2].representation
+            name, nullable = _type_name(read), representation["nullable"]
             if column.function is not None:
                 name, nullable = logical or (None, None)
+                representation = representation | {"nullable": nullable}
+            elif plan.joins:
+                # A LEFT JOIN makes the fields of its joined side nullable.
+                nullable = export.field.effective_nullability.value == "nullable"
                 representation = representation | {"nullable": nullable}
         input_port = (
             projection.input_port
@@ -1457,6 +1638,10 @@ def _document(artifact: DuckDBArtifact) -> bytes:
             else projection.input
         )
         domain = representation["domain"]
+        if input_port is None and type(projection) is plans.ProjectSQLProjection:
+            # A read of JOIN rows names the stage port it reads.
+            read_value = plan.expressions[projection.expression.position]
+            input_port = getattr(read_value, "port", None)
         columns.append(
             {
                 "ordinal": position,
@@ -1570,14 +1755,14 @@ def verify_artifact(artifact: object) -> bool:
         if type(artifact) is not DuckDBArtifact:
             return False
         plan = artifact.checked.plan
-        (source,) = plan.sources
+        if type(plan) is not plans.ProjectSQLPlan:
+            return False
+        values = _Values(plan)
         if (
-            type(plan) is not plans.ProjectSQLPlan
+            values.chain is None
             or artifact.ast != (expected := _expected_ast(plan))
-            or not ast_rules_hold(
-                artifact.ast, len(_ports(plan, source)), _labels(plan)
-            )
-            or artifact.ast.nodes != _Values(plan).nodes()
+            or not ast_rules_hold(artifact.ast, values.width, _labels(plan))
+            or artifact.ast.nodes != values.nodes()
             or render(artifact.ast) != (artifact.sql, artifact.tokens)
             # Literals compare by value, 1, 1.0 and True alike, -0.0 and 0.0
             # alike; their SQL does not.
@@ -1610,7 +1795,7 @@ def emit_duckdb_sql(
     plan = checked.plan
     ast = _expected_ast(plan)
     if (
-        not ast_rules_hold(ast, len(_ports(plan, plan.sources[0])), _labels(plan))
+        not ast_rules_hold(ast, rules.values.width, _labels(plan))
         or ast.nodes != rules.values.nodes()
     ):
         return blocked("PIE-B1008", "plan_ast_correspondence")
@@ -1762,18 +1947,28 @@ class DuckDBSourceField:
 
 
 @dataclass(frozen=True, slots=True)
-class DuckDBExecutionFacts:
-    """What the `duckdb_arrow` route reads of one verified artifact: the
-    contract's `relation.name`, the rendered statement, the source fields,
-    each result column's (label, logical type, nullable, decimal) in result
-    order, the header parameters as (name, tag, nullable, decimal), where
-    decimal is a `Decimal`'s (precision, scale) and None for every other
-    type, and the header ordinal of the parameter that each placeholder
-    `$1`, `$2`, ... binds."""
+class DuckDBSource:
+    """One read source in FROM and JOIN order: the contract's
+    `relation.name`, its fields in shape order and, when the statement
+    aggregates JOIN rows, the field positions of each `unique(...)` key that
+    its shape declares (D79.24)."""
 
     key: str
-    sql: str
     fields: tuple[DuckDBSourceField, ...]
+    unique: tuple[tuple[int, ...], ...]
+
+
+@dataclass(frozen=True, slots=True)
+class DuckDBExecutionFacts:
+    """What the `duckdb_arrow` route reads of one verified artifact: its
+    read sources, the rendered statement, each result column's (label,
+    logical type, nullable, decimal) in result order, the header parameters
+    as (name, tag, nullable, decimal), where decimal is a `Decimal`'s
+    (precision, scale) and None for every other type, and the header ordinal
+    of the parameter that each placeholder `$1`, `$2`, ... binds."""
+
+    sources: tuple[DuckDBSource, ...]
+    sql: str
     result: tuple[tuple[str, str, bool, tuple[int, int] | None], ...]
     parameters: tuple[tuple[str, str, bool, tuple[int, int] | None], ...]
     placeholders: tuple[int, ...]
@@ -1784,30 +1979,51 @@ def execution_facts(template: object) -> DuckDBExecutionFacts:
     value is BINDING_ARTIFACT. Each result column has the logical type and
     nullability of its verified document's column: a read's are its source
     field's, an aggregate's its result's (rules 7 and 7a), an arithmetic
-    value's its operands' type, NULL when an operand is."""
+    value's its operands' type, NULL when an operand is. The declared keys
+    are those that the verified plan gives each JOIN input."""
     if type(template) is not DuckDBTemplate or not verify_artifact(template.emission):
         raise ValueError("BINDING_ARTIFACT")
     artifact = template.emission
     plan = artifact.checked.plan
-    (source,) = plan.sources
-    ports = _ports(plan, source)
-    (entry,) = (s for s in artifact.contract.sources if s.owner is source.source.owner)
-    fields = []
-    for field in sorted(entry.fields, key=lambda f: f.ordinal):
-        tag = _type_name(ports[field.ordinal])
-        domain = field.representation["domain"]
-        if tag is None or type(field.representation["nullable"]) is not bool:
-            raise ValueError("BINDING_ARTIFACT")
-        fields.append(
-            DuckDBSourceField(
-                field.column,
-                tag,
-                field.representation["nullable"],
-                (int(domain["min"]), int(domain["max"])) if tag == "Int" else None,
-                domain["max_characters"] if tag == "Text" else None,
-                (domain["precision"], domain["scale"]) if tag == "Decimal" else None,
+    values = _Values(plan)
+    inputs = {
+        item.producer: item for item in plan.join_inputs if item.producer is not None
+    }
+    sources = []
+    for source in values.chain or ():
+        ports = _ports(plan, source)
+        entry = _entry(artifact.contract, source)
+        fields = []
+        for field in sorted(entry.fields, key=lambda f: f.ordinal):
+            tag = _type_name(ports[field.ordinal])
+            domain = field.representation["domain"]
+            if tag is None or type(field.representation["nullable"]) is not bool:
+                raise ValueError("BINDING_ARTIFACT")
+            fields.append(
+                DuckDBSourceField(
+                    field.column,
+                    tag,
+                    field.representation["nullable"],
+                    (int(domain["min"]), int(domain["max"])) if tag == "Int" else None,
+                    domain["max_characters"] if tag == "Text" else None,
+                    (domain["precision"], domain["scale"])
+                    if tag == "Decimal"
+                    else None,
+                )
             )
-        )
+        unique: set[tuple[int, ...]] = set()
+        if plan.joins and plan.aggregates:
+            # Every declared key, whichever one a proof used (D79.24).
+            for key in inputs[source.ref].source.source_properties.keys:
+                unique.add(
+                    tuple(
+                        sorted(
+                            min(member.field_position for member in item.members)
+                            for item in key.determinants
+                        )
+                    )
+                )
+        sources.append(DuckDBSource(entry.name, tuple(fields), tuple(sorted(unique))))
     document = json.loads(artifact.document)
     result = tuple(
         (
@@ -1834,9 +2050,8 @@ def execution_facts(template: object) -> DuckDBExecutionFacts:
     ):
         raise ValueError("BINDING_ARTIFACT")
     return DuckDBExecutionFacts(
-        entry.name,
+        tuple(sources),
         artifact.sql.decode("utf-8"),
-        tuple(fields),
         result,
         tuple(
             (*header, parameter.decimal)
