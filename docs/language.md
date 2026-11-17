@@ -3804,7 +3804,13 @@ that emission refuses for another reason, such as an output label past 256
 characters, an identifier too long for the target or a resource limit,
 reports the whole list `0.1.11` reports for it too (rule two, D77.37),
 which names the reason only where `0.1.11` does: the label and the
-identifier, not the resource limit. So the same MySQL `Float` pair is
+identifier, not the resource limit. One whose contract has no
+`operator_environment` or `identifier_case`, or another value, also
+reports each premise its emitted statement needs, after the shape
+refusals of that list: PIE-B1004 `operator_environment_declaration_missing`
+or PIE-B1005 `operator_environment_declaration_mismatch`, then PIE-B1004
+`identifier_case_declaration_missing` or PIE-B1005
+`identifier_case_declaration_mismatch`. So the same MySQL `Float` pair is
 `comparison_type_pair_not_admitted` in a select item or WHERE and this list
 in an `on`. A query
 header parameter is not yet a `same_value` operand: `where same_value(a, k)`

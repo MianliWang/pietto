@@ -503,6 +503,12 @@ for _details, _action in _GROUPS:
         _ACTIONS[_detail] = _action
 
 
+_MYSQL_SUM_INT = (
+    "On MySQL, the project sum(Int) forms that emit are listed in"
+    " docs/language.md#mysql-project-sumint-forms."
+)
+
+
 def blocker_suggestion(code: str, detail: str, family: str | None) -> str:
     if code not in CODES or family not in {None, "postgres", "mysql"}:
         raise ValueError("invalid blocker suggestion context")
@@ -516,6 +522,8 @@ def blocker_suggestion(code: str, detail: str, family: str | None) -> str:
         )
     if code == "PIE-B1008":
         return "Re-emit from the original checked project and contract. If artifact integrity still fails, report this code and detail; do not edit generated SQL, ranges or requirements."
+    if detail == "sum_int_aggregate_range_proof_missing" and family == "mysql":
+        return f"{_ACTIONS[detail]} {_MYSQL_SUM_INT}"
     if detail in _ACTIONS:
         return _ACTIONS[detail]
     if detail in {
