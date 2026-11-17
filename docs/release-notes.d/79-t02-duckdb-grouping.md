@@ -136,9 +136,5 @@ query totals(min_total: Int):
   `DUCKDB_ARROW_CAPTURE_LIMIT`. DuckDB's `memory_limit` is 1 GiB in place
   of 256 MiB, a statement beyond it still fails with `PIE-R3003`, and the
   session also checks that `default_collation` is the empty string
-  (`PIE-R2006` `DUCKDB_SESSION_CONTEXT` otherwise). Besides the caller's
-  table, one `execute()` can hold about 1.5 GiB at its peak while its
-  result is no larger than those columns, and a result beyond
-  `ExecutionLimits.max_bytes` (64 MiB by default) is refused with
-  `PIE-R3004` only after DuckDB has read it whole, so a larger result can
-  exhaust a small host's memory first.
+  (`PIE-R2006` `DUCKDB_SESSION_CONTEXT` otherwise). The result is read one
+  batch at a time, as the note on batch reading states.

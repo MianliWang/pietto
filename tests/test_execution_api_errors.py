@@ -254,10 +254,10 @@ InvalidInputException.__module__ = "_duckdb"
 
 
 def test_a_checked_duckdb_float_operation_is_named_by_its_word():
-    """The exact error of each checked Float operation becomes a
-    detail word, whose failure's text is that of any PIE-R3003, with no
-    hint; any other DuckDB error, or a look-alike outside DuckDB, has no
-    word."""
+    """The exact error of each checked Float operation, or the OSError
+    that a batch read raises in its place, becomes a detail word, whose
+    failure's text is that of any PIE-R3003, with no hint; any other DuckDB
+    error, or a look-alike of another class, has no word."""
     for text, word in (
         (duckdb_sql.FLOAT_OVERFLOW, "DUCKDB_FLOAT_OVERFLOW"),
         (duckdb_sql.FLOAT_UNDERFLOW, "DUCKDB_FLOAT_UNDERFLOW"),
@@ -270,10 +270,14 @@ def test_a_checked_duckdb_float_operation_is_named_by_its_word():
         assert (refusal.code, refusal.detail) == ("PIE-R3003", word)
         assert text not in str(refusal)
         assert str(refusal).endswith(", cause=InvalidInputException)")
+        # A batch read raises the same error as OSError.
+        assert errors.native_word(OSError("Invalid Input Error: " + text)) == word
     for error in (
         InvalidInputException("Invalid Input Error: x"),
         InvalidInputException("Invalid Input Error: " + duckdb_sql.FLOAT_OVERFLOW, []),
         DriverError("Invalid Input Error: " + duckdb_sql.FLOAT_OVERFLOW),
+        OSError("Invalid Input Error: x"),
+        FileNotFoundError("Invalid Input Error: " + duckdb_sql.FLOAT_OVERFLOW),
     ):
         assert errors.native_word(error) is None
 

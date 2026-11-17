@@ -967,9 +967,11 @@ def test_a_nul_in_text_reaches_duckdb_and_the_caller_unchanged(
 def test_batches_have_the_compiled_schema_and_follow_the_limits(
     projection_query: execution.CompiledQuery, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """`to_arrow_table()` marks every field nullable; the route restores the
-    compiled nullability, and `pyarrow.schema(handle)` needs no I/O. Success
-    and a refused batch each unregister the capture and close the session."""
+    """The reader marks every field nullable; the route restores the compiled
+    nullability, and `pyarrow.schema(handle)` needs no I/O. Success and a
+    refused batch each unregister the capture and close the session; a
+    refused batch ends a statement that has not ended, so its transaction is
+    UNKNOWN, and the batches delivered before it stay delivered."""
     pa = _engine()
     query = projection_query
     calls, _hooks = _recorded(monkeypatch)
@@ -1011,14 +1013,41 @@ def test_batches_have_the_compiled_schema_and_follow_the_limits(
             "EXECUTION_RESOURCE_LIMIT",
         )
         assert failure.outcome is not None and failure.outcome.end == "FAILED"
+        assert failure.outcome.transaction == "UNKNOWN"
         assert calls == [*OPENED, *ENDED]
+    # max_bytes 40 refuses the second batch of two rows, after the first.
+    assert (failure.outcome.batches, failure.outcome.rows) == (1, 2)
+
+
+def test_a_result_far_beyond_the_limits_stops_at_its_first_batch_beyond_them(
+    projection_query: execution.CompiledQuery,
+) -> None:
+    """The reader reads one batch at a time: a statement of 10^12 rows stops
+    at the third batch of two rows under max_rows 4, after two delivered."""
+    pa = _engine()
+    limits = execution.ExecutionLimits(batch_rows=2, max_rows=4)
+    handle = _handle(pa, projection_query, limits=limits)
+    handle._owner._sql = (
+        'SELECT CAST(range AS BIGINT) AS "id", CAST(NULL AS VARCHAR) AS "note"'
+        " FROM range(1000000000000)"
+    )
+    delivered = []
+    with pytest.raises(execution.AttemptFailed) as failed:
+        with handle as result:
+            for batch in result:
+                delivered.append(pa.record_batch(batch).column(0).to_pylist())
+    outcome = handle.outcome
+    assert (failed.value.code, delivered) == ("PIE-R3004", [[0, 1], [2, 3]])
+    assert (outcome.rows, outcome.batches, outcome.transaction) == (4, 2, "UNKNOWN")
+    assert outcome.cleanup == "LOCAL_CLOSED_REMOTE_UNOBSERVED"
 
 
 def test_close_and_cancel_before_and_after_the_session_opens(
     projection_query: execution.CompiledQuery, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Before the session opens, neither connects; after, an early close and
-    a consumer's exception each unregister the capture and close."""
+    a consumer's exception each close the reader before its end, so the
+    transaction is UNKNOWN, unregister the capture and close."""
     pa = _engine()
     query = projection_query
     calls, _hooks = _recorded(monkeypatch)
@@ -1039,7 +1068,9 @@ def test_close_and_cancel_before_and_after_the_session_opens(
         "INCOMPLETE",
         "LOCAL_CLOSED_REMOTE_UNOBSERVED",
     )
+    assert outcome.transaction == "UNKNOWN"
     assert handle._owner._connection is None and handle._owner._capture is None
+    assert handle._owner._reader is None
     assert calls == [*OPENED, *ENDED]
     with pytest.raises(execution.HandleMisuse) as misuse:
         handle.__enter__()
@@ -1257,8 +1288,9 @@ def test_a_deadline_that_passes_during_the_statement_stops_before_the_result(
 ) -> None:
     """The check after the statement: the deadline passed while it ran, before
     the timer fired (the route's clock moves on there), so the attempt ends
-    in its query step with no batch and no interrupt; the whole result was
-    already read, so its transaction is COMMIT_ACK."""
+    in its query step with no batch; the reader is open and the statement
+    has not ended, so the route interrupts it, unobserved, and its
+    transaction is UNKNOWN."""
     pa = _engine()
     clock = [0.0]
     monkeypatch.setattr(route, "time", SimpleNamespace(monotonic=lambda: clock[0]))
@@ -1271,18 +1303,20 @@ def test_a_deadline_that_passes_during_the_statement_stops_before_the_result(
         failure.failure.phase,
         handle.outcome.end,
         handle.outcome.transaction,
-    ) == ("PIE-R3001", "query", "DEADLINE", "COMMIT_ACK")
-    assert not handle.outcome.cancel_sent and handle._owner._batches is None
-    assert calls == [*OPENED, *ENDED]
+    ) == ("PIE-R3001", "query", "DEADLINE", "UNKNOWN")
+    assert handle.outcome.cancel_sent and not handle.outcome.cancel_observed
+    assert handle._owner._batches is None
+    assert calls[:2] == OPENED and calls[-2:] == ENDED
+    assert set(calls[2:-2]) == {("interrupt",)}
 
 
-def test_a_cancel_after_the_result_was_read_stops_before_the_result(
+def test_a_cancel_after_the_reader_ended_stops_before_the_end(
     projection_query: execution.CompiledQuery, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A cancel that arrives at the check after the statement, once the
-    statement has ended: nothing is interrupted, the attempt ends with no
-    batch and, as any cancellation, no phase; the whole result was already
-    read, so its transaction is COMMIT_ACK."""
+    """A cancel that arrives at the check after the reader's end, once the
+    statement has ended: nothing is interrupted, the attempt ends CANCELLED,
+    as any cancellation with no phase, rather than COMPLETE; the batch
+    delivered before stays delivered, and the transaction is COMMIT_ACK."""
     pa = _engine()
     calls, _hooks = _recorded(monkeypatch)
     handle = _handle(pa, projection_query)
@@ -1314,7 +1348,53 @@ def test_a_cancel_after_the_result_was_read_stops_before_the_result(
         "LOCAL_CLOSED_REMOTE_UNOBSERVED",
     )
     assert outcome.cancel_requested and not outcome.cancel_sent
-    assert owner._batches is None and calls == [*OPENED, *ENDED]
+    assert outcome.batches == 1 and calls == [*OPENED, *ENDED]
+
+
+def test_a_cancel_during_a_batch_read_is_observed_through_its_oserror(
+    projection_query: execution.CompiledQuery, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A batch read raises DuckDB's interrupt as OSError: a cancel sent while
+    the second batch of a streamed projection is read stops the statement,
+    observed, and leaves the transaction UNKNOWN after one batch."""
+    pa = _engine()
+    calls, _hooks = _recorded(monkeypatch)
+    limits = execution.ExecutionLimits(batch_rows=2)
+    handle = _handle(pa, projection_query, limits=limits)
+    owner = handle._owner
+    owner._sql = (
+        'SELECT CAST(range AS BIGINT) AS "id", CAST(NULL AS VARCHAR) AS "note"'
+        " FROM range(1000000000000)"
+    )
+    reads: list[None] = []
+
+    class _Cancelling:
+        def __init__(self, reader: Any) -> None:
+            self._reader = reader
+
+        def __getattr__(self, name: str) -> Any:
+            return getattr(self._reader, name)
+
+        def read_next_batch(self) -> Any:
+            reads.append(None)
+            if len(reads) == 2:
+                handle.cancel()
+            return self._reader.read_next_batch()
+
+    with pytest.raises(execution.AttemptFailed) as failed:
+        with handle as result:
+            owner._reader = _Cancelling(owner._reader)
+            list(result)
+    outcome = handle.outcome
+    assert (failed.value.code, outcome.end, outcome.transaction) == (
+        "PIE-R3009",
+        "CANCELLED",
+        "UNKNOWN",
+    )
+    assert (owner._primary.phase, owner._primary.kind) == ("query", "OSError")
+    assert outcome.cancel_sent and outcome.cancel_observed
+    assert outcome.batches == 1 and len(reads) == 2
+    assert calls[:2] == OPENED and calls[-2:] == ENDED
 
 
 def test_setup_failures_refuse_the_route_before_its_statement(
@@ -1400,8 +1480,10 @@ def test_statement_and_result_failures_are_attempt_failures(
     projection_query: execution.CompiledQuery, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A DuckDB error is PIE-R3003 with its class name and no SQLSTATE; a
-    result that does not fit the compiled one is PIE-R3005. Each unregisters
-    the capture and closes the session."""
+    result that does not fit the compiled one is PIE-R3005. Each leaves the
+    statement unended, its transaction UNKNOWN, and unregisters the capture
+    and closes the session. An error that a batch read raises reaches the
+    route as OSError, whatever DuckDB's own class."""
     pa = _engine()
     query = projection_query
     calls, _hooks = _recorded(monkeypatch)
@@ -1432,6 +1514,12 @@ def test_statement_and_result_failures_are_attempt_failures(
             "result",
         ),
     ]
+    # The first batch of 2,048 rows reads, the next overflows while read.
+    overflow = (
+        "SELECT CAST(9223372036854775807 AS BIGINT) - 2048 + CAST(range AS BIGINT)"
+        ' AS "id", NULL AS "note" FROM range(4096)'
+    )
+    cases.append((overflow, "PIE-R3003", "OSError", "query"))
     for sql, code, cause, phase in cases:
         calls.clear()
         handle = _handle(pa, query)
@@ -1443,9 +1531,7 @@ def test_statement_and_result_failures_are_attempt_failures(
             None,
         )
         assert failure.failure.phase == phase and handle.outcome.end == "FAILED"
-        assert handle.outcome.transaction == (
-            "UNKNOWN" if phase == "query" else "COMMIT_ACK"
-        )
+        assert handle.outcome.transaction == "UNKNOWN"
         assert calls == [*OPENED, *ENDED]
 
 
@@ -1579,6 +1665,17 @@ def test_a_float_result_outside_binary64_fails_the_statement(tmp_path: Path) -> 
         )
         assert str(failure).endswith(", cause=InvalidInputException)")
         assert handle.outcome.end == "FAILED"
+    # The first 2,048 rows read; the next row fails while its batch is read,
+    # which raises the check's error as OSError, still named by its word.
+    rows = tuple((k, 0, 0, 1.0, 1.0) for k in range(2048))
+    handle = _handle(pa, query, table((*rows, (2048, 0, 0, big, big))))
+    failure = _failed(handle).failure
+    assert (failure.code, failure.detail, failure.phase, failure.cause) == (
+        "PIE-R3003",
+        "DUCKDB_FLOAT_OVERFLOW",
+        "query",
+        "OSError",
+    )
     # A + or a - alone, with no product beside it to fail the same rows.
     for value, x in (("fs = x + y", big), ("fd = x - y", -big)):
         body = f"table result:\n    from orders\n    select:\n        {value}\n"
@@ -1650,10 +1747,13 @@ def test_the_result_binding_refuses_a_value_that_fails_full_validation(
     pa = _pyarrow()
     facts = adapter.execution_facts(projection_query._template)
     ids = pa.array([1], pa.int64())
-    valid = pa.table({"id": ids, "note": pa.array(["a"], pa.string())})
+    valid = pa.record_batch({"id": ids, "note": pa.array(["a"], pa.string())})
     bound = reader.bind_duckdb_result(pa, valid, facts)
     assert bound.schema.equals(results.result_schema(pa, facts))
-    invalid = pa.table({"id": ids, "note": _invalid_utf8(pa)})
+    assert type(bound) is pa.RecordBatch
+    with pytest.raises(ResultError):
+        reader.bind_duckdb_result(pa, pa.Table.from_batches([valid]), facts)
+    invalid = pa.record_batch({"id": ids, "note": _invalid_utf8(pa)})
     with pytest.raises(ResultError) as refused:
         reader.bind_duckdb_result(pa, invalid, facts)
     assert refused.value.category == "DUCKDB_RESULT_CHECK"
@@ -1962,7 +2062,9 @@ def test_the_session_settings_are_the_spec_table_in_its_order() -> None:
 
 
 def test_the_session_holds_every_spec_value_once_it_is_set_up(
-    projection_query: execution.CompiledQuery, tmp_path: Path
+    projection_query: execution.CompiledQuery,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Read from the attempt's own connection after its setup: every row of
     both lists has the spec's value, the lock refuses a change, and a local
@@ -1980,9 +2082,14 @@ def test_the_session_holds_every_spec_value_once_it_is_set_up(
         default.close()
     expected: dict[str, str | None] = {n: v for n, _set, v in SESSION_TABLE}
     expected.update(SESSION_UNCHANGED)
+    _calls, hooks = _recorded(monkeypatch)
     handle = _handle(pa, projection_query)
-    with handle as result:
-        connection = handle._owner._connection
+    checked: list[bool] = []
+
+    def check() -> None:
+        # Before the statement: once its reader is open, the connection
+        # takes no other query until the reader ends.
+        connection = handle._owner._connection._connection
         settings = connection.sql("SELECT name, value FROM duckdb_settings()")
         observed = dict(settings.fetchall())
         assert {name: observed.get(name, "<absent>") for name in expected} == expected
@@ -1990,7 +2097,12 @@ def test_the_session_holds_every_spec_value_once_it_is_set_up(
             connection.execute("SET threads = 2")
         with pytest.raises(duckdb.PermissionException):
             connection.sql(read).fetchall()
+        checked.append(True)
+
+    hooks["statement"] = check
+    with handle as result:
         assert sum(pa.record_batch(batch).num_rows for batch in result) == len(ROWS)
+    assert checked == [True]
 
 
 SHADOW_CHILD = r"""
@@ -2065,27 +2177,37 @@ def test_a_shadowed_or_unowned_duckdb_module_is_refused_before_any_session(
 
 
 class _FailingClose:
-    def __init__(self, connection: Any) -> None:
-        self._connection = connection
+    """A connection or reader whose close closes it, then raises."""
 
-    def unregister(self, name: str) -> None:
-        self._connection.unregister(name)
+    def __init__(self, wrapped: Any) -> None:
+        self._wrapped = wrapped
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._wrapped, name)
 
     def close(self) -> None:
-        self._connection.close()
+        self._wrapped.close()
         raise RuntimeError("close failed")
 
 
+@pytest.mark.parametrize("step", ["close", "reader"])
 def test_a_failed_close_is_a_finalization_failure(
     projection_query: execution.CompiledQuery,
+    monkeypatch: pytest.MonkeyPatch,
+    step: str,
 ) -> None:
+    """A failed close of the connection, or of the reader, which step 5
+    closes first, is PIE-R3006 with its step; the later steps still run."""
     pa = _engine()
-    query = projection_query
-    handle = _handle(pa, query)
+    calls, _hooks = _recorded(monkeypatch)
+    handle = _handle(pa, projection_query)
     with pytest.raises(execution.AttemptFailed) as failed:
         with handle as result:
             owner = handle._owner
-            owner._connection = _FailingClose(owner._connection)
+            if step == "reader":
+                owner._reader = _FailingClose(owner._reader)
+            else:
+                owner._connection = _FailingClose(owner._connection)
             list(result)
     failure = failed.value
     outcome = handle.outcome
@@ -2095,8 +2217,9 @@ def test_a_failed_close_is_a_finalization_failure(
         "FAILED",
     )
     assert [(f.code, f.phase, f.cause) for f in outcome.cleanup_failures] == [
-        ("PIE-R5001", "close", "RuntimeError")
+        ("PIE-R5001", step, "RuntimeError")
     ]
+    assert calls == [*OPENED, *ENDED]
 
 
 def test_other_entry_points_refuse_a_duckdb_query(

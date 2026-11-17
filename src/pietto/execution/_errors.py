@@ -197,9 +197,11 @@ _QUERY_ERRORS = (
     ValueError,
 )
 # The error each checked DuckDB `Float` operation raises, by its
-# exception class and arguments, and the detail word it becomes.
+# exception class and arguments, and the detail word it becomes; a batch
+# read raises it as OSError.
 _DUCKDB_GUARDS = {
-    ("InvalidInputException", ("Invalid Input Error: " + text,)): word
+    (kind, ("Invalid Input Error: " + text,)): word
+    for kind in ("InvalidInputException", "OSError")
     for text, word in (
         (duckdb_sql.FLOAT_OVERFLOW, "DUCKDB_FLOAT_OVERFLOW"),
         (duckdb_sql.FLOAT_UNDERFLOW, "DUCKDB_FLOAT_UNDERFLOW"),
@@ -482,7 +484,10 @@ def native_word(error):
     ``unknown``); or the word of a checked DuckDB `Float` operation's error.
     The message is read, never shown."""
     args = getattr(error, "args", None)
-    if type(error).__module__.split(".")[0] in ("duckdb", "_duckdb"):
+    if type(error) is OSError or type(error).__module__.split(".")[0] in (
+        "duckdb",
+        "_duckdb",
+    ):
         if type(args) is not tuple or any(type(a) is not str for a in args):
             return None
         return _DUCKDB_GUARDS.get((type(error).__name__, args))

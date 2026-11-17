@@ -1,14 +1,15 @@
 """The DuckDB storage kind of a `duckdb_arrow` result (D79.04;
 docs/spec/duckdb-arrow-route-v1.md, "Session and attempt", step 4).
 
-`to_arrow_table()` returns `int64`, `string`, `bool`, `double`, `date32`,
-`timestamp[us]` and `decimal128(p, s)` columns and marks every field
-nullable. The shared result readers hold this kind (D77.32's
-wiring): project_result_binding closes the DuckDB storage kinds of each type,
-and project_execution_reader binds the result against the compiled schema
-built here (`DUCKDB_RESULT_CHECK`, PIE-R3005). This owner gives each kind its
-Arrow type and cuts the batches under the attempt's limits (PIE-R3004). It
-imports no PyArrow: the route passes the pinned module it verified.
+The record batch reader of `to_arrow_reader()` yields `int64`, `string`,
+`bool`, `double`, `date32`, `timestamp[us]` and `decimal128(p, s)` columns
+and marks every field nullable. The shared result readers hold this kind
+(D77.32's wiring): project_result_binding closes the DuckDB storage kinds of
+each type, and project_execution_reader binds each batch against the compiled
+schema built here (`DUCKDB_RESULT_CHECK`, PIE-R3005). This owner gives each
+kind its Arrow type and charges the delivered batches to the attempt's limits
+(PIE-R3004), as the `sqlite_file` route's batches too. It imports no
+PyArrow: the route passes the pinned module it verified.
 """
 
 from __future__ import annotations
@@ -71,9 +72,11 @@ class DuckDBBatch:
 
 
 class DuckDBBatches:
-    """The checked result, cut into batches of at most `batch_rows` rows.
-    A batch whose `nbytes` exceeds `batch_bytes`, or that would take the
-    delivered rows or bytes past `max_rows` or `max_bytes`, is refused whole
+    """The batches delivered so far: the `duckdb_arrow` route delivers each
+    batch it reads and binds, and the `sqlite_file` route cuts its checked
+    `table` into batches of at most `batch_rows` rows. A batch whose `nbytes`
+    exceeds `batch_bytes`, or that would take the delivered rows or bytes
+    past `max_rows` or `max_bytes`, is refused whole
     (EXECUTION_RESOURCE_LIMIT), never truncated."""
 
     def __init__(self, pa: Any, table: Any, limits: Any) -> None:
@@ -84,13 +87,19 @@ class DuckDBBatches:
         self.rows = self.batches = self.bytes = 0
 
     def next(self) -> DuckDBBatch | None:
-        """The next batch, or None at the end of the result."""
+        """The next batch of the table, or None at its end."""
         if self._offset >= self._table.num_rows:
             return None
         part = self._table.slice(self._offset, self._limits.batch_rows)
         batch = self._pa.RecordBatch.from_arrays(
             [column.combine_chunks() for column in part.columns], schema=part.schema
         )
+        delivered = self.deliver(batch)
+        self._offset += batch.num_rows
+        return delivered
+
+    def deliver(self, batch: Any) -> DuckDBBatch:
+        """Charge one batch of at most `batch_rows` rows, then wrap it."""
         charge = batch.nbytes
         if (
             charge > self._limits.batch_bytes
@@ -98,7 +107,6 @@ class DuckDBBatches:
             or self.bytes + charge > self._limits.max_bytes
         ):
             raise ResultError("EXECUTION_RESOURCE_LIMIT")
-        self._offset += batch.num_rows
         self.rows += batch.num_rows
         self.batches += 1
         self.bytes += charge

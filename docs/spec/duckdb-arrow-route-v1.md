@@ -294,9 +294,10 @@ verifier, and consumes `ProjectSQLPlan`).
   the SQL directly reads them too. Each operand is written again where the
   check repeats it, a parameter's placeholder included, and each such
   placeholder is one entry of `parameter_uses`. The route reads DuckDB's
-  `InvalidInputException` whose only argument is `Invalid Input Error: `
-  followed by exactly one of these texts as its detail word, and never
-  shows the message.
+  `InvalidInputException`, or the `OSError` that a batch read raises in its
+  place ([failures](#failures)), whose only argument is `Invalid Input
+  Error: ` followed by exactly one of these texts as its detail word, and
+  never shows the message.
 - The select list and `WHERE` write a source field as `"c<k>"`. `GROUP BY`,
   `HAVING` and `ORDER BY` write it qualified, `"pietto_arrow_0"."c<k>"`, and
   never name a select label, an unqualified column or a position; `HAVING`
@@ -418,8 +419,10 @@ it cannot be pickled or copied`).
 `DuckDBArrowInput`, `premise` is `None` (the route takes no deployment
 premise, which changes the `PIE-R1001` rule text), `isolation` is `"stable"`
 (the owned capture snapshot) and `limits` is an `ExecutionLimits` whose
-meaning is unchanged. There is no premise type for this route, no
-`execute_local` and no new limit.
+meaning is unchanged, except that a batch is charged the `nbytes` of the
+reader's batch, validity bitmaps included (step 4 of
+[the session](#session-and-attempt)). There is no premise type for this
+route, no `execute_local` and no new limit.
 
 Parameter values bind by the existing exact binding (`PIE-R1006`): a `Date`
 is a `datetime.date`, not a `datetime`, from year 1000; a `Timestamp` a
@@ -574,25 +577,45 @@ reused. Every failure from here on is an `AttemptFailed` (AD79.01).
    (accepted by the owner), and the route runs nothing.
 3. **Statement.** The route registers the capture as `pietto_arrow_0`, runs
    the compiled statement once, with each placeholder's value bound in
-   placeholder order, and
-   reads the result as Arrow through the relation API (`sql(...,
-   params=...).to_arrow_table()`). Every call goes to the connection that
-   step 2 set up, never to a `cursor()`, which is a connection of its own
-   (see [pin facts](#pin-facts)). It never uses
-   `execute(...).to_arrow_table()`, which warns about an extra copy on
-   `2.0.0`, the deprecated `fetch_arrow_table()`, or `.arrow()`, which
-   returns a reader.
-4. **Result.** The result has the compiled result's labels and order, and
-   types `int64`, `string`, `bool`, `double`, `date32`, `timestamp[us]` and
-   `decimal128(p, s)`. `to_arrow_table()` marks
-   every field nullable, so the route restores the compiled nullability and
-   refuses a NULL in a non-null field before it binds a `ResultBatch`;
-   otherwise `PIE-R3005`. Batches then follow `ExecutionLimits` as on the
-   other routes (`PIE-R3004`).
+   placeholder order, and reads its result as Arrow record batches of at
+   most `limits.batch_rows` rows through the relation API (`sql(...,
+   params=...).to_arrow_reader(batch_rows)`) (D79.20: every result is read
+   in batches); a batch can end early where one of DuckDB's result chunks
+   ends, and step 4 skips a batch with no rows (*derived*, observed on
+   `2.0.0`). A sort or a grouping consumes its input when the reader is
+   created, within `memory_limit`, before the first batch, and a JOIN builds
+   its hash table then; the JOIN's probe, the final projection and the
+   output after the reader's first chunk are computed as the batches are
+   read, so an error, a cancellation or the deadline can also arrive during
+   a read (*derived*, observed on `2.0.0`). Every
+   call goes to the connection that step 2 set up, never to a `cursor()`,
+   which is a connection of its own (see [pin facts](#pin-facts)). It never
+   uses `to_arrow_table()`, which reads the whole result before any limit
+   applies, `execute(...).to_arrow_table()`, which warns about an extra copy
+   on `2.0.0`, or the deprecated `fetch_arrow_table()`.
+4. **Result.** Each step of the iteration reads the reader's next batch,
+   checks it and delivers it; a batch with no rows is skipped. A batch has
+   the compiled result's labels and order, types `int64`, `string`, `bool`,
+   `double`, `date32`, `timestamp[us]` and `decimal128(p, s)`, and at most
+   `batch_rows` rows. The reader marks every field
+   nullable, so the route restores the compiled nullability and refuses a
+   NULL in a non-null field before it binds a `ResultBatch`; otherwise
+   `PIE-R3005`. Batches follow `ExecutionLimits` as on the other routes
+   (`PIE-R3004`): a batch that would take the delivered rows or bytes past
+   `max_rows` or `max_bytes`, or that measures more than `batch_bytes`, is
+   refused whole, the reader is closed, and the batches delivered before it
+   stay delivered. The route keeps no delivered batch. A batch is charged
+   its own `nbytes` as the reader gives it: DuckDB's batches carry a
+   validity bitmap for every column, one without NULL included, so a batch
+   can measure one more byte for every eight rows of each such column than
+   the same rows cut from the whole result before the second tier, and
+   `outcome.bytes` grows by as much; a `max_bytes` or `batch_bytes`
+   boundary is reached that much earlier (*derived*, observed on `2.0.0`).
 5. **End.** Whatever ends the attempt (success, early close, cancellation,
-   deadline, result failure or setup failure), the route unregisters the
-   capture if it was registered, then closes the connection if one was
-   opened. A failure while the session is set up or the capture registered
+   deadline, result failure or setup failure), the route closes the reader
+   if one is open, since an open reader can still read after its connection
+   closes, then unregisters the capture if it was registered, then closes
+   the connection if one was opened. A failure while the session is set up or the capture registered
    therefore closes the connection without unregistering, and an attempt
    that ends before it connects (a missing or mismatched driver, or a
    cancellation before the session opens) does neither. A failed close is
@@ -656,18 +679,21 @@ route runs only the compiled `SELECT`.
 `memory_limit` is fixed at 1 GiB (PL.47), in place of B1's rule of 16 times
 the capture limit; both are fixed private policy. A statement that needs
 more memory fails with `PIE-R3003` (`OutOfMemoryException` on `2.0.0`), and
-nothing spills. `to_arrow_table()` reads the whole result before the
-batches, outside `memory_limit` and before any check of
-`ExecutionLimits.max_bytes` (64 MiB by default): a result beyond it is
-refused when its batches are cut (`PIE-R3004`), after it has been read
-whole. Besides the caller's table, one `execute()` therefore holds at its
-peak the copy of at most 256 MiB, at most 1 GiB in DuckDB and the whole read
-result, which no limit bounds: a field that the projection names k times is
-read k times. Only while the result is no larger than the selected columns
-is that about 1.5 GiB (*derived*), and nothing is guaranteed. Measured by
-T05 on 2026-11-16, through `execute()` on one Linux x86-64 host with CPython
-3.13.13, each case in its own process under `/usr/bin/time -v`, at
-1,048,576 rows whose selected columns, two `Int` and one 235-byte `Text`,
+nothing spills. The reader holds one batch at a time outside
+`memory_limit`, so besides the caller's table and the batches that the
+caller keeps, one `execute()` holds at its peak the copy of at most 256 MiB,
+at most 1 GiB in DuckDB and one batch in flight, of at most `batch_bytes`
+once it is delivered (*derived*). A result that would cross `max_rows` or
+`max_bytes` stops at the batch that crosses it, however large the whole
+result, a JOIN that repeats rows included. No peak of the batch-reading
+route has been measured in the repository yet.
+
+Until the second tier, the route read the whole result with
+`to_arrow_table()` before cutting its batches, outside `memory_limit` and
+before any check of `ExecutionLimits.max_bytes`. Measured by T05 on
+2026-11-16 under that reading, through `execute()` on one Linux x86-64 host
+with CPython 3.13.13, each case in its own process under `/usr/bin/time -v`,
+at 1,048,576 rows whose selected columns, two `Int` and one 235-byte `Text`,
 measured 267,386,880 bytes: the whole process peaked at 1,276,808 KiB (about
 1.22 GiB) for a grouping on 1,048,576 distinct `Text` keys, 1,259,896 KiB
 for a full sort on that `Text` and 709,764 KiB for `count`, `sum` and `min`
@@ -676,44 +702,64 @@ and the caller's table before DuckDB is imported, so about 0.85 GiB beyond
 them; each attempt took at most 0.53 s from its first entry to its last
 batch. Selecting the `Text` field eight times under the default limits
 peaked at 2,684,640 KiB (about 2.56 GiB), about 2.2 GiB beyond its own base
-case, and only then failed with `PIE-R3004`; a larger result can exhaust the
-host's memory before any refusal.
+case, and only then failed with `PIE-R3004`; reading in batches stops such
+a result at its first batch beyond the limit instead.
 
 ## Failures
 
 DuckDB errors become the existing `AttemptFailed` and `Failure` (AD79.01):
-`phase` names the step, `cause` is the exception class name, and `sqlstate`
-is `None`; no vendor code is kept. No DuckDB message enters any Pietto text.
+`phase` names the step, `cause` is the class name of the exception that the
+route receives, and `sqlstate` is `None`; no vendor code is kept. On `2.0.0`
+an error raised while a batch is read reaches the route as `OSError`,
+whatever DuckDB's own class, even when no batch has been delivered yet, and
+one raised while the reader is created keeps its class, such as
+`OutOfRangeException`, `ConversionException` or `OutOfMemoryException`.
+Which of the two an error is depends on DuckDB's plan: a `sum` outside
+signed 64 bits in a grouped query was `ConversionException` when its group
+lay in the grouping's first output chunk and `OSError` when it lay in a
+later one (*derived*, observed on `2.0.0`). No DuckDB message enters any
+Pietto text.
 The lead stated AD79.01 to the owner as inform on 2026-11-11.
 
 | Event | Failure |
 | --- | --- |
 | A DuckDB error while the statement runs or its result is read, an integer overflow and `OutOfMemoryException` included | `PIE-R3003` |
 | A checked `Float` operation's error ([arithmetic](#arithmetic)) | `PIE-R3003` with the detail `DUCKDB_FLOAT_OVERFLOW` or `DUCKDB_FLOAT_UNDERFLOW` |
-| The caller cancels the attempt; the route interrupts the connection (`InterruptException` on `2.0.0`) | `PIE-R3009` |
+| The caller cancels the attempt; the route interrupts the connection (`InterruptException` on `2.0.0` while the reader is created, `OSError` while a batch is read) | `PIE-R3009` |
 | `limits.seconds` expires; the route interrupts the connection | `PIE-R3001` |
 | A DuckDB error while the session is set up or the capture registered | `PIE-R2006` `DUCKDB_SESSION_CONTEXT` (accepted by the owner) |
 | Returned types, labels, nullability or values do not match the compiled result | `PIE-R3005` `DUCKDB_RESULT_CHECK` |
 
 `phase` is `driver` for the distribution check of step 1, `session` for the
-engine profile, step 2 and the registration, `query` for step 3, `result`
-for the binding of step 4, `delivery` for a batch, `finalization` for the end
-after the last batch, and `consumer` for an exception of the caller's own
-code. A failed cleanup step's `PIE-R5001` entry names `unregister` or
-`close`.
+engine profile, step 2 and the registration, `query` for step 3 and each
+batch read, `result` for the check of step 4, `delivery` for the charge of a
+batch to the limits, `finalization` for the end after the last batch, and
+`consumer` for an exception of the caller's own code. A failed cleanup
+step's `PIE-R5001` entry names `reader`, `unregister` or `close`.
 
-The attempt's `outcome` takes the existing values. The statement runs, and
-its whole result is read, when the handle is first entered; batches are then
-cut from that result. `transaction` is `NOT_STARTED` until the statement
-starts, `UNKNOWN` while it runs, and `COMMIT_ACK` once `to_arrow_table()` has
-returned the whole result, because the statement ran in its own auto-commit
-transaction, which ended then. A statement that fails, or that a
-cancellation or the deadline interrupts before `to_arrow_table()` returns,
-leaves `UNKNOWN`. When the route observes the deadline or a cancellation only
-after `to_arrow_table()` has returned, the attempt still ends with no batch,
-and `transaction` stays `COMMIT_ACK` (the owner's choice): the deadline is
-`PIE-R3001` with `phase` `query`, and the cancellation is `PIE-R3009` with no
-`phase`, as for any cancellation. `cleanup` is
+The attempt's `outcome` takes the existing values. The statement starts when
+the handle is first entered, and each step of the iteration reads its next
+batch. `transaction` is `NOT_STARTED` until the statement starts, `UNKNOWN`
+while its reader is open, and `COMMIT_ACK` once the reader has reported its
+end, because the statement ran in its own auto-commit transaction, which
+ended then. The reader reports its end at the step of the iteration after
+the last batch. A statement that fails, a refused batch (`PIE-R3003`,
+`PIE-R3004`, `PIE-R3005`), an early close, an exception of the caller's
+code and a cancellation or the deadline before the reader's end leave
+`UNKNOWN`, a close or cancellation right after the last batch included,
+and the batches delivered before stay delivered. A cancellation or the
+deadline interrupts the open statement, whether DuckDB is computing it or
+waiting for the next read, and `cancel_observed` records an interrupt that
+DuckDB raised. Since DuckDB drops an interrupt that reaches the connection
+before its statement runs, the route sends it again every 50 ms while the
+reader is open, so also while the caller holds the handle between two
+batches, until the next step of the iteration, a close or the reader's end
+(*derived*). When the route
+observes the deadline or a cancellation only after the reader's end, the
+last batch delivered, the attempt still ends with `PIE-R3001` (`phase`
+`query`) or `PIE-R3009` (no `phase`, as for any cancellation) rather than
+`COMPLETE`, and `transaction` stays `COMMIT_ACK` (the owner's choice for the
+whole-result reading, restated for batches). `cleanup` is
 `LOCAL_CLOSED_REMOTE_UNOBSERVED` once step 5 has run and none of its steps
 failed, since there is no server whose end could be observed, and `FAILED`
 when one did. The owner accepted these values, the details
@@ -1125,6 +1171,13 @@ The second tier's arithmetic applied these with its code:
   its summary, execution and support items.
 - `README.md`: the DuckDB local path's summary.
 
+The second tier's batch reading applied these with its code:
+
+- `docs/execution.md`: the session item of its DuckDB Arrow route section
+  and what its support-matrix row leaves unqualified.
+- `docs/capabilities.md`: the execution and support items of the DuckDB
+  local path.
+
 ## Open items
 
 | Item | Owner | Latest point |
@@ -1137,3 +1190,5 @@ The second tier's arithmetic applied these with its code:
 | Moving each row of the B2 section, which T01 wrote at the end of this page, into the sections above as its code lands | T02–T05; T08 checks | Before each slice seals; T08. Closed: T02–T05 moved their rows, and T08 moved the usability row, the T00 facts and these items and removed the section |
 | Tier 2's *derived* rows of its types, stated as inform: the storage spellings `arrow_date32`, `arrow_timestamp_us` and `arrow_decimal128` with its `precision` and `scale`; the civil spellings that `Date` and `Timestamp` literals must have; a literal beside a `Decimal` cast to its own precision and scale, within 38 digits beside the field; a `Decimal` parameter sent as its canonical text; the `physical_type` values `duckdb_date`, `duckdb_timestamp` and `duckdb_decimal`; a `having` that compares tier 1 types only; and the rewritten suggestions of rules 7a, 9 and 10 | The lead; the owner for the suggestions (PL.47) | When the owner has seen the suggestions, before they bind. Closed: the owner approved the suggestions as previewed on 2026-11-17, and the lead stated the *derived* rows in that preview (D79.26) |
 | The second tier's arithmetic: the check of a `Float` `+`, `-` or `*` that overflows, which fails with `DUCKDB_FLOAT_OVERFLOW` where DuckDB returns an infinity, and the place of the underflow's hint, which the [diagnostics](diagnostics.md) page and this page give while the failure's text stays that of any `PIE-R3003`; the range proof for `Int` arithmetic, where DuckDB was observed to fail on overflow, and refusing an `Int` sign and a constant; and the texts of rules 7, 7c and 9 and of the two checks | The owner (the overflow, the hint and the texts, PL.47); the lead (the range proof and the refusals, stated to the owner) | Before the second tier's texts bind and before its first push. Closed: the owner chose the overflow check and the hint's place (D79.18), and the lead the range proof and the refusal design (D79.25), on 2026-11-17; the owner then approved the texts as previewed, the hints in the words of the SQL's `error()` messages (D79.26) |
+| The second tier's texts that a program or person sees from its batch reading, which restates D79.10 and D79.14: the `OSError` cause, the `reader` cleanup step, the `transaction` of an attempt that ends before the reader's end, and a batch's charge with its validity bitmaps, which moves the `max_bytes` and `batch_bytes` boundaries | The lead, at the second tier's P1 | Before they bind |
+| The second tier's Gate 1 answers that this page cites (Q3 A) and the restatement of D79.10 and D79.14 for batches are not yet in the [decision record](../decisions.md) or the [Phase79 route](../phases/phase-79/route.md): the lead records them, and the route gains its second-tier section | The lead | Before the second tier seals |

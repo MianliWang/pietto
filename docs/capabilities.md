@@ -185,9 +185,9 @@ at most one comparison of an `Int` field with one non-null `Int` parameter,
 over at most 65,536 rows and 16 MiB. Its second part, Phase79 B2 (PL.47),
 adds the grouping, `having`, `order by`, `limit`, the wider filters and the
 higher limits; no release carries it yet, and it enters `0.2.2` (PL.55).
-B2's second tier adds `Date`, `Timestamp` and `Decimal(p, s)` fields and
-the arithmetic, which are not qualified yet, and enters `0.2.2` too
-(D79.21).
+B2's second tier adds `Date`, `Timestamp` and `Decimal(p, s)` fields, the
+arithmetic and the batch reading of every result, which are not qualified
+yet, and enters `0.2.2` too (D79.21).
 
 Each row was recorded by running one plain example through
 `check --project` and `emit-sql --project --dialect duckdb`, with a DuckDB
@@ -230,10 +230,10 @@ the legend above.
   are bags unless the query has `order by`, and a `sum` outside signed
   64 bits fails with PIE-R3003, as does a `Float` `+`, `-` or `*` whose
   result is outside binary64 (`DUCKDB_FLOAT_OVERFLOW`) or a `*` of non-zero
-  values that underflows to 0 (`DUCKDB_FLOAT_UNDERFLOW`). Besides your table, one `execute()` holds
-  about 1.5 GiB at its peak while its result is no larger than those
-  columns, and a result beyond `ExecutionLimits.max_bytes` (64 MiB by
-  default) is refused with PIE-R3004 only after it has been read whole
+  values that underflows to 0 (`DUCKDB_FLOAT_UNDERFLOW`). The result is read
+  one batch at a time, so a result beyond `ExecutionLimits.max_rows` or
+  `max_bytes` (64 MiB by default) stops with PIE-R3004 at its first batch
+  beyond them; no peak memory of this reading has been measured yet
   ([Session and attempt](spec/duckdb-arrow-route-v1.md#session-and-attempt)). Bundles, saved results, relay, jobs and R2 do not take the
   route ([execution](execution.md#duckdb-arrow-route)).
 - **Support.** The emission is tested wherever CI runs, Windows included;
@@ -245,7 +245,8 @@ the legend above.
   3.12.13, Linux x86-64, and the `arrow-ready` cell of natural CI, which
   runs one B1 and three B2 queries. The second tier's `Date`, `Timestamp`
   and `Decimal` forms and its arithmetic have the route's own native test
-  cells; their preregistered qualification is still to run.
+  cells, and its batch reading is not in that evidence yet; their
+  preregistered qualification is still to run.
   Other DuckDB releases and platforms are not qualified.
 
 ## Platforms and qualification

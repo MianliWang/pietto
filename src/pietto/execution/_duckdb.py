@@ -29,6 +29,7 @@ from pietto._project.project_compiled_loading import (
 )
 from pietto._project.project_duckdb_sql import RELATION
 from pietto._project.project_execution_template import BindingError
+from pietto._project.project_result_contract import ResultError
 from pietto._project.project_sql_emission_parameters import (
     parameter_text,
     parameter_valid,
@@ -320,6 +321,7 @@ class DuckDBAttempt:
         self._registered = self._running = False
         self._ended = threading.Event()
         self._timer: Any = None
+        self._reader: Any = None
         self._batches: Any = None
         self._started: Any = None
         self._closed = self._finalizing = False
@@ -415,34 +417,39 @@ class DuckDBAttempt:
                 self._checkpoint()
                 self._running = True
                 self._transaction = "UNKNOWN"
-            try:
-                relation = (
-                    self._connection.sql(self._sql, params=list(self._arguments))
-                    if self._arguments
-                    else self._connection.sql(self._sql)
-                )
-                table = relation.to_arrow_table()
-            finally:
-                with self._gate:
-                    self._running = False
-                    self._ended.set()
-            # The statement ran in its own auto-commit transaction, which
-            # ended when the whole result was materialized.
-            self._transaction = "COMMIT_ACK"
-            self._checkpoint()
-            phase = "result"
-            from pietto._project import project_execution_reader as reader
-
-            self._batches = results.DuckDBBatches(
-                self._pa,
-                reader.bind_duckdb_result(self._pa, table, self.facts),
-                self.limits,
+            relation = (
+                self._connection.sql(self._sql, params=list(self._arguments))
+                if self._arguments
+                else self._connection.sql(self._sql)
             )
+            # The statement runs until its reader ends or is closed. A sort or
+            # a grouping consumes its input here and a JOIN builds its hash
+            # table; the probe and the projection run as batches are read.
+            reader = relation.to_arrow_reader(self.limits.batch_rows)
+            with self._gate:
+                self._reader = reader
+            self._checkpoint()
+            self._batches = results.DuckDBBatches(self._pa, None, self.limits)
             self._delivery = "OPEN"
             return self
         except BaseException as error:
             self._failed(error, phase)
             raise
+
+    def _read(self):
+        """The reader's next batch that has rows, or None at its end, when
+        the statement's auto-commit transaction has ended."""
+        while True:
+            try:
+                batch = self._reader.read_next_batch()
+            except StopIteration:
+                with self._gate:
+                    self._running = False
+                    self._ended.set()
+                self._transaction = "COMMIT_ACK"
+                return None
+            if batch.num_rows:
+                return batch
 
     def __enter__(self):
         return self.open()
@@ -455,12 +462,20 @@ class DuckDBAttempt:
             raise StopIteration
         if self._started is None:
             self.open()
-        phase = "delivery"
+        phase = "query"
         try:
             self._checkpoint()
-            batch = self._batches.next()
+            batch = self._read()
             if batch is not None:
-                return batch
+                phase = "result"
+                from pietto._project import project_execution_reader as reader
+
+                if batch.num_rows > self.limits.batch_rows:
+                    raise ResultError("DUCKDB_RESULT_CHECK")
+                bound = reader.bind_duckdb_result(self._pa, batch, self.facts)
+                phase = "delivery"
+                return self._batches.deliver(bound)
+            self._checkpoint()
             if not self._claim_terminal("COMPLETE"):
                 raise ex.ExecutionError("EXECUTION_CANCELED")
             self._source, self._delivery = "EOF", "COMPLETE"
@@ -480,10 +495,10 @@ class DuckDBAttempt:
         if self._primary is None:
             self._primary = ex.ExecutionFailure(phase, type(error).__name__)
         interrupted = getattr(self._driver, "InterruptException", None)
-        if (
-            self._cancel_sent
-            and isinstance(interrupted, type)
-            and isinstance(error, interrupted)
+        # A batch read raises every DuckDB error as OSError, an interrupt too.
+        if self._cancel_sent and (
+            (isinstance(interrupted, type) and isinstance(error, interrupted))
+            or (type(error) is OSError and phase == "query")
         ):
             self._cancel_observed = True
         if self._source != "EOF":
@@ -527,15 +542,25 @@ class DuckDBAttempt:
                 self._connection.interrupt()
 
     def _finish(self):
-        """Step 5: unregister a registered capture, then close, whatever
-        ended the attempt."""
+        """Step 5: close an open reader, unregister a registered capture,
+        then close, whatever ended the attempt; a reader outlives its
+        connection."""
         with self._gate:
             if self._closed or self._finalizing:
                 return
             self._finalizing = True
-            timer, connection = self._timer, self._connection
+            self._running = False
+            self._ended.set()
+            timer, connection, reader = self._timer, self._connection, self._reader
         if timer is not None:
             timer.cancel()
+        if reader is not None:
+            try:
+                reader.close()
+            except BaseException as error:
+                self._cleanup_errors.append(
+                    ex.ExecutionFailure("reader", type(error).__name__)
+                )
         if connection is not None:
             if self._registered:
                 try:
@@ -551,7 +576,7 @@ class DuckDBAttempt:
                     ex.ExecutionFailure("close", type(error).__name__)
                 )
         with self._gate:
-            self._connection = self._capture = None
+            self._connection = self._capture = self._reader = None
             self._registered = False
             self._closed = True
             self._finalizing = False
