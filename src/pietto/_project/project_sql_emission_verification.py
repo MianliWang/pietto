@@ -1492,8 +1492,35 @@ def _row_realization(request, expression, operands, operand_values):
         # S15 and R08: and a MySQL `%` or Int `/` only in its cell.
         mysql_remainder=request.family == "mysql" and kind == "binary",
         mysql_division=request.family == "mysql" and kind == "binary",
+        # MC E4: the cell's place by the function emission calls, and its
+        # one field and one literal by this reader's own law.
+        mysql_float=request.family == "mysql"
+        and rows.mysql_float_arithmetic_cell(request.plan, expression, operand_values)
+        and _mysql_float_shape(operand_values),
         # This reader's own S17 pairing check.
         paired=tag == "Decimal" and pairing.project_form(request) is not None,
+    )
+
+
+def _mysql_float_shape(values) -> bool:
+    """Independent E4 operand shape: one source field read and, beside it,
+    one literal chain of at most one sign over a Float literal."""
+    fields = [
+        value
+        for value in values
+        if type(value) is rows.SQLStageReference
+        and value.column.field is not None
+        and value.column.source_port is not None
+    ]
+    others = [value for value in values if all(value is not f for f in fields)]
+    return len(fields) == 1 and all(
+        _float_literal_value(value) is not None
+        and [
+            node.original.expression.operator
+            for node in parameters.value_nodes(value)[:-2]
+        ]
+        in ([], ["-"])
+        for value in others
     )
 
 
@@ -1555,14 +1582,15 @@ def resolved_row_realization(
     mysql_checked=False,
     mysql_remainder=False,
     mysql_division=False,
+    mysql_float=False,
     paired=False,
 ):
     """Existing independent physical-law checker over closed resolved inputs.
 
     A comparison requires ``rows_both_sides`` and takes ``float_cell`` (see
     the shared comparison law). ``mysql_checked`` marks an S01 cell,
-    ``mysql_remainder`` an S15 one and ``mysql_division`` an R08 one, which
-    its caller derives. MySQL takes the
+    ``mysql_remainder`` an S15 one, ``mysql_division`` an R08 one and
+    ``mysql_float`` an MC E4 one, which its caller derives. MySQL takes the
     Decimal operations of an S17 form only when ``paired``
     (`project_sql_emission_paired`).
     """
@@ -1755,11 +1783,19 @@ def resolved_row_realization(
             )
         if kind == "unary" or float_values is None:
             # E4: PostgreSQL's float8 sign is exact and its checked +, - and *
-            # refuse a non-finite result (SQLSTATE 22003).
-            if (
-                family != "postgres"
-                or operator not in ({"+", "-"} if kind == "unary" else {"+", "-", "*"})
-                or not all(_float_carrier(item, "postgres") for item in operands)
+            # refuse a non-finite result (SQLSTATE 22003); in an MC E4 cell
+            # so do MySQL's DOUBLE `-` and +, - and * (`*` guarded).
+            if not (
+                family == "postgres"
+                and operator in ({"+", "-"} if kind == "unary" else {"+", "-", "*"})
+                and all(_float_carrier(item, "postgres") for item in operands)
+                or family == "mysql"
+                and mysql_float
+                and operator in ({"-"} if kind == "unary" else {"+", "-", "*"})
+                and all(
+                    _float_carrier(item, "mysql") and not item.binding
+                    for item in operands
+                )
             ):
                 raise ValueError("float literal operands")
         else:
@@ -1977,12 +2013,12 @@ TARGET_CHECKED = "target_checked_signed64_narrowing"
 
 
 def _float_checked(family, value):
-    """Independent E4 image: a PostgreSQL Float `+`, `-` or `*` with an
-    operand no literal fold reads, whose finite result the target's checked
-    float8 operator bounds (SQLSTATE 22003)."""
+    """Independent E4 image: a Float `+`, `-` or `*` with an operand no
+    literal fold reads, whose finite result the target's checked float8 or
+    DOUBLE operator bounds (SQLSTATE 22003); MySQL admits one only in an MC
+    E4 cell."""
     return (
-        family == "postgres"
-        and type(value) is rows.SQLOperation
+        type(value) is rows.SQLOperation
         and value.kind == "arithmetic"
         and value.original.expression.operator != "%"
         and value.realization.tag == "Float"
@@ -8176,6 +8212,37 @@ def verify_row_bytes(query, rendered):
                     reference,
                     f") AS pg_catalog.numeric({precision}, {scale}))",
                 )
+                spans.append(("binary", reference, start, offset))
+                return
+            if (
+                query.request.family == "mysql"
+                and value.kind == "arithmetic"
+                and value.original.expression.operator == "*"
+                and value.realization.tag == "Float"
+                and not all(
+                    _float_literal_value(operand) is not None
+                    for operand in value.operands
+                )
+            ):
+                # MC.05: the guarded product, its operands x, y three times.
+                for position, (guard_role, text) in enumerate(
+                    (
+                        ("product_guard_open", "CASE WHEN ("),
+                        ("arithmetic_operator", " * "),
+                        ("product_guard_zero", ") = 0 AND "),
+                        ("product_guard_and", " <> 0 AND "),
+                        (
+                            "product_guard_then",
+                            " <> 0 THEN CAST(9223372036854775807 AS SIGNED)"
+                            " + CAST(1 AS SIGNED) ELSE (",
+                        ),
+                        ("arithmetic_operator", " * "),
+                        ("product_guard_close", ") END"),
+                    )
+                ):
+                    if position:
+                        operation_operand(value, (position - 1) % 2, alias)
+                    take("syntax", guard_role, reference, text)
                 spans.append(("binary", reference, start, offset))
                 return
             opening, operator, closing, role = OPERATORS[value.kind]

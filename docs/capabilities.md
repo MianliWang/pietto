@@ -13,7 +13,8 @@ It describes `0.2.1`, whose
 [release notes](release-notes.md#maintenance-public-alpha-release-notes--021)
 give each change, and the DuckDB forms
 ([DuckDB local path](#duckdb-local-path)) and the MySQL project `sum(Int)`
-forms of the MySQL catch-up work package that no release carries yet. Each row was recorded by running one
+forms and `Float` arithmetic cell (E4) of the MySQL catch-up work package
+that no release carries yet. Each row was recorded by running one
 plain example of the family through these commands, with a project emission
 contract that declares every premise
 ([project SQL emission](project-package.md#project-sql-emission)). A cell
@@ -35,7 +36,7 @@ Polars, NumPy, SciPy or Matplotlib is no `check` or `emit-sql` feature;
 | Feature | Single file, PostgreSQL | Single file, MySQL | Project, PostgreSQL | Project, MySQL | Stated in |
 | --- | --- | --- | --- | --- | --- |
 | `where`, `let` values, `select`, `order by`, `limit` | yes | yes | yes | yes; `Int` arithmetic that may leave 64 bits, such as `amount * 2` over a `bigint` column, BLOCKED PIE-B1002 `arithmetic_outside_physical_range`, except `+`, `-`, `*`, unary `-` and `abs` over nullable `BIGINT` fields as a whole SELECT item in the cell that [language](language.md) states | [0.1.7](release-notes.md#nested-results-and-project-emission-public-alpha-release-notes--017), [0.1.12](release-notes.md#mysql-project-checked-int-arithmetic-and-sumint) |
-| `Float` arithmetic and sign on a field (`price * 2.0`, `-price`) | yes | yes | yes | BLOCKED PIE-B1003 `float_literal_operands_required` (`unary_sign_requires_int_operand` for `-price`) | [0.1.11](release-notes.md#float-arithmetic-and-float-keys-in-postgresql-projects) |
+| `Float` arithmetic and sign on a field (`price * 2.0`, `-price`) | yes | yes | yes | BLOCKED PIE-B1003 `float_literal_operands_required` (`unary_sign_requires_int_operand` for `-price`), except `+`, `-` and `*` of a `DOUBLE` field and a `Float` literal and unary `-` of such a field as a whole SELECT item in the cell that [language](language.md#mysql-float-arithmetic-cell) states, `*` under an underflow guard | [0.1.11](release-notes.md#float-arithmetic-and-float-keys-in-postgresql-projects), [E4's cell](language.md#mysql-float-arithmetic-cell) |
 | `+`, `-`, `*` of two `Float` literals (`1.5 * 2.0`) | yes | yes | yes; a result outside binary64, or a product of two non-zero literals that rounds to zero, BLOCKED PIE-B1002 `float_result_not_finite` | as PostgreSQL | [Float values](language.md#float-values); the refusal of a product that rounds to zero is not in `0.2.1` |
 | `group by`, `having`, `count`, `min`, `max`, `avg` | yes | yes | yes | yes; `avg` of a `Float` as below | [Aggregates](language.md#aggregates-and-grouping) |
 | Scalar calls or arithmetic over direct aggregates (`coalesce(sum(qty), 0)` with nullable `Int` qty) | yes | yes | yes, with existing carrier proofs | BLOCKED PIE-B1003 `aggregate_composition_not_admitted_on_target` | [0.1.11](release-notes.md#scalars-around-aggregate-results) |

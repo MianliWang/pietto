@@ -3377,10 +3377,10 @@ def derive_compiled_semantics(root, values, parameters=None):
     ):
         raise CompiledError("COMPILED_PHYSICAL_DOMAIN")
     ranked = _ranked_values(records, records[root.description.query], family)
-    mysql_checked, mysql_sums, mysql_remainders, mysql_divisions = (
+    mysql_checked, mysql_sums, mysql_remainders, mysql_divisions, mysql_floats = (
         physical.mysql_compiled_cells(records, records[root.description.query])
         if family == "mysql"
-        else (frozenset(), frozenset(), frozenset(), frozenset())
+        else (frozenset(), frozenset(), frozenset(), frozenset(), frozenset())
     )
     mysql_s03 = (
         physical.mysql_s03_compiled(records, records[root.description.query])
@@ -4556,6 +4556,7 @@ def derive_compiled_semantics(root, values, parameters=None):
                             mysql_checked=ref in mysql_checked,
                             mysql_remainder=ref in mysql_remainders,
                             mysql_division=ref in mysql_divisions,
+                            mysql_float=ref in mysql_floats,
                             # This reader's own S17 pairing check.
                             paired=tag == "Decimal"
                             and pairing.compiled_form(records) is not None,
@@ -4617,7 +4618,9 @@ def derive_compiled_semantics(root, values, parameters=None):
                             "Decimal", inner.storage, nullable, inner.domain
                         )
                     elif tag == "Float":
-                        realized = physical.float_sign(family, inputs[0], nullable)
+                        realized = physical.float_sign(
+                            family, inputs[0], nullable, ref in mysql_floats
+                        )
                     else:
                         inner = inputs[0]
                         interval = physical.proven_int_bounds(inner)
@@ -4833,10 +4836,10 @@ def verify_compiled_semantics(value):
         "SEMANTIC_DOMAIN",
     )
     ranked = _ranked_values(records, records[value.root.description.query], family)
-    mysql_checked, mysql_sums, mysql_remainders, mysql_divisions = (
+    mysql_checked, mysql_sums, mysql_remainders, mysql_divisions, mysql_floats = (
         physical.mysql_compiled_cells(records, records[value.root.description.query])
         if family == "mysql"
-        else (frozenset(), frozenset(), frozenset(), frozenset())
+        else (frozenset(), frozenset(), frozenset(), frozenset(), frozenset())
     )
     mysql_s03 = (
         physical.mysql_s03_compiled(records, records[value.root.description.query])
@@ -6120,6 +6123,7 @@ def verify_compiled_semantics(value):
                             mysql_checked=current in mysql_checked,
                             mysql_remainder=current in mysql_remainders,
                             mysql_division=current in mysql_divisions,
+                            mysql_float=current in mysql_floats,
                             # This reader's own S17 pairing check.
                             paired=typed.resolved_type.name == "Decimal"
                             and pairing.compiled_form(records) is not None,

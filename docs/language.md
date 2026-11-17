@@ -839,13 +839,16 @@ value.
   a zero included (`0.0 * -2.0` and `-(0.0)` are `-0.0`, `x - x` is `0.0`). A
   result outside binary64 is not a value: project SQL on PostgreSQL fails the
   statement with SQLSTATE 22003 instead, and also fails it where a product of
-  two non-zero values rounds to zero, which Python gives as `0.0`. It never
-  returns an infinity or a wrong value. Project SQL folds `+`, `-` or `*` of
-  two Float literals when it is emitted, on both targets and under both
-  literal policies, and a folded result outside binary64, or a folded product
-  of two non-zero literals that rounds to zero, is BLOCKED with `PIE-B1002`
-  `float_result_not_finite`. A subnormal product, a product with a zero
-  factor and a sum or difference that is exactly zero keep their value.
+  two non-zero values rounds to zero, which Python gives as `0.0`. Project
+  SQL on MySQL fails the same statements in
+  [E4's cell](#mysql-float-arithmetic-cell), with error 1690 (SQLSTATE
+  22003). It never returns an infinity or a wrong value. Project SQL folds
+  `+`, `-` or `*` of two Float literals when it is emitted, on both targets
+  and under both literal policies, and a folded result outside binary64, or
+  a folded product of two non-zero literals that rounds to zero, is BLOCKED
+  with `PIE-B1002` `float_result_not_finite`. A subnormal product, a product
+  with a zero factor and a sum or difference that is exactly zero keep their
+  value.
 - **No later step can tell.** Every Float operation Pietto admits gives
   `==`-equal results for `==`-equal inputs. So no later filter, comparison,
   group key or set operation can tell which zero a merge kept; only the
@@ -944,6 +947,41 @@ DISTINCT (`set_row_equivalence_domain_unsupported`), `count_distinct` of a
 Float and a Float window key stay refused as well. A statement of these
 forms that emission refuses for another reason reports the blockers it has
 without the forms, this PIE-B1003 included.
+
+<a id="mysql-float-arithmetic-cell"></a>A MySQL project emits `Float` `+`,
+`-` and `*` of a field and a literal, and unary `-` of a field, in one MC E4
+cell only (MC.04). One operand is a nullable or non-null `DOUBLE` field of a
+source declared in the query's own module, read by name (`x` or `rows.x`),
+and the other, for `+`, `-` and `*`, a `Float` literal under one `-` at
+most, in either order (`x * 2.0`, `-2.0 * x`, `y + -0.0`). Each operand and
+the whole operation may also be written in parentheses (`(x) * (2.0)`,
+`y * -(2.0)`) or through a `def` call that inlines to it, a literal argument
+included (`x * two()`, `mul(x, 2.0)`, `same(-x)`); the cell is judged on
+what they inline to. The operation is the whole value of a SELECT item of
+the `query` or `table` that `emit-sql --project` emits; its other SELECT
+items may be any form the query emits otherwise. The query reads its source
+through one WHERE at most and, as written, holds no `let`, window, JOIN,
+GROUP BY or aggregate, HAVING, DISTINCT, ORDER BY, LIMIT, header parameter
+(read or not), set operand or read of another relation, and no bind-safe
+`?`: under `bind_safe_literals` a statement with a literal, a WHERE's
+included, stays refused. The SQL writes `+` and `-` as `(a + b)`, unary `-` as `(-a)`, a
+literal as `CAST(2.0e0 AS DOUBLE)`, and `*` under an underflow guard,
+`CASE WHEN (x * y) = 0 AND x <> 0 AND y <> 0 THEN
+CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) ELSE (x * y) END`,
+with `x` and `y` the two operands in their written order. MySQL's `DOUBLE`
+operators raise error 1690 (SQLSTATE 22003) where a result leaves binary64,
+and the guard's `BIGINT` branch raises it where a product of two non-zero
+values rounds to zero, which MySQL alone would return as `0.0`; PostgreSQL
+raises 22003 in both cases. The result is a `my_double` `finite_float` of
+the nullability PostgreSQL gives it, and each `+`, `-` and `*` carries the
+binary64 evidence of PostgreSQL's (a sign carries none). Every other MySQL
+`Float` arithmetic keeps its refusal: two fields (`x + y`, `x - x`), a
+nested operation (`(x * 2.0) + 1.0`, `-(-x)`), unary `+`, an `Int` literal,
+a literal under `+` or two signs, `/`, a header parameter, the same
+operation in a `let`, a WHERE, an ORDER BY key or an aggregate argument, and
+a cell's operation in a query that holds any of the clauses above; a
+statement still refused reports exactly the blockers it has without this
+cell.
 
 ## Sources and relations
 

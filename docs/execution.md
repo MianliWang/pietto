@@ -1857,8 +1857,10 @@ or a successful semantic check alone establishes none of those premises.
   still fails closed at its first page, with `terminal` `FAILED` and no
   public reason.
 - On MySQL, `save_recoverable` and `recover` refuse a query in a form that
-  `0.1.11` refused, the forms that Phase77 opens in `0.1.12` and the MySQL
-  `Float` `same_value` in a null-safe JOIN `on` that `0.2.1` opens, with
+  `0.1.11` refused, the forms that Phase77 opens in `0.1.12`, the MySQL
+  `Float` `same_value` in a null-safe JOIN `on` that `0.2.1` opens and the
+  `Float` `+`, `-`, `*` and sign of MC's
+  [E4 cell](language.md#mysql-float-arithmetic-cell), with
   PIE-R1004 `PUBLIC_R2_UNQUALIFIED_FORM` before any workspace access or
   connection: no native qualification has run R2's refined statement of any
   of them. It is the last R2 check, so a query that another one refuses

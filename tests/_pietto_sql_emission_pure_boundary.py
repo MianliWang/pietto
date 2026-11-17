@@ -2113,11 +2113,14 @@ _MYSQL_CELL_KINDS = frozenset(
 _MYSQL_SLOT_KINDS = frozenset({"fixed_value", "native_use", "sql_parameter"})
 
 
-def _mysql_cells(doc) -> tuple[frozenset, frozenset, frozenset, frozenset]:
-    """The S01 operations, S02 sum columns, S15 `%` and R08 `/` operations in
-    their MySQL cells, as emission derives them from the plan
+def _mysql_cells(
+    doc,
+) -> tuple[frozenset, frozenset, frozenset, frozenset, frozenset]:
+    """The S01 operations, S02 sum columns, S15 `%`, R08 `/` and MC E4 Float
+    operations in their MySQL cells, as emission derives them from the plan
     (mysql_checked_cell, mysql_sum_query, mysql_remainder_cells,
-    mysql_division_cells), here from the document alone; a
+    mysql_division_cells, mysql_float_arithmetic_cell), here from the
+    document alone; a
     relation alias or a
     window, read or not, and an imported source leave a direct read's
     document apart from source positions and the source digest, so only
@@ -2142,11 +2145,14 @@ def _mysql_cells(doc) -> tuple[frozenset, frozenset, frozenset, frozenset]:
     or BIGINT storage or a `/` named once of an unsigned Int literal and one
     such read, the law restated here (_mysql_division_literal); a bind-safe
     parameter of any other literal closes them, and any parameter closes
-    every other cell. The bound of three bodies beside an aggregate's row
-    value columns only ends the walk early: the block kinds and the chain
-    that holds every body imply it."""
+    every other cell. An E4 operation is, as an S01 one, the whole value of a
+    column of the final body, named once, over its WHERE body at most
+    (_mysql_float_operation). The bound of three bodies beside an
+    aggregate's row value columns only ends the walk early: the block kinds
+    and the chain that holds every body imply it."""
 
-    empty: tuple[frozenset, frozenset, frozenset, frozenset] = (
+    empty: tuple[frozenset, frozenset, frozenset, frozenset, frozenset] = (
+        frozenset(),
         frozenset(),
         frozenset(),
         frozenset(),
@@ -2285,12 +2291,29 @@ def _mysql_cells(doc) -> tuple[frozenset, frozenset, frozenset, frozenset]:
         if not leaves.issuperset(doc.all("sql_parameter")):
             divisions.clear()
         if slotted:
-            return frozenset(), frozenset(), frozenset(), frozenset(divisions)
+            return (
+                frozenset(),
+                frozenset(),
+                frozenset(),
+                frozenset(divisions),
+                frozenset(),
+            )
+        floats = frozenset(
+            value
+            for column in final["columns"]
+            if column.kind == "row_value_column"
+            and type(value := doc[column]["value"]) is Ref
+            and value.kind == "sql_operation"
+            and named.get(column) == 1
+            and named.get(value) == 1
+            and _mysql_float_operation(doc, value)
+        )
         return (
             frozenset(operations),
             frozenset(),
             frozenset(remainders),
             frozenset(divisions),
+            floats,
         )
     stage = doc[doc[aggregate]["aggregation"]]
     if lets and not _mysql_sum_lets(doc, chain[:1:-1], stage):
@@ -2335,6 +2358,7 @@ def _mysql_cells(doc) -> tuple[frozenset, frozenset, frozenset, frozenset]:
         ),
         frozenset(),
         frozenset(),
+        frozenset(),
     )
 
 
@@ -2377,6 +2401,44 @@ def _mysql_sum_lets(doc, bodies, stage) -> bool:
                 return False
             used.add(origin)
     return used == values
+
+
+def _mysql_float_operation(doc, ref) -> bool:
+    """MC E4, restated: a Float `+`, `-` or `*` of one read of a finite DOUBLE
+    source field (_mysql_remainder_carrier, _is_float) and one Float literal
+    written with one `-` at most, in either order, or a `-` of such a read."""
+
+    op = doc[ref]
+    operands = op["operands"]
+    reads = [
+        item
+        for item in operands
+        if _mysql_remainder_carrier(doc, item) == "Float"
+        and _is_float(doc[doc[item]["realization"]], "mysql")
+    ]
+    return (
+        doc[op["realization"]]["tag"] == "Float"
+        and (op["kind"], op["operator"], len(operands))
+        in {
+            ("arithmetic", "+", 2),
+            ("arithmetic", "-", 2),
+            ("arithmetic", "*", 2),
+            ("sign", "-", 1),
+        }
+        and len(reads) == 1
+        and all(item in reads or _mysql_float_token(doc, item) for item in operands)
+    )
+
+
+def _mysql_float_token(doc, ref) -> bool:
+    """A Float literal token's anchor, or one `-` over it; never a slot."""
+
+    if type(ref) is Ref and ref.kind == "sql_unary" and doc[ref]["operator"] == "-":
+        ref = doc[ref]["operand"]
+    if type(ref) is not Ref or ref.kind != "sql_anchor":
+        return False
+    leaf = doc[ref]["operand"]
+    return leaf.kind == "sql_literal" and doc[leaf]["value"].tag == "Float"
 
 
 def _mysql_division_read(doc, ref) -> bool:
@@ -3867,10 +3929,10 @@ class _Check:
             "MySQL Float block membership",
         )
         cells = _mysql_scalar_cells(doc) if family == "mysql" else {}
-        _, _, mysql_remainders, mysql_divisions = (
+        _, _, mysql_remainders, mysql_divisions, mysql_floats = (
             _mysql_cells(doc)
             if family == "mysql"
-            else (frozenset(), frozenset(), frozenset(), frozenset())
+            else (frozenset(), frozenset(), frozenset(), frozenset(), frozenset())
         )
         on_operations = _on_operations(doc)
         for ref in doc.all("sql_operation"):
@@ -3928,6 +3990,30 @@ class _Check:
                         )
                     ),
                     "MySQL remainder carrier",
+                )
+            if (
+                family == "mysql"
+                and result["tag"] == "Float"
+                and (
+                    op["kind"] == "sign"
+                    or op["kind"] == "arithmetic"
+                    and op["operator"] in {"+", "-", "*"}
+                )
+                and not all(_float_literal(doc, child) for child in op["operands"])
+            ):
+                # MC E4: a MySQL Float `+`, `-`, `*` or sign that no fold
+                # proves only in its cell, a finite DOUBLE of PostgreSQL's
+                # nullability: unknown, or a sign's operand's own.
+                _require(ref in mysql_floats, "MySQL Float arithmetic cell")
+                _require(
+                    _is_float(result, family)
+                    and result["nullable"]
+                    == (
+                        doc[doc[op["operands"][0]]["realization"]]["nullable"]
+                        if op["kind"] == "sign"
+                        else "unknown"
+                    ),
+                    "MySQL Float arithmetic carrier",
                 )
             if (op["kind"], op["operator"]) == ("scalar_call", "same_value") and (
                 ref in on_operations
@@ -7012,10 +7098,10 @@ class _ProvenIntRanges:
                         self.terminals[terminal] = (*producers, column)
         self.values: dict[Ref, tuple[int, int] | object] = {}
         self.visiting: set[Ref] = set()
-        self.mysql_checked, _, self.mysql_remainders, _ = (
+        self.mysql_checked, _, self.mysql_remainders, _, _ = (
             _mysql_cells(doc)
             if family == "mysql"
-            else (frozenset(), frozenset(), frozenset(), frozenset())
+            else (frozenset(), frozenset(), frozenset(), frozenset(), frozenset())
         )
 
     def value(self, ref: Ref) -> tuple[int, int] | object:
@@ -7457,14 +7543,14 @@ class _Requirements:
 
     def checked_evidence(self, evidence: Any, value: Ref) -> None:
         """Q2 evidence follows the independently rebuilt operand proof; E4
-        evidence marks a PostgreSQL Float `+`, `-` or `*` no fold proves."""
+        evidence marks a Float `+`, `-` or `*` no fold proves (on MySQL only
+        in an MC E4 cell, which the operation check requires)."""
         interval = self.ranges.target_checked(value)
         _require(interval is not self.ranges._UNKNOWN, "target checked proof")
         if interval is None:
             op = self.doc[value] if value.kind == "sql_operation" else None
             unfolded = (
                 op is not None
-                and self.family == "postgres"
                 and op["kind"] == "arithmetic"
                 and op["operator"] != "%"
                 and self.doc[op["realization"]]["tag"] == "Float"
@@ -8428,6 +8514,19 @@ _OPERATION_ARITY = {
 }
 # The aggregate branches that read the delimiter slot themselves.
 _DELIMITED = frozenset({"filtered_sum", *_ORDERED, *_QUANTILE})
+# MySQL's guarded Float `*` (MC.05), between the operands x, y, x, y, x, y.
+_MYSQL_PRODUCT_GUARD = tuple(
+    (role, " * " if role == "arithmetic_operator" else schema.SYNTAX[role])
+    for role in (
+        "product_guard_open",
+        "arithmetic_operator",
+        "product_guard_zero",
+        "product_guard_and",
+        "product_guard_then",
+        "arithmetic_operator",
+        "product_guard_close",
+    )
+)
 # MySQL's guarded SUM of an Int (S02, S03), between reads of its argument.
 _MYSQL_SUM_GUARD = tuple(
     (role, schema.SYNTAX[role])
@@ -9195,6 +9294,22 @@ class _Render:
                 "decimal_arithmetic_close",
                 reference,
             )
+            self.enclose("binary", reference, start)
+            return
+        if (
+            family == "mysql"
+            and op_kind == "arithmetic"
+            and operator == "*"
+            and tag == "Float"
+            and not all(_float_literal(self, operand) for operand in operands)
+        ):
+            # MC.05: the guarded product, each operand read three times.
+            if len(operands) != 2:
+                raise _Mismatch("binary operation")
+            for position, (role, text) in enumerate(_MYSQL_PRODUCT_GUARD):
+                if position:
+                    self.operand(value, (position - 1) % 2, alias)
+                syntax(text, role, reference)
             self.enclose("binary", reference, start)
             return
         roles = {
