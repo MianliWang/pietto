@@ -1,8 +1,8 @@
 """The ``sqlite_file`` route (docs/spec/sqlite-project-v1.md, "Execution";
 PL.47): its request checks after execute()'s shared ones, and one attempt
 that opens the caller's SQLite file read-only behind the eleven defences,
-checks its source in the attempt's one read transaction and runs the
-compiled statement there.
+checks each of its sources in the attempt's one read transaction and runs
+the compiled statement there.
 
 Importing this module loads no sqlite3 and no PyArrow. execute() imports
 sqlite3 to read the linked build from a ``:memory:`` database; only an
@@ -139,31 +139,34 @@ class SQLiteSourceField:
 
 
 @dataclass(frozen=True, slots=True)
-class SQLiteExecutionFacts:
-    """What the route reads of one verified artifact: the source table's
-    name, the statement, the source fields, each result column as (label,
-    storage kind, nullable), the parameter read by each of ``?1``, ``?2``,
-    ... and the header parameters as (name, tag, nullable)."""
+class SQLiteSourceTable:
+    """One source the statement reads: its table's name, its fields in shape
+    order, and each unique key that the verified plan keeps for it, as its
+    field positions and whether its NULLs are distinct."""
 
     name: str
-    sql: str
     fields: tuple[SQLiteSourceField, ...]
+    keys: tuple[tuple[tuple[int, ...], bool], ...]
+
+
+@dataclass(frozen=True, slots=True)
+class SQLiteExecutionFacts:
+    """What the route reads of one verified artifact: each source, in the
+    order the statement first reads it, the statement, each result column as
+    (label, storage kind, nullable), the parameter read by each of ``?1``,
+    ``?2``, ... and the header parameters as (name, tag, nullable); and
+    whether the statement joins sources and whether it aggregates."""
+
+    sources: tuple[SQLiteSourceTable, ...]
+    sql: str
     result: tuple[tuple[str, str, bool], ...]
     uses: tuple[int, ...]
     parameters: tuple[tuple[str, str, bool], ...]
+    joined: bool
+    aggregated: bool
 
 
-def execution_facts(template: object) -> SQLiteExecutionFacts:
-    """The facts of a live template whose artifact verifies afresh; any other
-    value is BINDING_ARTIFACT."""
-    if type(template) is not SQLiteTemplate or not adapter.verify_artifact(
-        template.emission
-    ):
-        raise ValueError("BINDING_ARTIFACT")
-    artifact = template.emission
-    document = json.loads(artifact.document)
-    (source,) = artifact.checked.plan.sources
-    (entry,) = (s for s in artifact.contract.sources if s.owner is source.source.owner)
+def _source_table(source: Any, entry: Any) -> SQLiteSourceTable:
     fields = []
     for field in sorted(entry.fields, key=lambda f: f.ordinal):
         representation = field.representation
@@ -178,6 +181,42 @@ def execution_facts(template: object) -> SQLiteExecutionFacts:
                 domain["max_characters"] if tag == "Text" else None,
             )
         )
+    # Q3c (b): the keys of the verified plan's source, each the minimal one
+    # of the declarations that support it.
+    relational = source.source.active_properties.relational
+    positions = {id(field): k for k, field in enumerate(relational.fields)}
+    keys = tuple(
+        (
+            tuple(positions[id(value.members[0])] for value in key.determinants),
+            all(
+                evidence.null_policy.value == "nulls_distinct"
+                for fact in key.supports
+                for evidence in fact.supports
+            ),
+        )
+        for key in relational.keys
+    )
+    return SQLiteSourceTable(entry.name, tuple(fields), keys)
+
+
+def execution_facts(template: object) -> SQLiteExecutionFacts:
+    """The facts of a live template whose artifact verifies afresh; any other
+    value is BINDING_ARTIFACT."""
+    if type(template) is not SQLiteTemplate or not adapter.verify_artifact(
+        template.emission
+    ):
+        raise ValueError("BINDING_ARTIFACT")
+    artifact = template.emission
+    document = json.loads(artifact.document)
+    plan = artifact.checked.plan
+    tables = (artifact.ast.table, *(join.table for join in artifact.ast.joins))
+    sources = []
+    for source in plan.sources:
+        (entry,) = (
+            s for s in artifact.contract.sources if s.owner is source.source.owner
+        )
+        sources.append(_source_table(source, entry))
+    sources.sort(key=lambda source: tables.index(source.name))
     servers: dict[int, int] = {}
     for use in document["parameter_uses"]:
         parameter = use["owner"]["parameter"]
@@ -186,15 +225,16 @@ def execution_facts(template: object) -> SQLiteExecutionFacts:
     if sorted(servers) != list(range(1, len(servers) + 1)):
         raise ValueError("BINDING_ARTIFACT")
     return SQLiteExecutionFacts(
-        entry.name,
+        tuple(sources),
         artifact.sql.decode("utf-8"),
-        tuple(fields),
         tuple(
             (c["label"], c["representation"]["storage"]["kind"], c["nullable"])
             for c in document["columns"]
         ),
         tuple(servers[k] for k in sorted(servers)),
         template.facts()[7],
+        bool(plan.joins),
+        bool(plan.aggregations),
     )
 
 
@@ -267,13 +307,6 @@ def prepare(template, access, *, limits, isolation, values, parameters):
     """The route's request checks after execute()'s shared ones, in order:
     (an unopened attempt, None) or (None, the first refusal's Failure)."""
     try:
-        if (
-            type(template) is SQLiteTemplate
-            and adapter.verify_artifact(template.emission)
-            and template.emission.checked.plan.joins
-        ):
-            # A statement that joins sources waits for the route's S13b.
-            return None, failure("PIE-R1003", "PUBLIC_ROUTE_UNAVAILABLE")
         facts = execution_facts(template)
         arguments = _bound(facts, values, parameters)
         if template.compatibility != supported_compatibility():
@@ -338,8 +371,9 @@ def _file(name):
 class SQLiteAttempt:
     """One attempt: one read-only connection to the caller's file and one
     read transaction, opened when the handle is first entered, which check
-    the source, run the compiled statement, read its whole result, commit
-    and close before the first batch. It has the private owner surface
+    each source, run the compiled statement, read its whole result, or a
+    joined statement's up to the batch that crosses the limits, commit and
+    close before the first batch. It has the private owner surface
     ResultHandle reads; nothing is pooled, cached or reused."""
 
     def __init__(self, facts, path, arguments, limits):
@@ -397,24 +431,29 @@ class SQLiteAttempt:
         return 1 if self._cancel_requested else 0
 
     def _authorize(self, action, first, second, database, inner):
-        """Defence 3: allow or SQLITE_DENY, never SQLITE_IGNORE. Reads of the
-        source's columns, and of no column (``count(*)``, whose database is
-        None unqualified); the statement's and the check's functions; the
-        source check's PRAGMA statements, ``index_xinfo`` only of the
-        source's indexes, until the statement runs; the read transaction's
-        own BEGIN, COMMIT and ROLLBACK."""
+        """Defence 3: allow or SQLITE_DENY, never SQLITE_IGNORE. Reads of a
+        source's columns, and of no column of a source (``count(*)``, whose
+        database is None unqualified, or a JOIN input read only by its rowid
+        alias); the statement's and the check's functions; the source check's
+        PRAGMA statements, ``index_xinfo`` only of the sources' indexes,
+        until the statement runs; the read transaction's own BEGIN, COMMIT
+        and ROLLBACK."""
         import sqlite3
 
-        name = self.facts.name
+        sources = self.facts.sources
         if inner is not None:
             allowed = False
         elif action == sqlite3.SQLITE_READ:
-            allowed = first == name and (
-                (second == "" and database in ("main", None))
-                or (
-                    database == "main"
-                    and any(second == f.column for f in self.facts.fields)
+            allowed = any(
+                first == source.name
+                and (
+                    (second == "" and database in ("main", None))
+                    or (
+                        database == "main"
+                        and any(second == f.column for f in source.fields)
+                    )
                 )
+                for source in sources
             )
         elif action == sqlite3.SQLITE_SELECT:
             allowed = first is None and second is None
@@ -424,7 +463,12 @@ class SQLiteAttempt:
             allowed = self._checking and (
                 second in self._indexes
                 if first == "index_xinfo"
-                else first in PRAGMAS and second == (name if PRAGMAS[first] else None)
+                else first in PRAGMAS
+                and (
+                    any(second == source.name for source in sources)
+                    if PRAGMAS[first]
+                    else second is None
+                )
             )
         elif action == sqlite3.SQLITE_TRANSACTION:
             allowed = first in ("BEGIN", "COMMIT", "ROLLBACK")
@@ -475,14 +519,45 @@ class SQLiteAttempt:
         return connection
 
     def _check(self, connection):
-        """Defences 4 and 5, the row limit of 8 and the value check of Q6b
-        (i), in the read transaction; the integrity check runs before any
-        row of the source is read, and only once no expression of the file
-        is left for it to run."""
-        name, fields = self.facts.name, self.facts.fields
-        table = quoted(name)
+        """The file's encoding, then each source in turn; a statement that
+        joins sources and aggregates checks each source's unique keys last
+        (Q3c (b))."""
         if connection.execute("PRAGMA encoding").fetchall() != [("UTF-8",)]:
             raise ex.ExecutionError("SQLITE_FILE_ENCODING")
+        for source in self.facts.sources:
+            self._check_source(connection, source)
+        if self.facts.joined and self.facts.aggregated:
+            for source in self.facts.sources:
+                self._check_keys(connection, source)
+
+    def _check_keys(self, connection, source):
+        """One bounded scan per key: two rows equal under Pietto's `==` in
+        every key field, none of them NULL where the key's NULLs are
+        distinct, break it. `Text` compares by its bytes; a `STRICT` `REAL`
+        column keeps no zero sign, so `-0.0` and `0.0` are one value."""
+        for positions, distinct in source.keys:
+            self._checkpoint()
+            fields = [source.fields[k] for k in positions]
+            columns = [quoted(f.column) for f in fields]
+            tests = " AND ".join(f"({c} IS NOT NULL)" for c in columns)
+            keys = ", ".join(
+                c + (" COLLATE BINARY" if f.tag == "Text" else "")
+                for c, f in zip(columns, fields, strict=True)
+            )
+            if connection.execute(
+                f"SELECT 1 FROM `main`.{quoted(source.name)}"
+                + (f" WHERE {tests}" if distinct else "")
+                + f" GROUP BY {keys} HAVING (COUNT(*) > 1) LIMIT 1"
+            ).fetchall():
+                raise ex.ExecutionError("SQLITE_SOURCE_UNIQUE")
+
+    def _check_source(self, connection, source):
+        """Defences 4 and 5, the row limit of 8 and the value check of Q6b
+        (i) for one source, in the read transaction; the integrity check
+        runs before any row of the source is read, and only once no
+        expression of the file is left for it to run."""
+        name, fields = source.name, source.fields
+        table = quoted(name)
         listed = connection.execute(f"PRAGMA table_list({table})").fetchall()
         if len(listed) != 1 or (*listed[0][:3], listed[0][5]) != (
             "main",
@@ -495,10 +570,10 @@ class SQLiteAttempt:
         # clause and a generated column's value: the file's own code, which
         # the authorizer never sees and one step can run past the deadline.
         indexes = connection.execute(f"PRAGMA index_list({table})").fetchall()
-        self._indexes = tuple(row[1] for row in indexes)
+        self._indexes += tuple(row[1] for row in indexes)
         if any(row[4] for row in indexes) or any(
             key[1] == -2
-            for index in self._indexes
+            for index in (row[1] for row in indexes)
             for key in connection.execute(
                 f"PRAGMA index_xinfo({quoted(index)})"
             ).fetchall()
@@ -570,19 +645,45 @@ class SQLiteAttempt:
                         ):
                             raise ex.ExecutionError("SQLITE_SOURCE_VALUES")
 
-    def _query(self, connection):
-        """The compiled statement once, read to its end."""
+    def _query(self, connection, pa):
+        """The compiled statement once, read to its end as a checked table;
+        a joined statement's in batches as delivery cuts and measures them,
+        up to the first that crosses the limits, which delivery refuses."""
         self._checking = False
         rows: list[Any] = []
+        batches: list[Any] = []
+        result, limits = self.facts.result, self.limits
         with closing(connection.execute(self.facts.sql, self._arguments)) as cursor:
             labels = tuple(item[0] for item in cursor.description or ())
-            if labels != tuple(label for label, _kind, _nullable in self.facts.result):
+            if labels != tuple(label for label, _kind, _nullable in result):
                 raise ResultError("SQLITE_RESULT_CHECK")
-            while chunk := cursor.fetchmany(FETCH_ROWS):
-                self._checkpoint()
-                rows.extend(chunk)
+            if not self.facts.joined:
+                while chunk := cursor.fetchmany(FETCH_ROWS):
+                    self._checkpoint()
+                    rows.extend(chunk)
+            else:
+                count = size = 0
+                while chunk := cursor.fetchmany(limits.batch_rows):
+                    self._checkpoint()
+                    part = results.bind_result(pa, chunk, result)
+                    batch = pa.RecordBatch.from_arrays(
+                        [column.combine_chunks() for column in part.columns],
+                        schema=part.schema,
+                    )
+                    batches.append(batch)
+                    count, size = count + batch.num_rows, size + batch.nbytes
+                    if (
+                        batch.nbytes > limits.batch_bytes
+                        or count > limits.max_rows
+                        or size > limits.max_bytes
+                    ):
+                        break
         connection.execute("COMMIT")
         self._transaction = "COMMIT_ACK"
+        if self.facts.joined:
+            return pa.Table.from_batches(
+                batches, schema=results.result_schema(pa, result)
+            )
         return rows
 
     def open(self):
@@ -604,14 +705,18 @@ class SQLiteAttempt:
             phase = "source"
             self._check(connection)
             phase = "query"
-            rows = self._query(connection)
+            read = self._query(connection, pa)
             phase = "finalization"
             self._disconnect()
             if self._cleanup_errors:
                 raise ex.ExecutionError("EXECUTION_FINALIZATION")
             self._checkpoint()
             phase = "result"
-            table = results.bind_result(pa, rows, self.facts.result)
+            table = (
+                read
+                if self.facts.joined
+                else results.bind_result(pa, read, self.facts.result)
+            )
             self._batches = DuckDBBatches(pa, table, self.limits)
             self._delivery = "OPEN"
             return self

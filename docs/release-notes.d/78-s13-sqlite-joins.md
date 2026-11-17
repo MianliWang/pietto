@@ -22,9 +22,7 @@ LEFT JOINs of `sqlite.table` sources. See
 
 New refusal: `sqlite_join_not_admitted` (PIE-B1003) for a RIGHT, FULL,
 CROSS or asof JOIN, a JOIN to a table, query or relation `let`, a
-relationship match, or any other `on`. The `sqlite_file` route refuses a
-statement with a JOIN before the file opens, with PIE-R1003
-`PUBLIC_ROUTE_UNAVAILABLE`.
+relationship match, or any other `on`.
 
 Compatibility: PostgreSQL, MySQL and DuckDB SQL bytes, contracts and
 diagnostics are unchanged, and so are a statement's bytes over one source.

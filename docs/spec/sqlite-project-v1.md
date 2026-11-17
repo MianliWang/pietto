@@ -54,7 +54,9 @@ Gate 1 (PL.54, PL.58, D78.14). In the second tier, S14 added range-proved
 `Int` arithmetic (D78.14 (3), rule 9b), S15 windows over one source read and
 S13a INNER and LEFT JOINs of `sqlite.table` sources ([admission](#admission)),
 each with its native cells; S13a started from a head that carries the JOIN
-facts decision PL.61 and its fence. Each slice edits the rows it lands.
+facts decision PL.61 and its fence, and S13b opened their
+[execution](#execution) on the `sqlite_file` route with its native cells.
+Each slice edits the rows it lands.
 `0.2.2` carries the first tier's forms (PL.55, PL.56);
 `0.2.1` and earlier refuse a project `sqlite.table` with `PIE-S2306`
 `Unknown source connector: sqlite.table`.
@@ -513,10 +515,6 @@ value slots and lists the header parameters. `export_bundle` refuses it
 `recover`, `relay_live` and the job store do not take the route or the
 dialect (`PIE-R1003` `PUBLIC_ROUTE_UNAVAILABLE`).
 
-`compile_query` compiles a statement that joins sources, and the route
-refuses it after its shared checks and before the binding (`PIE-R1003`
-`PUBLIC_ROUTE_UNAVAILABLE`), until a later slice opens it.
-
 `execute()` opens no file. After its shared checks (the route `sqlite_file`
 for a `sqlite` query, else `PIE-R1003`; a `SQLiteFileInput`; `premise`
 None, else `PIE-R1002` `PUBLIC_PREMISE_TYPE`), it checks in this order:
@@ -622,15 +620,65 @@ Entering the handle, or the first `next()`, runs these steps within
    `SQLITE_RESULT_CHECK`); batches follow the `ExecutionLimits`
    (`PIE-R3004`).
 
+A statement that joins sources (S13b, under the owner's answers Q3 B and
+Q3c (b)) runs step 4 for each source it reads, in the order it first reads
+them, a self-join's source once, all in the one read transaction: the
+object, index, column and integrity checks, the row limit and the value
+check of each source table, after one encoding check of the file. Then,
+when the statement also aggregates (a `group by` or an aggregate), each
+unique key that the verified plan keeps for each source is checked before
+the statement runs, with one bounded scan of at most 1,048,576 rows each,
+`` SELECT 1 FROM `main`.`<table>` WHERE (`<column>` IS NOT NULL) AND ...
+GROUP BY `<column>`, ... HAVING (COUNT(*) > 1) LIMIT 1 ``. Its fields
+compare as Pietto's `==` does: a `Text` key column is followed by
+`COLLATE BINARY`, without which a `COLLATE NOCASE` column would count
+`'A'` and `'a'` as one key, and a `Float` key's `-0.0` and `0.0` are one
+value, as a `STRICT` `REAL` column stores both as `0.0`. The `IS NOT NULL`
+tests are left out of a key whose NULLs are not distinct, which no
+`unique(...)` declares today, since an authored key's NULLs are distinct;
+so two rows whose key holds a NULL never break it. A row found fails
+the attempt with `PIE-R2007` `SQLITE_SOURCE_UNIQUE` before the statement
+runs, and no batch is delivered. Every key is checked, not only one that a
+JOIN's proof used: the plan's fan-out proof may rest on an `on` equality
+or on a grouped key, and the route reads the keys, not the proof, from the
+verified plan. A key that the plan keeps is the smallest of the
+declarations that support it, so a declared key that holds one of them
+holds when it does. A statement that joins sources without aggregating is
+not scanned: its fan-out adds rows but enlarges no value.
+
+Such a statement reads its result in batches as delivery cuts and measures
+them, `batch_rows` rows at a time with the bytes that delivery counts, and
+stops after the first batch that crosses `max_rows`, `max_bytes` or
+`batch_bytes`; each row read passes the result check of step 6 as it is
+read, inside the read transaction, so a value that fails it is `PIE-R3005`
+in the phase `query`, where a statement over one source reports it in the
+phase `result`. Delivery then runs to the limit and the crossing batch
+fails with `PIE-R3004`. An error that only a row past the stop would raise
+(`PIE-R3003`, `PIE-R3005`) may not be seen, depending on how much SQLite
+computes before it returns a row: Python's driver steps one row past the
+last it returns, so a `GROUP BY` read row by row computes one more group,
+and a statement ordered by an aggregate computes every group before its
+first row (the native cells). A statement over one source reads and checks
+its whole result when the attempt opens, as before.
+
+S13b timed, through Python's `sqlite3` under CPython 3.13.13 with a warm
+cache at a host load near 10, a file of 121.5 MiB with two `STRICT` tables
+of 1,048,576 rows each and an index on each: an INNER JOIN on a declared
+key, grouped, with `count` and `sum`, its two sources checked and its key
+scanned, opened in 5.9 to 7.0 s in three rounds. A key scan alone took
+0.04 s over an indexed key and 0.34 to 0.48 s over a key of one or two
+unindexed fields.
+
 The authorizer answers allow or `SQLITE_DENY`, never `SQLITE_IGNORE`, which
-would read a column as NULL. It allows reads of the source's contract
-columns in `main`; reads of no column (`count(*)`, `rowid`), whose database
-is `main` or, unqualified, None; `SELECT`; the functions `count`, `min`,
-`max`, `avg`, `sum`, `row_number`, `rank`, `dense_rank`, `typeof` and
-`abs`, each under the lower-case name SQLite reports to the authorizer; the
-PRAGMA statements of steps 3 and 4, with no argument, the source's name or,
-for `index_xinfo`, the name of an index that `index_list` listed for the
-source, until the statement runs;
+would read a column as NULL. It allows reads of each source's contract
+columns in `main`; reads of no column of a source (`count(*)`, `rowid`, or
+a JOIN input that the statement reads only by its rowid alias, an `INTEGER
+PRIMARY KEY`), whose database is `main` or, unqualified, None; `SELECT`;
+the functions `count`, `min`, `max`, `avg`, `sum`, `row_number`, `rank`,
+`dense_rank`, `typeof` and `abs`, each under the lower-case name SQLite
+reports to the authorizer; the PRAGMA statements of steps 3 and 4, with no
+argument, a source's name or, for `index_xinfo`, the name of an index that
+`index_list` listed for a source, until the statement runs;
 and the transaction's `BEGIN`, `COMMIT` and `ROLLBACK`. Everything else is
 denied, `ATTACH`, writes and any access through a view or trigger included.
 
@@ -654,8 +702,9 @@ The message is never shown.
 
 The outcome's `transaction` is `COMMIT_ACK` once the result is read and
 `ROLLBACK_ACK` after a failure inside the transaction, and `cleanup` is
-`CLOSED`. Since the whole result is read when the attempt opens, an early
-`close()` ends `STOPPED_EARLY` with `COMMIT_ACK`.
+`CLOSED`. Since the whole result, or a joined statement's up to its stop,
+is read when the attempt opens, an early `close()` ends `STOPPED_EARLY`
+with `COMMIT_ACK`.
 
 Effects. `execute()` imports `sqlite3` and opens one `:memory:` database.
 An opening attempt reads the file and its `-wal` file and holds SQLite's
@@ -681,9 +730,13 @@ beyond its deadline); the checks inside the transaction still read what was
 opened. In a directory that cannot be written, a WAL file whose `-wal` and
 `-shm` files are missing cannot be read (`PIE-R2004`
 `SQLITE_ERRORCODE_1544`). While the attempt waits for a lock that the
-caller holds, `cancel()` takes effect only at the deadline. `max_rows` and
-`max_bytes` bound delivery, not the result read when the attempt opens,
-which the source's row limit bounds.
+caller holds, `cancel()` takes effect only at the deadline. For a
+statement over one source, `max_rows` and `max_bytes` bound delivery, not
+the result read when the attempt opens, which the source's row limit
+bounds. For a statement that joins sources they bound the read too, plus
+one batch, so a large limit still lets a JOIN's fan-out hold many rows in
+memory. The unique keys are checked only as the plan keeps them, and a
+statement that joins sources without aggregating checks no key.
 
 ## Qualification
 
