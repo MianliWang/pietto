@@ -73,6 +73,20 @@ Between releases, README links to repository files stay on `blob/main` and
 `tree/main`; the release commit pins them to `vX.Y.Z`, and the post-release
 documentation commit moves them back to `main`.
 
+**Release scripts.** The release commit also uses `scripts/release_prep.py`
+(link migration, the version bump, the notes' hand-written parts, the anchor
+audit and the join-differential manifest digest). `scripts/publish_release.py`
+binds the wheel and sdist to the Gate 2 tree and by default only does a dry
+run, which reads local Git objects and writes `SHA256SUMS`. Only `--execute`
+tags and publishes; it reads its two tokens from the environment, never prints
+them, and is refused where `CI` or `GITHUB_ACTIONS` is set. It stops at the
+first failure and undoes nothing: a stop after the tag push can leave the tag
+on the remote, the GitHub release a draft or public, and PyPI without one or
+both files. A rerun then stops at its remote check, so the operator finishes
+the release by hand. CI runs only their tests, in
+`tests/test_repo_release_notes_fragments.py`, which read no credential and use
+no network.
+
 **Batch audit.** The audit of a batch is one round over the whole batch,
 aimed at issues between slices: shared owners, edits that conflict or depend
 on their order, and documents or fragments that disagree. Only a finding of
