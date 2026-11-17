@@ -1375,6 +1375,39 @@ def test_a_sum_overflow_is_named_by_its_code_and_message(tmp_path: Path) -> None
     assert failed.outcome.transaction == "ROLLBACK_ACK"
 
 
+ARITHMETIC = """query result:
+    from orders
+    where amount - 1 > 4
+    select:
+        id
+        v = amount * 2 - id
+        a = abs(-amount)
+"""
+SUMMED = "query result:\n    from orders\n    select:\n        s = sum(amount * id)\n"
+
+
+@NATIVE
+def test_range_proved_arithmetic_runs_on_a_file_that_holds_its_ranges(
+    tmp_path: Path,
+) -> None:
+    """S14's arithmetic runs on the route, and its proof rests on the
+    contract's `int_range`, which the value check holds the file to: a value
+    past it is refused before the statement runs, where SQLite would answer
+    a REAL."""
+    _pyarrow()
+    document = _contract(id=(0, 100), amount=(0, 100))
+    query = _compiled(tmp_path / "p", ARITHMETIC, document)
+    assert query.emission is not None and b"ABS(-`s0`.`amount`)" in query.emission
+    summed = _compiled(tmp_path / "q", SUMMED, document)
+    path = _database(tmp_path / "orders.db")
+    columns = (("id", "int64", False), ("v", "int64", False), ("a", "int64", False))
+    _judged(_handle(query, path, parameters=None), [(2, 12, 7), (3, 15, 9)], columns)
+    _judged(_handle(summed, path, parameters=None), [(46,)], (("s", "int64", True),))
+    past = _database(tmp_path / "past.db", _row(amount=101))
+    failure = _failed(_handle(query, past, parameters=None)).failure
+    assert (failure.code, failure.detail) == (R2007, "SQLITE_SOURCE_VALUES")
+
+
 def _armed(monkeypatch: pytest.MonkeyPatch, react: Any) -> None:
     """Every SQLite step calls the progress handler, and `react` runs as the
     deadline check once the session holds its snapshot."""

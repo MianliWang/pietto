@@ -36,6 +36,7 @@ from pietto._project.project_sql_emission_contract import (
 from pietto._project.project_sql_emission_scopes import reference_source_ports
 from pietto._project.project_sql_emission_suggestions import blocker_suggestion
 from pietto._project.project_sql_plan_inspection import inspect_project_sql_plan
+from pietto._project import project_sqlite_range as ranges
 from pietto._project.project_sqlite_contract import (
     FAMILY,
     RELEASE,
@@ -44,11 +45,14 @@ from pietto._project.project_sqlite_contract import (
     read_sqlite_contract,
 )
 from pietto._project.project_sqlite_sql import (
+    ARITHMETIC,
     FUNCTIONS,
     LOGICAL,
     MAX_INT,
     OPERATORS,
+    SQLiteAbs,
     SQLiteAggregate,
+    SQLiteArithmetic,
     SQLiteColumn,
     SQLiteComparison,
     SQLiteIsNull,
@@ -56,6 +60,7 @@ from pietto._project.project_sqlite_sql import (
     SQLiteLimit,
     SQLiteLiteral,
     SQLiteLogical,
+    SQLiteNegative,
     SQLiteNot,
     SQLiteParameter,
     SQLiteResult,
@@ -158,13 +163,20 @@ _SUGGESTIONS = {
     ),
     "sqlite_expression_not_admitted": (
         "use fields, literals, parameters, comparisons of two values of one type,"
-        " and, or, not and is None; arithmetic, signs, in, ranges, conditionals,"
-        " casts and function calls are not available on SQLite"
+        " and, or, not, is None, and Int +, -, *, unary - and abs of fields and Int"
+        " literals; Float arithmetic, /, %, arithmetic on parameters or"
+        " aggregates, in, ranges, conditionals, casts and other function calls"
+        " are not available on SQLite"
+    ),
+    "int_arithmetic_range_proof_missing": (
+        "declare int_range bounds that keep every operand and result inside"
+        " signed 64 bits, or keep this expression in check/plan: SQLite turns an"
+        " Int overflow into a REAL without an error"
     ),
     "sqlite_aggregate_not_admitted": (
         "use count, count_distinct of an Int, Text or Bool field, min or max of an"
-        " Int or Float field, or avg or sum of an Int field, each over one field"
-        " of the source"
+        " Int or Float field, or avg or sum of an Int field or of Int arithmetic,"
+        " each over the fields of the source"
     ),
     "sqlite_projection_not_admitted": (
         "in a relation with group by or an aggregate, select group by keys,"
@@ -359,6 +371,12 @@ class _View:
         self.selected = {id(self.end(p.input)) for p in plan.aggregate_projections} - {
             id(None)
         }
+        # Each literal right after a unary `-`, which may be 2**63 (rule 9).
+        self.negated = {
+            id(self.expression(e.operand))
+            for e in plan.expressions
+            if type(e) is expressions.ProjectSQLUnary and e.expression.operator == "-"
+        }
 
     def filter(self, role: str) -> Any:
         """The predicate of the `where` or of the `having`, else None."""
@@ -401,7 +419,33 @@ class _View:
             return (self.expression(node.operand),)
         if kind is expressions.ProjectSQLIsNull:
             return (self.expression(node.value),)
+        if kind is expressions.ProjectSQLScalarCall:
+            return tuple(self.expression(a) for a in node.arguments)
         return ()
+
+    def arithmetic(self, node: Any) -> str | None:
+        """The operator of `+`, `-`, `*`, unary `-` or `abs`, else None."""
+        kind = type(node)
+        if kind is expressions.ProjectSQLBinary:
+            operator = node.expression.operator
+            return operator if operator in ARITHMETIC else None
+        if kind is expressions.ProjectSQLUnary:
+            return "-" if node.expression.operator == "-" else None
+        if (
+            kind is expressions.ProjectSQLScalarCall
+            and node.callee_symbol.name == "abs"
+            and len(node.arguments) == 1
+        ):
+            return "abs"
+        return None
+
+    def operand(self, node: Any) -> bool:
+        """An `Int` field of the source, `Int` literal or arithmetic."""
+        return _tag(node) == "Int" and (
+            self.direct(node) is not None
+            or type(node) in _LITERALS
+            or self.arithmetic(node) is not None
+        )
 
     def admitted(self, node: Any) -> bool:
         """Rule 9 at one node of a `select`, `where` or aggregate argument."""
@@ -416,7 +460,10 @@ class _View:
                 aggregation.ProjectSQLAggregate,
             )
         if kind in _LITERALS:
-            return literal_text(node.expression.value) is not None
+            negated = id(node) in self.negated
+            return literal_text(node.expression.value, negated) is not None
+        if self.arithmetic(node) is not None:
+            return _tag(node) == "Int" and all(map(self.operand, self.children(node)))
         if kind is expressions.ProjectSQLComparison:
             left, right = self.children(node)
             return (
@@ -481,7 +528,7 @@ class _View:
             if type(node) is aggregation.ProjectSQLResultReference:
                 node = self.end(node.port)  # rendered as the key or aggregate
             if type(node) is aggregation.ProjectSQLAggregate:
-                children: tuple[Any, ...] = node.arguments[:1]
+                children = tuple(self.expression(a) for a in node.arguments[:1])
             else:
                 children = self.children(node)
             pending.extend((child, level + 1) for child in children)
@@ -489,10 +536,11 @@ class _View:
 
 
 class _Rules:
-    """Rules 1-35: at most one blocker per rule, at its first failing site."""
+    """Rules 1-35, with 9b keyed 9.2: at most one blocker per rule, at its
+    first failing site."""
 
     def __init__(self, checked: Any, contract: SQLiteContract, policy: Any) -> None:
-        self.found: dict[int, Blocker] = {}
+        self.found: dict[float, Blocker] = {}
         self.checked, self.contract = checked, contract
         self.statement = checked.selected_owner.definition.span
         premises = contract.premises
@@ -524,9 +572,21 @@ class _Rules:
             for e in plan.expressions
             if type(e) is expressions.ProjectSQLParameterRead
         )
+        entries = [
+            s
+            for s in contract.sources
+            if len(plan.sources) == 1 and s.owner is plan.sources[0].source.owner
+        ]
+        self.entry = (
+            {f.ordinal: f for f in entries[0].fields} if len(entries) == 1 else {}
+        )
+        self.bounds: dict[Any, ranges.Bounds | None] = {}
+        for node in reversed(plan.expressions):  # an operand after its node
+            self.bounds[node.ref] = self.interval(node)
         self.shape()
         self.fields()
         self.values()
+        self.overflows()
         self.aggregates()
         self.projections()
         self.keys()
@@ -538,7 +598,7 @@ class _Rules:
 
     def fail(
         self,
-        rule: int,
+        rule: float,
         code: str,
         detail: str,
         subject: object = None,
@@ -553,7 +613,7 @@ class _Rules:
         )
 
     def first(
-        self, rule: int, code: str, detail: str, sites: list[tuple[Any, Any]]
+        self, rule: float, code: str, detail: str, sites: list[tuple[Any, Any]]
     ) -> None:
         """One blocker at the first of `sites`, (subject, span) pairs, in source
         order."""
@@ -668,6 +728,68 @@ class _Rules:
                 sites.append((node.ref, node.expression.span))
         self.first(9, "PIE-B1003", "sqlite_expression_not_admitted", sites)
 
+    def interval(self, node: Any) -> ranges.Bounds | None:
+        """The bounds of an `Int` field, literal or arithmetic, each field
+        read on its own, or None where a field has no `int_range` that passes
+        rule 33, which rules 24, 25 and 33 refuse, or an operand is no such
+        value or a literal that rule 9 refuses."""
+        view = self.view
+        field = view.direct(node)
+        if field is not None:
+            found = self.entry.get(field)
+            if (
+                found is None
+                or _type_name(view.ports[field]) != "Int"
+                or not _fits("Int", found.representation)
+            ):
+                return None
+            domain = found.representation["domain"]
+            return int(domain["min"]), int(domain["max"])
+        if type(node) in _LITERALS:
+            value = node.expression.value
+            admitted = literal_text(value, id(node) in view.negated) is not None
+            return (value, value) if type(value) is int and admitted else None
+        operator = view.arithmetic(node)
+        if operator is None:
+            return None
+        operands = []
+        for child in view.children(node):
+            if child.ref not in self.bounds:  # the plan lists a node first
+                self.bounds[child.ref] = self.interval(child)
+            bounds = self.bounds[child.ref]
+            if bounds is None:
+                return None
+            operands.append(bounds)
+        return ranges.combine(operator, tuple(operands))
+
+    def proved(self, node: Any) -> bool:
+        """Rule 9b holds at `node` and at each operation under it."""
+        pending = [node]
+        while pending:
+            node = pending.pop()
+            bounds = self.bounds[node.ref]
+            if bounds is None or (
+                self.view.arithmetic(node) is not None and not ranges.inside(bounds)
+            ):
+                return False
+            pending.extend(self.view.children(node))
+        return True
+
+    def overflows(self) -> None:
+        """Rule 9b: the bounds of every result of `Int` arithmetic, in each
+        clause and in an aggregate's argument row by row, lie inside signed
+        64 bits, since SQLite turns one outside them into a REAL."""
+        sites = []
+        for node in self.plan.expressions:
+            bounds = self.bounds[node.ref]
+            if (
+                self.view.arithmetic(node) is not None
+                and bounds is not None
+                and not ranges.inside(bounds)
+            ):
+                sites.append((node.ref, node.expression.span))
+        self.first(9.2, "PIE-B1004", "int_arithmetic_range_proof_missing", sites)
+
     def aggregates(self) -> None:
         view, sites = self.view, []
         whole = view.selected | {id(view.key(item)) for item in self.plan.order_items}
@@ -675,17 +797,23 @@ class _Rules:
             function = _function(aggregate)
             arguments = tuple(view.expression(a) for a in aggregate.arguments)
             fields = tuple(view.direct(a) for a in arguments)
+            # `avg` and `sum` may read arithmetic, whose operands rule 9 checks.
+            computed = (
+                function in ("avg", "sum")
+                and len(arguments) == 1
+                and view.arithmetic(arguments[0]) is not None
+            )
+            types = {_type_name(view.ports[f]) for f in fields if f is not None}
             if not (
                 function in FUNCTIONS
                 and not aggregate.order_by
                 and (
                     len(arguments) <= 1 if function == "count" else len(arguments) == 1
                 )
-                and None not in fields
+                and (None not in fields or computed)
                 and (
                     function == "count"
-                    or {_type_name(view.ports[f]) for f in fields if f is not None}
-                    <= _ARGUMENTS[str(function)]
+                    or (types or {_tag(arguments[0])}) <= _ARGUMENTS[str(function)]
                 )
                 and id(aggregate) in whole
             ):
@@ -930,28 +1058,21 @@ class _Rules:
                     self.fail(34, "PIE-B1005", "field_domain_premise_mismatch", *place)
 
     def sums(self) -> None:
-        """Rule 35: a `sum` reads an `Int` field whose `int_range` lies on one
-        side of zero, so SQLite fails exactly where the exact sum leaves
-        signed 64 bits, and never on a partial sum alone."""
-        if len(self.plan.sources) != 1:
-            return  # rule 6
-        view, sites = self.view, []
-        (source,) = self.plan.sources
-        entries = [s for s in self.contract.sources if s.owner is source.source.owner]
-        fields = {} if len(entries) != 1 else {f.ordinal: f for f in entries[0].fields}
+        """Rule 35: a `sum` reads an `Int` field or arithmetic whose bounds
+        lie on one side of zero, so SQLite fails exactly where the exact sum
+        leaves signed 64 bits, and never on a partial sum alone."""
+        sites = []
         for aggregate in self.plan.aggregates:
             arguments = aggregate.arguments
-            field = None
-            if _function(aggregate) == "sum" and len(arguments) == 1:
-                field = view.direct(view.expression(arguments[0]))
-            if field not in fields:
+            if _function(aggregate) != "sum" or len(arguments) != 1:
                 continue
-            representation = fields[field].representation
-            domain = representation["domain"]
+            # Unknown, or rule 9b fails in it: rule 9, 9b or 33 refuses it.
+            argument = self.view.expression(arguments[0])
+            bounds = self.bounds[argument.ref]
             if (
-                _type_name(view.ports[field]) == "Int"
-                and _fits("Int", representation)  # rule 33 holds
-                and int(domain["min"]) < 0 < int(domain["max"])
+                bounds is not None
+                and self.proved(argument)
+                and bounds[0] < 0 < bounds[1]
             ):
                 call = getattr(aggregate.source, "call", None)
                 sites.append(
@@ -976,10 +1097,8 @@ def _expected_ast(plan: Any, contract: SQLiteContract) -> SQLiteSelect:
         function, argument = str(_function(found)), None
         assert function in FUNCTIONS
         if found.arguments:
-            read = view.expression(found.arguments[0])
-            field = view.direct(read)
-            assert field is not None
-            argument = SQLiteColumn(field, read.ref)
+            argument = value(view.expression(found.arguments[0]))
+            assert type(argument) is SQLiteColumn or function in ("avg", "sum")
         collate = function == "count_distinct" and text(argument)
         return SQLiteAggregate(function, argument, collate, subject)
 
@@ -1011,6 +1130,14 @@ def _expected_ast(plan: Any, contract: SQLiteContract) -> SQLiteSelect:
             number = numbers.setdefault(node.parameter.ordinal, len(numbers) + 1)
             return SQLiteParameter(number, node.ref)
         children = view.children(node)
+        operator = view.arithmetic(node)
+        if operator in ARITHMETIC and len(children) == 2:
+            left, right = children
+            return SQLiteArithmetic(operator, value(left), value(right), node.ref)
+        if operator is not None:
+            (operand,) = children
+            unary = SQLiteAbs if operator == "abs" else SQLiteNegative
+            return unary(value(operand), node.ref)
         if kind is expressions.ProjectSQLComparison:
             left, right = children
             return SQLiteComparison(
@@ -1194,7 +1321,7 @@ def _columns(artifact: SQLiteArtifact) -> list[dict[str, Any]]:
             if value.function in ("count", "count_distinct"):
                 storage, domain = "sqlite_integer", _int_range(0, MAX_INT)
             elif value.function in ("min", "max"):
-                assert value.argument is not None
+                assert type(value.argument) is SQLiteColumn
                 read = fields[value.argument.field].representation
                 storage, domain = read["storage"]["kind"], read["domain"]
             else:  # avg is a Float and sum an Int over the widest domain
@@ -1383,7 +1510,8 @@ def verify_artifact(artifact: object) -> bool:
 def emit_sqlite_sql(
     checked: Any, data: bytes, policy: Any, *, read_sources_only: bool = False
 ) -> SQLiteEmission:
-    """Rules 1-39 over one verified plan and the contract bytes."""
+    """Rules 1-39, 9b included, over one verified plan and the contract
+    bytes."""
     diagnostics = checked.completed.diagnostics
     contract = read_sqlite_contract(checked, data, read_sources_only=read_sources_only)
     if isinstance(contract, tuple):

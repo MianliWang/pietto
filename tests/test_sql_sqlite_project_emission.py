@@ -429,12 +429,29 @@ def test_contract_refusals(
         (
             "query result:\n    from orders\n    where amount + 1 > 3\n"
             "    select:\n        id\n        s = -1\n",
-            [("PIE-B1003", "sqlite_expression_not_admitted", 12)],
+            [("PIE-B1004", "int_arithmetic_range_proof_missing", 12)],
         ),
         (
             "query result:\n    from orders\n    where price > 1\n"
             "    select:\n        id\n",
             [("PIE-B1003", "sqlite_expression_not_admitted", 12)],
+        ),
+        # Rule 9b sorts after rule 9 and before rule 10, wherever its site.
+        (
+            "query result(p: Int):\n    from orders\n    select:\n"
+            "        v = amount + 1\n        w = p + 1\n",
+            [
+                ("PIE-B1003", "sqlite_expression_not_admitted", 14),
+                ("PIE-B1004", "int_arithmetic_range_proof_missing", 13),
+            ],
+        ),
+        (
+            "query result:\n    from orders\n    select:\n"
+            "        c = count(amount + 1)\n",
+            [
+                ("PIE-B1004", "int_arithmetic_range_proof_missing", 13),
+                ("PIE-B1003", "sqlite_aggregate_not_admitted", 13),
+            ],
         ),
         (
             "query result:\n    from orders\n    group by:\n        note\n"
@@ -636,6 +653,265 @@ def test_a_sum_over_an_unfitting_field_has_no_range_rule(tmp_path: Path) -> None
     )
 
 
+INT_MIN, INT_MAX = -(2**63), 2**63 - 1
+ROOT = 3037000499  # the largest Int whose square fits signed 64 bits
+ARITHMETIC = """query result:
+    from orders
+    where -(amount * 2) < id - 1 and amount > -9223372036854775808
+    select:
+        id
+        a = abs(amount - 1) + id * 3
+        k = -1
+"""
+# Every non-atom operand is in parentheses, so a unary minus is never `--`,
+# and the minimum is one signed literal, which SQLite reads as an INTEGER.
+ARITHMETIC_SQL = (
+    "SELECT `s0`.`id` AS `id`, ABS(`s0`.`amount` - 1) + (`s0`.`id` * 3) AS `a`,"
+    " -1 AS `k` FROM `main`.`orders` AS `s0`"
+    " WHERE ((-(`s0`.`amount` * 2)) < (`s0`.`id` - 1))"
+    " AND (`s0`.`amount` > (-9223372036854775808))"
+)
+SUMMED = """query result:
+    from orders
+    where amount - 1 > 0
+    group by:
+        ok
+    select:
+        ok
+        s = sum(amount * id)
+        a = avg(amount - id)
+"""
+SUMMED_SQL = (
+    "SELECT `s0`.`ok` AS `ok`, SUM(`s0`.`amount` * `s0`.`id`) AS `s`,"
+    " AVG(CAST(`s0`.`amount` - `s0`.`id` AS REAL)) AS `a`"
+    " FROM `main`.`orders` AS `s0` WHERE (`s0`.`amount` - 1) > 0"
+    " GROUP BY `s0`.`ok`"
+)
+
+
+def _ranges(**bounds: tuple[int, int]) -> dict[str, Any]:
+    """The contract with an `int_range` for each named `Int` field."""
+    document = sqlite.contract()
+    for field in document["sources"][0]["fields"]:
+        if field["name"] in bounds:
+            low, high = bounds[field["name"]]
+            field["representation"]["domain"].update(min=str(low), max=str(high))
+    return document
+
+
+@pytest.mark.parametrize(
+    ("body", "document", "sql"),
+    [
+        (ARITHMETIC, _ranges(amount=(-10, 10), id=(0, 100)), ARITHMETIC_SQL),
+        (SUMMED, _ranges(amount=(0, ROOT), id=(0, ROOT)), SUMMED_SQL),
+    ],
+)
+def test_range_proved_int_arithmetic_emits_its_sql(
+    tmp_path: Path, body: str, document: dict[str, Any], sql: str
+) -> None:
+    status, emitted = emit(tmp_path, body, document)
+    assert (status, emitted["sql"]) == ("VERIFIED", sql)
+    ranges = emitted["ranges"]
+    assert [r["start"] for r in ranges] == [0] + [r["end"] for r in ranges[:-1]]
+    assert ranges[-1]["end"] == len(sql.encode("utf-8"))
+    # An arithmetic or `sum` column has the widest `Int` domain.
+    full = {"kind": "int_range", "min": str(INT_MIN), "max": str(INT_MAX)}
+    for column in emitted["columns"][1:]:
+        if column["logical_type"]["name"] == "Int":
+            assert column["representation"]["domain"] == full, column
+
+
+@pytest.mark.parametrize(
+    ("value", "low", "high", "admitted"),
+    [
+        ("amount + 1", INT_MIN, INT_MAX - 1, True),
+        ("amount + 1", INT_MIN, INT_MAX, False),
+        ("amount - 1", INT_MIN + 1, INT_MAX, True),
+        ("amount - 1", INT_MIN, INT_MAX, False),
+        ("amount * 2", INT_MIN // 2, INT_MAX // 2, True),
+        ("amount * 2", INT_MIN // 2, INT_MAX // 2 + 1, False),
+        ("amount * -2", INT_MIN // 2 + 1, -(INT_MIN // 2), True),
+        ("amount * -2", INT_MIN // 2, 0, False),
+        ("-amount", INT_MIN + 1, INT_MAX, True),
+        ("-amount", INT_MIN, 0, False),
+        ("abs(amount)", INT_MIN + 1, 0, True),
+        ("abs(amount)", INT_MIN, INT_MAX, False),
+        # Two fields: every corner counts, `id` running from 0 to 2.
+        ("amount * id", -(2**62), 1, True),
+        ("amount * id", -(2**62) - 1, 1, False),
+        ("amount + id", 0, INT_MAX - 2, True),
+        ("amount + id", 0, INT_MAX - 1, False),
+        ("amount - id", INT_MIN + 2, 0, True),
+        ("amount - id", INT_MIN + 1, 0, False),
+        # Each intermediate result too: SQLite would go on with a REAL.
+        ("(amount + 1) - 2", 0, INT_MAX - 1, True),
+        ("(amount + 1) - 2", 0, INT_MAX, False),
+        ("-9223372036854775807 - 1", 0, 0, True),
+        ("-9223372036854775808 - 1", 0, 0, False),
+        ("abs(-9223372036854775808)", 0, 0, False),
+        ("-(-9223372036854775808)", 0, 0, False),
+    ],
+)
+def test_int_arithmetic_needs_every_bound_inside_signed_64_bits(
+    tmp_path: Path, value: str, low: int, high: int, admitted: bool
+) -> None:
+    body = f"query result:\n    from orders\n    select:\n        id\n        v = {value}\n"
+    status, document = emit(tmp_path, body, _ranges(amount=(low, high), id=(0, 2)))
+    if admitted:
+        assert status == "VERIFIED", document["blockers"]
+        return
+    assert status == "BLOCKED"
+    (blocker,) = document["blockers"]
+    assert (blocker["code"], blocker["subject"]["detail"]) == (
+        "PIE-B1004",
+        "int_arithmetic_range_proof_missing",
+    )
+    assert blocker["location"]["line"] == 14
+    assert blocker["suggestion"] == (
+        "declare int_range bounds that keep every operand and result inside"
+        " signed 64 bits, or keep this expression in check/plan: SQLite turns an"
+        " Int overflow into a REAL without an error"
+    )
+
+
+@pytest.mark.parametrize(
+    ("value", "high", "expected"),
+    [
+        ("sum(amount * id)", ROOT, []),
+        ("sum(-amount)", ROOT, []),
+        (
+            "sum(amount - id)",
+            ROOT,
+            [("PIE-B1004", "sum_int_aggregate_range_proof_missing")],
+        ),
+        # Each row's argument too: SQLite sums a REAL without an error.
+        (
+            "sum(amount + 1)",
+            INT_MAX,
+            [("PIE-B1004", "int_arithmetic_range_proof_missing")],
+        ),
+        (
+            "avg(amount + 1)",
+            INT_MAX,
+            [("PIE-B1004", "int_arithmetic_range_proof_missing")],
+        ),
+        # Rule 35 yields to rule 9b inside the argument, though the argument
+        # runs from -1 to 9223372036854775806.
+        (
+            "sum((amount + 1) - 2)",
+            INT_MAX,
+            [("PIE-B1004", "int_arithmetic_range_proof_missing")],
+        ),
+        ("count(amount + 1)", ROOT, [("PIE-B1003", "sqlite_aggregate_not_admitted")]),
+    ],
+)
+def test_an_aggregate_argument_is_proved_row_by_row_and_a_sum_one_sided(
+    tmp_path: Path, value: str, high: int, expected: list[tuple[str, str]]
+) -> None:
+    """`amount` runs from 0 to `high` and `id` from 0 to ROOT."""
+    body = f"query result:\n    from orders\n    select:\n        s = {value}\n"
+    document = _ranges(amount=(0, high), id=(0, ROOT))
+    status, emitted = emit(tmp_path, body, document)
+    found = details(emitted) if status == "BLOCKED" else []
+    assert (status, found) == ("BLOCKED" if expected else "VERIFIED", expected)
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "amount + p",
+        "price * 2.0",
+        "amount / 2",
+        "amount % 2",
+        "+amount",
+        "9223372036854775808",
+        "0 - 9223372036854775808",
+        "-9223372036854775809",
+        "amount + 9223372036854775808",
+        "amount * -9223372036854775809",
+    ],
+)
+def test_arithmetic_outside_the_tier_is_rule_9(tmp_path: Path, value: str) -> None:
+    """Parameters, Float operands, `/`, `%` and unary `+` stay refused, and so
+    does 9223372036854775808 anywhere but right after a unary minus, with no
+    range rule over a literal that rule 9 refuses."""
+    body = "query result(p: Int):\n    from orders\n    select:\n        id\n"
+    status, document = emit(tmp_path, body + f"        v = {value}\n")
+    assert (status, details(document)) == (
+        "BLOCKED",
+        [("PIE-B1003", "sqlite_expression_not_admitted")],
+    )
+
+
+def test_arithmetic_over_an_unfitting_field_has_no_range_rule(tmp_path: Path) -> None:
+    """Rule 9b reads only fields that pass rule 33, as rule 35 does."""
+    document = sqlite.contract()
+    document["sources"][0]["fields"][1]["representation"]["storage"] = {
+        "kind": "sqlite_real"
+    }
+    body = "query result:\n    from orders\n    select:\n        v = amount + 1\n"
+    status, refused = emit(tmp_path, body, document)
+    assert (status, details(refused)) == (
+        "BLOCKED",
+        [("PIE-B1002", "physical_storage_or_domain_mismatch")],
+    )
+
+
+def test_the_sql_ast_writes_no_comment_and_the_minimum_once() -> None:
+    """A unary minus before a minus is in parentheses, never `--`, which
+    starts a comment, and 9223372036854775808 is a literal only right after
+    a unary minus, where SQLite reads the INTEGER minimum. Only `avg` and
+    `sum` read arithmetic; every other aggregate reads a column."""
+    sql = adapter_sql
+    column, five = sql.SQLiteColumn(0, None), sql.SQLiteLiteral(5, None)
+    minimum = sql.SQLiteLiteral(2**63, None)
+    values = (
+        sql.SQLiteNegative(minimum, None),
+        sql.SQLiteNegative(sql.SQLiteNegative(five, None), None),
+        sql.SQLiteArithmetic("-", column, sql.SQLiteNegative(five, None), None),
+        sql.SQLiteNegative(sql.SQLiteAbs(column, None), None),
+    )
+    results = tuple(
+        sql.SQLiteResult(value, label, None, None)
+        for value, label in zip(values, "abcd")
+    )
+    select = sql.SQLiteSelect(
+        "t", ("x",), results, None, (), None, (), None, None, None
+    )
+    rendered, _tokens = sql.render(select)
+    assert rendered == (
+        b"SELECT -9223372036854775808 AS `a`, -(-5) AS `b`, `s0`.`x` - (-5) AS `c`,"
+        b" -ABS(`s0`.`x`) AS `d` FROM `main`.`t` AS `s0`"
+    )
+    labels = tuple("abcd")
+    assert sql.ast_rules_hold(select, labels, frozenset(), frozenset())
+    negative = sql.SQLiteNegative(column, None)
+    for function in ("avg", "sum"):
+        total = dataclasses.replace(
+            select,
+            results=(
+                sql.SQLiteResult(
+                    sql.SQLiteAggregate(function, negative, False, None),
+                    "a",
+                    None,
+                    None,
+                ),
+            ),
+        )
+        assert sql.ast_rules_hold(total, ("a",), frozenset(), frozenset())
+    for value in (
+        minimum,
+        sql.SQLiteArithmetic("/", column, five, None),
+        sql.SQLiteNegative(sql.SQLiteLiteral(2**63 + 1, None), None),
+        sql.SQLiteAggregate("min", negative, False, None),
+        sql.SQLiteAggregate("count", negative, False, None),
+    ):
+        changed = dataclasses.replace(
+            select, results=(dataclasses.replace(results[0], value=value),)
+        )
+        assert not sql.ast_rules_hold(changed, ("a",), frozenset(), frozenset())
+
+
 def test_field_and_parameter_types_outside_the_tier(tmp_path: Path) -> None:
     header = sqlite.HEADER.replace("price: Float", "price: Decimal(10, 2)")
     body = "query result(d: Decimal(10, 2)):\n    from orders\n    select:\n"
@@ -664,7 +940,7 @@ def test_unrelated_refusals_stay_beside_the_sqlite_ones(tmp_path: Path) -> None:
         "BLOCKED",
         [
             ("PIE-B1003", "literal_policy_not_admitted_on_target"),
-            ("PIE-B1003", "sqlite_expression_not_admitted"),
+            ("PIE-B1004", "int_arithmetic_range_proof_missing"),
             ("PIE-B1001", "sqlite_table_name_mismatch"),
         ],
     )

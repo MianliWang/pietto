@@ -17,6 +17,7 @@ __all__: tuple[str, ...] = ()
 ALIAS = "s0"
 OPERATORS = {"==": "=", "!=": "<>", "<": "<", "<=": "<=", ">": ">", ">=": ">="}
 LOGICAL = {"and": "AND", "or": "OR"}
+ARITHMETIC = ("+", "-", "*")
 # Each admitted aggregate by its Pietto name, with the SQL function it calls.
 FUNCTIONS = {
     "count": "COUNT",
@@ -84,13 +85,38 @@ class SQLiteIsNull:
 
 
 @dataclass(frozen=True, slots=True)
+class SQLiteArithmetic:
+    """`<left> <operator> <right>` of `Int` values; `operator` is in ARITHMETIC."""
+
+    operator: str
+    left: SQLiteExpression
+    right: SQLiteExpression
+    subject: object
+
+
+@dataclass(frozen=True, slots=True)
+class SQLiteNegative:
+    """`-<operand>`; a literal operand makes one signed literal."""
+
+    operand: SQLiteExpression
+    subject: object
+
+
+@dataclass(frozen=True, slots=True)
+class SQLiteAbs:
+    operand: SQLiteExpression
+    subject: object
+
+
+@dataclass(frozen=True, slots=True)
 class SQLiteAggregate:
     """`COUNT(*)`, `COUNT(x)`, `COUNT(DISTINCT x [COLLATE BINARY])`, `MIN(x)`,
     `MAX(x)`, `AVG(CAST(x AS REAL))` or `SUM(x)`; `function` is the Pietto
-    name, a key of FUNCTIONS."""
+    name, a key of FUNCTIONS. The argument of `avg` and `sum` may be
+    arithmetic, every other one is a column."""
 
     function: str
-    argument: SQLiteColumn | None
+    argument: SQLiteExpression | None
     collate: bool
     subject: object
 
@@ -103,9 +129,12 @@ type SQLiteExpression = (
     | SQLiteLogical
     | SQLiteNot
     | SQLiteIsNull
+    | SQLiteArithmetic
+    | SQLiteNegative
+    | SQLiteAbs
     | SQLiteAggregate
 )
-_ATOMS = (SQLiteColumn, SQLiteLiteral, SQLiteParameter, SQLiteAggregate)
+_ATOMS = (SQLiteColumn, SQLiteLiteral, SQLiteParameter, SQLiteAbs, SQLiteAggregate)
 
 
 @dataclass(frozen=True, slots=True)
@@ -151,9 +180,9 @@ class SQLiteSelect:
 
 
 def _children(node: object) -> tuple[object, ...]:
-    if type(node) in (SQLiteComparison, SQLiteLogical):
+    if type(node) in (SQLiteComparison, SQLiteLogical, SQLiteArithmetic):
         return (node.left, node.right)  # type: ignore[attr-defined]
-    if type(node) in (SQLiteNot, SQLiteIsNull):
+    if type(node) in (SQLiteNot, SQLiteIsNull, SQLiteNegative, SQLiteAbs):
         return (node.operand,)  # type: ignore[attr-defined]
     if type(node) is SQLiteAggregate and node.argument is not None:
         return (node.argument,)
@@ -197,13 +226,16 @@ def quoted(name: str) -> str:
     return "`" + name.replace("`", "``") + "`"
 
 
-def literal_text(value: object) -> str | None:
-    """A literal as the SQL writes it, or None when the SQL has no form for it."""
+def literal_text(value: object, negated: bool = False) -> str | None:
+    """A literal as the SQL writes it, `negated` when a unary `-` precedes it,
+    or None when the SQL has no form for it."""
     if type(value) is bool:
         # SQLite reads TRUE and FALSE as a column or result alias so named.
         return "1" if value else "0"
     if type(value) is int:
-        return str(value) if 0 <= value <= MAX_INT else None
+        # Only right after a `-` does SQLite read 9223372036854775808 as the
+        # INTEGER minimum; anywhere else it reads a REAL.
+        return str(value) if 0 <= value <= MAX_INT + negated else None
     if type(value) is float:
         if not math.isfinite(value) or math.copysign(1.0, value) < 0:
             return None
@@ -263,6 +295,25 @@ def render(ast: SQLiteSelect) -> tuple[bytes, tuple[Token, ...]]:
             value(node.operand, True)
             text = " IS NOT NULL" if node.negated else " IS NULL"
             emit(text, "syntax", "operator", node.subject)
+        elif type(node) is SQLiteArithmetic:
+            value(node.left, True)
+            emit(f" {node.operator} ", "syntax", "operator", node.subject)
+            value(node.right, True)
+        elif type(node) is SQLiteNegative:
+            emit("-", "syntax", "operator", node.subject)
+            operand = node.operand
+            if type(operand) is SQLiteLiteral:
+                # One signed literal; any other operand that is no column or
+                # call is in parentheses, so no `--` starts a comment.
+                text = literal_text(operand.value, True)
+                assert text is not None
+                emit(text, "literal", "literal", operand.subject)
+            else:
+                value(operand, True)
+        elif type(node) is SQLiteAbs:
+            emit("ABS(", "syntax", "function", node.subject)
+            value(node.operand)
+            emit(")", "syntax", "close", node.subject)
         elif type(node) is SQLiteAggregate:
             function = node.function
             emit(FUNCTIONS[function] + "(", "syntax", "function", node.subject)
@@ -405,15 +456,27 @@ def ast_rules_hold(
         elif kind is SQLiteIsNull:
             if type(node.negated) is not bool:
                 return False
+        elif kind is SQLiteArithmetic:
+            if node.operator not in ARITHMETIC:
+                return False
+        elif kind is SQLiteNegative and type(node.operand) is SQLiteLiteral:
+            if literal_text(node.operand.value, True) is None:
+                return False
+            continue
         elif kind is SQLiteAggregate:
             if (
                 node.function not in FUNCTIONS
                 or (node.argument is None and node.function != "count")
+                or (
+                    node.argument is not None
+                    and node.function not in ("avg", "sum")
+                    and type(node.argument) is not SQLiteColumn
+                )
                 or node.collate
                 is not (node.function == "count_distinct" and text(node.argument))
             ):
                 return False
-        elif kind is not SQLiteNot:
+        elif kind not in (SQLiteNot, SQLiteNegative, SQLiteAbs):
             return False
         pending.extend(reversed(_children(node)))
     first = list(dict.fromkeys(numbers))

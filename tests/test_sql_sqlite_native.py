@@ -206,8 +206,32 @@ _T2_FIXTURES: dict[str, tuple[str, str, tuple[tuple[object, ...], ...]]] = {
     "sum-mixed": ("t", _SCHEMA, _n_rows((INT_MAX, 1), (1, 1), (-1, 1))),
     "sum-mixed-reversed": ("t", _SCHEMA, _n_rows((-1, 1), (1, 1), (INT_MAX, 1))),
 }
+# The T4 fixtures (S14): `n` at and inside the bounds of its declared range,
+# so each arithmetic result reaches signed 64 bits; the `broken` tables break
+# that range on purpose, and `square-over` sums squares past the maximum.
+_ROOT = 3_037_000_499  # the largest Int whose square fits signed 64 bits
+_T4_FIXTURES: dict[str, tuple[str, str, tuple[tuple[object, ...], ...]]] = {
+    "arith-edges": (
+        "t",
+        _SCHEMA,
+        _n_rows((INT_MAX - 1, 1), (INT_MIN + 1, 0), (0, None), (None, 1), (7, 0)),
+    ),
+    "arith-broken": ("t", _SCHEMA, _n_rows((INT_MAX, 1), (INT_MIN, 0))),
+    "arith-square": (
+        "t",
+        _SCHEMA,
+        _n_rows((_ROOT, 1), (2, 1), (0, 0), (None, 0), (1, None)),
+    ),
+    "arith-square-broken": ("t", _SCHEMA, _n_rows((INT_MAX, 1), (1, 1))),
+    "arith-square-over": ("t", _SCHEMA, _n_rows((_ROOT, 1), (_ROOT, 1))),
+}
 # The `int_range` of `n` that a project contract declares for a fixture.
 _N_RANGES = {
+    "arith-edges": (INT_MIN + 1, INT_MAX - 1),
+    "arith-broken": (INT_MIN + 1, INT_MAX - 1),
+    "arith-square": (0, _ROOT),
+    "arith-square-broken": (0, _ROOT),
+    "arith-square-over": (0, _ROOT),
     "sum-up": (0, INT_MAX),
     "sum-over": (0, INT_MAX),
     "sum-mixed": (0, INT_MAX),
@@ -217,6 +241,7 @@ _N_RANGES = {
 }
 _FIXTURES: dict[str, tuple[str, str, tuple[tuple[object, ...], ...]]] = {
     **_T2_FIXTURES,
+    **_T4_FIXTURES,
     "rows": ("t", _SCHEMA, _ROWS),
     "bool-pairs": ("t", _PAIR_SCHEMA, _PAIRS),
     "nocase": ("t", _SCHEMA.replace("`s` TEXT", "`s` TEXT COLLATE NOCASE"), _ROWS),
@@ -1325,6 +1350,172 @@ _PROJECT_T2_CELLS = (
     ),
 )
 
+
+def _computed(
+    fixture: str, *values: Callable[[int], int]
+) -> tuple[tuple[object, ...], ...]:
+    """Each row's `id` and Python's exact value of each function of its `n`,
+    None where `n` is NULL."""
+
+    rows = _FIXTURES[fixture][2]
+    return tuple(
+        (
+            row[0],
+            *(value(row[1]) if isinstance(row[1], int) else None for value in values),
+        )
+        for row in rows
+    )
+
+
+# The T4 forms (S14, Q2 T4 b), project mode only: range-proved `Int` `+`,
+# `-`, `*`, unary `-` and `abs` in `select` and `where`, and in the argument
+# of `avg` and `sum`. Each result is Python's exact `int`, so a REAL would
+# fail the judge. They stay out of `_PROJECT_CELLS`, whose PostgreSQL replay
+# R1 binds; R2 is to replay each that PostgreSQL project emission writes,
+# all but the minimum written as one signed literal (D78.15). The `premise`
+# cells break the declared range and show the harm the proof prevents:
+# SQLite answers a REAL, with no error, for a `+`, `-`, `*` or unary `-`
+# past signed 64 bits, and so does a `sum` of one.
+_PROJECT_T4_CELLS: tuple[_Cell, ...] = (
+    _Cell(
+        "project-t4-select-at-the-bounds",
+        _q(
+            _b(
+                "select",
+                "id",
+                "p = n + 1",
+                "m = n - 1",
+                "g = -n",
+                "a = abs(n)",
+                "z = -9223372036854775807 - 1",
+                "k = -7 * 3",
+            )
+        ),
+        ("id", "p", "m", "g", "a", "z", "k"),
+        tuple(
+            (*row, INT_MIN, -21)
+            for row in _computed(
+                "arith-edges",
+                lambda n: n + 1,
+                lambda n: n - 1,
+                lambda n: -n,
+                abs,
+            )
+        ),
+        False,
+        "arith-edges",
+        arguments=(),
+    ),
+    _Cell(
+        "project-t4-where",
+        _q(
+            "where n + 1 > 1 and -n < 0 and n * 1 != 0"
+            " or abs(n) == 7 and n - 1 == 6 or n > -9223372036854775807 - 1 + 5",
+            _b("select", "id"),
+        ),
+        ("id",),
+        _ids(1, 3, 5),
+        False,
+        "arith-edges",
+        arguments=(),
+    ),
+    _Cell(
+        "project-t4-the-minimum-literal",
+        _q(
+            "where n > -9223372036854775808",
+            _b("select", "id", "z = -9223372036854775808"),
+        ),
+        ("id", "z"),
+        ((1, INT_MIN), (2, INT_MIN), (3, INT_MIN), (5, INT_MIN)),
+        False,
+        "arith-edges",
+        arguments=(),
+    ),
+    _Cell(
+        "project-t4-avg-at-the-bounds",
+        _q(_b("group by", "b"), _b("select", "b", "a = avg(n - 1)")),
+        ("b", "a"),
+        tuple(
+            (
+                b,
+                _avg(
+                    [
+                        v - 1
+                        for v in _values("arith-edges", "n", b)
+                        if isinstance(v, int)
+                    ]
+                ),
+            )
+            for b in (1, 0, None)
+        ),
+        False,
+        "arith-edges",
+        arguments=(),
+    ),
+    _Cell(
+        "project-t4-sums-of-arithmetic",
+        _q(
+            _b("group by", "b"),
+            _b(
+                "select",
+                "b",
+                "s = sum(n * n)",
+                "t = sum(n + 1)",
+                "u = sum(-n)",
+                "a = avg(n * 2)",
+            ),
+        ),
+        ("b", "s", "t", "u", "a"),
+        (
+            (1, _ROOT**2 + 4, _ROOT + 4, -_ROOT - 2, _avg([2 * _ROOT, 4])),
+            (0, 0, 1, 0, 0.0),
+            (None, 1, 2, -1, 2.0),
+        ),
+        False,
+        "arith-square",
+        arguments=(),
+    ),
+    _Cell(
+        "project-t4-select-squares",
+        _q(_b("select", "id", "q = n * n", "r = -(n * n)")),
+        ("id", "q", "r"),
+        _computed("arith-square", lambda n: n * n, lambda n: -(n * n)),
+        False,
+        "arith-square",
+        arguments=(),
+    ),
+    _Cell(
+        "project-t4-premise-broken-range-gives-a-real",
+        _q(_b("select", "id", "p = n + 1", "g = -n", "m = n - 1")),
+        ("id", "p", "g", "m"),
+        (
+            (1, float(INT_MAX) + 1.0, -INT_MAX, INT_MAX - 1),
+            (2, INT_MIN + 1, -float(INT_MIN), float(INT_MIN) - 1.0),
+        ),
+        False,
+        "arith-broken",
+        arguments=(),
+    ),
+    _Cell(
+        "project-t4-premise-broken-range-squares-to-a-real",
+        _q(_b("select", "id", "q = n * n")),
+        ("id", "q"),
+        ((1, float(INT_MAX) * float(INT_MAX)), (2, 1)),
+        False,
+        "arith-square-broken",
+        arguments=(),
+    ),
+    _Cell(
+        "project-t4-premise-broken-range-sums-a-real",
+        _q(_b("select", "s = sum(n * n)")),
+        ("s",),
+        ((float(INT_MAX) * float(INT_MAX),),),
+        False,
+        "arith-square-broken",
+        arguments=(),
+    ),
+)
+
 # Project cells (PL.47): each single-file law and T2 cell's program as a
 # project module, with the same oracle, and the parameter cells. Project SQL writes
 # `COLLATE BINARY` where single files assume it, so each of these that reads
@@ -1518,7 +1709,9 @@ def test_each_cell_matches_its_prewritten_oracle(cell: _Cell, native: _Native) -
     _judge(cell, sql, record)
 
 
-@pytest.mark.parametrize("cell", _PROJECT_CELLS, ids=lambda cell: cell.name)
+@pytest.mark.parametrize(
+    "cell", (*_PROJECT_CELLS, *_PROJECT_T4_CELLS), ids=lambda cell: cell.name
+)
 def test_each_project_cell_matches_its_prewritten_oracle(
     cell: _Cell,
     native: _Native,
@@ -1540,16 +1733,37 @@ def test_each_project_cell_matches_its_prewritten_oracle(
 _OVERFLOW = ("OperationalError", 1, "SQLITE_ERROR", "integer overflow")
 
 
+_SUM = _q(_b("select", "s = sum(n)"))
+
+
 @pytest.mark.parametrize(
-    ("fixture", "expected"),
+    ("program", "fixture", "expected"),
     [
-        ("sum-over", _OVERFLOW),
-        ("sum-under", _OVERFLOW),
-        ("sum-mixed", _OVERFLOW),
-        ("sum-mixed-reversed", ("rows", repr(((INT_MAX,),)))),
+        pytest.param(_SUM, "sum-over", _OVERFLOW, id="sum-over"),
+        pytest.param(_SUM, "sum-under", _OVERFLOW, id="sum-under"),
+        pytest.param(_SUM, "sum-mixed", _OVERFLOW, id="sum-mixed"),
+        pytest.param(
+            _SUM,
+            "sum-mixed-reversed",
+            ("rows", repr(((INT_MAX,),))),
+            id="sum-mixed-reversed",
+        ),
+        pytest.param(
+            _q(_b("select", "s = sum(n * n)")),
+            "arith-square-over",
+            _OVERFLOW,
+            id="arith-square-over",
+        ),
+        pytest.param(
+            _q(_b("select", "s = abs(n)")),
+            "arith-broken",
+            _OVERFLOW,
+            id="arith-abs-of-the-minimum",
+        ),
     ],
 )
-def test_a_one_sided_sum_fails_exactly_outside_signed_64_bits(
+def test_a_one_sided_sum_or_abs_fails_exactly_outside_signed_64_bits(
+    program: str,
     fixture: str,
     expected: tuple[object, ...],
     native: _Native,
@@ -1559,9 +1773,10 @@ def test_a_one_sided_sum_fails_exactly_outside_signed_64_bits(
     when the result leaves signed 64 bits, where PostgreSQL's exact sum
     raises SQLSTATE 22003. The `sum-mixed` premise controls break the declared
     non-negative range: the exact sum fits in both scan orders, yet SQLite
-    fails in one and not in the other, so a mixed range stays refused."""
+    fails in one and not in the other, so a mixed range stays refused. A sum
+    of arithmetic (S14) fails as a sum of a field does, and `abs` of the
+    minimum, which a broken range lets in, fails too."""
 
-    program = _q(_b("select", "s = sum(n)"))
     cell = _Cell(
         f"project-t2-{fixture}", program, ("s",), (), False, fixture, arguments=()
     )
@@ -2480,6 +2695,11 @@ _PREDICATES = (
     adapter_sql.SQLiteNot,
     adapter_sql.SQLiteIsNull,
 )
+_ARITHMETIC = (
+    adapter_sql.SQLiteArithmetic,
+    adapter_sql.SQLiteNegative,
+    adapter_sql.SQLiteAbs,
+)
 
 
 def _project_forms(artifact: adapter.SQLiteArtifact) -> set[str]:
@@ -2497,6 +2717,8 @@ def _project_forms(artifact: adapter.SQLiteArtifact) -> set[str]:
     def kind(node: object) -> str:
         if isinstance(node, _PREDICATES):
             return "Bool"
+        if isinstance(node, _ARITHMETIC):
+            return "Int"
         if type(node) is adapter_sql.SQLiteAggregate:
             results = {"count": "Int", "count_distinct": "Int", "avg": "Float"}
             return results.get(node.function) or kind(node.argument)
@@ -2515,6 +2737,9 @@ def _project_forms(artifact: adapter.SQLiteArtifact) -> set[str]:
             forms.add(f"{node.function} {argument}")
             if clause == "having":
                 forms.add("having aggregate")
+            if isinstance(node.argument, _ARITHMETIC):
+                forms.add(f"{node.function} Int arithmetic")
+                walk(node.argument, "aggregate")
             return
         if type(node) is adapter_sql.SQLiteLiteral:
             forms.add(f"literal {kind(node)}")
@@ -2532,6 +2757,15 @@ def _project_forms(artifact: adapter.SQLiteArtifact) -> set[str]:
             forms.add(f"{clause} {kind(node.operand)} {test}")
         elif type(node) is adapter_sql.SQLiteLogical:
             forms.add(f"{clause} Bool {node.operator}")
+        elif type(node) is adapter_sql.SQLiteArithmetic:
+            forms.add(f"{clause} Int {node.operator}")
+        elif type(node) is adapter_sql.SQLiteNegative:
+            forms.add(f"{clause} Int unary -")
+            operand = node.operand
+            if type(operand) is adapter_sql.SQLiteLiteral and operand.value == 2**63:
+                forms.add("literal Int minimum")
+        elif type(node) is adapter_sql.SQLiteAbs:
+            forms.add(f"{clause} Int ABS")
         else:
             assert type(node) is adapter_sql.SQLiteNot, node
             forms.add(f"{clause} Bool NOT")
@@ -2608,6 +2842,17 @@ _PROJECT_FORMS = {
         for kind in adapter.TYPES
         for direction in ("asc", "desc")
     ),
+    # S14: range-proved `Int` arithmetic in `select` and `where` and in the
+    # argument of `avg` and `sum`, which `check` refuses `abs` in (PIE-S2315),
+    # and the minimum written as one signed literal.
+    *(
+        f"{clause} Int {operator}"
+        for clause in ("select", "where")
+        for operator in (*adapter_sql.ARITHMETIC, "unary -", "ABS")
+    ),
+    *(f"aggregate Int {operator}" for operator in (*adapter_sql.ARITHMETIC, "unary -")),
+    *(f"{function} Int arithmetic" for function in ("avg", "sum")),
+    "literal Int minimum",
 }
 
 
@@ -2615,10 +2860,11 @@ def test_every_emitted_form_has_a_native_cell(
     project_emit: Callable[[_Cell], adapter.SQLiteArtifact],
 ) -> None:
     assert _missing_forms((*_LAW_CELLS, *_T2_CELLS)) == set()
-    artifacts = (project_emit(cell) for cell in _PROJECT_LAW_CELLS)
+    cells = (*_PROJECT_LAW_CELLS, *_PROJECT_T4_CELLS)
+    artifacts = (project_emit(cell) for cell in cells)
     assert _PROJECT_FORMS - set().union(*map(_project_forms, artifacts)) == set()
     for cell in _ALIASED_CELLS:
         ast = project_emit(cell).ast
         assert (ast.table, ast.columns) == (_ALIASED_TABLE, _ALIASED_COLUMNS)
-    names = [cell.name for cell in (*_CELLS, *_PROJECT_CELLS)]
+    names = [cell.name for cell in (*_CELLS, *_PROJECT_CELLS, *_PROJECT_T4_CELLS)]
     assert len(names) == len(set(names))
