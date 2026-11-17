@@ -456,6 +456,71 @@ failed histories.
    them. A changed workflow starts as a new continuation that names the
    completed results it reads.
 
+## Phase78
+
+The [completion audit](../phases/phase-78/completion-audit.md) keeps the
+evidence behind these lessons.
+
+- **78-1 — A midpoint is a stop the dispatch encodes.** B1's S03 opened
+  before its midpoint, DuckDB B2 ran T06–T08 before the owner answered its
+  midpoint (PL.54), and SQLite B2's lane ended after S10 with no midpoint
+  record until its closeout. A route's midpoint ends one dispatch; the next
+  starts only after the record and the owner's answer. 80-5 says where the
+  record lives; this is the stop that produces it.
+- **78-2 — Know what a library's check runs on untrusted input.** SQLite's
+  `integrity_check` computes a file's index expressions, partial-index
+  `WHERE` clauses and virtual generated columns, outside the authorizer and
+  in steps the progress handler cannot split: a 12 KiB file ran 94.5 s
+  under a 20 s deadline. Before a defence relies on a library routine, list
+  what the routine evaluates and which controls reach it, and refuse input
+  that carries code of its own.
+- **78-3 — A size cap bounds the measured shape; the deadline bounds
+  time.** Files of 239 to 255 MiB were checked and read in 8.4 to 17.4 s,
+  while one with 13 randomly keyed indexes at 253 MiB ran past the 20 s
+  deadline, so the cap went from 256 to 128 MiB; that shape took 10.9 s at
+  117 MiB, about half the deadline, so a file with more indexes can reach
+  the deadline under the cap (*inferred*). Set a cap from the slowest
+  adversarial shape measured cold on each interpreter, not a typical one,
+  and keep the deadline as the real bound on time: no size cap holds every
+  shape the format admits.
+- **78-4 — A keyword the target can read as a name needs a cell beside that
+  name.** SQLite reads `TRUE` and `FALSE` as a column or output of that
+  name, so published single-file SQL could return wrong rows, and only a
+  later review found it (PL.54). Emit a spelling no name can shadow, and
+  keep a native cell that puts each emitted keyword beside a column and an
+  output of the same name.
+- **78-5 — A read-only claim names the files it touches.** A `mode=ro` read
+  of a WAL database creates missing `-wal` and `-shm` files and rewrites the
+  `-shm` file, which the Gate 1's "no writes" had not foreseen (PL.59).
+  List the directory around the input before and after a read, and state
+  each file the read touches.
+- **78-6 — Decide where a class that needs an extra runs without skips.**
+  The route's native cells need PyArrow while the authoritative core
+  environment has none, so the qualified class first made Gate 2
+  unsatisfiable; the core now counts the skip and a second run with the
+  extra admits none, and VR2's acceptance would have refused the counted
+  line, as a reading of its receiver found before any split ran, until the
+  VR2 fix that publishes with S16 let a split Gate 2's local receipt accept
+  it from the route's file only. A route that adds such a class names,
+  before the first run, the environment that runs it without skips and
+  checks every consumer of its skip lines.
+- **78-7 — A module memo does not cross CI shards.** CI spreads
+  `tests/test_sql_sqlite_native.py` over three shards, so the coverage law,
+  which reads every project cell's emission from a module-scoped memo,
+  emits two thirds of them again: 9.5 s on Python 3.13 in CI, 0.32 s with
+  the file on one worker. A test that reads a whole module memo has its file
+  placed whole or acquires only what it checks.
+- **78-8 — The engine path is a fact of each boot.** B1 reached Docker
+  Desktop's Engine through a real socket. Before R1's first lane, a
+  boot-time rule of another engine's package had linked the Docker socket
+  paths to that engine, and the lane's client failed with an input/output
+  error from Docker Desktop's CLI mount, while the Engine itself was
+  running; the lane's own check stopped it before any freeze (PL.56).
+  Before each campaign, check from the lane's environment, after the last
+  boot, where the socket really leads and that the client runs (77-5); the
+  driver sets the client and `DOCKER_HOST` itself rather than trusting a
+  shell environment that may point them at another engine.
+
 ## Phase80
 
 The [completion audit](../phases/phase-80/completion-audit.md) keeps the

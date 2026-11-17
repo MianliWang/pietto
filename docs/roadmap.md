@@ -256,14 +256,16 @@ midpoints the owner sent JOINs and the other forms of each second tier to
 the owner's plan for the later phases (PL.54), where they come before
 the Phase82 freeze, each with its own Gate 1, and Phase79's completion
 audit waits for DuckDB's (PL.57, PL.58). DuckDB B2's first tier
-publishes as one batch under PL.52; its midpoint was answered after T06–T08
-had run, since its dispatch had no stop there. SQLite B2's first tier
-has S06–S12 implemented and natively qualified, while R1, the tier's one
-PostgreSQL replay (PL.47), has a lane of its own on Docker Desktop's Engine, but
-that lane stopped before any freeze, since the integration host could
-not reach the Engine (PL.56); its closeout S16 follows R1. S06–S12
-publish as one batch ahead of R1 and S16, which follow as a later batch,
-and `0.2.2` waits for both (PL.59).
+is published, ending at `107df991` (PL.52); its midpoint was answered after
+T06–T08 had run, since its dispatch had no stop there. SQLite B2's first tier
+is complete: S06–S12 are published as one batch ending at `31859bc6`
+(PL.59); R1, the tier's one PostgreSQL replay (PL.47), passed on
+2026-11-17 once the host reached Docker Desktop's Engine; and its closeout
+S16 closes Phase78 with its
+[completion audit](phases/phase-78/completion-audit.md). R1 and S16
+publish as one batch, and `0.2.2` waits for it (PL.59); a documentation
+commit after its publication, before that release commit, records its
+Gate 2 and natural CI.
 SQLite B2 also makes single-file SQLite SQL write `Bool`
 literals as `1` and `0`, a change to the bytes that `0.2.0` and `0.2.1`
 publish, which its release lists as incompatible (PL.54).
@@ -420,6 +422,8 @@ before its owner's Gate 1 takes it.
 | Conversions other than `Float(value)` and `Text(value)` of an `Int` | their later owner; unscheduled |
 | The header rule and its tokens in the grammar | Phase76 retained them under the `migrate` and per-line PIE-P1000 byte-compatibility fallback; removal belongs to the Phase82 freeze (D76.12) |
 | SQL-to-Pietto conversion | the tentative candidate 105 below |
+| SQLite's second tier: JOINs, range-proved `Int` arithmetic and windows (S13–S15) | the owner's plan, before the Phase82 freeze, with its own Gate 1 and ledger; the cutoff for admitting it is Phase82's Gate 1 (PL.58 (4)); the decision on the freeze ledger's JOIN key and grain row comes before any slice that opens a JOIN (PL.54, PL.58; [Phase78 audit](phases/phase-78/completion-audit.md#handoff)) |
+| SQLite run-time guarded and `Float` arithmetic, `/` and `%`; `Text` that holds NUL; SQLite bundles, saved results, relay, jobs and R2; other SQLite builds and platforms; the SQLite capability-facts profile | a later Gate 1 with a use case for the arithmetic; a later SQLite execution Gate 1 for NUL; the later execution and recovery owners; the Phase82 support matrix, where each is not qualified; the editor capability-facts Gate 1; each untaken one a Phase82 freeze input ([B2 deferred owners](phases/phase-78/route.md#b2-deferred-owners)) |
 | The other MySQL project `sum(Int)` forms; MySQL `Float` arithmetic and sign on fields (C04 E4) | the MySQL catch-up work package MC before Phase81, form by form with its own qualification, and E4's wider positions the owner's later plan (D77.76, D77.78, MC.01, MC.04; see [MySQL cadence](#mysql-cadence) and the [MC route](mysql-catchup/route.md)) |
 | `verify_project_sql_plan` runs without a memo, 4 to 29 times per case | `_project/project_sql_plan_verification.py` and its emission callers, in Phase81 (PL.40, D15); a memo needs the owner ([Phase77 S26](phases/phase-77/route.md#s26-closure-record)) |
 
@@ -454,7 +458,7 @@ each completion audit adds the freeze inputs of its phase here.
 | The fixed civil `Timestamp` meaning of a `now()` output; the statement time that R2 records and `recover` binds | each freezes with the result contract and the R2 workspace, or changes before the freeze | D77.42, D77.49; [Phase77 audit](phases/phase-77/completion-audit.md) |
 | MySQL R2 refuses every form that `0.1.11` refused (`PUBLIC_R2_UNQUALIFIED_FORM`, by rule two) and every paired form (`PUBLIC_R2_PAIRED_FORM`) | a support-matrix row for R2 by target, or narrowed by forms that a native R2 qualification covers | D77.46, D77.67, D77.68 |
 | MySQL forms that open only byte for byte as a paired form (Wave A) | the Phase82 support matrix states them as paired forms, or a structural rule replaces them | D77.36; [Phase77 audit](phases/phase-77/completion-audit.md) |
-| SQLite single-file SQL: `emit-sql FILE --dialect sqlite`, the successful CLI JSON v1 `dialect` value `"sqlite"`, the `sqlite.table("name")` spelling with its PIE-S2306 texts, the PIE-B1000 SQLite reasons and the declared premises | frozen, kept alpha, or kept unsupported; the Phase82 support matrix lists the qualified SQLite build and every other build as not qualified | D78.01–D78.04; Phase78 B1 closeout |
+| SQLite SQL and the `sqlite_file` route: single-file `emit-sql FILE --dialect sqlite` with the successful CLI JSON v1 `dialect` value `"sqlite"`, the PIE-B1000 SQLite reasons, the declared premises and `Bool` literals written `1` or `0`; the `sqlite.table("name")` spelling with its PIE-S2306 texts; the project dialect `sqlite` with the contract target `{"family": "sqlite", "release": "3.53.1"}`, the `main` namespace, the scan `"relation_rows"` and the storage kinds, the compile refusals and their order with their details and suggestions, and the first tier's forms with their SQL spellings (`COLLATE BINARY`, the NULLS clauses, `AVG(CAST(x AS REAL))`, the one-sided `sum`); `compile_query(dialect="sqlite")` and `execute(route="sqlite_file")` with `SQLiteFileInput` and `premise=None`, its defences and its value and integrity check, the limits of 128 MiB, 1,048,576 rows per source table and `limits.seconds`, the side files of a WAL file's read, and its detail words, `SQLITE_ERRORCODE_<n>` and `SQLITE_INTEGER_OVERFLOW` among them | frozen, kept alpha, or kept unsupported; the Phase82 support matrix lists the qualified SQLite build on Linux x86-64 under CPython 3.13.13 and 3.12.13, and every other build and platform as not qualified | D78.01–D78.04, D78.12, PL.47, PL.54, PL.59; Phase78 B1 closeout; [Phase78 audit](phases/phase-78/completion-audit.md) |
 | The DuckDB Arrow route: the `duckdb.arrow("key")` spelling with its PIE-S2306 texts, the project dialect `duckdb`, the contract target `{"family": "duckdb", "release": "2.0.0"}` with `scan` `"arrow_registration"`, the `arrow` namespace and the `arrow_*` storage kinds, the DuckDB compile refusals and their order with B2's details and suggestions, B2's forms (grouping with `count`, `sum`, `min` and `max`, `having`, `order by` with its NULLS clauses, the static `limit`, and predicates over literals and parameters of four types) with their SQL spellings and `physical_type` values, `execute(route="duckdb_arrow")` with `DuckDBArrowInput` and `premise=None`, the capture limits of 1,048,576 rows and 256 MiB of the selected columns with their check order, the session settings with the 1 GiB `memory_limit` and the `default_collation` read-back, the detail words and the `execute-duckdb` extra | frozen, kept alpha, or kept unsupported; the Phase82 support matrix lists `duckdb` `2.0.0` with `pyarrow` `26.0.1` on the qualified platforms and every other release and platform as not qualified | D79.01–D79.15, AD79.01, PL.47, PL.50; [Phase79 B1 audit](phases/phase-79/completion-audit.md), [B2 audit](phases/phase-79/b2-completion-audit.md) |
 | `RequestRejected` also carries the PIE-R2xxx refusals of the checks that `execute()` runs itself (`PIE-R2003` on `mysql_rows` and `postgres_adbc`, `PIE-R2001` and `PIE-R2002` of the loaded PyArrow on `duckdb_arrow`, `PIE-R2002` `SQLITE_BUILD` on `sqlite_file`), and the PIE-R1004 width refusal (`LIMIT`) covers only the PostgreSQL and MySQL routes | each freezes with the execution error classes, or changes before the freeze | D79.11; [Phase79 B1 audit](phases/phase-79/completion-audit.md) |
 

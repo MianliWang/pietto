@@ -1,4 +1,4 @@
-# Phase78 route — SQLite B1 published, B2 Gate 1 approved, Gate 0 bound
+# Phase78 route — SQLite B1 published, B2's first tier closed by S16
 
 Phase78 owns the Phase 78 row of the [roadmap](../../roadmap.md), SQLite deep
 adaptation. On 2026-11-10 (America/Toronto) the owner approved the Gate 1 of
@@ -17,7 +17,9 @@ the owner's authorization. SQLite is not a `0.2.0` requirement (decision row
 B1 is published ([B1 record](#b1-record)). On 2026-11-15 the owner approved
 the Gate 1 of the second vertical, B2 (PL.47); the [B2 route](#b2-route)
 binds its Gate 0, decisions, slices and rules, and Phase78 closes with B2's
-slice S16.
+slice S16. S16 closes it with the [B2 record](#b2-record) and the
+[completion audit](completion-audit.md); B2's second tier goes to the
+owner's plan (PL.54, PL.58).
 
 Gate 0 binds the head and its natural CI. The route left the read of that CI's eligible health and alerts and the re-measured Phase77 overlap to the package's first implementation batch; B1 recorded neither, as the Q0 row of the [B1 record](#b1-record) states.
 
@@ -992,3 +994,91 @@ The sheet's drafting and the probes before Gate 0 move to P78B2 by the PL.06
 precedent. P78B2 closes with S16; a second tier gets its own ledger. The lead
 keeps the running ledger, and each lane reports its commands (D, D76.17) and
 pytest starts (F).
+
+### B2 record
+
+S16 writes this record, the midpoint's included (80-5), and the
+[completion audit](completion-audit.md) records its checks. The first tier
+is complete: S05 to S12, R1 and S16, on the ledger P78B2.
+
+**First batch, published.** S06–S12 were integrated one commit each on
+`main` and published as one batch with the decision record that precedes
+them, the diagnostics rows, the decision rows of PL.59 and D78.12, the
+Windows CI change (PL.59 (2)) and the MySQL catch-up's Gate 1 record
+(PL.59 (3)): 13 commits on `64a7f885`, fast-forward pushed under PL.52 on
+2026-11-16 at 20:04:45Z by the lead's record, ending at
+`31859bc66a6f53d301491dcaed9ad9111c94e089` (tree
+`8e8a9fba8f04402c2276b012836ae6b56165dc11`). Its Gate 2 sealed that tree
+(the [completion audit](completion-audit.md#gate-2-durations)), and its
+natural exact-head CI `43946002245`, push/main attempt 1, succeeded: the CI
+health of `44006845752` accepts it into its history as a natural successful
+attempt 1 on `main`. The pure verifier fidelity repair followed as its own
+batch, four commits ending at `6a0646b4` (PL.20, PL.60), which is not
+Phase78's.
+
+**Second batch.** R1 `a47a5713` on `6a0646b4`, S16 above it and, above
+S16, the VR2 fix that lets a split Gate 2's local receipt accept the
+route's counted ARROW skip (by the lead's record of 2026-11-17), with one
+Gate 2 and one natural CI (PL.59 (3)); they publish as one batch under
+PL.52, and `0.2.2` waits for it (PL.55, PL.59). A documentation commit
+after its publication, before the `0.2.2` release commit, records its
+Gate 2 and CI in the completion audit.
+
+| Slice | Commit | Delivered |
+| --- | --- | --- |
+| S05 | none | Gate 0 and the probe matrix ([starting point](#b2-starting-point)) |
+| S06 | `e990fc49` | The [specification](../../spec/sqlite-project-v1.md), this route's B2 sections and the 1a fragment |
+| S07 | `287783db` | The shared seam in one commit (80-4): `sqlite.table` among the explicit-module connectors and the three family mappings; PostgreSQL, MySQL and DuckDB emission refuse the source |
+| S08 | `accbadfa` | The separate adapter `src/pietto/_project/project_sqlite_*.py` with the T1 forms, the CLI and compile API dispatch, and the import whitelist test |
+| S09 | `08e96540` | Native T1 project cells under CPython 3.13.13 and 3.12.13 and a second coverage law over the adapter's vocabulary |
+| S10 | `2a805acf`, `371cc8f0` | The T2 aggregates in both modes and their native cells; then single-file `Bool` literals written `1` and `0` (PL.54 (1)) |
+| S11 | `1845e1b5` | `compile_query(dialect="sqlite")` and the `sqlite_file` route, with the [external reference](#b2-external-reference-untrusted-sqlite-files) and D78.12's naming of native errors |
+| S12 | `dd7e3b5f` | The route's native cells under both interpreters and the 128 MiB cap from its timing |
+| Batch records | `00ac418f`, `2d910d34`, `a6c89521` | The diagnostics rows; PL.59, D78.12 and the batch rule; both Windows jobs run the route's test file |
+| R1 | `a47a5713` | The PostgreSQL replay, `PASS` ([R1 record](#b2-qualification-and-replay)) |
+| S16 | this commit | This record, the roadmap and status rows, the specification's construction state, the Phase78 lessons and the completion audit |
+
+No golden fixture file was added: project bytes are pinned in
+`tests/test_sql_sqlite_project_emission.py` and in the native cells'
+prewritten oracles, and the single-file golden changed only for the `Bool`
+literals (PL.54 (1)).
+
+**Midpoint (after S10).** The lane that ran S06 to S10 stopped after S10's
+review, before S11. The lead's record of 2026-11-16 at 08:25Z holds S10's
+state and its review's `Bool` finding, and the owner answered the `Bool`
+question (PL.54 (1)) and the midpoint (PL.54 (2)) later that day in the
+dialogs PL.54 records. No midpoint record was written then; S16 writes it
+from the repository's records:
+
+- **Forms.** Each T1 and T2 form emitted with pinned bytes or refused with
+  its listed text on S10's tree, and on the published tree the coverage law
+  finds a native cell for every form the adapter's vocabulary emits.
+- **R1.** Not run at the midpoint: it waited for the Docker Engine (PL.54
+  (2)), and its first lane stopped before any freeze because the host could
+  not reach the Engine (PL.56). It ran on 2026-11-17 and passed (above).
+- **Ledger.** By the lead's ledger at the stop: at most C5, F48, D1,603 and
+  S0, 27% of D6,000; no figure reached 80%, so PL.15 raised none. No
+  projection of the tier was recorded then; the completion audit gives the
+  ledger after R1.
+- **CI health.** The newest read before the stop was that of `851ad83f`,
+  INSUFFICIENT_EVIDENCE with a WATCH screen (the
+  [Phase79 B2 audit](../phase-79/b2-completion-audit.md#baseline-and-publication-boundary));
+  S16 reads that of `44006845752`.
+- **S05's facts.** The SQLite contract reader reads a field's `int_range` as
+  the DuckDB adapter does (*derived*), and the import whitelist test locks
+  the adapter's imports. S11 implements the integrity and UTF-8 checks as
+  the specification's execution section lists them; S12's review found that
+  the integrity check computes the file's index expressions and generated
+  columns, so the source check refuses them (checklist row 6).
+- **1b.** S11 and S12 had not started; they ran after the owner's answer.
+- **Beside B2.** DuckDB B2 had passed its own midpoint without a stop and
+  was answered later (PL.54 (4)); Phase81, and with it its diagnostic
+  review, was stopped (PL.54, PL.58).
+- **Owner's decision.** "Finish the first tier; the second tier goes into my
+  plan" (PL.54 (2)). The second tier (S13 JOINs, S14 range-proved
+  arithmetic, S15 windows) comes before the Phase82 freeze, with its own
+  Gate 1 and ledger (PL.58 (4)); P78B2 closes with S16.
+
+Of the [deferred owners](#b2-deferred-owners), D78.12 is recorded and
+implemented by S11, and the third whole-tree test pass ran in batch 2
+(PL.49); the others keep their owners.

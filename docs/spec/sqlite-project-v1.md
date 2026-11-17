@@ -25,7 +25,7 @@ fixes; the lead states them to the owner as inform before this page binds
 (see [open items](#open-items)). A text outside the tables of this page, or
 a new diagnostic code, needs the owner.
 
-Construction state: IN PROGRESS. S06 wrote this page before any B2 code.
+Construction state: FIRST TIER QUALIFIED. S06 wrote this page before any B2 code.
 S07 added the shared connector entry and the three family mappings, so a
 project's `check` accepts a `sqlite.table` source and PostgreSQL, MySQL and
 DuckDB emission refuse it as [compile refusals](#compile-refusals) states.
@@ -35,8 +35,9 @@ qualification under CPython 3.13.13 and 3.12.13. S10 added the T2
 aggregates in both modes with their native cells. S11 added
 `compile_query(dialect="sqlite")` and the `sqlite_file` route of
 [execution](#execution). S12 added the route's native qualification and,
-by its timing, the file cap of 128 MiB. R1 adds the PostgreSQL replay, and
-S16 closes the tier. Each slice edits the rows it lands.
+by its timing, the file cap of 128 MiB. R1 added the PostgreSQL replay,
+which passed, and S16 closed the tier; the second tier needs its own
+Gate 1 (PL.54, PL.58). Each slice edits the rows it lands.
 No published release carries a form until the owner approves
 one: `0.2.1` and earlier refuse a project `sqlite.table` with `PIE-S2306`
 `Unknown source connector: sqlite.table`.
@@ -660,6 +661,4 @@ integration, one page at a time, in the route's single-writer order.
 
 | Item | Owner | Latest point |
 | --- | --- | --- |
-| This page's *derived* rows, stated as inform: the `main` namespace, the `sqlite_` and dot refusals and `sqlite_table_name_mismatch`; the `relation_rows` scan; the storage kinds and domain spellings (`UTF-8`, `BINARY`); the premise values and `premise_not_admitted_on_target`; the limits `columns` 2,000, `parameters` 32,766 and the depth 500; the SQL rules (`s0`, backticks, `?N`); the closed order of compile refusals with its new details and suggestions; the two new single-file reasons | The lead | Before this page binds, at the latest before S08 seals |
-| The release-note fragment `78-s06-sqlite-project-mode.md` describes tier 1a as its batch delivers it; S07 to S10 edit their lines there and add no second 1a fragment; S11 writes its own fragment for 1b | Each slice; the batch audit | Before each slice seals; the batch audit of S06–S12 compares the fragment with this page |
-| Whether `sqlite.table` changes the built-in catalog (D76.12): it adds no grammar and no catalog entry, so no extension sync is expected | S07 | Before the push of S06–S12 |
+| This page's *derived* rows, stated as inform: the `main` namespace, the `sqlite_` and dot refusals and `sqlite_table_name_mismatch`; the `relation_rows` scan; the storage kinds and domain spellings (`UTF-8`, `BINARY`); the premise values and `premise_not_admitted_on_target`; the limits `columns` 2,000, `parameters` 32,766 and the depth 500; the SQL rules (`s0`, backticks, `?N`); the closed order of compile refusals with its new details and suggestions; the two new single-file reasons | The lead | Not stated by S08's seal ([Phase78 audit](../phases/phase-78/completion-audit.md#not-verified)); at the latest before the `0.2.2` release commit, and a decision row records it |
