@@ -2291,6 +2291,21 @@ def test_a_let_holding_a_float_literal_is_not_folded(tmp_path, let, value, polic
     probe.numeric_readers_accept(outcome)
 
 
+@pytest.mark.parametrize("policy", ("preserve_literals", "bind_safe_literals"))
+@pytest.mark.parametrize(
+    "value", ("(1.5 * 2.0) * 3.0", "-(1.5 * 2.0) * 3.0", "1.5 + (2.0 - 3.0)")
+)
+def test_a_float_operation_over_a_folded_result_is_not_folded(tmp_path, value, policy):
+    """An inner fold's result is not a direct literal, so PostgreSQL checks the
+    outer operation when it runs, and every reader, the public decoder
+    included, accepts the VERIFIED statement."""
+    body = (
+        f"query result:\n    from rows\n    select:\n        id\n        r = {value}\n"
+    )
+    _, outcome = probe.numeric_world(tmp_path, "postgres", body, policy)
+    probe.numeric_readers_accept(outcome)
+
+
 def _plan_with(plan, **tables):
     """A copy of a closed plan with some tables replaced."""
     edited = copy(plan)
