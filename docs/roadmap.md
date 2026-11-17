@@ -295,8 +295,9 @@ D5).
 Phase81 follows the new route of the owner's draft plan for the later
 phases, which bundles several phases for parallel scheduling and which the
 lead reviewed, in its next revision, r17, which the lead drafted and the
-owner reviewed and dispatched on 2026-11-17; Phase81's Gate 0 may start,
-and its implementation runs beside `0.2.2` (PL.54, PL.58, PL.65, PL.66).
+owner reviewed and dispatched on 2026-11-17; the [Phase81
+route](phases/phase-81/route.md) binds its Gate 0 and positions, and its
+implementation runs beside `0.2.2` (PL.54, PL.58, PL.65, PL.66).
 On 2026-11-16 the owner answered the lead's
 Phase81 Gate 1 sheet (PL.50), taking every recommendation except that the
 release tools move into the repository, and later adopted every answer
@@ -431,7 +432,7 @@ before its owner's Gate 1 takes it.
 | SQLite's second tier: JOINs, range-proved `Int` arithmetic and windows (S13–S15) | the owner's plan, before the Phase82 freeze, with its own Gate 1 and ledger; the cutoff for admitting it is Phase82's Gate 1 (PL.58 (4)); the decision on the freeze ledger's JOIN key and grain row comes before any slice that opens a JOIN (PL.54, PL.58; [Phase78 audit](phases/phase-78/completion-audit.md#handoff)) |
 | SQLite run-time guarded and `Float` arithmetic, `/` and `%`; `Text` that holds NUL; SQLite bundles, saved results, relay, jobs and R2; other SQLite builds and platforms; the SQLite capability-facts profile | a later Gate 1 with a use case for the arithmetic; a later SQLite execution Gate 1 for NUL; the later execution and recovery owners; the Phase82 support matrix, where each is not qualified; the editor capability-facts Gate 1; each untaken one a Phase82 freeze input ([B2 deferred owners](phases/phase-78/route.md#b2-deferred-owners)) |
 | The other MySQL project `sum(Int)` forms; MySQL `Float` arithmetic and sign on fields (C04 E4) | the MySQL catch-up work package MC before Phase81, form by form with its own qualification, and E4's wider positions the owner's later plan (D77.76, D77.78, MC.01, MC.04; see [MySQL cadence](#mysql-cadence) and the [MC route](mysql-catchup/route.md)) |
-| `verify_project_sql_plan` runs without a memo, 4 to 29 times per case | `_project/project_sql_plan_verification.py` and its emission callers, in Phase81 (PL.40, D15); a memo needs the owner ([Phase77 S26](phases/phase-77/route.md#s26-closure-record)) |
+| `verify_project_sql_plan` runs without a memo, 34 times in one `compile_sql` call on a one-relation fixture ([Phase81 P01](phases/phase-81/route.md#p01-record)) | `_project/project_sql_plan_verification.py` and its emission callers, in Phase81's P15, reused only inside one public call (PL.40, D15; PL.50 Q6) |
 
 ## Phase82 freeze ledger
 
