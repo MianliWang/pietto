@@ -1507,7 +1507,7 @@ _FIRST = (
 # world its own tests build it in: S06 one that R2 executed refined and one
 # that failed at its first page, S06's `same_value` in a JOIN `on` (of an
 # Int and of a Float), S02 beside S01, R08's `Int /` over a literal
-# divisor, and MC G1's INT and `let` carriers.
+# divisor, MC G1's INT and `let` carriers, and MC G2's aggregates and keys.
 PHASE77_MYSQL_FORMS = {
     "S05": ("agg", _STATISTIC),
     "S06_join": (
@@ -1560,6 +1560,17 @@ PHASE77_MYSQL_FORMS = {
     "G1_let": (
         "numeric",
         "query result:\n    from rows\n    let t = n\n    select:\n        s = sum(t)\n",
+    ),
+    "G2_aggregates": (
+        "grouping",
+        "query result:\n    from rows\n    group by k\n    select:\n        k\n"
+        "        x = sum(n)\n        hi = max(c)\n        mean = avg(n)\n"
+        "        d = count_distinct(tag)\n",
+    ),
+    "G2_keys": (
+        "grouping",
+        "query result:\n    from rows\n    group by note, a\n    select:\n"
+        "        note\n        x = sum(n)\n",
     ),
     "S15": (
         "remainder",
@@ -1620,6 +1631,12 @@ MYSQL_0111_FORMS = {
         "numeric",
         "query result:\n    from rows\n    let t = n\n    group by k\n    select:\n"
         "        k\n        m = count(t)\n",
+        _WORKSPACE,
+    ),
+    "G2": (
+        "grouping",
+        "query result:\n    from rows\n    group by note, a\n    select:\n"
+        "        note\n        hi = max(n)\n        mean = avg(c)\n",
         _WORKSPACE,
     ),
     "S15": (

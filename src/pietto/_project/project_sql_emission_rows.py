@@ -190,6 +190,14 @@ _MYSQL_CELL_AUTHORED = frozenset(
 MYSQL_SUM_STAGE_FUNCTIONS = frozenset({"sum", "count", "min"})
 # MC G1: the storages of an S02 cell sum's field, nullable or not.
 MYSQL_SUM_CARRIERS = ({"kind": "my_bigint"}, {"kind": "my_int"})
+# MC G2: the storage kinds of an S02 cell's GROUP BY key fields, and of the
+# one field that each other aggregate beside its sums reads, by function.
+MYSQL_SUM_KEY_KINDS = frozenset({"my_bigint", "my_int", "my_varchar"})
+MYSQL_SUM_BESIDE = {
+    "count_distinct": MYSQL_SUM_KEY_KINDS,
+    "max": frozenset({"my_bigint", "my_int"}),
+    "avg": frozenset({"my_bigint", "my_int"}),
+}
 
 
 def mysql_checked_operands(values) -> bool:
@@ -233,8 +241,8 @@ def mysql_checked_query(
     its non-empty tables are among _MYSQL_CELL_PLAN_TABLES (and, with
     ``slots``, _MYSQL_SLOT_PLAN_TABLES), it reads a
     source of its own module through one WHERE at most, then
-    (``aggregate``) one aggregation of one GROUP BY key at most, then its
-    projection, and as written it sets only _MYSQL_CELL_AUTHORED fields.
+    (``aggregate``) one aggregation, then its projection, and as written it
+    sets only _MYSQL_CELL_AUTHORED fields.
     With ``lets`` (MC G1) a block of each of its value `let`s may come
     first, and its authored names are those `let`s alone: a relation alias
     leaves no value `let`. Every check is O(1) in the program beside its
@@ -264,7 +272,6 @@ def mysql_checked_query(
             and not (lets and name == "let_values")
             for name in plan.__dataclass_fields__
         )
-        or len(plan.group_keys) > 1
         or tuple(block.kind for block in plan.blocks[: len(named) + 4])
         not in (
             (*named, *middle, stage.PROJECTION),
@@ -332,30 +339,68 @@ def mysql_checked_cell(plan, expression, values) -> bool:
     )
 
 
-def mysql_sum_query(plan, keys) -> bool:
+def mysql_sum_query(plan, keys, columns) -> bool:
     """S02: an aggregation that can hold a MySQL sum(Int) cell, asked once
-    per aggregation stage: the query is mysql_checked_query's, its aggregates
-    are sums, counts and mins (MYSQL_SUM_STAGE_FUNCTIONS), each GROUP BY key
-    column a non-null Int source field (mysql_field_column), no SELECT
-    item computes over an aggregate result, and its value `let`s keep MC
-    G1's law (mysql_sum_lets). The scans of the plan's aggregates and
-    expressions run only for a query with one aggregation."""
+    per aggregation stage: the query is mysql_checked_query's, no SELECT
+    item computes over an aggregate result, its value `let`s keep MC G1's
+    law (mysql_sum_lets), and S02's own law or MC G2's holds. S02's: one
+    GROUP BY key at most (``keys``), a non-null Int source field
+    (mysql_field_column) of any storage, beside sums, counts and mins only
+    (MYSQL_SUM_STAGE_FUNCTIONS). G2's: each key a source field of
+    MYSQL_SUM_KEY_KINDS storage, nullable or not, and each aggregate a sum,
+    count or min or a `count_distinct`, `max` or `avg` of one source field
+    read (its realized column in ``columns``) of its MYSQL_SUM_BESIDE
+    storage. The scans of the plan's aggregates and expressions run only for
+    a query with one aggregation."""
 
     from pietto._project.project_sql_emission_aggregation import function_name
+
+    def beside(value) -> bool:
+        arguments = value.arguments
+        expression = _planned(plan, arguments[0]) if len(arguments) == 1 else None
+        column = (
+            columns.get(expression.port)
+            if type(expression) is row.ProjectSQLReference
+            else None
+        )
+        return (
+            column is not None
+            and mysql_field_column(column)
+            and not column.realization.binding
+            and column.realization.storage.get("kind")
+            in MYSQL_SUM_BESIDE.get(function_name(value.source) or "", ())
+        )
+
+    def s02() -> bool:
+        return (
+            len(keys) <= 1
+            and all(
+                mysql_field_column(key)
+                and key.realization.tag == "Int"
+                and key.realization.nullable is False
+                for key in keys
+            )
+            and all(
+                function_name(value.source) in MYSQL_SUM_STAGE_FUNCTIONS
+                for value in plan.aggregates
+            )
+        )
+
+    def g2() -> bool:
+        return all(
+            mysql_field_column(key)
+            and not key.realization.binding
+            and key.realization.storage.get("kind") in MYSQL_SUM_KEY_KINDS
+            for key in keys
+        ) and all(
+            function_name(value.source) in MYSQL_SUM_STAGE_FUNCTIONS or beside(value)
+            for value in plan.aggregates
+        )
 
     return (
         mysql_checked_query(plan, aggregate=True, lets=True)
         and mysql_sum_lets(plan)
-        and all(
-            function_name(value.source) in MYSQL_SUM_STAGE_FUNCTIONS
-            for value in plan.aggregates
-        )
-        and all(
-            mysql_field_column(key)
-            and key.realization.tag == "Int"
-            and key.realization.nullable is False
-            for key in keys
-        )
+        and (s02() or g2())
         and not any(
             getattr(getattr(item, "site", None), "role", None)
             is row.ProjectSQLExpressionRole.SELECT
@@ -737,9 +782,14 @@ def mysql_compiled_cells(
     marked port. An S01 operation is a whole value of the terminal row that
     no other counted record names (a requirement only anchors it, a port
     repeats its row's value), over reads of marked ports. An S02 value is a
-    sum over a read of a marked port; its aggregate has one key at most, a
-    read of a marked non-null Int port, holds sums, counts and mins only
-    (MYSQL_SUM_STAGE_FUNCTIONS), and the terminal row only reads its ports.
+    sum over a read of a marked port; the terminal row only reads its
+    aggregate's ports, and S02's own law or MC G2's holds of the aggregate.
+    S02's: one key at most, a read of a marked non-null Int port, and sums,
+    counts and mins only (MYSQL_SUM_STAGE_FUNCTIONS). G2's: each key a read
+    of a marked port whose field's physical storage is of
+    MYSQL_SUM_KEY_KINDS, and each value a sum, count or min or a
+    `count_distinct`, `max` or `avg` of one such read of its
+    MYSQL_SUM_BESIDE storage.
     Below its WHERE row, an S02 aggregate may stand over one `let` row of
     its declaration per value `let`, whose ports are marked as the WHERE
     row's are and which keeps MC G1's law (_mysql_compiled_lets).
@@ -822,29 +872,59 @@ def mysql_compiled_cells(
     def field(address) -> bool:
         return address.kind == "read" and records[address].get("port") in marked
 
+    def storage_kind(address) -> object:
+        """MC G2: the physical storage kind of the source field that a read
+        of a marked port reads through the chain's carries (each marked
+        after the port it carries, so the walk ends)."""
+        port = records[address].get("port")
+        while records[port].get("owner").kind != "source":
+            port = records[records[port].get("source")].get("port")
+        try:
+            physical = records[records[port].get("source")].get("physical")
+            return json.loads(physical)["storage"]["kind"]
+        except (KeyError, TypeError, ValueError):
+            return None
+
+    def beside(value) -> bool:
+        """MC G2: a `count_distinct`, `max` or `avg` of one field read of
+        its MYSQL_SUM_BESIDE storage."""
+        arguments = value.get("arguments")
+        return (
+            len(arguments) == 1
+            and field(arguments[0])
+            and storage_kind(arguments[0])
+            in MYSQL_SUM_BESIDE.get(value.get("function"), ())
+        )
+
     if chain[1:2] and chain[1].address.kind == "aggregate":
         aggregate = chain[1]
         if slotted or lets and not _mysql_compiled_lets(records, chain[2:], aggregate):
             return empty
-        keys = aggregate.get("keys")
-        if (
-            len(keys) > 1
-            or not all(
+        keys, values = aggregate.get("keys"), aggregate.get("values")
+        s02 = (
+            len(keys) <= 1
+            and all(
                 field(key)
                 and records[records[key].get("port")].get("logical")
                 == ("Int", "non_null")
                 for key in keys
             )
-            or any(
-                records[value].get("function") not in MYSQL_SUM_STAGE_FUNCTIONS
-                for value in aggregate.get("values")
+            and all(
+                records[value].get("function") in MYSQL_SUM_STAGE_FUNCTIONS
+                for value in values
             )
-            or not all(
-                value.kind == "read"
-                and records[records[value].get("port")].get("owner")
-                == aggregate.address
-                for value in terminal.get("values")
-            )
+        )
+        g2 = all(
+            field(key) and storage_kind(key) in MYSQL_SUM_KEY_KINDS for key in keys
+        ) and all(
+            records[value].get("function") in MYSQL_SUM_STAGE_FUNCTIONS
+            or beside(records[value])
+            for value in values
+        )
+        if not (s02 or g2) or not all(
+            value.kind == "read"
+            and records[records[value].get("port")].get("owner") == aggregate.address
+            for value in terminal.get("values")
         ):
             return empty
         return (

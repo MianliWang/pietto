@@ -1920,7 +1920,7 @@ def build_stage(
     value_columns: list[AggregateValueColumn] = []
     # S02: whether this stage can hold a MySQL sum(Int) cell, asked once.
     mysql_sums = family == "mysql" and rows.mysql_sum_query(
-        request.plan, tuple(available.get(key.input) for key in keys)
+        request.plan, tuple(available.get(key.input) for key in keys), available
     )
     # S03: whether the statement is a paired sum form, whose every sum and
     # conditional sum is in its cell, asked once.
