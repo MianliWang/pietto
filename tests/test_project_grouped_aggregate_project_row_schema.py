@@ -285,8 +285,44 @@ def test_grouped_carriers_are_exact_frozen_slots_defensive_and_fail_closed(
             selected_results={
                 replace(
                     key_item,
+                    expression=DottedNameExpr(
+                        span=key_item.expression.span, parts=("users", "region")
+                    ),
+                ): key_result,
+                aggregate_item: aggregate_result,
+            },
+        )
+    # A bare name that no key has stands for a `let` name of a key's field.
+    with pytest.raises(ValueError, match="output identity"):
+        ProjectGroupedSchemaFacts(
+            group_keys=facts.group_keys,
+            selected_results={
+                replace(
+                    key_item,
                     expression=replace(key_item.expression, name="region"),
                 ): key_result,
+                aggregate_item: aggregate_result,
+            },
+        )
+    # ... and still carries the field of a key.
+    region = input_schema.fields["region"]
+    with pytest.raises(ValueError, match="input field mismatch"):
+        ProjectGroupedSchemaFacts(
+            group_keys=facts.group_keys,
+            selected_results={
+                replace(
+                    key_item,
+                    expression=replace(key_item.expression, name="region"),
+                ): replace(
+                    key_result,
+                    field=replace(
+                        key_result.field,
+                        name="region",
+                        resolved_type=region.resolved_type,
+                        nullability=region.nullability,
+                        field_def=region.field_def,
+                    ),
+                ),
                 aggregate_item: aggregate_result,
             },
         )
@@ -617,15 +653,19 @@ def test_direct_and_chained_group_key_lets_compose_with_direct_aggregates(
         "        key\n"
         "        total = count()\n",
     )
-    assert (
-        build_project_grouped_schema_facts(
-            definition=selecting_let,
-            input_schema=let_schema,
-            upstream_symbol=let_symbol,
-            fallback_path="models.pietto",
-        )
-        is None
+    # H3 (4): the `let` name selects the key of the field it renames.
+    selected = build_project_grouped_schema_facts(
+        definition=selecting_let,
+        input_schema=let_schema,
+        upstream_symbol=let_symbol,
+        fallback_path="models.pietto",
     )
+    assert selected is not None
+    (key_fact,) = selected.group_keys
+    assert key_fact.field_identity == "status"
+    key_result = next(iter(selected.selected_results.values()))
+    assert key_result.field.name == "key"
+    assert key_result.field.field_def is key_fact.key_field.field_def
 
 
 def test_repeated_occurrences_and_all_duplicate_alias_families_are_preserved(
@@ -2093,6 +2133,18 @@ _FAILING_TEST = "        n = sum(1 for o in group if o.label > 1)\n"
             ["PIE-S2102"],
         ),
         (_LET_Q2 + _REFUSED_W.replace("w = count()", "m = min(q2 + 1)"), ["PIE-S2315"]),
+        # A grouped `let` that renames the key's field, selected or projected,
+        # which a file reads as that key (H3 (4)).
+        (
+            "    let k = qty\n    group by k\n    select:\n        k\n"
+            "        m = count()\n        c = sum(nope)\n",
+            ["PIE-S2102"],
+        ),
+        (
+            "    let k = qty\n    group by qty\n    select:\n        x = k\n"
+            "        m = count()\n        c = sum(nope)\n",
+            ["PIE-S2102"],
+        ),
     ),
     ids=(
         "count_unknown_field",
@@ -2123,6 +2175,8 @@ _FAILING_TEST = "        n = sum(1 for o in group if o.label > 1)\n"
         "expression_argument",
         "expression_argument_beside_an_error",
         "min_expression_argument",
+        "selected_let_key",
+        "projected_let_of_a_field_key",
     ),
 )
 def test_a_relation_with_aggregates_reports_what_a_file_does(
@@ -2148,18 +2202,18 @@ _NOPE = "        c = sum(nope)\n"
         "    select:\n        id\nquery p(lim: Int):\n    from items\n"
         "    let big = qty > lim\n    group by big\n    select:\n"
         "        m = count()\n" + _NOPE,
-        # A grouped `let` name selected or projected, which a file refuses
-        # (PIE-S2329, PIE-S2102) and a project admits.
-        "    let k = qty\n    group by k\n    select:\n        k\n"
+        # A grouped `let` name selected or projected that is no key, which a
+        # file refuses (PIE-S2329, PIE-S2102).
+        "    let k = qty\n    group by label\n    select:\n        k\n"
         "        m = count()\n" + _NOPE,
-        "    let k = qty\n    group by k\n    select:\n        x = k\n"
+        "    let k = qty\n    group by label\n    select:\n        x = k\n"
         "        m = count()\n" + _NOPE,
     ),
     ids=(
         "max_beside_an_error",
         "parameter_through_a_let_key",
-        "selected_let_key",
-        "projected_let_key",
+        "selected_non_key_let",
+        "projected_non_key_let",
     ),
 )
 def test_a_let_read_a_file_checks_otherwise_keeps_the_bare_fallback(

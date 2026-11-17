@@ -115,6 +115,22 @@ def test_group_key_carriers_are_exact_frozen_slots_and_fail_closed(
                 ).input_field
             },
         )
+    # A bare name that no key has must carry the field of a key.
+    status_item = next(iter(facts.selected_fields))
+    assert isinstance(status_item.expression, NameExpr)
+    with pytest.raises(ValueError, match="resolved group-key identity"):
+        ProjectGroupKeySchemaFacts(
+            group_keys=facts.group_keys,
+            selected_fields={
+                replace(
+                    status_item,
+                    expression=replace(status_item.expression, name="region"),
+                ): replace(
+                    input_schema.fields["region"],
+                    result_role=ProjectRowResultRole.GROUP_KEY,
+                )
+            },
+        )
 
 
 def test_selected_fields_are_defensive_readonly_and_keep_select_item_order(
@@ -276,30 +292,40 @@ def test_direct_and_chained_let_keys_preserve_clause_and_selected_identity(
     )
 
 
-def test_selecting_let_name_is_not_selected_underlying_group_key(
-    tmp_path: Path,
+@pytest.mark.parametrize("key", ("key", "status", "users.status"))
+def test_selecting_a_let_name_selects_the_group_key_of_its_field(
+    tmp_path: Path, key: str
 ) -> None:
+    """H3 (4): a `let` that renames a field GROUP BY groups by, written as
+    the field or as the name, selects that key under the `let` name."""
     _, _, definition, input_schema, upstream_symbol = _group_key_inputs(
         tmp_path,
         "query grouped:\n"
         "    from users\n"
         "    let key = status\n"
         "    group by:\n"
-        "        key\n"
+        f"        {key}\n"
         "    select:\n"
         "        key\n"
         "        total = count()\n",
     )
 
-    assert (
-        build_project_group_key_schema_facts(
-            definition=definition,
-            input_schema=input_schema,
-            upstream_symbol=upstream_symbol,
-            fallback_path="models.pietto",
-        )
-        is None
+    facts = build_project_group_key_schema_facts(
+        definition=definition,
+        input_schema=input_schema,
+        upstream_symbol=upstream_symbol,
+        fallback_path="models.pietto",
     )
+    assert facts is not None
+    (key_fact,) = facts.group_keys
+    assert isinstance(key_fact, ProjectGroupKeyFact)
+    assert key_fact.field_identity == "status"
+    (selected,) = facts.selected_fields.values()
+    assert (selected.name, selected.result_role) == (
+        "key",
+        ProjectRowResultRole.GROUP_KEY,
+    )
+    assert selected.field_def is key_fact.input_field.field_def
 
 
 @pytest.mark.parametrize(

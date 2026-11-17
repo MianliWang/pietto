@@ -6364,11 +6364,22 @@ def _clause_dependency_facts(
                         else:
                             local_name = None
                         if local_name is not None:
+                            # A selected `let` name that renames the field
+                            # selects it too.
                             candidates = tuple(
                                 selected
                                 for selected in definition.select_items
                                 if _direct_field_identity(
-                                    selected.expression,
+                                    (
+                                        _effective_field_let_expression(
+                                            selected.expression,
+                                            let_expressions=let_scope.binding_expressions,
+                                            seen=frozenset(),
+                                        )
+                                        if type(selected.expression) is NameExpr
+                                        else None
+                                    )
+                                    or selected.expression,
                                     relation_qualifier=(
                                         definition.from_clause.binding_name
                                         or definition.from_clause.source_name

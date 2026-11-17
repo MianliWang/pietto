@@ -387,22 +387,9 @@ def test_select_lists_a_let_name_that_order_by_reads() -> None:
         "SELECT\n    `id` AS `id`,\n    `id` * 2 AS `total`\nFROM `users`\n"
         "ORDER BY\n    `id` * 2 DESC"
     )
-    # A single file still selects no `let` name in a relation with GROUP BY,
-    # and says what to write instead.
-    assert [
-        (d.code, d.message, d.location.line, d.location.column)
-        for d in grouped_result.diagnostics
-        if d.location is not None
-    ] == [
-        (
-            "PIE-S2329",
-            "Let binding conflicts with projection output name: g; a query with "
-            "GROUP BY cannot select a `let` name here yet: write created_at in "
-            "place of g",
-            9,
-            5,
-        )
-    ]
+    # Before: PIE-S2329 refused selecting `g`, a `let` that renames the GROUP
+    # BY key's field, and said to write `created_at` instead.
+    assert grouped_result.diagnostics == ()
 
 
 _JOINED = (

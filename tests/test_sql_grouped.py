@@ -962,6 +962,40 @@ def test_multiple_determinants_keep_their_order_rename_and_repeat(tmp_path, targ
 
 
 @pytest.mark.parametrize("target", TARGETS)
+@pytest.mark.parametrize(
+    "body",
+    (
+        "    let k = key\n    group by k\n    select:\n        k\n"
+        "        total = count()\n",
+        "    let k = key\n    group by key\n    select:\n        x = k\n"
+        "        total = count()\n    order by k\n",
+        "    let k = key\n    group by k\n    select:\n        x = k\n"
+        "        total = count()\n    having x > 1\n",
+        "    let k = key\n    group by k\n    select:\n        x = k\n"
+        "        total = count()\n        r = row_number() window(order by k)\n",
+    ),
+    ids=("let_key", "field_key_ordered", "having", "window"),
+)
+def test_a_let_that_renames_a_key_field_selects_that_key(tmp_path, target, body):
+    """H3 (4): a `let` that renames a field GROUP BY groups by, written as the
+    field or as the name, is that key's output, as selecting the field is,
+    which `having` and a grouped window read. Before: PIE-S2333, and
+    PIE-S2102 `Unknown field: k` at the window."""
+    outcome = emit_source(tmp_path, target, "query result:\n    from agg\n" + body)
+    assert outcome.status == "VERIFIED", (outcome.diagnostics, outcome.blockers)
+    data = document(outcome)
+    label = "k" if "        k\n" in body else "x"
+    window = ["r"] if "window(" in body else []
+    assert [item["label"] for item in data["columns"]] == [label, "total", *window]
+    assert origin(data, label)["role"] == "group_key"
+    assert column(data, label)["nullable"] is True
+    assert data["sql"].count(" GROUP BY ") == 1
+    assert data["sql"].endswith(" ASC") == body.endswith("order by k\n")
+    if not window:  # The public decoder reads no window over an aggregation.
+        public(outcome)
+
+
+@pytest.mark.parametrize("target", TARGETS)
 def test_two_identical_declarations_keep_two_result_ports(tmp_path, target):
     """No CSE: repeated aggregates are distinct occurrences with distinct ports."""
     outcome = emit_source(

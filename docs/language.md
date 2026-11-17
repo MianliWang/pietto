@@ -1047,8 +1047,10 @@ table active_users:
 After `select` one name rule applies. `select` may list a `let` name directly,
 which outputs the binding's value under that name: `let total = price_cents *
 quantity` then `select id, total`. A single file does so in a relation without
-GROUP BY; any other SELECT output that takes a `let` name is PIE-S2329 at the
-binding. Outside a grouped query an `order by` key reads input fields and `let`
+GROUP BY, and in one with GROUP BY for a computed `let` it groups by or a
+`let` that renames a field it groups by (see Aggregates and grouping); any
+other SELECT output that takes a `let` name is PIE-S2329 at the binding.
+Outside a grouped query an `order by` key reads input fields and `let`
 bindings, and a key written as one name alone may also name a SELECT output,
 which it then reads: `select id, total = price_cents * quantity` then `order by
 total desc`. Only a whole key names an output, as in a grouped query, so
@@ -5677,16 +5679,23 @@ a SELECT-position ordinal. This grants no new source-row grain and does not
 change the window, HAVING or aggregate-composition boundaries. The existing
 two-query route remains accepted.
 
-With JOIN inputs a `let` binding that only renames a field, such as
-`g = r.n` with `group by g`, groups by that field, and selecting the name
-selects that field's key, as selecting the field does. A `let` alias of a
-computed binding keeps its rejection. A single file still refuses a
-qualified let name, a selected non-key let, a computed key over an unknown
-input row, or selection of a let that merely renames a group-key field;
-that last form must select the field itself. LEGACY_FLAT projects retain
-their existing row-typing rejection. With JOIN inputs a selected `let`
-name that names no group key, such an alias included, is PIE-S2333 at the
-table or query rather than an unknown field.
+A `let` binding that only renames a field, through other such bindings
+or not, such as `k = qty`, or `g = r.n` with JOIN inputs, groups by that
+field when GROUP BY names it, and in a single file and an EXPLICIT_MODULES
+project alike SELECT may read the name when GROUP BY groups by that field,
+written as the field or as such a name: `let k = qty` and `group by k`, or
+`group by qty`, then `k` or `x = k`; a single file does so over an input
+row of unknown type too. It selects that field's key, as selecting the
+field does, and ORDER BY and HAVING may name that output. A `let` alias of
+a computed binding keeps its rejection. A single file still refuses a
+qualified let name, a selected `let` name that is no GROUP BY key
+(PIE-S2329 for `k`, PIE-S2102 for `x = k`, each with the hint `k is not a
+GROUP BY key`, which PIE-S2329 leaves out over an input row of unknown type)
+and a computed key over an unknown input row. A LEGACY_FLAT
+check accepts these selections, and reports JOIN inputs with PIE-S2334. In
+an EXPLICIT_MODULES project a selected `let` name that names no group key,
+such an alias included, is PIE-S2333 at the table or query rather than an
+unknown field.
 
 ## Windows
 

@@ -1592,9 +1592,18 @@ def _grouped_order_facts(
     for target in outputs.values():
         if target.field.result_role is not ProjectRowResultRole.GROUP_KEY:
             continue
+        selected = target.item.expression
+        # A selected `let` name that renames a key's field selects that key.
         identity = _direct_field_identity(
             definition,
-            target.item.expression,
+            (
+                _effective_field_let_expression(
+                    selected, let_expressions=let_expressions, seen=frozenset()
+                )
+                if type(selected) is NameExpr
+                else None
+            )
+            or selected,
             input_schema,
         )
         if identity is not None and identity in group_identities:
@@ -1964,9 +1973,17 @@ def _validate_complete_dependency_facts(
         for target in outputs.values():
             if target.field.result_role is not ProjectRowResultRole.GROUP_KEY:
                 continue
+            selected = target.item.expression
             identity = _source_field_identity(
                 definition,
-                target.item.expression,
+                (
+                    _effective_field_let_expression(
+                        selected, let_expressions=let_expressions, seen=frozenset()
+                    )
+                    if type(selected) is NameExpr
+                    else None
+                )
+                or selected,
             )
             if identity is not None:
                 selected_group_targets.setdefault(identity, target)

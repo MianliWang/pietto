@@ -213,7 +213,18 @@ class ProjectGroupKeySchemaFacts:
             if selected_field.result_role is not ProjectRowResultRole.GROUP_KEY:
                 raise ValueError("Selected group-key fields require GROUP_KEY role")
             identity = _direct_expression_identity(item.expression)
-            if identity is None or identity not in identities:
+            # A bare name that no key has is a `let` name that renames a key's
+            # field, as the builder resolved it.
+            if identity is None or (
+                identity not in identities
+                and not (
+                    type(item.expression) is NameExpr
+                    and any(
+                        _selects_key_field(selected_field, fact)
+                        for fact in self.group_keys
+                    )
+                )
+            ):
                 raise ValueError(
                     "Selected group-key fields require a resolved group-key identity"
                 )
@@ -530,18 +541,24 @@ class ProjectGroupedSchemaFacts:
                 key_fact = (
                     None if identity is None else group_keys_by_identity.get(identity)
                 )
-                if key_fact is None:
+                # A bare name that no key has is a `let` name that renames a
+                # key's field; the finalization's group projection binds it.
+                candidates = (
+                    self.group_keys
+                    if key_fact is None and type(item.expression) is NameExpr
+                    else ()
+                    if key_fact is None
+                    else (key_fact,)
+                )
+                if not candidates:
                     raise ValueError(
                         "Grouped key result requires a resolved group-key identity"
                     )
                 if selected_result.field.name != (item.alias or identity):
                     raise ValueError("Grouped key result output identity mismatch")
-                if (
-                    selected_result.field.resolved_type
-                    != key_fact.key_field.resolved_type
-                    or selected_result.field.nullability
-                    is not key_fact.key_field.nullability
-                    or selected_result.field.field_def != key_fact.key_field.field_def
+                if not any(
+                    _selects_key_field(selected_result.field, fact)
+                    for fact in candidates
                 ):
                     raise ValueError("Grouped key result input field mismatch")
                 continue
@@ -738,12 +755,20 @@ class ProjectAggregateGroupedSchemaFinalization:
                 not isinstance(self.candidate, ProjectGroupedSchemaFacts)
                 or not any(key is retained for retained in self.candidate.group_keys)
                 or not any(
-                    item is selected for selected in self.candidate.selected_results
+                    item is selected and _selects_key_field(result.field, key)
+                    for selected, result in self.candidate.selected_results.items()
                 )
             ):
                 raise ValueError(
                     "Group projection requires its exact candidate key and selection"
                 )
+        # Each selected key binds its key here, a `let` name's included.
+        if isinstance(self.candidate, ProjectGroupedSchemaFacts) and any(
+            result.aggregate_fact is None
+            and sum(item is projected for projected, _ in self.group_projections) != 1
+            for item, result in self.candidate.selected_results.items()
+        ):
+            raise ValueError("Each selected group key requires one group projection")
         if self.candidate is not None:
             if status is not ProjectRelationRowSchemaStatus.CONCRETE or type(
                 self.candidate
@@ -1115,9 +1140,14 @@ def _build_project_group_key_schema_attempt(
                 result_role=ProjectRowResultRole.GROUP_KEY,
             )
             continue
+        # A `let` name that renames a field selects that field, as a key does.
         resolved = _resolve_input_field(
             definition,
-            selected_expression,
+            _effective_group_key_expression(
+                selected_expression,
+                let_expressions=let_expressions,
+                let_stack=frozenset(),
+            ),
             input_schema,
         )
         if resolved is None:
@@ -1150,7 +1180,12 @@ def _build_project_group_key_schema_attempt(
             continue
         selected_key_targets[item] = keys_by_input[id(input_field)]
         selected_fields[item] = ProjectRowField(
-            name=item.alias or field_identity,
+            name=item.alias
+            or (
+                selected_expression.name
+                if type(selected_expression) is NameExpr
+                else field_identity
+            ),
             resolved_type=input_field.resolved_type,
             nullability=input_field.nullability,
             field_def=input_field.field_def,
@@ -2517,6 +2552,16 @@ def _declared_group_key_identities(
         if identity is not None:
             identities.add(identity)
     return frozenset(identities)
+
+
+def _selects_key_field(field: ProjectRowField, key: ProjectAnyGroupKeyFact) -> bool:
+    """Whether the selected ``field`` carries the value of ``key``'s field."""
+
+    return (
+        field.resolved_type == key.key_field.resolved_type
+        and field.nullability is key.key_field.nullability
+        and field.field_def == key.key_field.field_def
+    )
 
 
 def _group_key_field_is_concrete_ready(field: ProjectRowField) -> bool:

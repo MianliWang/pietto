@@ -268,7 +268,7 @@ def _satisfying_output_scope(
                 definition,
                 _effective_group_key_expression(
                     item.key,
-                    let_expansions=let_expansions if input_schema.joined else None,
+                    let_expansions=let_expansions,
                     let_stack=frozenset(),
                 ),
                 input_schema,
@@ -291,6 +291,7 @@ def _satisfying_output_scope(
             item,
             input_schema=input_schema,
             group_key_identities=group_key_identities,
+            let_expansions=let_expansions,
         ) or _is_aggregate_projection(item)
         if (
             not supported
@@ -366,8 +367,15 @@ def _is_group_key_projection(
     *,
     input_schema: RowSchema,
     group_key_identities: set[str],
+    let_expansions: Mapping[str, Expression] | None,
 ) -> bool:
-    identity = _field_identity(definition, item.expression, input_schema)
+    expression = item.expression
+    if isinstance(expression, NameExpr):
+        # A `let` name that renames a key's field selects that key.
+        expression = _effective_group_key_expression(
+            expression, let_expansions=let_expansions, let_stack=frozenset()
+        )
+    identity = _field_identity(definition, expression, input_schema)
     return identity is not None and identity in group_key_identities
 
 

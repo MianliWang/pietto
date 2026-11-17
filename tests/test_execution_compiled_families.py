@@ -895,6 +895,63 @@ def test_a_uuid_order_replays_from_compiled_input(tmp_path, target):
 @pytest.mark.parametrize(
     "body",
     (
+        "    let k = key\n    group by k\n    select:\n        k\n"
+        "        n = count()\n",
+        "    let k = key\n    group by key\n    select:\n        x = k\n"
+        "        n = count()\n    order by k\n",
+    ),
+    ids=("let_key", "field_key_ordered"),
+)
+def test_a_let_that_renames_a_key_field_replays_from_compiled_input(
+    tmp_path, target, body
+):
+    """H3 (4): a `let` that renames a GROUP BY key's field, selected by its
+    name or as another output's whole value, replays from compiled input, and
+    its public bundle loads and renders the emitted SQL."""
+    from pietto.compiler import compile_sql
+    from pietto.execution import compile_query, export_bundle, load_bundle
+
+    item = emission.fixture(target, "V_aggregate_blocked", "inline_arguments")
+    source = item["source"].split("query result:", 1)[0] + (
+        "query result:\n    from agg\n" + body
+    )
+    checked, original = emission.build_case(
+        tmp_path / "build", source, item["contract"], item["policy"]
+    )
+    assert checked.verified and original.status == "VERIFIED", original.blockers
+    assert original.artifact is not None
+    _compare(original.artifact, refinement=False)
+    directory = tmp_path / "project"
+    directory.mkdir()
+    (directory / "pietto.toml").write_text(emission.CONFIG, encoding="utf-8")
+    (directory / "main.pietto").write_text(source, encoding="utf-8")
+    (directory / "contract.json").write_text(item["contract"], encoding="utf-8")
+    selection = dict(
+        module="main.pietto",
+        kind="query",
+        name="result",
+        dialect=target,
+        emission_contract="contract.json",
+        literal_policy="preserve",
+    )
+    result = compile_sql(str(directory), **selection)
+    assert result.status == "VERIFIED", result.document
+    bundle = export_bundle(compile_query(directory, **selection))
+    loaded = load_bundle(
+        bundle.payload,
+        expected_pin=bundle.pin,
+        accepted_producer=bundle.producer,
+        accepted_compatibility=bundle.compatibility,
+    )
+    sql = json.loads(result.document)["sql"]
+    assert loaded._template.artifact.rendered.sql.decode() == sql
+    assert sql == original.artifact.rendered.sql.decode()
+
+
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+@pytest.mark.parametrize(
+    "body",
+    (
         "    from rows\n    group by id\n    select:\n        key = id\n"
         "        first = min(ts)\n        last = max(d2)\n",
         "    from rows\n    where id < 0\n    select:\n"

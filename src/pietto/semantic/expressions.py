@@ -1373,6 +1373,19 @@ def type_relation_expressions(
             and selected_output_name_counts[item.alias] != 1
         }
         window_alias_value_types: dict[str, ValueType] = {}
+        key_let_value_types = None
+        if definition.group_by_clause is not None and let_value_types:
+            from pietto.semantic.group_by import renames_group_key
+
+            # A `let` name that renames a key's field reads that key, as the
+            # field does, wherever a grouped select item reads it.
+            key_let_value_types = {
+                name: value_type
+                for name, value_type in let_value_types.items()
+                if renames_group_key(
+                    definition, name, input_schema, let_expressions or {}
+                )
+            }
         if definition.where_clause is not None:
             where = definition.where_clause.expression
             start = len(diagnostics)
@@ -1528,7 +1541,7 @@ def type_relation_expressions(
                         for key in definition.group_by_clause.items
                     )
                 )
-                else None
+                else key_let_value_types
             )
             _infer(
                 item.expression,

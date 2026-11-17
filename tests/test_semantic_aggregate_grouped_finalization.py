@@ -1192,6 +1192,43 @@ def test_aggregate_grouped_production_is_persisted_private_and_downstream_active
         assert name not in serialized
 
 
+def test_each_selected_group_key_binds_exactly_one_group_projection(
+    tmp_path: Path,
+) -> None:
+    """H3 (4): a selected `let` name that renames the key's field is bound to
+    that key by its group projection, which finalization requires once per
+    selected key, each with the field of its own key."""
+    _, _, definition, input_schema, upstream_symbol = _candidate_inputs(
+        tmp_path,
+        "query candidate:\n    from users\n    let key = status\n"
+        "    group by status, region\n    select:\n        key\n        region\n"
+        "        rows = count()\n",
+    )
+    finalization = _finalize(definition, input_schema, upstream_symbol)
+    assert finalization.state.status is ProjectRelationRowSchemaStatus.CONCRETE
+    candidate = finalization.candidate
+    assert isinstance(candidate, ProjectGroupedSchemaFacts)
+    (item, key), (region_item, region_key) = finalization.group_projections
+    assert candidate.selected_results[item].field.name == "key"
+    assert (key.field_identity, region_key.field_identity) == ("status", "region")
+    for projections, message in (
+        ((), "one group projection"),
+        (((item, key), (item, key)), "one group projection"),
+        (((item, region_key), (region_item, key)), "exact candidate key"),
+    ):
+        with pytest.raises(ValueError, match=message):
+            ProjectAggregateGroupedSchemaFinalization(
+                state=finalization.state,
+                aggregate_result_facts=finalization.aggregate_result_facts,
+                _construction=ProjectAggregateGroupedCandidateAttempt(
+                    facts=candidate,
+                    failure_reason=None,
+                    analyses=finalization.analyses,
+                    group_projections=projections,
+                ),
+            )
+
+
 def _finalize(
     definition: TableDef | QueryDef,
     input_schema: ProjectRowSchema,

@@ -1178,6 +1178,82 @@ diagnostics pages, the aggregate scope lock and a release-note fragment.
   the numeric ones. Before, a single file refused such a call with
   PIE-S2315 while both project modes accepted it.
 
+## P11 record
+
+P11 delivers H3 (4), PL.48 (4): a relation with GROUP BY selects a `let`
+that renames a field it groups by, in single files and in projects. It ran
+on 2026-11-17 on the route head `6fa66291`, beside P03, P09 and P10, whose
+write sets the lead's check of the same day found apart from P11's except
+for `docs/spec/diagnostics.md`'s PIE-S2333 paragraph and
+`_single_file_grouping_diagnostics`, which P11 does not edit.
+
+- **Meaning.** A `let` that renames a field, through other such `let`
+  names or not, selected by its name or as another output's whole value
+  under GROUP BY, selects that field's key when GROUP BY groups by the
+  field, written as the field or as such a name, as the JOIN rule already
+  read it in projects, and in a single file over a row of unknown type too,
+  as the field is. ORDER BY, HAVING, a grouped window and a downstream
+  relation read it as they read the key. A `let` that is no GROUP BY key and
+  an alias of a computed `let` keep their refusals and texts. The hint that
+  told a single file to write the field instead no longer appears; no code,
+  detail, JSON shape, compiled record or `VERSIONS` changes.
+- **Owner answers (D81.04).** On 2026-11-18 the owner kept both readings
+  wider than PL.48 (4)'s example, `group by k` then `k` or `x = k`: such a
+  `let` is selected when GROUP BY writes the field it renames, as
+  `group by status` then `state` or `label = state`, as projects already
+  read it with JOIN inputs; and a single file over a source without a shape
+  accepts `select k`, as it accepts `x = k` and the field, `check` reporting
+  only PIE-S2303 and `emit-sql` refusing it with PIE-B1000.
+- **Causes.** A single file refused the name with PIE-S2329 when it
+  renamed a field (`let_bindings.py`) and resolved no selected `let` name
+  to a key (`group_by.py`). A project resolved a selected item to a key
+  only by its own name, in four places that each needed the `let` name
+  read as its field: the group-key candidate (`aggregate_grouped_schema.py`,
+  whose fact checks now accept a bare name that no key has and whose
+  finalization binds each selected key by exactly one group projection),
+  the grouped ORDER BY targets and their check
+  (`aggregate_grouped_clause_facts.py`) and the module's ORDER BY evidence
+  (`module_semantic_fact_preservation.py`). Single-file IR kept no key
+  identity for an output that is the key itself (`ir/builder.py`), so
+  `order by k` beside `x = k` lost its target. HAVING, in both modes, read
+  a selected item as a key only by its own field and expanded a `let` key
+  only with JOIN inputs (`satisfying.py`), and over a row of unknown type a
+  single file resolved the name only where it projected it, not where it
+  selected it (`group_by.renames_group_key`). A grouped item without an
+  aggregate, or one without an alias, typed with no `let` name in scope
+  (`type_relation_expressions` in `semantic/expressions.py`), so a value
+  computed from such a `let` reported PIE-S2102 beside its PIE-S2319 in a
+  single file and in a LEGACY_FLAT check.
+- **Two databases.** At 23:07Z–23:09Z, under PL.14 slots and D77.19's
+  Docker Desktop Engine 29.9.3, the target conformance facility's
+  `Resources` acquired one pinned container per engine (PostgreSQL 18.6
+  and MySQL 8.4.12, `tests/phase66_target_pins.json`) and loaded
+  `cases.setup`. Nineteen statements per engine, nine forms in single files
+  over a view of the facility's aggregate rows and in projects with its
+  contract, emitted through the public CLI, and one single-file JOIN form,
+  each returned the rows of the same query with the field written in its
+  place and of an oracle computed from the fixture rows (the grouped window
+  form against its control only): 19 of 19 passed on each engine, and both
+  containers and networks were removed. The single-file SQL of each form
+  is byte for byte that of its control. The HAVING forms, accepted after
+  that run, ran in the same way at 02:43Z–02:45Z on 2026-11-18: nine
+  statements per engine, four forms in single files and in projects and one
+  single-file JOIN form, each returned the rows of its control and of the
+  oracle, 9 of 9 on each engine, with single-file SQL byte for byte that of
+  its control, and both containers and networks were removed. The evidence
+  stays with the lead's records.
+- **Tests.** The owners of grouped `let` keys, grouped ORDER BY, the project
+  group-key and grouped schemas, finalization, project grouped SQL and
+  compiled replay gain the accepted forms on both targets, HAVING and a
+  grouped window among them, JOIN inputs and a row of unknown type, a
+  LEGACY_FLAT check and a public bundle that loads and renders the emitted
+  SQL; the cases that pinned the old refusals now pin the forms that still
+  refuse, a duplicate key among them. The fact checks and finalization each
+  refuse a selection whose field is no key's, or bound to another key. A
+  grouped value without an aggregate computed from such a `let`, by
+  `lower(...)` or `+ 1`, gives a single file and a project the diagnostics
+  of the field-spelled query.
+
 ## P12 record
 
 P12 takes PL.44 (a) on the route's base `6fa66291`, with the scope that
