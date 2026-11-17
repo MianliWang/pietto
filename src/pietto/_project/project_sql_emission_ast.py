@@ -705,7 +705,15 @@ def _emission_blockers(request: PreparedEmission, _guarded):
     # included), never an unread header.
     reads = sum(type(e) is row.ProjectSQLParameterRead for e in plan.expressions)
     reads += sum(a.parameter is not None for a in plan.window_arguments)
-    if scalar_nodes or realization is not None:
+    # Main's derivation of a null-safe JOIN cell (rule two) refuses its shape
+    # before any realization; the statement premises the cell's emission
+    # checks are still checked.
+    cell = (
+        realization is None
+        and rows.AS_MAIN.get()
+        and rows.nullsafe_join_cell(request, as_written=True) is not None
+    )
+    if scalar_nodes or realization is not None or cell:
         for problem in operator_premise_problems(
             request.premises, request.family, bool(plan.literal_slots) or reads > 0
         ):
@@ -736,10 +744,11 @@ def _emission_blockers(request: PreparedEmission, _guarded):
         # ordinal one more (D-S08-6): PostgreSQL counts physical columns.
         if any(collecting.physical_width(unit) > limits["columns"] for unit in units):
             add("PIE-B1007", "generated_structure_limit", plan.scope)
-    elif realization is not None:
-        # A refused realization builds no query: its plan says whether the
-        # statement needs named stages, so its naming premise is still checked.
-        generated_scopes = generated_scopes or planned_unit_count(request) > 1
+    # A refused realization, or main's derivation of a cell, builds no query:
+    # the plan says whether the statement needs named stages, so its naming
+    # premise is still checked. An inlined capturing `let` is no stage.
+    if (realization is not None and realization.query is None) or cell:
+        generated_scopes = planned_unit_count(request) > 1
     if admitted and (
         any(len(d.terminals) > limits["columns"] for d in bodies)
         or nodes > limits["nodes"]
@@ -747,7 +756,7 @@ def _emission_blockers(request: PreparedEmission, _guarded):
         add("PIE-B1007", "generated_structure_limit", plan.scope)
     if realization is not None and nodes > limits["nodes"]:
         add("PIE-B1007", "generated_structure_limit", plan.scope)
-    if (admitted or realization is not None) and generated_scopes:
+    if (admitted or realization is not None or cell) and generated_scopes:
         for problem in naming_premise_problems(request.premises, request.family):
             add(*problem, plan.scope)
     for aspect in request.assessment.assessment.aspects:

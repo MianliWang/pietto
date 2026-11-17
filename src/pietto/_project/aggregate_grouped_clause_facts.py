@@ -78,6 +78,7 @@ from pietto.semantic.aggregates import (
     contains_semantic_aggregate,
     effective_semantic_aggregate_argument_expression,
     is_count_distinct_tuple,
+    is_supported_extrema_argument,
     semantic_aggregate_call_name,
 )
 from pietto.semantic.expressions import infer_row_expression, _infer
@@ -87,6 +88,7 @@ from pietto.semantic.model import (
     RowSchema,
     SatisfyingResultPredicateInfo,
     ValueType,
+    ValueTypeKind,
 )
 from pietto.semantic.relation_limits import MAX_RELATION_LIMIT, check_relation_limits
 from pietto.semantic.satisfying import check_satisfying_clauses
@@ -441,13 +443,14 @@ def _single_file_grouping_diagnostics(
     an aggregate's argument or outside one. One that reads a nested relation
     field, a relation, a captured field, a query parameter or `any(...)` in
     those positions, also through a `let:` name, or a `let:` name in a `min`
-    or `max` argument or inside an aggregate's expression argument
-    (`sum(d + 1)`, which a single file reads as no `let:` name), or that
-    selects or projects a `let:` name under GROUP BY that a single file
-    refuses (its PIE-S2329, or PIE-S2102 with a GROUP BY hint), which a
-    project checks otherwise, gets only its generators' errors
-    (`_generator_errors`) and the refusals of its `count_distinct(a, b, ...)`,
-    `first` and `last` calls (`_call_argument_errors`)."""
+    or `max` argument, unless its known type is one they refuse, or inside an
+    aggregate's expression argument (`sum(d + 1)`, which a single file reads
+    as no `let:` name), or that selects or projects a `let:` name under
+    GROUP BY that a single file refuses (its PIE-S2329, or PIE-S2102 with a
+    GROUP BY hint), which a project checks otherwise, gets only its
+    generators' errors (`_generator_errors`) and the refusals of its
+    `count_distinct(a, b, ...)`, `first` and `last` calls
+    (`_call_argument_errors`)."""
 
     if input_schema.is_unknown:
         return ()
@@ -559,6 +562,24 @@ def _single_file_grouping_diagnostics(
             MIN_AGGREGATE_NAME,
             MAX_AGGREGATE_NAME,
         }
+        # A `let` name of a known type that `min` and `max` refuse (`Text`,
+        # `Bool`, `UUID`, an enum) is read as a single file reads it: its
+        # PIE-S2314 at the call.
+        argument = (
+            node.arguments[0]
+            if extremum and type(node) is CallExpr and len(node.arguments) == 1
+            else None
+        )
+        if (
+            type(argument) is NameExpr
+            and argument.name in lets
+            and let_scope_facts is not None
+            and (known := let_scope_facts.binding_value_types.get(argument.name))
+            is not None
+            and known.kind is ValueTypeKind.KNOWN
+            and not is_supported_extrema_argument(known)
+        ):
+            extremum = False
         # An aggregate's argument other than a name: a single file reads no
         # `let` name in it (`sum(d + 1)`), whatever the binding.
         expression_arguments = (

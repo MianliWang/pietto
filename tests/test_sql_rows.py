@@ -1616,6 +1616,64 @@ def test_a_statement_refused_in_its_stages_still_checks_its_naming_premise(
         assert [(b.code, b.detail) for b in outcome.blockers] == expected
 
 
+@pytest.mark.parametrize(
+    "target,item,refusal",
+    (
+        (
+            "postgres",
+            "n = 9223372036854775807 + 1",
+            ("PIE-B1002", "arithmetic_outside_physical_range"),
+        ),
+        ("mysql", "q = ratio / ratio", ("PIE-B1003", "float_division_not_realized")),
+    ),
+    ids=("postgres", "mysql"),
+)
+@pytest.mark.parametrize("value,premise", probe.WRONG_IDENTIFIER_CASES)
+def test_a_refused_statement_counts_no_stage_for_an_inlined_capturing_let(
+    tmp_path, target, item, refusal, value, premise
+):
+    """A statement refused while its stages are built, whose `let` values
+    each capture `rows` and are inlined, needs a named stage only for what
+    they read: none for the sources `other` and `third`, one for the query
+    `up`. Before: the missing or other identifier_case for each."""
+    document = json.loads(stage_contract(target))
+    for name in ("other", "third"):
+        extra = json.loads(json.dumps(document["sources"][0]))
+        extra["selector"]["name"] = name
+        extra["relation"]["name"] = f"{name} rows"
+        document["sources"].append(extra)
+    contract = probe.with_identifier_case(json.dumps(document), value)
+    head = row_source(target, "", header_only=True)
+    head += f'source other: Row = {target}.table("other")\n'
+    head += f'source third: Row = {target}.table("third")\n'
+    up = "query up:\n    from other\n    select:\n        id\n"
+    for case, read, names, expected in (
+        ("source", "", ("other",), [refusal]),
+        ("sources", "", ("other", "third"), [refusal]),
+        ("query", up, ("up",), [refusal, premise]),
+        ("source-and-query", up, ("other", "up"), [refusal, premise]),
+    ):
+        lets = "".join(
+            f"    let l{i}:\n        capture rows\n        from {name}\n"
+            f"        where {name}.id == rows.id\n        select:\n            id\n"
+            for i, name in enumerate(names)
+        )
+        reads = "".join(f"        k{i} = scalar l{i}.id\n" for i in range(len(names)))
+        source = (
+            head
+            + read
+            + "table result:\n"
+            + lets
+            + "    from rows\n    select:\n        id\n"
+            + reads
+            + f"        {item}\n"
+        )
+        _, outcome = probe.build_case(
+            tmp_path / case, source, contract, "preserve_literals"
+        )
+        assert [(b.code, b.detail) for b in outcome.blockers] == expected, case
+
+
 @pytest.mark.parametrize("target", ("postgres", "mysql"))
 def test_the_planned_unit_count_is_the_realized_unit_count(tmp_path, target):
     """The units a refused statement counts from its plan alone are the units

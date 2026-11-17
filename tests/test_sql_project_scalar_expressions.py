@@ -2499,6 +2499,51 @@ def test_project_join_on_same_value_outside_its_cells_keeps_mains_blockers(
 
 
 @pytest.mark.parametrize("target", TARGETS)
+@pytest.mark.parametrize("carrier", ("int", "float"))
+@pytest.mark.parametrize(
+    "key,value,premise",
+    [
+        *(("identifier_case", v, p) for v, p in probe.WRONG_IDENTIFIER_CASES),
+        (
+            "operator_environment",
+            None,
+            ("PIE-B1004", "operator_environment_declaration_missing"),
+        ),
+        (
+            "operator_environment",
+            "extended",
+            ("PIE-B1005", "operator_environment_declaration_mismatch"),
+        ),
+    ],
+)
+def test_a_null_safe_join_cell_without_a_statement_premise_reports_it(
+    tmp_path, target, carrier, key, value, premise
+):
+    """A cell's statement whose contract has no identifier_case or
+    operator_environment, or another value, reports main's list (rule two)
+    and then that premise, which main's derivation refuses the JOIN's shape
+    before checking. Before: main's list alone."""
+    source = nullsafe.program(target, "inner", "S1", carrier)
+    document = nullsafe.contract_document(target, "S1", carrier)
+    document["environment"] = [p for p in document["environment"] if p["key"] != key]
+    if value is not None:
+        document["environment"].append(
+            {"key": key, "scope": "statement", "value": value}
+        )
+    contract = json.dumps(document, sort_keys=True)
+    reported = _public(nullsafe.build(tmp_path, source, contract))
+    assert [
+        (
+            b["code"],
+            b["subject"]["detail"],
+            (b.get("location") or {}).get("line"),
+            (b.get("location") or {}).get("column"),
+        )
+        for b in reported["blockers"]
+    ] == [*_MAINS, (*premise, None, None)]
+
+
+@pytest.mark.parametrize("target", TARGETS)
 @pytest.mark.parametrize(
     "name,detail",
     (

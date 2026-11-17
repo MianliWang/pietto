@@ -4901,14 +4901,14 @@ def nullsafe_join_fields(family, structure, carrier):
     return (key, value, *({"k": (key,), "w": (value,)}.get(third, ())))
 
 
-def nullsafe_join_cell(request):
+def nullsafe_join_cell(request, *, as_written=False):
     """The cell (family, kind, structure, carrier) of a JOIN `on` `same_value`
     statement, with its `same_value` calls: (cell, calls), from the plan, the
     contract fields its references read and its sources hold, and the query
     as written. None outside NULLSAFE_JOIN_CELLS, and while emission derives
-    as main (AS_MAIN)."""
+    as main (AS_MAIN) unless ``as_written``."""
     plan = request.plan
-    frame = None if AS_MAIN.get() else _unit_query(plan, True)
+    frame = None if AS_MAIN.get() and not as_written else _unit_query(plan, True)
     if frame is None:
         return None
     at, kind = frame

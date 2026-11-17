@@ -341,21 +341,7 @@ public type contract, and the owner kept it out of Phase81 on 2026-11-17:
 the current rules freeze, and v2 goes to `0.3.0` as a breaking change
 ([P02 record](phases/phase-81/route.md#p02-record)).
 
-From the `0.2.1` lanes (PL.44), Phase81's diagnostic review also drops,
-by Q7 (d) (a) of PL.50, the PIE-B1004 `identifier_case_declaration_missing`
-that a statement refused during realization still reports when its only
-`let` is an inline capturing one that reads another query, while the code
-stays. It also takes the
-MySQL one of the two comments on diagnostic texts from the external audit
-of `0.2.0` (PL.40, D6); the DuckDB one goes to DuckDB B2 (PL.47). Two
-items found while `0.2.1` was prepared, both as in `0.2.0`, join that
-review and its documentation check: the PIE-S2333 entry of the
-[diagnostics reference](spec/diagnostics.md) says that a relation's own
-checks are reported once the error of a relation it reads is fixed, but an
-order proof's PIE-S2104 and PIE-S2334 are reported before that; and a
-null-safe JOIN `on` statement whose contract has no `identifier_case` or
-another value is refused before its stages are built and reports that its
-shape is not admitted, not that premise. Its editor work takes the rest of
+From the `0.2.1` lanes (PL.44), Phase81's editor work takes the rest of
 the fault
 tolerance of `pietto lsp` (an internal error outside the analysis of a
 document or a root, such as
@@ -364,9 +350,9 @@ still ends the server, and a failed analysis leaves its old diagnostics on
 the new text) and the overlap diagnostic for a project
 root nested in another through a symbolic link.
 
-Phase81 also takes four items that the owner decided on 2026-11-15 for
-`let` names in aggregates and under GROUP BY (PL.48), in place of the
-three questions about them that PL.44 left to its diagnostic review. Items
+Phase81 also takes three semantic extensions that the owner decided on
+2026-11-15 for `let` names in aggregates and under GROUP BY (PL.48), in
+place of questions that PL.44 left to its diagnostic review. Items
 (1) and (4) are semantic extensions that both modes accept: (1) a `let`
 name inside an aggregate's expression argument is read by its value, so
 `sum`, `avg`, `count`, `count_distinct` and `string_agg` accept with a
@@ -376,10 +362,8 @@ field; and
 (4) a `let` that only renames a field may be selected or projected in a
 relation with GROUP BY, as `k` or `x = k` after `let k = qty` and
 `group by k`. Item (3) is also a semantic extension: single files accept
-`min` and `max` of a numeric `let`, which projects already accept. Item
-(2) changes a diagnostic only: projects report the single-file PIE-S2314,
-not the bare PIE-S2333, for `min` or `max` of a `Text` or `Bool` `let`,
-and accept nothing more. Each extension takes a slice of its own with a
+`min` and `max` of a numeric `let`, which projects already accept. Each
+extension takes a slice of its own with a
 two-database verification, and none lands before the `0.2.2` release
 commit (PL.57); until each lands,
 `0.2.1`'s behavior and the [diagnostics reference](spec/diagnostics.md)

@@ -2055,6 +2055,30 @@ _FAILING_TEST = "        n = sum(1 for o in group if o.label > 1)\n"
             _LET_Q2 + _SUM_Q2 + "        t = sum(nope)\n        u = sum(label)\n",
             ["PIE-S2102", "PIE-S2314"],
         ),
+        # A `let` name of a type that `min` and `max` refuse is read as its
+        # value, with or without GROUP BY.
+        ("    let k = label\n    select:\n        m = max(k)\n", ["PIE-S2314"]),
+        (
+            "    let b = qty > 1\n    group by label\n    select:\n        label\n"
+            "        m = min(b)\n",
+            ["PIE-S2314"],
+        ),
+        (
+            "    let k = lower(label)\n    select:\n        m = max(k)\n",
+            ["PIE-S2314"],
+        ),
+        # A refused aggregate in `round` is the error, with no PIE-S2104.
+        (
+            "    group by label\n    select:\n        label\n"
+            "        m = round(avg(label), 2)\n",
+            ["PIE-S2314"],
+        ),
+        (
+            "    group by label\n    select:\n        label\n"
+            "        m = round(avg(qty), 2) if True else 0\n",
+            ["PIE-S2310"],
+        ),
+        ("    where round(avg(qty), 2) > 1\n    select:\n        id\n", ["PIE-S2308"]),
     ),
     ids=(
         "count_unknown_field",
@@ -2076,6 +2100,12 @@ _FAILING_TEST = "        n = sum(1 for o in group if o.label > 1)\n"
         "stddev_of_a_failing_let",
         "source_order",
         "source_order_beside_a_let",
+        "max_of_a_text_let",
+        "min_of_a_bool_let",
+        "max_of_a_computed_text_let",
+        "round_of_a_refused_argument",
+        "round_of_a_refused_composition",
+        "round_in_where",
     ),
 )
 def test_a_relation_with_aggregates_reports_what_a_file_does(

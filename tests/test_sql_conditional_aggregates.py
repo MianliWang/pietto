@@ -296,7 +296,9 @@ def test_a_project_refuses_the_conditional_count_and_sum_on_mysql(tmp_path) -> N
             17,
             "Keep this expression in check/plan, or select a direct field with a "
             "reviewed carrier: the compiler lacks the required proof. Do not invent "
-            "a range, meaning or bound in the contract.",
+            "a range, meaning or bound in the contract. On MySQL, the project "
+            "sum(Int) forms that emit are listed in "
+            "docs/language.md#mysql-project-sumint-forms.",
         ),
     ]
 

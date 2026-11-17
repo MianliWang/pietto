@@ -4552,6 +4552,19 @@ def _call_value_type(
             expression, argument_types, diagnostics, type_expansions=type_expansions
         )
     if function_name == "round":
+        value = expression.arguments[0] if expression.arguments else None
+        if (
+            value is not None
+            and len(argument_types) in {1, 2}
+            and argument_types[0].kind is ValueTypeKind.UNKNOWN
+            and is_semantic_aggregate_call(value)
+            and not has_unknown_field_reference(value, value_types)
+        ):
+            # An aggregate over fields of known type is Unknown only where
+            # its position or its own check refuses it (such as PIE-S2308,
+            # PIE-S2310, PIE-S2311, PIE-S2314, PIE-S2315 or its own
+            # PIE-S2104), which is the error.
+            return _UNKNOWN_VALUE_TYPE
         return _round_value_type(
             expression,
             argument_types,

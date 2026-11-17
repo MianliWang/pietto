@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from copy import deepcopy
 from dataclasses import fields, is_dataclass
+from unittest.mock import ANY
 
 import pytest
 from antlr4 import ParserRuleContext
@@ -190,6 +191,10 @@ _ROUND = (
             "round(avg(ratio), 2)",
             [("PIE-S2104", _ROUND)],
         ),
+        # An aggregate refused by its position or its own check is the error.
+        ("round(avg(amount), 2) if True else 0", [("PIE-S2310", ANY)]),
+        ("round(avg(avg(amount)), 2)", [("PIE-S2311", ANY)]),
+        ("round(avg(name), 2)", [("PIE-S2314", ANY)]),
     ],
 )
 def test_round_refusals_name_the_decimal_digits(
@@ -201,6 +206,7 @@ def test_round_refusals_name_the_decimal_digits(
             "    id: Int\n"
             "    ratio: Float\n"
             "    amount: Decimal(12, 4)\n"
+            "    name: Text\n"
             'source values: Values = postgres.table("values")\n'
             "query q:\n"
             "    from values\n"

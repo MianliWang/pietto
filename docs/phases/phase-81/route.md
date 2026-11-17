@@ -501,6 +501,84 @@ question; the decision row is the lead's to record.
   with PIE-R1008 `COMPILED_OPERATOR`. The load still fails closed; the
   misclassification is recorded as a known low.
 
+## P03 record
+
+P03 ran on 2026-11-17 on the route's candidate `6fa66291`, in a fresh
+worktree synced offline from `uv.lock` (CPython 3.13.13, `pietto` editable
+from that worktree). Each item was first measured through its public entry,
+`pietto check`, `check --project` or `emit-sql --project`, on PostgreSQL
+and MySQL where emission takes part.
+
+Two items are documentation, in the
+[diagnostics reference](../../spec/diagnostics.md):
+
+- **The order of PIE-S2333 against PIE-S2104 and PIE-S2334.** Measured: a
+  relation that a failed input stops, read with `from` (a query with an
+  unknown field) or by a relation with JOIN inputs (a relation `let` whose
+  ORDER BY key names its own output), reports a `first` or `last` call
+  over JOIN rows (PIE-S2334) or, over other rows, one without an internal
+  `order by` (PIE-S2104) beside the input's error, while an order key that
+  may be None, a key that is no direct field and a generator test's unknown
+  field wait for the fix. The PIE-S2333 entry and the
+  residual paragraph now say so; no diagnostic changes.
+- **The catalog of the five editor-only messages**, a section of the
+  reference: condition, severity and range, and the exact text as
+  `src/pietto/_lsp.py` and `src/pietto/_project/check.py` write it, with
+  the count `two` or digits and the code-point list form. Their test
+  owners are `tests/test_cli_lsp.py` and `tests/test_project_check_partial.py`.
+
+The other five change what `check`, `check --project` or `emit-sql
+--project` reports, each by its cause, with a test that fails before the
+change. None adds or removes a PIE code or detail or changes a JSON shape;
+the [release-note fragment](../../release-notes.d/81-p03-diagnostic-review.md)
+lists each change.
+
+| Item | Entry and case | Before | Cause | Change and test |
+| --- | --- | --- | --- | --- |
+| H3 (2), PL.48 | `check --project`: `min` or `max` of a `let` whose known type they refuse, as `max(l)` after `let l = label`, a `Bool`, `UUID` or enum `let`, or a computed `Text` one (`lower(label)`), with or without GROUP BY | a bare PIE-S2333 at the relation; a single file reports PIE-S2314 at the call | `_single_file_grouping_diagnostics` (`aggregate_grouped_clause_facts.py`) sent every `let:` name in a `min` or `max` argument to the project's own route | such a name is read as a single file reads it when its known type is one that `is_supported_extrema_argument` refuses; numeric ones keep the project route. `tests/test_project_grouped_aggregate_project_row_schema.py` |
+| D6, MySQL half | `emit-sql --project --dialect mysql`: PIE-B1004 `sum_int_aggregate_range_proof_missing` | the generic evidence suggestion, shared with 38 other details in `project_sql_emission_suggestions.py` | — | one sentence after it on MySQL only, whose wording the owner approved (D81.01); `tests/test_sql_conditional_aggregates.py` |
+| Null-safe JOIN premises | `emit-sql --project`, a null-safe JOIN `on` cell (INNER S1 of `Int` and of `Float`), PostgreSQL and MySQL, no `operator_environment` or `identifier_case`, or another value | PIE-B1003 `scalar_projection_requires_later_slice` (four), `match_condition_not_in_row_domain` and `join_shape_not_admitted_in_slice7`, without the premise | with the cell open the statement reports PIE-B1004 `operator_environment_declaration_missing` or `identifier_case_declaration_missing` (PIE-B1005 for another value); rule two (`as_main_if_refused`) then reports main's derivation, where the cell is shut and the JOIN shape is refused before any realization, so `_emission_blockers` checked neither the operator premises (only with scalar nodes or a realization) nor the naming premise | main's derivation of a statement that is a cell as written (`nullsafe_join_cell(..., as_written=True)`) checks the operator premises, as the open cell does, and the naming premise from its planned units, as for a refused realization; both follow the shape refusals and precede the source blockers. `tests/test_sql_project_scalar_expressions.py` |
+| `round` of a refused aggregate | `check` and `check --project`, for example `round(avg(x), 2) if True else 0` (PIE-S2310), `round(avg(x), 2)` in `where` (PIE-S2308), `round(avg(avg(x)), 2)` (PIE-S2311), `round(avg(label), 2)` of a `Text` field (PIE-S2314), `round(avg(None), 2)` (PIE-S2315) and `round(quantile(x, 2.0), 2)` (the aggregate's own PIE-S2104) | a bare PIE-S2104 `Invalid arguments for function round` at the call beside that refusal; with two arguments, as `round(avg(label), "x")`, the digits are now checked once the aggregate is fixed | the aggregate is Unknown where its position or its own check refuses it, so `_round_value_type` (`semantic/expressions.py`) failed closed again | no PIE-S2104 when the value is an aggregate call over fields of known type (`has_unknown_field_reference`); kept otherwise, as over a source without a shape or an untyped all-None field, where it is the only refusal. `tests/test_semantic_functions.py`, `tests/test_project_grouped_aggregate_project_row_schema.py` |
+| PIE-B1004 by (d) (a) | `emit-sql --project`, PostgreSQL and MySQL: `k = scalar same.id` beside `n = 9223372036854775807 + 1` (PostgreSQL) or `q = ratio / ratio` (MySQL), `same` the only `let`, capturing `rows` and reading the source `other`; no `identifier_case` or another value | PIE-B1002 `arithmetic_outside_physical_range` or PIE-B1003 `float_division_not_realized`, then PIE-B1004 `identifier_case_declaration_missing` (PIE-B1005 `identifier_case_declaration_mismatch`); without the refusal the statement verifies with one unit and no premise | the refused-realization branch of `_emission_blockers` kept the earlier rule that any other definition needs a named stage, and the inlined `let` is one | decided by `planned_unit_count` alone, which skips every inlined capturing `let`, so two over the sources `other` and `third` drop the premise too; a statement where any `let` reads another table or query keeps it, as that table or query is a named stage (two units). `tests/test_sql_rows.py` |
+
+The (d) (a) change differs from the owner's text. PL.44 (d) and Q7
+(d) (a) of PL.50 name a statement whose only `let` is an inline capturing
+one that *reads another query*, saying its realization would not need the
+premise. Measured, such a statement has two units: without the refusal it
+is BLOCKED by PIE-B1004 `identifier_case_declaration_missing`, and its SQL
+names the query as a stage (`WITH` on PostgreSQL and MySQL), so it keeps
+the premise. What changed is a statement that reads a source and whose
+every `let` is an inline capturing one that reads a source: emitted as one
+unit, it reported a premise it does not need. This holds for one such
+`let` or more; a statement that reads another query, or where any `let`
+reads another table or query, keeps the premise.
+
+On 2026-11-18 the owner answered both points that this record left open
+(D81.01). The owner approved this narrower reading of (d) (a), as it was
+put: a statement refused during realization whose only `let` is an inline
+capturing one that reads a source no longer reports the `identifier_case`
+premise, and one whose `let` reads another query reports it as before.
+The landed rule is the same for any number of such `let` values: a
+statement that reads a source and whose every `let` is one drops the
+premise, and one that reads another query, or where any `let` reads
+another table or query, reports it.
+The owner also approved D6's MySQL sentence as P03 landed it: `On MySQL,
+the project sum(Int) forms that emit are listed in
+docs/language.md#mysql-project-sumint-forms.`
+
+Left, for the lead: `round` of a value with an unknown name, directly, through
+a `let` with an error of its own or inside an aggregate (`round(nosuch, 2)`,
+`round(bad, 2)`, `round(sum(nosuch), 2)`), still reports the bare
+PIE-S2104 beside PIE-S2102; telling a missing name from a field of unknown
+type, where PIE-S2104 is the only refusal, is another check than the one
+above. The [LSP diagnostics
+contract](../../spec/lsp-diagnostics-v1.md#diagnostics) writes `two project
+roots` where the server writes the count, such as `3`, for more roots, and
+says that the first three lists are in code-point order, where the roots
+follow their `projectRoots` order: P12 or P13. The
+[roadmap](../../roadmap.md) drops the five items; the
+[status](../../status.md) names none of them.
+
 ## Single writers and the other lines
 
 The lead sets the order and a later arrival rebases. At the first
