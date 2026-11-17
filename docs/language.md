@@ -840,7 +840,12 @@ value.
   result outside binary64 is not a value: project SQL on PostgreSQL fails the
   statement with SQLSTATE 22003 instead, and also fails it where a product of
   two non-zero values rounds to zero, which Python gives as `0.0`. It never
-  returns an infinity or a wrong value.
+  returns an infinity or a wrong value. Project SQL folds `+`, `-` or `*` of
+  two Float literals when it is emitted, on both targets and under both
+  literal policies, and a folded result outside binary64, or a folded product
+  of two non-zero literals that rounds to zero, is BLOCKED with `PIE-B1002`
+  `float_result_not_finite`. A subnormal product, a product with a zero
+  factor and a sum or difference that is exactly zero keep their value.
 - **No later step can tell.** Every Float operation Pietto admits gives
   `==`-equal results for `==`-equal inputs. So no later filter, comparison,
   group key or set operation can tell which zero a merge kept; only the
