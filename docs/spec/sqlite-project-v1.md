@@ -50,7 +50,8 @@ aggregates in both modes with their native cells. S11 added
 [execution](#execution). S12 added the route's native qualification and,
 by its timing, the file cap of 128 MiB. R1 added the PostgreSQL replay,
 which passed, and S16 closed the tier; the second tier has its own
-Gate 1 (PL.54, PL.58, D78.14). Each slice edits the rows it lands.
+Gate 1 (PL.54, PL.58, D78.14). In the second tier, S14 added range-proved
+`Int` arithmetic (D78.14 (3), rule 9b). Each slice edits the rows it lands.
 No published release carries a form until the owner approves
 one: `0.2.1` and earlier refuse a project `sqlite.table` with `PIE-S2306`
 `Unknown source connector: sqlite.table`.
@@ -62,8 +63,8 @@ one: `0.2.1` and earlier refuse a project `sqlite.table` with `PIE-S2306`
 | Project and source | An explicit-module project (`schema_version = 2`) whose statement reads exactly one source declared `source x: Shape = sqlite.table("name")`. |
 | Relational shape | One source read, its `where` filter, a `group by`, a `having`, an `order by`, a `limit`, and the final projection. No JOIN, window or `qualify`, relation `let`, read of another table or query, `distinct`, set operation, typed VALUES body or table function. |
 | Columns | Source fields are `Int`, `Text`, `Bool` or `Float`, each with its compiled nullability. Results follow the projection. |
-| Expressions | In `select`, `where` and `having`: a field of the source, a literal, a query parameter, a comparison (`==`, `!=`, `<`, `<=`, `>`, `>=`) of two values of one type, `and`, `or`, `not`, `is None` and `is not None`; in `having` and in the `select` of an aggregated relation also an admitted aggregate. No arithmetic, a sign before a number included, no `in`, range comparison, conditional, cast, function call or `any(...)` read, and no `None` literal outside `is None` and `is not None`. |
-| Aggregates | `count()` and `count(x)`; `count_distinct(x)` of an `Int`, `Text` or `Bool` field; `min(x)` and `max(x)` of an `Int` or `Float` field; `avg(x)` of an `Int` field; and `sum(x)` of an `Int` field whose contract `int_range` lies on one side of zero (`min` of 0 or more, or `max` of 0 or less). Each reads one field of the source directly. |
+| Expressions | In `select`, `where` and `having`: a field of the source, a literal, a query parameter, a comparison (`==`, `!=`, `<`, `<=`, `>`, `>=`) of two values of one type, `and`, `or`, `not`, `is None` and `is not None`; in `having` and in the `select` of an aggregated relation also an admitted aggregate. In `select` and `where` also `Int` arithmetic (S14): `+`, `-`, `*`, unary `-` and `abs(x)`, whose operands are `Int` fields of the source, `Int` literals and such arithmetic, when the bounds of every result lie inside signed 64 bits (rule 9b). `check` refuses arithmetic in `having` (PIE-S2327) and arithmetic over `group by` keys in the `select` of an aggregated relation that selects no aggregate (PIE-S2319); beside an aggregate, rules 9 and 11 refuse such arithmetic. Arithmetic that reads an aggregate passes `check`, and rule 9 refuses it, beside rules 10 and 11. No arithmetic that reads a parameter or an aggregate, no `Float` arithmetic, `/`, `%` or unary `+`, no `in`, range comparison, conditional, cast, other function call or `any(...)` read, and no `None` literal outside `is None` and `is not None`. |
+| Aggregates | `count()` and `count(x)`; `count_distinct(x)` of an `Int`, `Text` or `Bool` field; `min(x)` and `max(x)` of an `Int` or `Float` field; `avg(x)` of an `Int` field or of admitted `Int` arithmetic (S14); and `sum(x)` of the same whose bounds lie on one side of zero (a field's contract `int_range` with a `min` of 0 or more or a `max` of 0 or less, or arithmetic whose bounds do, rule 35). Each other aggregate reads one field of the source directly; `check` refuses `abs` in an aggregate's argument and `min` and `max` of an expression on every target (PIE-S2315). |
 | Grouping and order | A `group by` key is a field of the source. In an aggregated relation a result field is a `group by` key, an admitted aggregate or a literal (`check` refuses a query parameter there with `PIE-S2355`), and an `order by` key is a selected `group by` key or aggregate; elsewhere an `order by` key is a field of the source. A `limit` is an `Int` literal from 0 to 9223372036854775807. |
 | Parameters | Query header parameters of type `Int`, `Text`, `Bool` or `Float`, optional or not, read in `select`, `where` or `having`. |
 | Literal policy | `preserve` only. |
@@ -77,13 +78,14 @@ null tests (`PIE-S2327`) there, and a `having` without `group by`
 (`PIE-S2323`).
 
 Not in this tier: `Decimal`, `Date`, `Timestamp`, `UUID`, `Bytes`, `Json`,
-enum and nested fields; `--literal-policy bind-safe`; arithmetic, `Float`
-`sum` and `avg`, text functions and `LIKE`, `string_agg`, `median` and
-`quantile`; JOINs and windows, which a later Gate 1 decides at the B2
-midpoint; schema-qualified or attached tables; query bundles, saved
-results, relay, jobs and R2 recovery; and any change to PostgreSQL, MySQL or DuckDB SQL
-bytes, contracts or diagnostics beyond the refusal of a `sqlite.table` source
-that [compile refusals](#compile-refusals) states. No claim of parity across
+enum and nested fields; `--literal-policy bind-safe`; arithmetic other than
+that of the expressions row above, `Float` `sum` and `avg`, text functions
+and `LIKE`, `string_agg`, `median` and `quantile`; JOINs and windows,
+which a later Gate 1 decides at the B2 midpoint; schema-qualified or
+attached tables; query bundles, saved results, relay, jobs and R2 recovery; and any
+change to PostgreSQL, MySQL or DuckDB SQL bytes, contracts or diagnostics
+beyond the refusal of a `sqlite.table` source that
+[compile refusals](#compile-refusals) states. No claim of parity across
 databases is made.
 
 Of the JOINs, arithmetic and windows, the second tier (D78.14) opens only
@@ -193,7 +195,7 @@ storage kind.
 The `int_range` of an `Int` field is the range evidence of the project
 `avg(Int)` rule of the [language guide](../language.md#aggregates-and-grouping),
 so `avg_int_range_evidence_missing` does not arise on SQLite in this tier,
-and it is the evidence that admits `sum` (rule 35).
+and it is the evidence that admits `sum` (rule 35) and arithmetic (rule 9b).
 
 Premises (*derived*):
 
@@ -202,7 +204,7 @@ Premises (*derived*):
 | `row_domain_matches` | source | `true` | always; otherwise `PIE-B1001`. Execution checks it ([execution](#execution)). |
 | `read_only_object` | source | `true` | always; otherwise `PIE-B1001` |
 | `client_encoding` | statement | `"UTF-8"`: the database encoding, as `PRAGMA encoding` names it | always |
-| `operator_environment` | statement | `"builtin_only"` | when the SQL computes more than the selected columns: a `where`, `group by`, aggregate, `having`, `order by`, `limit`, or a literal, parameter or comparison in `select` |
+| `operator_environment` | statement | `"builtin_only"` | when the SQL computes more than the selected columns: a `where`, `group by`, aggregate, `having`, `order by`, `limit`, or a literal, parameter, comparison or arithmetic in `select` |
 | `parameter_protocol` | statement | `"sqlite_prepared"` | when the statement reads a parameter |
 | `resource_limits` | statement | as today | optional |
 
@@ -226,15 +228,15 @@ nests at most 500 levels deep (*derived*), half the build's
 
 ## SQL
 
-S08 and S10 own the exact bytes and their goldens; any form they write
+S08, S10 and S14 own the exact bytes and their goldens; any form they write
 satisfies these rules (AD78.03: the adapter has its own SQL AST, renderer and
 artifact verifier, and consumes `ProjectSQLPlan`).
 
 - One `SELECT` statement with no `WITH`, subquery or second statement, its
   clauses in the order `SELECT`, `FROM`, `WHERE`, `GROUP BY`, `HAVING`,
   `ORDER BY`, `LIMIT`, on one line, separated by single spaces, with no final
-  semicolon. An operand that is itself a comparison, `and`, `or`, `not` or
-  null test is in parentheses.
+  semicolon. An operand that is itself a comparison, arithmetic other than
+  `abs`, `and`, `or`, `not` or null test is in parentheses.
 - Every identifier is quoted in backticks, a backtick inside doubled: SQLite
   reads a double-quoted name that names no column as text, a backticked one
   never.
@@ -256,7 +258,14 @@ artifact verifier, and consumes `ProjectSQLPlan`).
 - `count()` is `COUNT(*)`, `count(x)` is `COUNT(x)`, `count_distinct(x)` is
   `COUNT(DISTINCT x)`, `min` and `max` are `MIN(x)` and `MAX(x)`, `avg(x)` is
   `AVG(CAST(x AS REAL))`, by the language's rule that an `Int` is cast to the
-  target's binary64 before it is averaged, and `sum(x)` is `SUM(x)`.
+  target's binary64 before it is averaged, and `sum(x)` is `SUM(x)`; the `x`
+  of `avg` and `sum` may be arithmetic, as in `` SUM(`s0`.`a` * `s0`.`b`) ``.
+- `+`, `-` and `*` are written between their operands, `abs(x)` as
+  `ABS(x)`, and a unary `-` right before its operand, so a unary `-` before
+  an `Int` literal is one signed literal: `-9223372036854775808` is the
+  `INTEGER` minimum, while `0 - 9223372036854775808` reads as a `REAL`, so
+  9223372036854775808 is refused anywhere but there (rule 9). A unary `-`
+  before another one is written `-(-x)`, never `--`, which starts a comment.
 - `HAVING` follows `GROUP BY` and holds only a `group by` key's column, an
   aggregate, a literal, a parameter, comparisons, `AND` and `OR`; a key or
   aggregate read by its output name is written as that key or aggregate,
@@ -296,7 +305,7 @@ reads a source field, selected directly or as a `group by` key, has that
 field's contract `representation`; a `count` has the storage `sqlite_integer`
 and the `int_range` 0 to 9223372036854775807; a `min` or `max` has its
 field's storage and domain; a `count_distinct` is a `count`; and any other
-value, an `avg` or a `sum` among them, has its type's storage kind
+value, arithmetic, an `avg` or a `sum` among them, has its type's storage kind
 and the widest domain of its type (an `int_range` of signed 64 bits,
 `bool01`, `finite_float`, or `text` with `max_characters` null), except that
 an `Int` literal's range is its value and a `Text` literal's
@@ -317,13 +326,13 @@ about it.
 | Difference | Fact on the measured build | Handling |
 | --- | --- | --- |
 | Type affinity | A table that is not `STRICT` converts values by column affinity (*inferred* from SQLite's documentation; S05 measured `STRICT` tables only); a `STRICT` `ANY` column takes any value | The storage kinds name `STRICT` columns of the four declared types; `ANY` and `BLOB` have none. Emission assumes it (`row_domain_matches`); execution checks the table and its column types |
-| `Int` overflow outside `sum` | `9223372036854775807 + 1` gives a `REAL`; `abs(-9223372036854775808)` fails with `integer overflow` | Arithmetic is refused (rule 9); `check` bounds literals to signed 64 bits (`PIE-S2364`) |
+| `Int` overflow outside `sum` | `9223372036854775807 + 1` gives a `REAL`; `abs(-9223372036854775808)` fails with `integer overflow`. S14's native cells saw a `+`, a binary or unary `-` and a `*` whose result leaves signed 64 bits give the `REAL` of the binary64 operation, without an error, `abs` of the minimum fail with `integer overflow`, and a `sum` of such a value give a `REAL` too, while each result at the bounds is the exact `INTEGER` | `Int` arithmetic only with a range proof (rule 9b): each field read contributes its contract `int_range`, each read on its own, and each literal its value, each operation's bounds follow from its operands', and the bounds of every result, an aggregate's argument row by row included, must lie inside signed 64 bits, so `abs` of bounds that hold the minimum is refused too. `check` bounds a single file's literals to signed 64 bits (`PIE-S2364`); in a project, rule 9 refuses 9223372036854775808 anywhere but right after a unary `-`. The `sqlite_file` route holds each value to its `int_range` before the statement runs ([execution](#execution)) |
 | `sum` overflow | `sum()` fails with `integer overflow` (`SQLITE_ERROR`, code 1) as soon as a partial sum leaves signed 64 bits, even when the result is inside them, so the scan order decides: `[MAX, 1, -1]` fails and the reverse gives `MAX`, and an index on the column changes the plan and so the result. Over values of one sign it failed exactly when the result left signed 64 bits, in all 5,334 random cases; over mixed signs 470 of 2,666 failed with the result inside; no wrong value was returned | `sum` of an `Int` only when the contract's `int_range` lies on one side of zero: then every partial sum lies between zero and the result (*derived*), so SQLite fails exactly when PostgreSQL's exact sum raises SQLSTATE 22003, and never returns a wrong value. A mixed range is `PIE-B1004` `sum_int_aggregate_range_proof_missing` (rule 35); single files keep `sum` refused |
 | Collation | A column may be `COLLATE NOCASE`; `PRAGMA table_xinfo` does not report a column's collation. With `COLLATE BINARY` written, comparisons, `ORDER BY`, `GROUP BY`, `HAVING`, `count(distinct ...)`, `min` and `max` compare bytes, on either side of a comparison | Project SQL writes `COLLATE BINARY` (see [SQL](#sql)); single files keep the `BINARY` premise |
 | Encoding | A database may be `UTF-16le`, and `PRAGMA encoding` reports it | Emission assumes UTF-8 (`client_encoding` `"UTF-8"`); execution checks `PRAGMA encoding` |
 | Identifier case | Every identifier, quoted or not, matches without ASCII case: `"a"` and `"A"` are one column, tables `IC` and `ic` one table | Columns that collide under ASCII case folding are refused (rule 31); the relation name must equal the connector's string exactly (rule 27); the SQL names only the alias `s0` and qualified columns; `identifier_case` is not admitted |
 | NULL order | Ascending order puts NULL first by default; explicit `NULLS FIRST` and `NULLS LAST` hold in all four combinations | Explicit NULLS clauses, as D78.02 decided for single files (lead, stated to the owner in PL.47) |
-| `-0.0` | A `STRICT` `REAL` column stores `-0.0` as `0.0`. A bound `-0.0` keeps its sign as a value, also through `abs`, and loses it when cast to text; `GROUP BY` puts both zeros in one group and keeps the first; `count(distinct ...)` counts them once | No stored value is a negative zero. A projected `Float` parameter returns `-0.0` as Pietto's value does; this tier has no `abs`, no cast to text and no `count_distinct` of a `Float` |
+| `-0.0` | A `STRICT` `REAL` column stores `-0.0` as `0.0`. A bound `-0.0` keeps its sign as a value, also through `abs`, and loses it when cast to text; `GROUP BY` puts both zeros in one group and keeps the first; `count(distinct ...)` counts them once | No stored value is a negative zero. A projected `Float` parameter returns `-0.0` as Pietto's value does; this tier has no `abs` or `count_distinct` of a `Float` and no cast to text |
 | `Bool` | A `STRICT` `INTEGER` column stores 2 and -1 | Emission assumes 0 and 1 (`bool01`, `row_domain_matches`); execution checks each value |
 | NaN and infinities | A bound NaN becomes NULL; a `REAL` column stores ±Infinity | Execution refuses a NaN or infinite `Float` parameter before it binds and checks each stored value; emission assumes finite values (`finite_float`) |
 | NUL in `Text` | A `TEXT` value may hold NUL, and `length` counts only up to it; invalid UTF-8 is stored too, and no SQL form detects it | No form reads `length`; a `Text` literal with NUL is refused (rule 9); execution refuses a stored NUL and decodes each `Text` value in Python |
@@ -340,23 +349,26 @@ A SQLite emission reports only the blockers of the table below, and no other
 Emission first runs `check --project`, then the one existing verification of
 the project SQL plan, then reads the contract, then checks these rules:
 
-- Rules 1–35 are checked together. The document lists one blocker for each
-  rule that fails, in rule order, and none for a rule that holds.
+- Rules 1–35, with rule 9b after rule 9, are checked together. The
+  document lists one blocker for each rule that fails, in rule order, and
+  none for a rule that holds.
 - A rule that fails at several sites reports the first one only: source,
   stage and expression sites in source order (path, line, column), source
   fields in shape order, and premises in contract order (`environment`, then
   each source's `premises`, in `sources` order).
 - A rule whose subject is absent holds: rules 12–14 need their clause, rule
   18 a parameter read, rules 25–34 a contract entry for the read source, and
-  rule 35 a `sum` whose field passes rule 33.
+  rules 9b and 35 arithmetic or a `sum` argument whose bounds are known:
+  every field it reads passes rule 33 and rule 9 admits its operands, and
+  for rule 35 rule 9b holds at each operation in it.
 - When the plan is unavailable, rule 5 reports at the plan's first blocker,
-  and rules 6–35 are not checked.
+  and rules 6–35 and 9b are not checked.
 - Rule 20 counts the nodes and the expression depth of the SQL AST that the
   adapter will build, from the plan and before anything is built. A built AST
   with another count does not correspond to the plan (rule 36).
-- Only when rules 1–35 all hold is the SQL built, verified, rendered and put
-  in its document; then the first of rules 36–39 that fails is the only
-  blocker.
+- Only when rules 1–35 and 9b all hold is the SQL built, verified,
+  rendered and put in its document; then the first of rules 36–39 that
+  fails is the only blocker.
 
 "Existing" names the suggestion text that the other targets give the same
 detail today, with no family. A suggestion "by the premise rule" is the
@@ -373,8 +385,9 @@ table in it.
 | 6 | `PIE-B1003` | `sqlite_source_count_not_admitted` | The statement reads no source, or more than one | The second source read, or the statement | `read exactly one sqlite.table source` |
 | 7 | `PIE-B1003` | `sqlite_field_type_not_admitted` | A field of the read source is not established as `Int`, `Text`, `Bool` or `Float`, optional or not | The source field | `SQLite emission reads Int, Text, Bool and Float fields` |
 | 8 | `PIE-B1003` | `sqlite_parameter_not_admitted` | A header parameter's type is not `Int`, `Text`, `Bool` or `Float` | The parameter declaration | `declare Int, Text, Bool or Float parameters, with or without None` |
-| 9 | `PIE-B1003` | `sqlite_expression_not_admitted` | An expression in `select`, `where` or `having` is outside the expressions of [admission](#admission), or is a `Text` literal that holds NUL | The expression | `use fields, literals, parameters, comparisons of two values of one type, and, or, not and is None; arithmetic, signs, in, ranges, conditionals, casts and function calls are not available on SQLite` |
-| 10 | `PIE-B1003` | `sqlite_aggregate_not_admitted` | An aggregate is outside the aggregates of [admission](#admission), reads anything but one field of the source directly, or appears anywhere but as a whole result field, a `having` operand or an `order by` key | The aggregate | `use count, count_distinct of an Int, Text or Bool field, min or max of an Int or Float field, or avg or sum of an Int field, each over one field of the source` |
+| 9 | `PIE-B1003` | `sqlite_expression_not_admitted` | An expression in `select`, `where` or `having`, or arithmetic in an aggregate's argument, is outside the expressions of [admission](#admission), or is a `Text` literal that holds NUL, or an `Int` literal of 9223372036854775808 anywhere but right after a unary `-` | The expression | `use fields, literals, parameters, comparisons of two values of one type, and, or, not, is None, and Int +, -, *, unary - and abs of fields and Int literals; Float arithmetic, /, %, arithmetic on parameters or aggregates, in, ranges, conditionals, casts and other function calls are not available on SQLite` |
+| 9b | `PIE-B1004` | `int_arithmetic_range_proof_missing` | The bounds of the result of an `Int` `+`, `-`, `*`, unary `-` or `abs` leave signed 64 bits, computed operation by operation from those of its operands, each field read bounded on its own by its contract `int_range` and each literal by its value; this holds for every intermediate result and for the argument of `avg` and `sum` row by row (S14) | The first such operation | `declare int_range bounds that keep every operand and result inside signed 64 bits, or keep this expression in check/plan: SQLite turns an Int overflow into a REAL without an error` |
+| 10 | `PIE-B1003` | `sqlite_aggregate_not_admitted` | An aggregate is outside the aggregates of [admission](#admission), reads anything but one field of the source directly, except the arithmetic that `avg` and `sum` may read, or appears anywhere but as a whole result field, a `having` operand or an `order by` key | The aggregate | `use count, count_distinct of an Int, Text or Bool field, min or max of an Int or Float field, or avg or sum of an Int field or of Int arithmetic, each over the fields of the source` |
 | 11 | `PIE-B1003` | `sqlite_projection_not_admitted` | In an aggregated relation, a result field is not a `group by` key, an admitted aggregate or a literal | The result field | `in a relation with group by or an aggregate, select group by keys, aggregates and literals` |
 | 12 | `PIE-B1003` | `sqlite_group_key_not_admitted` | A `group by` key is not a field of the source | The key | `group by fields of the source` |
 | 13 | `PIE-B1003` | `sqlite_order_not_admitted` | An `order by` key is not a field of the source, or, in an aggregated relation, not a selected `group by` key or aggregate | The key | `order by fields of the source, or, with group by or an aggregate, by selected keys and aggregates` |
@@ -399,7 +412,7 @@ table in it.
 | 32 | `PIE-B1002` | `nullability_mismatch` | A field's `nullable` does not fit the field | The source field | `set nullable to false for a non-null field and true for an optional one` |
 | 33 | `PIE-B1002` | `physical_storage_or_domain_mismatch` | A field's `storage` or `domain` is not its logical type's row of the representation table | The source field | `use the SQLite storage and domain of the field's logical type` |
 | 34 | `PIE-B1005` | `field_domain_premise_mismatch` | A field premise disagrees with the field's `domain` | The source field | Existing |
-| 35 | `PIE-B1004` | `sum_int_aggregate_range_proof_missing` | A `sum` reads an `Int` field whose `int_range` has a negative `min` and a positive `max` | The aggregate | `declare an int_range on one side of zero, or keep this sum in check/plan: SQLite can fail a sum over values of both signs whose result fits` |
+| 35 | `PIE-B1004` | `sum_int_aggregate_range_proof_missing` | A `sum` reads an `Int` field whose `int_range` has a negative `min` and a positive `max`, or arithmetic whose bounds (rule 9b) do | The aggregate | `declare an int_range on one side of zero, or keep this sum in check/plan: SQLite can fail a sum over values of both signs whose result fits` |
 | 36 | `PIE-B1008` | `plan_ast_correspondence` | The SQL AST breaks a rule of [SQL](#sql) or does not correspond to the plan | None | Existing |
 | 37 | `PIE-B1007` | `sql_byte_limit` | The rendered SQL exceeds `sql_bytes` | None | Existing |
 | 38 | `PIE-B1008` | `artifact_correspondence` | The artifact verifier refuses the document | None | Existing |
@@ -694,6 +707,11 @@ integration, one page at a time, in the route's single-writer order.
   route's details,
   at a time the lead schedules apart from Phase81's diagnostic review (P03,
   PL.58).
+- S14: `docs/language.md`, range-proved `Int` arithmetic in its SQLite
+  project section; `docs/capabilities.md`, the project bullet of its SQLite
+  section; and `docs/spec/diagnostics.md`, the `PIE-B1004` row naming
+  `int_arithmetic_range_proof_missing`, at a time the lead schedules apart
+  from Phase81's diagnostic review (P03, PL.58).
 
 ## Open items
 

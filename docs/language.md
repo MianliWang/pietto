@@ -730,6 +730,28 @@ between zero and the result, so the statement fails with SQLite's
 22003, and never returns a wrong value; a mixed-sign range is BLOCKED with
 PIE-B1004 `sum_int_aggregate_range_proof_missing`. The `int_range` of an
 `avg`'s field is the range evidence of [Aggregates](#aggregates-and-grouping).
+`Int` arithmetic, `+`, `-`, `*`, unary `-` and `abs(x)` over `Int` fields and
+literals, may appear in `select` and `where`, and `+`, `-`, `*` and unary `-`
+also as the argument of `avg` and `sum` (`check` refuses `abs` there,
+PIE-S2315), when its range is proved. Each field read contributes its
+contract `int_range`, each read on its own, and each literal its value; the
+bounds of each operation are computed from those of its operands, and those
+of every result, intermediate ones and an aggregate's argument row by row
+included, must lie inside signed 64 bits, since SQLite turns an `Int` result
+outside them into a `REAL` without an error. So `x + 1` needs an
+`int_range` whose `max` is below 9223372036854775807, and `abs(x)` one whose
+`min` is above -9223372036854775808; otherwise the statement is BLOCKED with
+PIE-B1004 `int_arithmetic_range_proof_missing`. As the two reads of `x` are
+bounded apart, `x * x` over an `int_range` of both signs counts as reaching
+below zero, and `x - x` over the full range is refused although it is 0. A
+`sum` of arithmetic needs bounds on one side of zero, as a `sum` of a field
+does. Arithmetic on parameters, `Float` arithmetic, `/` and `%` stay
+refused, and so does arithmetic that reads an aggregate, which passes
+`check`; `check` refuses arithmetic in `having` (PIE-S2327) and arithmetic
+over `group by` keys in the `select` of an aggregated relation that selects
+no aggregate (PIE-S2319); beside an aggregate, such arithmetic is BLOCKED
+with PIE-B1003 `sqlite_expression_not_admitted` and
+`sqlite_projection_not_admitted`.
 The emission contract gives the table as the `relation` `{"namespace":
 "main", "name": NAME}`, where NAME is the `sqlite.table` string exactly,
 and each field's storage ([emission contract values](project-package.md#emission-contract-values));
@@ -741,8 +763,10 @@ The SQL is one `SELECT` over `` `main`.`<table>` AS `s0` ``. It writes every
 field as `` `s0`.`<column>` ``, quotes every name in backticks, writes each
 parameter read as `?N`, numbered from 1 by its first read, writes a `Bool`
 literal as `1` or `0`, and ends every ascending key with `NULLS LAST` and
-every descending key with `NULLS FIRST`, as single files do. It keeps the
-single-file premises above except the collation: project SQL writes
+every descending key with `NULLS FIRST`, as single files do. It writes
+`abs(x)` as `ABS(x)` and a unary `-` before an `Int` literal as one signed
+literal, so `-9223372036854775808` is SQLite's `INTEGER` minimum. It keeps
+the single-file premises above except the collation: project SQL writes
 `COLLATE BINARY` at each `Text` comparison, `group by` key, `order by` key
 and `count_distinct` argument, so a `COLLATE NOCASE` column still compares
 by its bytes, and the contract's `Text` collation `BINARY` names that
