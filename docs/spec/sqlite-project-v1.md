@@ -25,6 +25,19 @@ fixes; the lead states them to the owner as inform before this page binds
 (see [open items](#open-items)). A text outside the tables of this page, or
 a new diagnostic code, needs the owner.
 
+The second tier opens three forms under the owner's answers to its own
+Gate 1 of 2026-11-17 (D78.14): range-proved `Int` arithmetic (S14), windows
+over one source read (S15), and INNER and LEFT JOINs of `sqlite.table`
+sources with their execution on the `sqlite_file` route (S13a, S13b). Each
+form ships refused until its native cells pass and its replay (R2 for S14
+and S15, R3 for S13) ends `PASS`; the three forms of S14 and S15 that
+PostgreSQL project emission does not write, which
+[qualification](#qualification) lists, open on their native cells alone
+(D78.15, D78.16). The tier's
+two batches are pushed after
+the `0.2.2` release commit (PL.64 (3)), and the route's
+[second tier](../phases/phase-78/route.md#b2-second-tier) holds its slices.
+
 Construction state: FIRST TIER PUBLISHED. S06 wrote this page before any B2 code.
 S07 added the shared connector entry and the three family mappings, so a
 project's `check` accepts a `sqlite.table` source and PostgreSQL, MySQL and
@@ -36,9 +49,9 @@ aggregates in both modes with their native cells. S11 added
 `compile_query(dialect="sqlite")` and the `sqlite_file` route of
 [execution](#execution). S12 added the route's native qualification and,
 by its timing, the file cap of 128 MiB. R1 added the PostgreSQL replay,
-which passed, and S16 closed the tier; the second tier needs its own
-Gate 1 (PL.54, PL.58). Each slice edits the rows it lands.
-`0.2.2` is the first release that carries these forms (PL.55, PL.56);
+which passed, and S16 closed the tier; the second tier has its own
+Gate 1 (PL.54, PL.58, D78.14). Each slice edits the rows it lands.
+`0.2.2` carries the first tier's forms (PL.55, PL.56);
 `0.2.1` and earlier refuse a project `sqlite.table` with `PIE-S2306`
 `Unknown source connector: sqlite.table`.
 
@@ -68,10 +81,23 @@ enum and nested fields; `--literal-policy bind-safe`; arithmetic, `Float`
 `sum` and `avg`, text functions and `LIKE`, `string_agg`, `median` and
 `quantile`; JOINs and windows, which a later Gate 1 decides at the B2
 midpoint; schema-qualified or attached tables; query bundles, saved
-results, relay, jobs and R2; and any change to PostgreSQL, MySQL or DuckDB SQL
+results, relay, jobs and R2 recovery; and any change to PostgreSQL, MySQL or DuckDB SQL
 bytes, contracts or diagnostics beyond the refusal of a `sqlite.table` source
 that [compile refusals](#compile-refusals) states. No claim of parity across
 databases is made.
+
+Of the JOINs, arithmetic and windows, the second tier (D78.14) opens only
+the forms that its slices add to the table above, each when its slice
+lands, and leaves these closed: RIGHT, FULL and CROSS JOINs, `any` and
+`not any` reads, a JOIN to a query or relation `let`, an `on` other than
+equalities of two fields of one type, `Float` JOIN keys, relationship
+matches and single-match obligations; `Float` arithmetic, `/`, `%`,
+arithmetic that reads a parameter and arithmetic under a run-time guard;
+`qualify`, `lag`, `lead`, `ntile`, `first_value`, `last_value`,
+`nth_value`, `percent_rank`, `cume_dist`, a window `avg`, named windows,
+windows over grouped or joined rows, and a window `sum` in any frame other
+than one from `UNBOUNDED PRECEDING` to `CURRENT ROW` or
+`UNBOUNDED FOLLOWING`.
 
 ## Single files
 
@@ -618,6 +644,17 @@ their file with the extra and no skip. Hosted CI asserts the
 refusal of the native classes and runs the byte and golden tests
 everywhere.
 
+The second tier adds two campaigns under the first one's conditions and
+method (D78.14): R2 covers the new bytes of S14 and S15 that PostgreSQL
+project emission also writes, and R3 those of S13 and of S13 with S14. A
+window `count`, `min` or `max` of a `Float`, `count()` with no partition
+or order key, which takes only the empty window's frame, and the `Int`
+minimum written as one signed literal have no PostgreSQL project emission,
+so they have native cells only and no R2 entry; the owner ruled that their
+native
+cells alone open them (D78.15, D78.16). A `row_number` entry compares only
+results that do not depend on the order of peers.
+
 ## Usability
 
 | Spelling | Canonical form | Works with | Errors | Discoverability |
@@ -662,4 +699,5 @@ integration, one page at a time, in the route's single-writer order.
 
 | Item | Owner | Latest point |
 | --- | --- | --- |
+| The second tier's *derived* rows, stated as inform as each slice lands them: the new details, rule letters and suggestions of [compile refusals](#compile-refusals); the SQL rules it adds, such as the aliases `s0` to `sN` in input order, `COLLATE BINARY` at each `ON` equality and window key, the signed writing of a negative `Int` literal and the inline `OVER`; the functions that the route's authorizer adds; the detail of a duplicate declared key; and how the bounded read of a statement that joins sources measures its batches | The lead | Each batch's rows before that batch's push, with a decision row |
 | This page's *derived* rows, stated as inform: the `main` namespace, the `sqlite_` and dot refusals and `sqlite_table_name_mismatch`; the `relation_rows` scan; the storage kinds and domain spellings (`UTF-8`, `BINARY`); the premise values and `premise_not_admitted_on_target`; the limits `columns` 2,000, `parameters` 32,766 and the depth 500; the SQL rules (`s0`, backticks, `?N`); the closed order of compile refusals with its new details and suggestions; the two new single-file reasons | The lead | Settled: not stated by S08's seal ([Phase78 audit](../phases/phase-78/completion-audit.md#not-verified)); stated to the owner as inform on 2026-11-17 at about 08:20Z, before the `0.2.2` release commit, and recorded by D78.13 in the [decision record](../decisions.md) |

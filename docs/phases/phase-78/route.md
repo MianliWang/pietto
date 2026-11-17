@@ -19,7 +19,8 @@ the Gate 1 of the second vertical, B2 (PL.47); the [B2 route](#b2-route)
 binds its Gate 0, decisions, slices and rules, and Phase78 closes with B2's
 slice S16. S16 closes it with the [B2 record](#b2-record) and the
 [completion audit](completion-audit.md); B2's second tier goes to the
-owner's plan (PL.54, PL.58).
+owner's plan (PL.54, PL.58), and the [B2 second tier](#b2-second-tier)
+binds its own Gate 1 answers (D78.14) and route.
 
 Gate 0 binds the head and its natural CI. The route left the read of that CI's eligible health and alerts and the re-measured Phase77 overlap to the package's first implementation batch; B1 recorded neither, as the Q0 row of the [B1 record](#b1-record) states.
 
@@ -1087,3 +1088,162 @@ from the repository's records:
 Of the [deferred owners](#b2-deferred-owners), D78.12 is recorded and
 implemented by S11, and the third whole-tree test pass ran in batch 2
 (PL.49); the others keep their owners.
+
+## B2 second tier
+
+On 2026-11-17 the owner answered the Gate 1 of B2's second tier (D78.14):
+S13, INNER and LEFT JOINs of `sqlite.table` sources with their execution on
+the `sqlite_file` route; S14, range-proved `Int` arithmetic; and S15,
+windows over one source read; two PostgreSQL replays, R2 and R3; and the
+ledger P78T2. Its two batches are pushed under a standing authorization
+once the `0.2.2` release commit is pushed (PL.64 (3)), so the tier is not
+in `0.2.2`. The tier is done before the Phase82 freeze, which moves later
+if it must (PL.58 (4), D78.14 (1)). The
+[SQLite project specification](../../spec/sqlite-project-v1.md) holds the
+contract; this section binds the tier's Gate 0, slices, order, stop points,
+replays and budget.
+
+### B2 second tier starting point
+
+Gate 0 was first bound on 2026-11-17 to `6a0646b4` and, once the R1 and S16
+batch was published, rebound read-only at 08:01:48Z to `300f0a93`, tree
+`9fb0d7c3`, whose natural CI `44042698462` passed all 21 jobs. S14 and S15
+started from that head. Before the first batch integrated, `main` moved to
+`900e89156fe0136aef43b90bb2c750864cb6928b`, tree `54387606`, which adds
+JF's J1 (`a5bd2c8e`, PL.61, PL.62) and the decision record of the owner's
+answers; the first batch first integrated on it. Its natural exact-head CI
+`44166283520`, push/main attempt 1, passed all 21 jobs and finished at
+20:32:19Z. Its health, read through the owner's read-only token (PL.07),
+passed `verify_workflow_health` of that tree's `scripts/ci_workloads.py`
+over its 15 `ci-health` artifacts: status INSUFFICIENT_EVIDENCE with a
+WATCH screen, history available with 3 samples accepted, none rejected and
+none comparable, cost incomplete. Health is advisory.
+
+Before Gate 0, D78.14 (2) authorized offline probes; one probe script ran
+at 07:53Z on CPython 3.13.13 and 3.12.13 over memory databases. It ran
+again, byte for byte, on `900e8915`'s environment at 20:31Z: each
+interpreter's output equals its earlier one line for line, apart from
+3.12's line on the build triple, which now reads `true` where the earlier
+run could not import Pietto, and the two interpreters' outputs are equal
+apart from their environment lines. Both link SQLite `3.53.1` with the
+source id and the 46 compile options of `QUALIFIED_SQLITE`. The
+specification's differences rows rest on these probes and on the slices'
+native cells; only the native cells are qualification evidence.
+
+### B2 second tier slices
+
+Slice ids continue S13 to S15 as the Gate 1 named them; S13 splits into
+emission (S13a) and execution (S13b). Each slice is one commit, binds its
+exact base, write set, commands and acceptance when it is expanded, writes
+its own release-note fragment and opens each form in the rule that refused
+it (74-4). Each opened form names every entry point it reaches and has a
+cell on each (77-1).
+
+| Slice | Content | Write set | Checks and acceptance | Depends on | C/F/D/S |
+| --- | --- | --- | --- | --- | --- |
+| SP | The specification's second-tier rows, this section and D78.14 | `docs/spec/sqlite-project-v1.md`; this route; `docs/decisions.md` | `scripts/release_notes.py check`; `tests/test_repo_docs_links.py`, `tests/test_repo_release_notes_fragments.py`, `tests/test_repo_docs_examples.py` | Gate 0 | 1/10/200/0 |
+| S14 | `Int` `+`, `-`, `*`, unary `-` and `abs` in `select` and `where`, and all but `abs` as the argument of `avg` and `sum`; `check` refuses the rest of T4 b on every target, such as arithmetic in `having` or in the argument of `min` and `max` (D78.15); an interval proof in a new adapter module that reads only the contract's `int_range` and the plan's literals and imports no pipeline module (lead, an ARCHITECTURE_DECISION); rule 9b; rules 9, 10 and 35 rewritten | New `src/pietto/_project/project_sqlite_range.py`; `project_sqlite_emission.py`, `project_sqlite_sql.py`; the specification; its shared-page hunks; its fragment | `tests/test_sql_sqlite_project_emission.py`; native cells in `tests/test_sql_sqlite_native.py` at each operator's bounds and one past them, the minimum literal, `abs` of the minimum, a one-sided `sum` of a product and arithmetic in `where`; PostgreSQL, MySQL and DuckDB bytes unchanged; the import whitelist test | Gate 0 | 3/20/450/1 |
+| S15 | `row_number`, `rank` and `dense_rank`, a window `count`, `min` or `max`, and a window `sum` in the frames of D78.14 (4), over one source read; inline `OVER` with NULLS clauses and `COLLATE BINARY` at `Text` keys; the authorizer's three ranking functions; rules 5b and 5c | `project_sqlite_emission.py`, `project_sqlite_sql.py`; the authorizer's functions in `src/pietto/execution/_sqlite.py`; the specification; its shared-page hunks; its fragment | S14's owners; native cells for ties and NULL keys, `COLLATE NOCASE` keys, each frame's `count`, `min` and `max`, each admitted frame's `sum` at its bounds and one past, and refused sliding frames; a window query on the route over 1,048,576 rows inside the 20 s deadline | Gate 0, beside S14 | 4/25/650/1 |
+| R2 | PostgreSQL replay of the new bytes of S14 and S15 | A reviewed preregistration delta outside Git; a new fixture under `tests/fixtures/sqlite/` and its test | [Replays](#b2-second-tier-qualification-and-replay) | The first batch integrated; P2 | 2/10/300/0 |
+| S13a | The JOINs of D78.14 (3), with grouping and aggregates on joined rows; `single_matches` and `relationship_matches` stay refused; aliases `s0` to `sN`; rules 5 and 5a; `compile_query` writes the SQL | `project_sqlite_contract.py` (each source's contract), `project_sqlite_emission.py`, `project_sqlite_sql.py`; the specification; its shared-page hunks, `docs/project-package.md` among them; its fragment | Native cells for each JOIN kind, NULL keys, `COLLATE NOCASE` keys, self-joins, LEFT rows under a later `where` and grouping on joined rows; the adapters' fence of PL.62 (2) and a firewall that the adapter reads no JOIN `properties` | J1 on `main` (PL.61 (2)); its shared hunks after the first batch | 4/25/700/1 |
+| S13b | The route over a JOIN: every source table's defences and checks in the one read transaction, the authorizer over every source table, the bounded read and the uniqueness check of D78.14 (5) and (6) | `src/pietto/execution/_sqlite.py`, `project_sqlite_result.py`; `docs/execution.md`; the specification's execution section; `README.md`; the diagnostics rows | `tests/test_execution_api_sqlite_file.py`: each source's bad objects and values; two tables joined on a key; a fan-out past `max_rows`; errors after the stop; duplicate keys refused, `-0.0` and `0.0` as one key, keys that differ only in case on a `COLLATE NOCASE` column delivered; a JOIN without aggregates not scanned; two tables near 128 MiB timed with the check | S13a | 4/25/650/1 |
+| R3 | PostgreSQL replay of the new bytes of S13 and of S13 with S14 | As R2 | As R2 | S13a; P2 | 2/10/300/0 |
+| C | Closeout: this section's record, the roadmap's freeze-ledger row and deferral table, the status page, the fragments' known limitations, the lessons and the acquisition review | As listed | Documentation owners; CI health | R3, S13b | 1/10/250/0 |
+| Integration | Per batch: rebase, integration, a one-round audit, repairs and Gate 2 | — | The repository-wide owners and the AD78.03 firewall on the integrated tree (72-2); Pyright over the tests too (72-1) | Each batch | 6/40/800/0 |
+
+The first batch is SP, S14, S15 and R2, the second S13a, S13b, R3 and C.
+They publish together as one batch, each slice one commit, with one Gate 2
+of the final tree on the integration host with
+`--pietto-sqlite-class=qualified` (D78.07) and one natural CI on its head.
+
+### B2 second tier order and stop points
+
+The lead fixes the order; a later arrival rebases.
+
+- **Adapter and specification.** S14, S15 and S13a change
+  `project_sqlite_emission.py` and `project_sqlite_sql.py`, and every slice
+  changes the specification. S14 and S15 were written in parallel from
+  `300f0a93`; they integrate as SP, S14, S15, then S13a, each rebased onto
+  the one before, new files first and shared hunks last (75-4).
+- **Execution route.** S15 changes only the authorizer's functions in
+  `src/pietto/execution/_sqlite.py`, before S13b.
+- **Shared pages and tests** keep the B2 rule of one writer at a time;
+  `docs/spec/diagnostics.md` is written apart from Phase81's diagnostic
+  review (P03, PL.58). S13a's firewall follows J1's fence in
+  `tests/test_repo_static_checks.py`.
+- **Hot files.** No slice is expected to touch the plan's
+  `project_sql_plan_target_assessment.py` and
+  `project_sql_plan_pure_boundary.py` or the results'
+  `project_result_binding.py` and `project_execution_reader.py`.
+
+| Stop | Where | Who decides |
+| --- | --- | --- |
+| P0 | Before the first batch integrates: Gate 0's CI, its health and the probe's second run | The lead |
+| P1 | Before the first batch integrates: the specification's *derived* rows checked | The lead, who informs the owner |
+| P2 | Before each replay's freeze: the Docker Engine's endpoint and the slot locks | The lead |
+| P3 | The midpoint, after the first batch integrates and before S13a writes a shared hunk | See below |
+| P4 | Before S13a writes code, J1 on `main` | The owner, through JF |
+| P5 | A ledger ceiling after PL.15; a form beyond D78.14; a change to the plan layer or the PostgreSQL or MySQL pipeline; a new code or a public text outside the specification's tables; a looser defence; a hot file | The owner |
+| P6 | A batch's push: after its Gate 2 passes and the `0.2.2` release commit is pushed, under D77.06's conditions; a failed natural CI stops for a new child commit | The lead, under PL.64 (3) |
+
+**Midpoint (P3).** Each form of S14 and S15 emits with reviewed bytes or
+refuses with its listed text; R2's result; the probe's second run against
+the first; P78T2's measured rate projects the tier and records whether
+PL.15 raised a figure; the newest published head's CI health is read; the
+state of JF, `0.2.2`, DuckDB's second tier, E4B and Phase81, and the
+distance to Phase82's Gate 1. From these the lead judges whether S13 is
+done before the planned freeze and, if not, asks the owner whether the
+freeze moves or the scope narrows (D78.14 (1)). The record goes into this
+section (80-5).
+
+### B2 second tier qualification and replay
+
+Native cells follow the [B2 rules](#b2-qualification-and-replay) under
+CPython 3.13.13 and 3.12.13. R2 and R3 each follow R1's conditions and
+method (D78.08, D78.10, D78.11): the pinned PostgreSQL 18.6 image on the
+Docker Engine, never another runtime in its place, one owned container with
+`--pull=never --network none` holding one of the three PostgreSQL slot
+locks, two hours summed over a campaign's attempts as an outer limit, and
+no MySQL run. Each preregistration delta derives from R1's frozen package,
+is reviewed before it freezes and is checked with its real launch command
+and arguments (77-4); the engine's endpoint is read before dispatch
+(77-5).
+
+- **R2** covers S14's arithmetic in `select`, `where` and the arguments
+  of `avg` and `sum` at the bounds, a one-sided `sum` that reaches the
+  maximum included; and S15's rankings with ties and NULL keys, each
+  frame's `count`, `min` and `max` of an `Int`, and each admitted frame's
+  `sum` up to the bounds. The cells one past the bounds and an overflowing
+  `sum` stay SQLite controls, as in R1, and the three forms that PostgreSQL
+  project emission does not write have native cells only and no entry,
+  which the owner ruled enough to open them (D78.15, D78.16).
+- **R3** covers S13's JOINs (INNER, LEFT, NULL keys, self-joins, grouping
+  and aggregates on joined rows) and the bytes of S13 with S14; `COLLATE
+  NOCASE` keys run natively with their base cell's oracle and have no R3
+  entry.
+- A `row_number` entry compares only results that do not depend on the
+  order of peers. R1's declared differences `ZERO_SIGN` and `AVG_ORDER`
+  carry over; a new difference is written before the freeze, never after
+  the run.
+- Each campaign's fixture is a new file under `tests/fixtures/sqlite/`
+  with a test that binds the bytes it ran, as R1's does. An entry of R1 or
+  of `postgres_replay_v1.json` is reused only while its bytes, fixture
+  rows, oracle and carriers are unchanged (D78.10).
+- A campaign ends with its first run that ends `PASS` or `FAILED`; void
+  attempts are kept and charged to P78T2; a `FAILED` campaign runs again
+  only after its integrity audit finds a judge defect and an erratum is
+  written. A campaign beyond R2 and R3 needs the owner.
+
+### B2 second tier budget
+
+P78T2 is the tier's cumulative ledger, `C40/F200/D5,000/S5`, counted from
+zero and covered by PL.15 (D78.14 (8)). The slice allocations above sum to
+`C27/F175/D4,330/S4` beside Gate 0's own work; the rebases while the
+batches wait for `0.2.2`, about D100 each, are not in them. These are
+ceilings and planning figures, not targets. The lead keeps the running
+ledger, and each lane reports its commands (D, D76.17) and pytest starts
+(F).
+
+### B2 second tier record
+
+C writes this record; the midpoint's goes here too (80-5).
