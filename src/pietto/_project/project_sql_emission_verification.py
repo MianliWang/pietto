@@ -2343,8 +2343,11 @@ def _mysql_guarded_argument(realization) -> bool:
     )
 
 
-def _aggregate_result_realization(family, function, argument, retained):
-    """Independently re-derive one aggregate result's own physical realization."""
+def _aggregate_result_realization(
+    family, function, argument, retained, *, staged=False
+):
+    """Independently re-derive one aggregate result's own physical realization;
+    ``staged``: its aggregation reads a stage, not the source scan."""
     tag, nullable = retained
     if function in grouping.ORDERED_VALUE_FUNCTIONS:
         # One row's value as it is: the argument's carrier, NULL where that
@@ -2541,9 +2544,16 @@ def _aggregate_result_realization(family, function, argument, retained):
     carrier = argument.realization
     if tag != carrier.tag or nullable is not True:
         raise ValueError("extrema result domain")
+    # MySQL's MIN or MAX of a SMALLINT or INT over a stage is cast to SIGNED.
+    widened = (
+        family == "mysql"
+        and staged
+        and carrier.tag == "Int"
+        and carrier.storage in ({"kind": "my_smallint"}, {"kind": "my_int"})
+    )
     return rows.Realization(
         carrier.tag,
-        carrier.storage,
+        {"kind": "my_signed_int"} if widened else carrier.storage,
         True,
         carrier.domain,
         carrier.proven_int_range,
@@ -2865,8 +2875,10 @@ def _verify_aggregate_body(
         retained = grouping.result_value(value.source)
         if retained is None:
             raise ValueError("aggregate result logical type evidence")
+        # The body reads a stage, not the source scan.
+        staged = type(body.scan) is not RowScan
         expected = _aggregate_result_realization(
-            request.family, function, argument, retained
+            request.family, function, argument, retained, staged=staged
         )
         if (
             type(column) is not grouping.AggregateValueColumn
@@ -2882,7 +2894,7 @@ def _verify_aggregate_body(
             # a VAR_SAMP is cast to float8 once, under its SQRT; a float8 SUM
             # is not cast.
             or column.result_cast
-            != grouping.result_cast(request.family, function, argument)
+            != grouping.result_cast(request.family, function, argument, staged=staged)
             or (column.delimiter is not None)
             is not (function in {"string_agg", "quantile", "filtered_sum"})
             or bool(column.order_by) is not (function in grouping.ORDERED_FUNCTIONS)
@@ -5227,10 +5239,21 @@ def resolved_set_column_realization(
     domain = dict(first.domain)
     proofs = []
     if tag == "Int":
-        widths = {rows.INT_WIDTHS.get(r.realization.storage["kind"]) for r in reads}
+        kinds = {r.realization.storage["kind"] for r in reads}
+        # On MySQL a my_signed_int joins SMALLINT, INT or BIGINT operands of one
+        # width as itself, in any order; MySQL types the column BIGINT.
+        if "my_signed_int" in kinds and kinds <= {
+            "my_signed_int",
+            "my_smallint",
+            "my_int",
+            "my_bigint",
+        }:
+            kinds.discard("my_signed_int")
+            storage = {"kind": "my_signed_int"}
+        widths = {rows.INT_WIDTHS.get(kind) for kind in kinds}
         bounds = [rows.int_bounds(r.realization) for r in reads]
         proofs = [rows.proven_int_bounds(r.realization) for r in reads]
-        if None in widths or len(widths) != 1 or any(b is None for b in bounds):
+        if None in widths or len(widths) > 1 or any(b is None for b in bounds):
             raise ValueError("set int width")
         low = min(b[0] for b in bounds if b is not None)
         high = max(b[1] for b in bounds if b is not None)

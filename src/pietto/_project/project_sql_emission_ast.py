@@ -2443,6 +2443,7 @@ def realize_rows(request):
                     uses,
                     reference_type=reference_type,
                     symbol=SQLSymbol,
+                    staged=type(scan) is not RowScan,
                     ranked=ranked,
                 )
                 if built is None:

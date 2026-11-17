@@ -207,7 +207,8 @@ def test_positions_labels_and_arity_are_set_owned(target):
 
 @pytest.mark.parametrize("target", TARGETS)
 def test_domains_keep_exact_representations_and_refuse_mismatches(target):
-    """C18: no common type, no widening. A PostgreSQL Float compares in every
+    """C18: no common type, no widening but R22's MySQL my_signed_int (see
+    the my_signed_int tests below). A PostgreSQL Float compares in every
     form; MySQL keeps Float to UNION ALL (its INTERSECT/EXCEPT keep -0.0 and 0.0
     apart, and its deduplicating hash does so beside a wide key)."""
     decimal = emit(target, "S_set_domains", "decimal_intersect_all")
@@ -718,3 +719,136 @@ def test_mysql_float_union_distinct_columns_keep_their_refusal(tmp_path, name):
     campaign judged PRIMITIVE_OBSERVATION_ONLY, wide keys, other clauses,
     inputs and select lists), and the program emits on PostgreSQL."""
     float_cells.assert_key_refused(tmp_path, name)
+
+
+# R22's one MySQL widening (owner 2026-11-18). Query `a` over the R08 `nums`
+# world: a MySQL my_signed_int with its declared range and its PostgreSQL width
+# in bits. An INT `i` or SMALLINT `s` MIN read through a WHERE or a query
+# that ends in limit (which MySQL materializes) keeps the field's width on
+# PostgreSQL; a literal, an Int operation or a sign is int8 there.
+SIGNED_OPERANDS = {
+    "where_int_min": (
+        "query a:\n    from nums\n    where id > 3\n    group by j\n"
+        "    select:\n        lo = min(i)\n",
+        (-(1 << 31), (1 << 31) - 1),
+        32,
+    ),
+    "where_smallint_min": (
+        "query a:\n    from nums\n    where id > 3\n    group by j\n"
+        "    select:\n        lo = min(s)\n",
+        (-(1 << 15), (1 << 15) - 1),
+        16,
+    ),
+    "limit_int_min": (
+        "query l:\n    from nums\n    select:\n        i\n    limit 5\n"
+        "query a:\n    from l\n    select:\n        lo = min(i)\n",
+        (-(1 << 31), (1 << 31) - 1),
+        32,
+    ),
+    "literal": ("query a:\n    from nums\n    select:\n        lo = 1\n", (1, 1), 64),
+    "int_plus_one": (
+        "query a:\n    from nums\n    select:\n        lo = i + 1\n",
+        (-(1 << 31) + 1, 1 << 31),
+        64,
+    ),
+    "smallint_negated": (
+        "query a:\n    from nums\n    select:\n        lo = -t\n",
+        (-(1 << 15) + 1, 1 << 15),
+        64,
+    ),
+}
+# Query `b`'s body over `nums`: an INT, SMALLINT or BIGINT field, or the INT
+# MIN read straight from the source, and its width in bits.
+WIDTH_OPERANDS = {
+    "int_field": ("    select:\n        lo = i\n", 32),
+    "smallint_field": ("    select:\n        lo = s\n", 16),
+    "bigint_field": ("    select:\n        lo = b\n", 64),
+    "source_min": ("    group by j\n    select:\n        lo = min(i)\n", 32),
+}
+STAGED = ("where_int_min", "where_smallint_min", "limit_int_min")
+
+
+def signed_set(signed, other, form="union all", swapped=False):
+    """`result`, the SET `form` of query `a` (SIGNED_OPERANDS) and `b`."""
+    operands = ("b", "a") if swapped else ("a", "b")
+    return (
+        f"{SIGNED_OPERANDS[signed][0]}query b:\n    from nums\n"
+        f"{WIDTH_OPERANDS[other][0]}query result:\n    {form}:\n"
+        + "".join(f"        from {name}\n" for name in operands)
+    )
+
+
+def assert_signed_column(tmp_path, body, signed, other):
+    """On MySQL the column is a my_signed_int over both ranges and every
+    reader accepts it; on PostgreSQL only operands of one width set."""
+    _, mysql = probe.division_world(tmp_path / "mysql", "mysql", body)
+    probe.numeric_readers_accept(mysql)
+    column = json.loads(serialize_project_sql_emission(mysql))["columns"][-1]
+    _, (low, high), pg_bits = SIGNED_OPERANDS[signed]
+    bits = WIDTH_OPERANDS[other][1]
+    assert column["representation"]["storage"] == {"kind": "my_signed_int"}
+    assert column["representation"]["domain"] == {
+        "kind": "int_range",
+        "min": str(min(low, -(1 << (bits - 1)))),
+        "max": str(max(high, (1 << (bits - 1)) - 1)),
+    }
+    _, postgres = probe.division_world(tmp_path / "postgres", "postgres", body)
+    if pg_bits == bits:
+        probe.numeric_readers_accept(postgres)
+    else:
+        assert [(b.code, b.detail) for b in postgres.blockers] == [
+            ("PIE-B1002", "set_column_physical_representation_mismatch")
+        ]
+
+
+@pytest.mark.parametrize("swapped", (False, True))
+@pytest.mark.parametrize(
+    "signed,other",
+    [(signed, other) for signed in STAGED for other in sorted(WIDTH_OPERANDS)]
+    + [
+        (signed, other)
+        for signed in ("literal", "int_plus_one", "smallint_negated")
+        for other in ("int_field", "smallint_field")
+    ],
+)
+def test_a_mysql_signed_int_unions_with_one_other_width(
+    tmp_path, signed, other, swapped
+):
+    """R22: on MySQL a UNION ALL of a my_signed_int (a staged INT or SMALLINT
+    extreme, a literal, an Int operation of unknown nullability, a sign) and
+    a SMALLINT, INT or BIGINT column is a my_signed_int over both ranges, in
+    either operand order, and every reader accepts it."""
+    body = signed_set(signed, other, swapped=swapped)
+    assert_signed_column(tmp_path, body, signed, other)
+
+
+@pytest.mark.parametrize("kind,quantifier", FORMS[1:])
+@pytest.mark.parametrize("signed", ("where_int_min", "int_plus_one"))
+def test_a_mysql_signed_int_widens_in_every_set_form(
+    tmp_path, signed, kind, quantifier
+):
+    """R22's MySQL widening is the same in UNION DISTINCT, INTERSECT and
+    EXCEPT, beside a SMALLINT column; PostgreSQL refuses each."""
+    body = signed_set(signed, "smallint_field", f"{kind} {quantifier}")
+    assert_signed_column(tmp_path, body, signed, "smallint_field")
+
+
+@pytest.mark.parametrize(
+    "operands", (("i", "b"), ("s", "i"), ("a", "i", "b"), ("b", "a", "s"))
+)
+def test_other_mysql_int_widths_still_do_not_union(tmp_path, operands):
+    """Only a my_signed_int joins another MySQL width: an INT beside a
+    BIGINT or SMALLINT field, and `a`, a staged INT extreme, beside two
+    other widths, stay BLOCKED in any order."""
+    body = SIGNED_OPERANDS["where_int_min"][0] + "".join(
+        f"query f{name}:\n    from nums\n    select:\n        lo = {name}\n"
+        for name in operands
+        if name != "a"
+    )
+    body += "query result:\n    union all:\n" + "".join(
+        f"        from {'a' if name == 'a' else 'f' + name}\n" for name in operands
+    )
+    _, outcome = probe.division_world(tmp_path, "mysql", body)
+    assert [(b.code, b.detail) for b in outcome.blockers] == [
+        ("PIE-B1002", "set_column_physical_representation_mismatch")
+    ]

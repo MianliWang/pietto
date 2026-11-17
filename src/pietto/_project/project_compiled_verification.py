@@ -6240,7 +6240,12 @@ def _verify_compiled_emission(artifact, request):
                     column.argument_cast
                     == grouping.argument_cast(request.family, function, column.argument)
                     and column.result_cast
-                    == grouping.result_cast(request.family, function, column.argument),
+                    == grouping.result_cast(
+                        request.family,
+                        function,
+                        column.argument,
+                        staged=record.get("input").kind != "source",
+                    ),
                     "EMISSION_AGGREGATE_CAST",
                 )
                 origin = column.column.aggregate

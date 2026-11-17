@@ -1518,7 +1518,27 @@ Float set form, a window `percent_rank` or `cume_dist` result included. On
 MySQL it keeps UNION ALL only for such a result, and it refuses Float INTERSECT
 and EXCEPT (MySQL compares `-0.0` and `0.0` as different values there) and
 UNION DISTINCT (MySQL kept them apart beside a wide key), and keeps UNION
-ALL.
+ALL. Project emission keeps an `Int` set column only when its operands have
+one physical width, and refuses one whose operands differ with PIE-B1002
+`set_column_physical_representation_mismatch`, with one MySQL exception: a
+`my_signed_int` operand, a computed signed 64-bit `Int` such as a `min` or
+`max` of a `SMALLINT` or `INT` read through a stage (see
+[Aggregates](#aggregates-and-grouping)), an `Int` operation or an integer
+literal, also joins `SMALLINT`, `INT` or `BIGINT` operands of one width,
+which MySQL types `BIGINT`. The column is then a `my_signed_int` over the
+operands' merged range, whatever the operand order. No other common type is
+inferred: an `INT` beside a `BIGINT` or `SMALLINT` column, and a
+`my_signed_int` beside two other widths, stay refused. On PostgreSQL such an
+extreme keeps the field's width: one of it and a column of that width is
+admitted, and one of it and a `bigint` column is refused. A known MySQL
+limit: a `row_number`, `rank`, `dense_rank` or `ntile` result is a
+`my_bigint` that MySQL returns as `BIGINT UNSIGNED`, and computes an `Int`
+operation over one as unsigned too. A set column of such a value beside a
+signed 64-bit operand (a `my_signed_int`, a `BIGINT` column) or, through
+this widening, beside a `SMALLINT` or `INT` column, is admitted, but MySQL
+returns it as `DECIMAL` or fails with error 1690, so `execute` on
+`mysql_rows` fails closed with PIE-R3005 `EXECUTION_METADATA`; it never
+returns wrong rows.
 PIE-S2342 covers unavailable inputs/width, PIE-S2343 exact types/Decimal, and
 PIE-S2344 required row equivalence. Failed sets keep their original admission
 causes; only successful exact owners retire PIE-S2334.
@@ -4481,7 +4501,20 @@ outside that cell,
 `-` it reads no query header parameter (PIE-S2355); `abs` of a `Float` or
 `Decimal` keeps its argument's carrier. It also admits `avg(Int)` for a direct
 Int input with `int_range` evidence, casting that input to the target Float
-carrier before aggregation. Empty and all-NULL inputs remain NULL. PostgreSQL
+carrier before aggregation. Empty and all-NULL inputs remain NULL. A project
+`min` or `max` keeps its argument's carrier, except that on MySQL one of a
+`SMALLINT` or `INT` that its aggregation reads through a stage (a WHERE, a
+`let`, another query or a JOIN), not straight from the source, is emitted as
+`CAST(MIN(x) AS SIGNED)` and is a `my_signed_int` with the argument's range:
+MySQL returns such an extreme over a stage it merges as `BIGINT`; over one
+it materializes, such as a query that ends in `limit`, it keeps the column's
+type, and the cast makes both `BIGINT`. A set operation therefore reads it
+as a 64-bit `Int`, as the set operation rules above state. Read straight
+from a source that is a MySQL view, such an extreme keeps the field's
+carrier and no cast, as Pietto cannot tell a view from a table, but MySQL
+returns it as `BIGINT`, so `execute` on `mysql_rows` fails closed with
+PIE-R3005 `EXECUTION_METADATA`, as in `0.2.1`; read through a stage over
+that view, such as a WHERE, it is cast and runs. PostgreSQL
 single-file and project SQL emission emit `sum(Int)` as
 `CAST(SUM(CAST(x AS pg_catalog.int8)) AS pg_catalog.int8)`: the
 sum accumulates exactly and its result is a nullable `Int` over the whole
