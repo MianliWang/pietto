@@ -3295,6 +3295,145 @@ def _json_value(text):
         return None
 
 
+def _reads_a_parameter(records, function, address):
+    """Whether this argument of aggregate ``function`` reads a query
+    parameter, below an operation or through a `let:` value, which
+    compile_query refuses (PIE-S2355) except through a `let:` name that is
+    the whole argument of `count`, `avg`, `min` or `max`."""
+    if address.kind == "read" and function in ("count", "avg", "min", "max"):
+        return False
+    address = _let_value(records, address)
+    return address.kind == "parameter_read" or (
+        address.kind == "operation"
+        and any(
+            _reads_a_parameter(records, None, o)
+            for o in records[address].get("operands")
+        )
+    )
+
+
+def _let_value(records, address):
+    """What ``address`` holds when it reads a `let:` name of its own
+    statement: the `let:` value, through the stages that carry it on;
+    ``address`` itself for a read of an input field or any other record."""
+    if address.kind != "read":
+        return address
+    owner = records[records[records[address].get("use")].get("consumer")].get("owner")
+    while address.kind == "read":
+        port = records[records[address].get("port")]
+        stage = port.get("owner")
+        if stage.kind not in ("row", "window") or records[stage].get("owner") != owner:
+            break
+        if port.get("source").kind != "read" and (
+            stage.kind != "row" or records[stage].get("stage") != "let"
+        ):
+            break
+        address = port.get("source")
+    return address
+
+
+def _reads_a_let_value(records, address):
+    """Whether ``address`` reads a computed `let:` value of its own statement,
+    itself or below its operations. compile_query refuses a `let:` name
+    inside an aggregate argument's own operation (PIE-S2333) and as an
+    aggregate order key (PIE-S2104, PIE-S2333); an alias `let:` name reads
+    as the field it renames, a known equivalence of that field's form."""
+    if address.kind == "operation":
+        return any(
+            _reads_a_let_value(records, o) for o in records[address].get("operands")
+        )
+    return address.kind == "read" and _let_value(records, address).kind != "read"
+
+
+def _source_argument(records, function, argument):
+    """Whether compile_query admits this aggregate argument: the semantic
+    shape law (`is_supported_semantic_aggregate_argument_expression`)
+    restated over the records, without building a source expression. A read
+    is a field, a literal or a query parameter a constant (PIE-S2355 is
+    `_reads_a_parameter`'s), and a row operation an operator or call over
+    them; any other record is no admitted form. A `let:` name that is the
+    whole argument is its value, as the semantic layer expands it, except
+    under `min` and `max`, which read the name as a field; a computed
+    `let:` value inside the argument's own operation is no admitted form
+    (`_reads_a_let_value`)."""
+    from pietto.semantic.aggregates import (
+        is_supported_count_argument,
+        is_supported_numeric_argument,
+    )
+    from pietto.semantic.model import TypeKind
+
+    def leaves(address, unary, binary, calls):
+        """The reads and constants below ``address``, a `let:` value already
+        followed, through these operators and one-argument calls, following
+        each operand's `let:` value; None for any other form."""
+        if address.kind != "operation":
+            return (records[address],)
+        role, token = records[address].get("operator")
+        operands = tuple(
+            _let_value(records, o) for o in records[address].get("operands")
+        )
+        if not (
+            (role, len(operands)) == ("unary", 1)
+            and token in unary
+            or (role, len(operands)) == ("binary", 2)
+            and token in binary
+            and (
+                # An arithmetic `null` has no type of its own (count's law).
+                token in ("and", "or")
+                or all(o.kind != "null_literal" for o in operands)
+            )
+            or (role, len(operands)) == ("scalar_call", 1)
+            and token in calls
+        ):
+            return None
+        found = tuple(leaves(o, unary, binary, calls) for o in operands)
+        return None if None in found else sum(found, ())
+
+    def builtin(*names):
+        resolved = argument.value_type.resolved_type
+        return resolved.kind is TypeKind.BUILTIN and resolved.name in names
+
+    address = argument.address
+    if address.kind == "operation" and _reads_a_let_value(records, address):
+        return False
+    if function not in ("min", "max"):
+        address = _let_value(records, address)
+    if address.kind == "read":
+        return True
+    if function in ("sum", "avg"):
+        found = leaves(address, ("+", "-"), ("+", "-", "*"), ())
+        if not found or all(r.address.kind != "read" for r in found):
+            return False
+        constants = tuple(r for r in found if r.address.kind != "read")
+        if not constants:
+            return is_supported_numeric_argument(argument.value_type)
+        return builtin("Int", "Float") and all(
+            r.address.kind == "literal"
+            and type(r.get("value").value) in (int, float)
+            or r.address.kind == "parameter_read"
+            and records[r.get("parameter")].get("tag") in ("Int", "Float")
+            for r in constants
+        )
+    if function == "count":
+        found = leaves(
+            address,
+            ("+", "-"),
+            ("+", "-", "*", "%", "and", "or"),
+            ("lower", "trim", "len"),
+        )
+        kinds = ("read", "literal", "null_literal", "parameter_read")
+        return (
+            bool(found)
+            and any(r.address.kind == "read" for r in found)
+            and all(r.address.kind in kinds for r in found)
+            and is_supported_count_argument(argument.value_type)
+        )
+    if function == "count_distinct":
+        found = leaves(address, (), (), ("lower", "trim"))
+        return builtin("Text") and found is not None and found[0].address.kind == "read"
+    return function == "string_agg" and builtin("Text")
+
+
 def _ordered_value_type(records, record, typed):
     """The result type of one compiled aggregate value: a `first` or `last` of
     an aggregation without GROUP BY may read an empty input, which gives None;
@@ -3746,6 +3885,13 @@ def derive_compiled_semantics(root, values, parameters=None):
                     function, len(operands)
                 ):
                     raise CompiledError("COMPILED_AGGREGATE_SIGNATURE")
+                if any(
+                    _reads_a_parameter(records, function, o) for o in operands
+                ) or any(
+                    _reads_a_let_value(records, records[o].get("value"))
+                    for o in get("order_by")
+                ):
+                    raise CompiledError("COMPILED_AGGREGATE_ARGUMENT")
                 # A MySQL distinct-tuple count reads only in a paired form (only
                 # S11's hold one).
                 paired = (
@@ -3810,6 +3956,14 @@ def derive_compiled_semantics(root, values, parameters=None):
                         function, tuple(item.value_type for item in inputs)
                     )
                 else:
+                    # Each field of a distinct-tuple count is an argument.
+                    members = (
+                        operands if function == "count_distinct_tuple" else operands[:1]
+                    )
+                    if not all(
+                        _source_argument(records, function, facts[o]) for o in members
+                    ):
+                        raise CompiledError("COMPILED_AGGREGATE_ARGUMENT")
                     if (
                         physical_required
                         and function != "string_agg"
@@ -4022,6 +4176,9 @@ def derive_compiled_semantics(root, values, parameters=None):
                 value_reads = tuple(
                     a for role, a in get("arguments") if role == "value"
                 )
+                if any(_reads_a_let_value(records, a) for a in value_reads):
+                    # A window's value is a field (an alias `let:` reads as one).
+                    raise CompiledError("COMPILED_WINDOW_ARGUMENT")
                 argument = facts[value_reads[0]] if value_reads else None
                 typed = resolved_result_type(
                     function, None if argument is None else argument.value_type, static
@@ -5241,6 +5398,16 @@ def verify_compiled_semantics(value):
                     and grouping.signature_arity(function, len(inputs)),
                     "SEMANTIC_AGGREGATE_SIGNATURE",
                 )
+                need(
+                    not any(
+                        _reads_a_parameter(records, function, i.address) for i in inputs
+                    )
+                    and not any(
+                        _reads_a_let_value(records, records[o].get("value"))
+                        for o in get("order_by")
+                    ),
+                    "SEMANTIC_AGGREGATE_ARGUMENT",
+                )
                 # A MySQL distinct-tuple count reads only in a paired form (only
                 # S11's hold one).
                 paired = (
@@ -5265,6 +5432,16 @@ def verify_compiled_semantics(value):
                     )
                 argument = inputs[0] if inputs else None
                 delimiter = inputs[1] if len(inputs) > 1 else None
+                need(
+                    function in grouping.FILTERED_FUNCTIONS
+                    or all(
+                        _source_argument(records, function, member)
+                        for member in (
+                            inputs if function == "count_distinct_tuple" else inputs[:1]
+                        )
+                    ),
+                    "SEMANTIC_AGGREGATE_ARGUMENT",
+                )
                 if physical_required and function == "string_agg":
                     need(
                         argument is not None
@@ -5497,6 +5674,10 @@ def verify_compiled_semantics(value):
                     function, get("arguments"), records, family
                 )
                 reads = tuple(a for role, a in get("arguments") if role == "value")
+                need(
+                    not any(_reads_a_let_value(records, a) for a in reads),
+                    "SEMANTIC_WINDOW_ARGUMENT",
+                )
                 argument = by_address[reads[0]] if reads else None
                 typed = resolved_result_type(
                     function, None if argument is None else argument.value_type, static
