@@ -1468,6 +1468,7 @@ def _r2_inputs(query):
 
 _PARAMETER_VALUES = {
     "Int": 1,
+    "Float": 0.5,
     "Timestamp": datetime.datetime(2020, 1, 2, 3, 4, 5),
     "Date": datetime.date(2020, 1, 2),
     "Decimal": decimal.Decimal("1.50"),
@@ -1587,6 +1588,9 @@ PHASE77_MYSQL_FORMS = {
     "E4B_fields": ("e4bc", _pietto_sql_emission.E4BC_FORMS["EC4L"]),
     "E4B_nested": ("e4bc", _pietto_sql_emission.E4BC_FORMS["EC5W"]),
     "E4B_count": ("e4bc", _pietto_sql_emission.E4BC_FORMS["EC6M"]),
+    # A Float header parameter beside a field, in a `let` and in a WHERE.
+    "E4B_parameter_let": ("e4bc", _pietto_sql_emission.E4BC_FORMS["EPL1"]),
+    "E4B_parameter_where": ("e4bc", _pietto_sql_emission.E4BC_FORMS["EPW3"]),
 }
 # A neighbour of each that 0.1.11 already compiled, R2's cross JOIN of the
 # public journey, and an R01 class U form, with the R2 refusal each keeps.
@@ -1835,6 +1839,14 @@ def test_mysql_r2_refuses_an_e4b_order_key_by_its_comparison_domain(tmp_path):
     assert _r2_refusals(query) == (("PIE-R1004", "REFINEMENT_COMPARISON_DOMAIN"),) * 2
     _save, recovered = _r2_refusals(query, parameters={"x": 1})
     assert recovered == _UNQUALIFIED
+
+
+def test_mysql_r2_refuses_an_e4b_computed_key_as_a_computed_key(tmp_path):
+    """MC E4B's P8: R2 refuses a computed `let` GROUP BY key before its last
+    check, so a P8 form keeps that refusal."""
+    query = _world_query(tmp_path, "e4bc", _pietto_sql_emission.E4BC_FORMS["EC8N"])
+    assert query._main_emits is False
+    assert _r2_refusals(query) == (("PIE-R1004", "PUBLIC_R2_COMPUTED_GROUP_KEY"),) * 2
 
 
 def test_mysql_r2_checks_the_form_after_its_other_checks(tmp_path):

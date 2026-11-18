@@ -989,9 +989,9 @@ two fields (`x + w`, `x - x`) or a nesting (`(x * 2.0) + 1.0`,
 `x * (w + 1.0)`, `-(-x)`); two levels of nesting, two inner operations, an
 operation without a field and a `let` name as an operand stay refused. The
 statement is a `query` or `table` that reads one source of its own module,
-with no JOIN, window, HAVING, DISTINCT, LIMIT, header parameter (read or
-not), upstream query, relation alias, unread window or bind-safe `?`, and
-its clauses make one of these shapes:
+with no JOIN, window, HAVING, DISTINCT, LIMIT, header parameter other than
+the operands below, upstream query, relation alias, unread window or
+bind-safe `?`, and its clauses make one of these shapes:
 
 - an operation as a whole SELECT item with no WHERE (`r = x + w`), wide
   ones included;
@@ -1009,7 +1009,24 @@ its clauses make one of these shapes:
 - `count` of a nullable narrow operation, or of a `+` or `-` of two fields
   of which one is nullable, beside GROUP BY keys that are fields, with no
   WHERE (`group by g`, `n = count(x - w)`), or of a narrow one under a WHERE
-  of a narrow one (`where x * 2.0 > 1.0`, `n = count(w * 2.0)`).
+  of a narrow one (`where x * 2.0 > 1.0`, `n = count(w * 2.0)`);
+- one or two `let` values of narrow operations as GROUP BY keys in an S07
+  form (`let k = w * 2.0`, `group by k`, `k`, `n = count()`), with no WHERE
+  and no other `let`: each key stands for its operation's field, and the
+  statement with each key replaced by that field must be one of the S07
+  forms that [Float values](#float-values) lists, so the fields differ and
+  give the carriers of an S07 key set.
+
+An operand beside the field may also be a `Float` header parameter
+(`query result(p: Float | None)`, `r = p + x`, `let t = x - p`,
+`where y + p > 1.0`) of `+`, `-` or a nesting under `-`, in the shapes that
+take a wide operation. It is the statement's one header parameter, read once
+and nowhere else, and a value nullable only through a nullable parameter
+(`p + y`) stays refused, since no field has its nullability. A parameter
+beside an inner operation (`(x * 2.0) + p`), an operation with one under
+anything but a `-` (`(x + p) + 1.0`), a second header parameter, read or
+not, and a second read stay refused, and so does a `*` beside a parameter:
+the guard would render the parameter's one read three times.
 
 Every `let` is read, and every one by the WHERE when there is one; the
 select list reads fields, those `let`s, or the GROUP BY keys and `count`s.
@@ -1025,9 +1042,10 @@ ORDER BY key beside an operation item, a field key beside a `let` key,
 three `let`s, a wide operation in any other shape, `count` of a non-null
 value, of a nesting or of a product of two fields, `count` beside an
 aggregate other than such a `count` (`count()`, `max(y)`), ordered or under
-a WHERE that compares no operation, and any clause above; a parameter
-operand, a computed `let` GROUP BY key and a JOIN row stay refused in this
-slice.
+a WHERE that compares no operation, a computed key under a WHERE, beside
+another `let`, of a wide operation or standing for a field another key
+reads, a parameter beside a computed key or a `count`, and any clause
+above; a JOIN row stays refused in this slice.
 
 ## Sources and relations
 

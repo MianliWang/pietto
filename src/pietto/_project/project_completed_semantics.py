@@ -2986,11 +2986,14 @@ def _compiled_float_key_cell(records):
     are the source's and the statement's relations and the source's types (a
     unique key's shape, a field's type arguments), none with a `let`, the
     only literals are the connector's and those type arguments, and the
-    bundle holds no other record kind (_FLOAT_KEY_KINDS). None outside every
-    cell. A
-    relation alias `let`, an unused named window or an inlined `def`, which
-    emission refuses, changes the records only in source positions, so this
-    reader cannot tell it from the direct program."""
+    bundle holds no other record kind (_FLOAT_KEY_KINDS). MC E4B's P8 also
+    puts a `let` row per computed key between the source and the aggregate:
+    each computes one narrow operation of compiled replay's E4B law
+    (rows.mysql_compiled_float_statement) with a `let` literal, and its key
+    reads that operation's field instead (E4B's law, item 4). None outside
+    every cell. A relation alias `let`, an unused named window or an inlined
+    `def`, which emission refuses, changes the records only in source
+    positions, so this reader cannot tell it from the direct program."""
     from pietto._project import project_sql_emission_rows as physical
 
     by_kind: dict[str, list] = {}
@@ -3001,13 +3004,21 @@ def _compiled_float_key_cell(records):
     aggregates = by_kind.get("aggregate", [])
     values = by_kind.get("aggregate_value", [])
     declarations = by_kind.get("declaration", [])
+    lets = [row for row in rows if row.get("stage") == "let"]
+    cells = (
+        physical.mysql_compiled_float_statement(records, records[entries[0].address])
+        if lets and len(entries) == 1
+        else frozenset()
+    )
     if (
-        not set(by_kind) <= _FLOAT_KEY_KINDS
+        not set(by_kind) <= _FLOAT_KEY_KINDS | ({"operation"} if lets else set())
         or len(aggregates) != 1
         or len(values) != 1
         or len(sources) != 1
-        or len(rows) != 1
+        or len(rows) != 1 + len(lets)
         or len(entries) != 1
+        or lets
+        and not cells
         or [item.get("namespace") for item in declarations].count("relation") != 2
         or any(
             item.get("namespace") not in ("relation", "type")
@@ -3017,12 +3028,13 @@ def _compiled_float_key_cell(records):
         or any(
             record.get("site") not in records
             or records[record.get("site")].get("role")
-            not in ("connector", "type_argument")
+            not in ("connector", "type_argument", *(("let",) if lets else ()))
             for record in by_kind.get("literal", ())
         )
     ):
         return None
-    source, projection = sources[0], rows[0]
+    source = sources[0]
+    (projection,) = [row for row in rows if row.get("stage") != "let"]
     aggregate, value = aggregates[0], values[0]
     keys, outputs = aggregate.get("keys"), aggregate.get("outputs")
 
@@ -3039,19 +3051,39 @@ def _compiled_float_key_cell(records):
             and read.get("port") == port
         )
 
-    def field(item):
-        # A direct read of a source port: (port address, field record).
-        read = records.get(item)
-        if read is None or read.address.kind != "read" or read.get("role") != "value":
-            return None
-        port = records.get(read.get("port"))
-        if port is None or port.get("owner") != source.address:
-            return None
-        return port.address, records.get(port.get("source"))
+    def field(item, computed=True):
+        # A read of a source port, directly or through the `let` rows' ports,
+        # or of a computed key's operation's one field: (port, field record).
+        for _ in range(len(lets) + 1):
+            read = records.get(item)
+            if (
+                read is None
+                or read.address.kind != "read"
+                or read.get("role") != "value"
+            ):
+                return None
+            port = records.get(read.get("port"))
+            if port is None:
+                return None
+            if port.get("owner") == source.address:
+                return port.address, records.get(port.get("source"))
+            if port.get("owner") not in {row.address for row in lets}:
+                return None
+            item = port.get("source")
+            if item is not None and item.kind == "operation":
+                reads = [
+                    operand
+                    for operand in records[item].get("operands")
+                    if operand.kind == "read"
+                ]
+                if not computed or item not in cells or len(reads) != 1:
+                    return None
+                return field(reads[0], False)
+        return None
 
     if (
         aggregate.get("mode") != "grouped"
-        or aggregate.get("input") != source.address
+        or aggregate.get("input") != (lets[-1] if lets else source).address
         or not 0 < len(keys) <= 3
         or aggregate.get("values") != (value.address,)
         or value.get("function") != "count"

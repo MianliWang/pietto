@@ -40,10 +40,9 @@
 - Native evidence: these forms open only on E4B's chain B qualification, its raw
   stage over MySQL `DOUBLE` and its emitted stage over this change's SQL,
   each on PostgreSQL 18.6 and MySQL 8.4.12.
-- Beyond the MySQL cadence under J12 (3): E4B's later positions, a
-  parameter operand, a computed `let` GROUP BY key and a whole-column item
-  on a JOIN row, wait for its later slices; a JOIN `on` keeps its refusal
-  (owner, O1 (a)).
+- Beyond the MySQL cadence under J12 (3): E4B's later position, a
+  whole-column item on a JOIN row, waits for its later slice; a JOIN `on`
+  keeps its refusal (owner, O1 (a)).
 
 Changed diagnostics (programs refused in `0.2.1`; no accepted program
 changes; MySQL projects, no message text changed):

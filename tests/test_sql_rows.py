@@ -3024,14 +3024,21 @@ def test_e4s_refusals_that_e4b_opens_emit(tmp_path, shape):
 @pytest.mark.parametrize("target", ("postgres", "mysql"))
 @pytest.mark.parametrize("form", sorted(probe.E4BC_FORMS))
 def test_mysql_e4b_chain_c_forms_emit_and_every_reader_accepts(tmp_path, form, target):
-    """E4B's P4-P6: two DOUBLE fields and one level of nesting as a whole
-    item, a `let` value, a WHERE comparison or an ORDER BY key, and `count`
-    of a nullable operation, grouped by fields or under a WHERE, emit on
-    MySQL. Both families emit the pinned SQL, every reader accepts it, and
-    the operations' evidence is PostgreSQL's."""
-    checked, outcome = probe.e4bc_world(tmp_path, target, probe.E4BC_FORMS[form])
+    """E4B's P4-P8: two DOUBLE fields, one level of nesting and a Float
+    header parameter beside a field as a whole item, a `let` value, a WHERE
+    comparison or an ORDER BY key; `count` of a nullable operation, grouped
+    by fields or under a WHERE; and computed `let` GROUP BY keys in S07's
+    shape, emit on MySQL. Both families emit the pinned SQL, every reader
+    accepts it (a template bound to several values), and the operations'
+    evidence is PostgreSQL's."""
+    body = probe.E4BC_FORMS[form]
+    checked, outcome = probe.e4bc_world(tmp_path, target, body)
     assert checked.verified
-    probe.numeric_readers_accept(outcome)
+    if "result(" in body:
+        values = [(0.5,), (-0.0,), (5e-324,), (1e308,)]
+        probe.parameter_readers_accept(outcome, values + [(None,)] * ("| None" in body))
+    else:
+        probe.numeric_readers_accept(outcome)
     assert outcome.artifact is not None
     assert outcome.artifact.rendered.sql.decode() == probe.E4BC_FORM_SQL[form, target]
     document = json.loads(serialize_project_sql_emission(outcome))
@@ -3123,3 +3130,48 @@ def test_a_mysql_e4b_count_argument_keeps_its_literals_under_bind_safe(tmp_path)
         assert verify_project_sql_emission(artifact, artifact.request).verified
         sql[policy] = artifact.rendered.sql
     assert sql["preserve_literals"] == sql["bind_safe_literals"]
+
+
+@pytest.mark.parametrize("form", sorted(f for f in probe.E4BC_FORMS if "EC8" in f))
+def test_mysql_e4b_computed_keys_are_s07_cells_of_their_fields(tmp_path, form):
+    """P8: each computed `let` key stands for its operation's field (PREREG
+    Law, item 4), so the statement is the S07 cell of its substituted keys,
+    as emission, compiled replay and the pure boundary each derive it."""
+    import _pietto_sql_emission_portable as portable
+    from pietto._project.project_compiled_build import build_compiled
+    from pietto._project.project_completed_semantics import _compiled_float_key_cell
+    from pietto._project import project_compiled_schema as wire
+
+    body = probe.E4BC_FORMS[form]
+    _, outcome = probe.e4bc_world(tmp_path, "mysql", body)
+    artifact = outcome.artifact
+    assert artifact is not None
+    keys = body.split("    group by ", 1)[1].split("\n", 1)[0].split(", ")
+    carriers = {"x": "F", "w": "F", "u": "F", "y": "H", "v": "H", "kn": "N"}
+    lets = dict(
+        line.strip()[4:].split(" = ", 1)
+        for line in body.splitlines()
+        if line.startswith("    let ")
+    )
+    expected = (
+        "group",
+        tuple(
+            carriers[
+                key
+                if key not in lets
+                else next(f for f in ("x", "y", "w", "v", "u") if f in lets[key])
+            ]
+            for key in keys
+        ),
+    )
+    assert rows.mysql_float_key_cell(artifact.request) == expected
+    records = {
+        record.address: record
+        for record in wire.decode(build_compiled(artifact).payload).records
+    }
+    assert _compiled_float_key_cell(records) == expected
+    exported = portable.export_emission_observation(artifact, artifact.request)
+    assert exported.canonical_bytes is not None
+    view = pure.parse_emission_observation(exported.canonical_bytes).view
+    assert view is not None
+    assert pure._mysql_float_key_cell(pure._Doc(dict(view.records))) == expected
