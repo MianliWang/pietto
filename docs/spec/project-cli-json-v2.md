@@ -566,7 +566,8 @@ the `arithmetic_operator` role (` * `). The same operations in MC E4B's
 cells, which the [language page](../language.md#mysql-float-wider-cells)
 states, of two fields or one level of nesting included, as a whole item, a
 `let` value, a side of a WHERE comparison, an ORDER BY key, a `count`
-argument or a computed `let` GROUP BY key, carry the same evidence,
+argument, a computed `let` GROUP BY key or a whole item on a JOIN row,
+carry the same evidence,
 storage, domain and spelling, `*` under the same guard and roles with an
 inner operation read as its own SQL in place of `x` or `y`; a `Float`
 header parameter operand beside a field is read as `CAST(? AS DOUBLE)`, as

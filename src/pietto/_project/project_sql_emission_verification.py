@@ -1504,7 +1504,10 @@ def _row_realization(request, expression, operands, operand_values):
         and not (
             operator == "*"
             and any(type(value) is rows.SQLParameterRead for value in operand_values)
-        ),
+        )
+        # E4B P9, by this reader's own law: the JOIN, its inputs and `on`,
+        # and the operation's place.
+        and _mysql_float_join(request.plan, expression),
         # This reader's own S17 pairing check.
         paired=tag == "Decimal" and pairing.project_form(request) is not None,
     )
@@ -1596,6 +1599,93 @@ def _mysql_float_shape(values, inner=False) -> bool:
                 for value in nested
                 for item in value.operands
             )
+        )
+    )
+
+
+def _mysql_float_join(plan, operation) -> bool:
+    """Independent E4B P9 law: a statement with no JOIN, or one INNER or LEFT
+    JOIN of two inputs that each read a source binding of the plan directly
+    (no upstream query), every binding of the query's own module, in a body
+    that declares no `let` (so no alias of a source, nor a self-join through
+    one) and reads no block (no `any`), where ``operation`` is the whole
+    value of a SELECT item, so that none stands in the `on` or the WHERE.
+    Its `on` is one `==` of an Int or a Text field of each input, or, with
+    no WHERE, S06's tree: a Float `==` of a field of each input, or under
+    INNER `not` over their `!=`, then `and` one `==` of a Text field of each
+    at most."""
+
+    from pietto._project.module_catalog import authored_definitions
+
+    if not plan.joins:
+        return True
+    owner = plan.scope.selected_owner
+    module = plan.scope.completed.semantic_result.modules[owner.module_position]
+    authored = authored_definitions(module)[owner.declaration_position]
+    sources = {binding.ref for binding in plan.sources}
+    if (
+        len(plan.joins) != 1
+        or plan.joins[0].kind not in ("inner", "left")
+        or not sources.issuperset(item.producer for item in plan.join_inputs)
+        or any(binding.module is not module for binding in plan.sources)
+        or getattr(authored, "naming_declarations", None) != ()
+        or plan.expression_block_uses
+        or all(item.expression is not operation.ref for item in plan.projections)
+    ):
+        return False
+    inner = plan.joins[0].kind == "inner"
+
+    def at(ref):
+        position = getattr(ref, "position", None)
+        if type(position) is not int or not 0 <= position < len(plan.expressions):
+            return None
+        found = plan.expressions[position]
+        return found if found.ref is ref else None
+
+    def pair(expression, operator, tags) -> bool:
+        if (
+            type(expression) is not row.ProjectSQLComparison
+            or expression.expression.operator != operator
+        ):
+            return False
+        sides = (at(expression.left), at(expression.right))
+        inputs = [
+            next(
+                (
+                    port.input
+                    for port in plan.join_ports
+                    if port.ref is getattr(side, "port", None)
+                ),
+                None,
+            )
+            for side in sides
+        ]
+        return (
+            all(type(side) is row.ProjectSQLMatchReference for side in sides)
+            and None not in inputs
+            and inputs[0] is not inputs[1]
+            and rows.value_tag(sides[0]) == rows.value_tag(sides[1])
+            and rows.value_tag(sides[0]) in tags
+        )
+
+    def float_key(expression) -> bool:
+        if (
+            type(expression) is row.ProjectSQLUnary
+            and expression.expression.operator == "not"
+        ):
+            return inner and pair(at(expression.operand), "!=", ("Float",))
+        return pair(expression, "==", ("Float",))
+
+    on = at(plan.joins[0].on)
+    return (
+        pair(on, "==", ("Int", "Text"))
+        or not plan.filters
+        and (
+            float_key(on)
+            or type(on) is row.ProjectSQLBinary
+            and on.expression.operator == "and"
+            and float_key(at(on.left))
+            and pair(at(on.right), "==", ("Text",))
         )
     )
 

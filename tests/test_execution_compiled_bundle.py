@@ -8326,9 +8326,10 @@ _E4_PLACE_FORGED = (
 def test_forged_mysql_float_cells_fail_every_later_reader(tmp_path, monkeypatch, shape):
     """An artifact of a shape outside E4's cell, its operands' or its
     place's, emitted and live-verified while every MySQL Float operation
-    counts as a cell, fails plain verification and the live template once
-    the law is back, and compiled replay, its template and the pure
-    boundary, each from its own input."""
+    counts as a cell and plain verification's E4B JOIN law takes any JOIN,
+    fails plain verification and the live template once the laws are back,
+    and compiled replay, its template and the pure boundary, each from its
+    own input."""
     import _pietto_sql_emission_portable as portable
     import _pietto_sql_emission_pure_boundary as pure
     from pietto._project import project_sql_emission_rows as rows
@@ -8343,6 +8344,7 @@ def test_forged_mysql_float_cells_fail_every_later_reader(tmp_path, monkeypatch,
     with monkeypatch.context() as patch:
         patch.setattr(rows, "mysql_float_arithmetic_cell", lambda *_: True)
         patch.setattr(verification, "_mysql_float_shape", lambda _: True)
+        patch.setattr(verification, "_mysql_float_join", lambda *_: True)
         _, outcome = _pietto_sql_emission.float_world(
             tmp_path, "mysql", _pietto_sql_emission.E4_REFUSALS[shape]
         )
@@ -8509,7 +8511,13 @@ def _e4b_records(tmp_path, form):
     form, or of a chain C statement written out."""
     from pietto._project.project_compiled_build import build_compiled
 
-    chain = "e4bc" if form in _pietto_sql_emission.E4BC_FORMS or "\n" in form else "e4b"
+    chain = (
+        "e4bc"
+        if form in _pietto_sql_emission.E4BC_FORMS or "\n" in form
+        else "e4bj"
+        if form in _pietto_sql_emission.E4BJ_FORMS
+        else "e4b"
+    )
     _, outcome = getattr(_pietto_sql_emission, chain + "_world")(
         tmp_path,
         "mysql",
@@ -8669,6 +8677,9 @@ _E4B_UNFORGEABLE = {
     "plus": "PIE-B1008",
     "division": "PIE-B1003",
     "int_literal": "PIE-B1003",
+    # Chain B's JOIN over an alias `let`, which P9's own JOIN law in plain
+    # verification refuses.
+    "join": "PIE-B1008",
 }
 # A relation alias or an unread window leaves the records and document of
 # the direct read beside each, which the plan's readers alone refuse
@@ -9221,3 +9232,312 @@ def test_the_mysql_compiled_e4b_law_refuses_one_parameter_read_used_twice(
     field, _ = records[second].get("operands")
     edited = _record_edit(second, operands=(field, read))(records)
     assert rows.mysql_compiled_float_statement(edited, edited[query]) == frozenset()
+
+
+@pytest.mark.parametrize("form", sorted(_pietto_sql_emission.E4BJ_FORMS))
+def test_the_mysql_compiled_and_pure_e4b_join_laws_find_each_cell(tmp_path, form):
+    """Compiled replay's and the pure boundary's P9 laws each find exactly
+    the form's operation items over the JOIN row, from their own input."""
+    import _pietto_sql_emission_pure_boundary as pure
+    from pietto._project import project_sql_emission_rows as rows
+
+    records, query, artifact = _e4b_records(tmp_path, form)
+    assert rows.mysql_compiled_float_join_statement(records, records[query]) == {
+        address
+        for address, record in records.items()
+        if address.kind == "operation"
+        and record.get("logical")[0] == "Float"
+        and not (
+            record.get("operator") == ("unary", "-")
+            and record.get("operands")[0].kind == "literal"
+        )
+    }
+    doc = pure._Doc(_e4b_document(artifact))
+    assert pure._mysql_float_join_statement(doc) == {
+        ref
+        for ref in doc.all("sql_operation")
+        if doc[doc[ref]["realization"]]["tag"] == "Float"
+    }
+
+
+# Chain J's `on` neighbours outside the law's: a Float or Text ordering
+# comparison, under a WHERE or not, a comparison with a literal, an `or`, a
+# second key or an ordering beside an Int key, a `not` over an Int `!=` and a
+# key of one input.
+_E4BJ_ON = (
+    "float_order_on",
+    "float_order_on_where",
+    "float_order_on_fields",
+    "float_order_on_sign",
+    "float_literal_on",
+    "text_order_on",
+    "or_on",
+    "literal_on",
+    "key_and_float_order_on",
+    "two_keys_on",
+    "negated_key_on",
+    "one_input_key_on",
+)
+# Chain J neighbours whose forged artifact another rule refuses first, by
+# the blocker code it reports instead: a label too long, an ORDER BY of an
+# item and a GROUP BY beside the JOIN (main's JOIN rules), and DISTINCT over
+# the Float item (a comparison domain).
+_E4BJ_UNFORGEABLE = {
+    "p9_long_label": "PIE-B1002",
+    "ordered": "PIE-B1003",
+    "grouped": "PIE-B1003",
+    "distinct": "PIE-B1003",
+}
+# JOIN inputs that leave the records and document of EJ1's direct read, an
+# alias `let` of a source and a source of another module, which the plan's
+# readers alone refuse, and the query's own source again through an alias
+# `let`, whose bundle compiled build refuses in this world
+# (test_a_forged_mysql_e4b_join_alias_fails_the_plan_readers_only).
+_E4BJ_PLAN_READERS_ONLY = ("alias_input", "imported_input", "self_join_alias")
+# Every other chain J neighbour, each of which each later reader refuses
+# from its own input: a nesting, a `-` of two fields, two fields under a
+# WHERE on an Int or a Text JOIN, an operation in the `on`, an operation, a
+# sign or an `any` in the WHERE, a WHERE beside each S06 Float-keyed JOIN, a
+# Float key beside an Int key, a `not` over a Float `!=` under LEFT, a RIGHT
+# JOIN, an upstream input, a `let`, a header parameter, ORDER BY a field,
+# LIMIT, a literal item beside the operation, the S06 forms over S06's
+# expression bound and the `on` neighbours above among them.
+_E4BJ_FORGED = tuple(
+    sorted(
+        set(_pietto_sql_emission.E4BJ_REFUSALS)
+        - set(_E4BJ_UNFORGEABLE)
+        - set(_E4BJ_PLAN_READERS_ONLY)
+    )
+)
+# Chain J neighbours that plain verification's own P9 law refuses alone,
+# with both of emission's cell functions (E4's and S06's) taking every
+# MySQL Float operation and Float row comparison: a WHERE beside each S06
+# Float-keyed JOIN, a Float key beside an Int key, a RIGHT JOIN, a `not`
+# over a Float `!=` under LEFT, an input that is an upstream query, an
+# alias `let`, the query's own source again through one or a source of
+# another module, an operation, a sign or an `any` in the WHERE, and an `or`
+# of the S06 Float key and a Text key (which _E4BJ_ON's harness, with S06's
+# cell function in place, would refuse by S06's cell).
+_E4BJ_VERIFIER_ALONE = (
+    "where_beside_float_key",
+    "negated_float_key_where",
+    "left_float_key_where",
+    "float_text_keys_where",
+    "float_key_and_int_key",
+    "right_join",
+    "left_not_ne",
+    "upstream_input",
+    "alias_input",
+    "self_join_alias",
+    "imported_input",
+    "operation_in_where",
+    "sign_in_where",
+    "any_in_where",
+    "float_or_text_on",
+)
+
+
+def _forged_document(raw):
+    """A document's records as the pure boundary decodes them before it
+    judges them, so its laws can be asked of a document it refuses."""
+    import _pietto_sql_emission_pure_boundary as pure
+
+    value = json.loads(
+        raw,
+        object_pairs_hook=pure._pairs,
+        parse_int=pure._raw_int,
+        parse_float=pure._raw_float,
+        parse_constant=pure._raw_float,
+    )
+    records, _, _, _ = pure._decode(value)
+    return pure._Doc(records)
+
+
+@pytest.mark.parametrize("shape", sorted((*_E4BJ_FORGED, *_E4BJ_UNFORGEABLE)))
+def test_forged_mysql_e4b_join_cells_fail_every_later_reader(
+    tmp_path, monkeypatch, shape
+):
+    """An artifact of a chain J neighbour, emitted while every MySQL Float
+    operation and Float row comparison counts as a cell and plain
+    verification takes any operands, fails plain verification once the laws
+    are back, and compiled replay and (without a header parameter) the pure
+    boundary, each from its own input; the P9 law of each of those two holds
+    no operation of it, so it refuses the statement alone, beside its own
+    S06 law. An unforgeable neighbour reports its other rule's code."""
+    import _pietto_sql_emission_portable as portable
+    import _pietto_sql_emission_pure_boundary as pure
+    from pietto._project import project_sql_emission_rows as rows
+    from pietto._project import project_sql_emission_verification as verification
+    from pietto._project.project_compiled_build import build_compiled
+    from pietto._project.project_compiled_lowering import emit_compiled
+
+    with monkeypatch.context() as patch:
+        patch.setattr(rows, "mysql_float_arithmetic_cell", lambda *_: True)
+        patch.setattr(rows, "mysql_float_cell", lambda *_: ("inner", "none", "=="))
+        patch.setattr(verification, "_mysql_float_shape", lambda *_: True)
+        patch.setattr(verification, "_mysql_float_join", lambda *_: True)
+        _, outcome = _pietto_sql_emission.e4bj_world(
+            tmp_path, "mysql", _pietto_sql_emission.E4BJ_REFUSALS[shape]
+        )
+        artifact = outcome.artifact
+        if shape in _E4BJ_UNFORGEABLE:
+            assert artifact is None
+            assert {b.code for b in outcome.blockers} == {_E4BJ_UNFORGEABLE[shape]}
+            return
+        assert artifact is not None, outcome.blockers
+        observed = portable.export_emission_observation(artifact, artifact.request)
+        loaded = _numeric_loaded(artifact)
+        description = wire.decode(build_compiled(artifact).payload)
+    assert not verification.verify_project_sql_emission(
+        artifact, artifact.request
+    ).verified
+    with pytest.raises(wire.CompiledError, match="^COMPILED_PHYSICAL_DOMAIN$"):
+        emit_compiled(loaded, ())
+    records = {record.address: record for record in description.records}
+    query = records[description.query]
+    assert rows.mysql_compiled_float_join_statement(records, query) == frozenset()
+    if artifact.request.plan.parameters:
+        assert observed.canonical_bytes is None
+        return
+    assert observed.canonical_bytes is not None
+    doc = _forged_document(observed.canonical_bytes)
+    assert pure._mysql_float_join_statement(doc) == frozenset()
+    refused = pure.parse_emission_observation(observed.canonical_bytes)
+    assert refused.status is pure.Status.INVALID_RELATION
+    assert refused.detail in {
+        "MySQL Float arithmetic cell",
+        "MySQL Float row comparison cell",
+    }
+
+
+@pytest.mark.parametrize("shape", _E4BJ_ON)
+def test_each_mysql_e4b_join_on_law_refuses_alone(tmp_path, monkeypatch, shape):
+    """P9's `on` law stands in emission and in plain verification alone: with
+    emission's cell function taking every MySQL Float operation, plain
+    verification's own law still refuses an `on` outside the law's
+    (PIE-B1008 plan_ast_correspondence); with that law taking any `on`,
+    emission still reports main's blockers."""
+    from pietto._project import project_sql_emission_rows as rows
+    from pietto._project import project_sql_emission_verification as verification
+
+    body = _pietto_sql_emission.E4BJ_REFUSALS[shape]
+    with monkeypatch.context() as patch:
+        patch.setattr(rows, "mysql_float_arithmetic_cell", lambda *_: True)
+        _, outcome = _pietto_sql_emission.e4bj_world(tmp_path / "v", "mysql", body)
+    assert outcome.status == "BLOCKED" and outcome.artifact is None
+    assert [(b.code, b.detail) for b in outcome.blockers] == [
+        ("PIE-B1008", "plan_ast_correspondence")
+    ]
+    monkeypatch.setattr(verification, "_mysql_float_join", lambda *_: True)
+    _, outcome = _pietto_sql_emission.e4bj_world(tmp_path / "e", "mysql", body)
+    assert [(b.code, b.detail) for b in outcome.blockers] == [
+        (code, detail)
+        for code, detail, _, _ in _pietto_sql_emission.E4BJ_REFUSAL_BLOCKERS[shape]
+    ]
+
+
+@pytest.mark.parametrize("shape", _E4BJ_VERIFIER_ALONE)
+def test_each_mysql_e4b_join_law_refuses_alone_in_plain_verification(
+    tmp_path, monkeypatch, shape
+):
+    """P9's JOIN law stands in plain verification alone: with emission's E4
+    and S06 cell functions taking every MySQL Float operation and Float row
+    comparison, its own law still refuses the JOIN kind, the inputs, the
+    `on` beside a WHERE and the operation's place (PIE-B1008
+    plan_ast_correspondence); emission's statement law holds no operation
+    of the statement, and with plain verification's JOIN law taking any
+    statement, emission still reports main's blockers."""
+    from pietto._project import project_sql_emission_rows as rows
+    from pietto._project import project_sql_emission_verification as verification
+
+    body = _pietto_sql_emission.E4BJ_REFUSALS[shape]
+    checked, _ = _pietto_sql_emission.e4bj_world(tmp_path / "s", "mysql", body)
+    assert rows.mysql_float_statement(checked.plan) == frozenset()
+    with monkeypatch.context() as patch:
+        patch.setattr(rows, "mysql_float_arithmetic_cell", lambda *_: True)
+        patch.setattr(rows, "mysql_float_cell", lambda *_: ("inner", "none", "=="))
+        _, outcome = _pietto_sql_emission.e4bj_world(tmp_path / "v", "mysql", body)
+    assert outcome.status == "BLOCKED" and outcome.artifact is None
+    assert [(b.code, b.detail) for b in outcome.blockers] == [
+        ("PIE-B1008", "plan_ast_correspondence")
+    ]
+    monkeypatch.setattr(verification, "_mysql_float_join", lambda *_: True)
+    _, outcome = _pietto_sql_emission.e4bj_world(tmp_path / "e", "mysql", body)
+    assert [(b.code, b.detail) for b in outcome.blockers] == [
+        (code, detail)
+        for code, detail, _, _ in _pietto_sql_emission.E4BJ_REFUSAL_BLOCKERS[shape]
+    ]
+
+
+@pytest.mark.parametrize("shape", _E4BJ_PLAN_READERS_ONLY)
+def test_a_forged_mysql_e4b_join_alias_fails_the_plan_readers_only(
+    tmp_path, monkeypatch, shape
+):
+    """A JOIN input that is an alias `let` of a source or a source of another
+    module, forged as above, fails plain verification and the live template
+    only: its SQL is the direct read's (emitted with the laws in place), and
+    its records and document differ from that read's only in source
+    positions and the source digest, so compiled replay, its template and
+    the pure boundary take it (NUMERIC_ALIASES' rule). The query's own
+    source again through an alias `let` fails compiled build in this world
+    (COMPILED_EXPORT_SOURCE_BINDING), so compiled replay never reads it, and
+    the pure boundary refuses its document."""
+    import _pietto_sql_emission_portable as portable
+    import _pietto_sql_emission_pure_boundary as pure
+    from pietto._project import project_sql_emission_rows as rows
+    from pietto._project import project_sql_emission_verification as verification
+    from pietto._project.project_execution_template import (
+        BindingError,
+        prepare_compiled_template,
+        prepare_live_template,
+    )
+    from pietto._project.project_compiled_lowering import emit_compiled
+
+    body = _pietto_sql_emission.E4BJ_REFUSALS[shape]
+    with monkeypatch.context() as patch:
+        patch.setattr(rows, "mysql_float_arithmetic_cell", lambda *_: True)
+        patch.setattr(rows, "mysql_float_cell", lambda *_: ("inner", "none", "=="))
+        patch.setattr(verification, "_mysql_float_shape", lambda *_: True)
+        patch.setattr(verification, "_mysql_float_join", lambda *_: True)
+        _, outcome = _pietto_sql_emission.e4bj_world(tmp_path, "mysql", body)
+        artifact = outcome.artifact
+        assert artifact is not None, outcome.blockers
+        observed = portable.export_emission_observation(artifact, artifact.request)
+        if shape == "self_join_alias":
+            with pytest.raises(
+                wire.CompiledError, match="^COMPILED_EXPORT_SOURCE_BINDING$"
+            ):
+                _numeric_loaded(artifact)
+            loaded = None
+        else:
+            loaded = _numeric_loaded(artifact)
+    assert not verification.verify_project_sql_emission(
+        artifact, artifact.request
+    ).verified
+    with pytest.raises(BindingError, match="^BINDING_ARTIFACT$"):
+        prepare_live_template(artifact)
+    assert observed.canonical_bytes is not None
+    if loaded is None:
+        refused = pure.parse_emission_observation(observed.canonical_bytes)
+        assert (refused.status, refused.detail) == (
+            pure.Status.INVALID_RELATION,
+            "MySQL Float arithmetic cell",
+        )
+        return
+    direct = _pietto_sql_emission._e4b(
+        "query",
+        "f6o",
+        _pietto_sql_emission._E4BJ_INNER,
+        "select:",
+        "    oid = f6o.id",
+        "    r = f6o.v * 2.0",
+    )
+    _, read = _pietto_sql_emission.e4bj_world(tmp_path / "direct", "mysql", direct)
+    assert read.artifact is not None, read.blockers
+    assert artifact.rendered.sql == read.artifact.rendered.sql
+    assert emit_compiled(loaded, ()).rendered.sql == artifact.rendered.sql
+    prepare_compiled_template(loaded)
+    assert (
+        pure.parse_emission_observation(observed.canonical_bytes).status
+        is pure.Status.OK
+    )

@@ -889,7 +889,9 @@ followed by `and` one `==` of a NOT NULL binary `Text` key of width 64 or
 1000 on each side. The query holds nothing else: no other expression,
 clause, JOIN or upstream query, no header parameter, no `let` (a relation
 alias such as `let i = items` included, read or not), no named window and no
-`def` call. Its other SELECT items read a non-null `Int` (BIGINT) field, and
+`def` call, outside the whole SELECT items of `Float` arithmetic that MC E4B
+admits over its JOIN forms ([E4B's cells](#mysql-float-wider-cells)). Its
+other SELECT items read a non-null `Int` (BIGINT) field, and
 beside a WHERE or a JOIN also a nullable Float field. Its sources have,
 selected or not (the CTE of a WHERE or a JOIN writes them all), exactly the
 fields of the qualification's tables in their order: a non-null `Int`
@@ -1064,7 +1066,32 @@ value, of a nesting or of a `+`, `-` or `*`, `count` beside an aggregate
 other than such a `count` (`count()`, `max(y)`), ordered or under a WHERE,
 a computed key under a WHERE, beside another `let`, of a wide operation or
 standing for a field another key reads, a parameter beside a computed key
-or a `count`, and any clause above; a JOIN row stays refused in this slice.
+or a `count`, and any clause above.
+
+On a JOIN row an E4B operation stands only as a whole SELECT item: a narrow
+one, or with no WHERE a `+` or `*` of two fields, over the row of one INNER
+or LEFT JOIN of two sources of the query's own module, with no `let`, header
+parameter, GROUP BY, ORDER BY, DISTINCT or LIMIT, and no `Float` arithmetic
+in the `on` or the WHERE (`inner join f6i on f6i.id == f6o.id`, `r = f6o.v *
+f6i.v`). The JOIN is computed first and the item above it, so a row the
+JOIN or the WHERE drops is never computed. The `on` is one `==` of an `Int`
+field of each source or of a `Text` field of each, under a WHERE with no
+`Float` operation and no `any` or none, or with no WHERE one of the S06
+`Float`-keyed JOIN forms of [Float values](#float-values); with each item
+replaced by its first field of the item's nullability the statement must
+be one MySQL emits. S06's cell also bounds the statement itself to nine
+expressions beyond one per SELECT item, so over `not (!=)` beside a `Text`
+key the items may hold one sign of a field at most, and over `==` beside a
+`Text` key one `+`, `-` or `*` of two fields or over an unsigned literal,
+or two signs; a statement over that bound keeps its blocker. Every other
+JOIN keeps its blockers: a nesting or a `-` of two fields on its row, two
+fields under a WHERE, another SELECT item that is neither a field nor such
+an item (`c = 2.0`), a `Float` operation in the `on` (PL.68) or the WHERE,
+an `any` in the WHERE, any other `on`, such as a `Float` or `Text` ordering
+comparison (`on f6i.v < f6o.v`), a comparison with a literal, an `or`, a
+second condition beside an `Int` or `Text` key or a `not` over one, a WHERE
+beside a `Float`-keyed JOIN, a `let`, a header parameter, a RIGHT JOIN and
+any clause above.
 
 ## Sources and relations
 

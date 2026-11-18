@@ -1209,10 +1209,15 @@ def _mysql_float_cell(doc, ref):
     operations = doc.all("sql_operation")
     artifacts = doc.all("artifact")
     anti = doc.all("sql_any_read")
+    # MC E4B's P9: SELECT items that are E4B operations over the JOIN row,
+    # each read as one of its fields (PREREG Law, item 4).
+    computed = _mysql_float_join_statement(doc)
     if (
         not set(doc.kinds)
-        <= _MYSQL_FLOAT_CELL_KINDS | (_MYSQL_FLOAT_ANTI_KINDS if anti else set())
-        or len(operations) > 4
+        <= _MYSQL_FLOAT_CELL_KINDS
+        | (_MYSQL_FLOAT_ANTI_KINDS if anti else set())
+        | ({"sql_anchor", "sql_literal", "sql_unary"} if computed else set())
+        or len(operations) > 4 + len(computed)
         or len(artifacts) != 1
     ):
         return None
@@ -1253,7 +1258,30 @@ def _mysql_float_cell(doc, ref):
             if keys is None:
                 return None
         shape = (join["join_kind"], place)
-        selected = tuple(doc[column]["value"] for column in body["columns"])
+        selected = []
+        for column in body["columns"]:
+            value = doc[column]["value"]
+            if value in computed:
+                fields = [
+                    item
+                    for item in doc[value]["operands"]
+                    if item.kind == "sql_stage_reference"
+                ]
+                nulls = [
+                    _json(doc[doc[doc[item]["column"]]["field"]]["representation"]).get(
+                        "nullable"
+                    )
+                    is True
+                    if doc[doc[item]["column"]]["field"] is not None
+                    else None
+                    for item in fields
+                ]
+                chosen = [f for f, n in zip(fields, nulls) if n == any(nulls)]
+                if not chosen or None in nulls:
+                    return None
+                value = chosen[0]
+            selected.append(value)
+        selected = tuple(selected)
         sources = producers
     elif ast.kind == "sql_row_query":
         bodies = doc[ast]["bodies"]
@@ -1326,7 +1354,7 @@ def _mysql_float_cell(doc, ref):
     if (
         form is None
         or len(operands) != 2
-        or len(operations) != 1 + negated + 2 * bool(keys) + bool(anti)
+        or len(operations) != 1 + negated + 2 * bool(keys) + bool(anti) + len(computed)
     ):
         return None
     found = tuple(
@@ -3375,6 +3403,178 @@ def _mysql_float_statement(doc) -> frozenset:
     return frozenset(cells)
 
 
+# MC E4B's P9: the record kinds a JOIN statement of E4B items may hold.
+_E4B_JOIN_KINDS = _MYSQL_CELL_KINDS | {
+    "join_body",
+    "join_column",
+    "join_input",
+    "row_join_use",
+    "sql_join_query",
+}
+
+
+def _mysql_float_join_statement(doc) -> frozenset:
+    """MC E4B's P9 from the document alone: one INNER or LEFT JOIN body of
+    two bound sources, a different one each (a self-join's inputs share
+    one), under a WHERE body at most and a projection body, with
+    no window or aggregate, whose projection columns are field reads
+    (_mysql_field_read) or E4B operations over the JOIN row, never a token
+    or any other value: a Float `+`, `-` or `*` of one read of a finite
+    DOUBLE source field (_mysql_float_kind's read) and a Float literal
+    token, a `-` of such a read, or with no WHERE body a `+` or `*` of two
+    such reads; each named once, and no other Float `+`, `-`, `*` or sign
+    stands in the document (none in the ON or the WHERE). The ON is one
+    `==` of an Int or a Text field read of each input, or, with no WHERE
+    body, S06's tree: a Float `==` of a field read of each input, or under
+    INNER `not` over their `!=`, then `and` one `==` of a Text field read of
+    each at most, the ON and the column values then holding nine
+    operations, reads, tokens and signs at most beyond one per column
+    (S06's bound); the JOIN body has no equalities."""
+
+    queries = doc.all("sql_join_query")
+    if not _E4B_JOIN_KINDS.issuperset(doc.kinds) or len(queries) != 1:
+        return frozenset()
+    units = doc[queries[0]]["units"]
+    kinds = [unit.kind for unit in units]
+    if kinds not in (
+        ["join_body", "row_body"],
+        ["join_body", "row_body", "row_body"],
+    ) or doc[units[0]]["join_kind"] not in ("inner", "left"):
+        return frozenset()
+    bodies = [doc[unit] for unit in units[1:]]
+    join = doc[units[0]]
+    if len({doc[item]["producer"] for item in join["inputs"]}) != 2:
+        return frozenset()
+    inputs = {doc[item]["symbol"] for item in join["inputs"]}
+
+    def pair(ref, operator, tags) -> bool:
+        if (
+            type(ref) is not Ref
+            or ref.kind != "sql_operation"
+            or (doc[ref]["kind"], doc[ref]["operator"]) != ("comparison", operator)
+        ):
+            return False
+        operands = doc[ref]["operands"]
+        if len(operands) != 2 or any(
+            type(item) is not Ref or item.kind != "sql_stage_reference"
+            for item in operands
+        ):
+            return False
+        scopes = [doc[item]["scope"] for item in operands]
+        found = [doc[doc[item]["realization"]]["tag"] for item in operands]
+        return (
+            set(scopes) == inputs
+            and scopes[0] != scopes[1]
+            and found[0] == found[1]
+            and found[0] in tags
+        )
+
+    def float_key(ref) -> bool:
+        if (
+            type(ref) is Ref
+            and ref.kind == "sql_operation"
+            and (doc[ref]["kind"], doc[ref]["operator"]) == ("not", "not")
+            and len(doc[ref]["operands"]) == 1
+        ):
+            return join["join_kind"] == "inner" and pair(
+                doc[ref]["operands"][0], "!=", ("Float",)
+            )
+        return pair(ref, "==", ("Float",))
+
+    on = join["predicate"]
+    both = (
+        doc[on]["operands"]
+        if type(on) is Ref
+        and on.kind == "sql_operation"
+        and (doc[on]["kind"], doc[on]["operator"]) == ("logical", "and")
+        else ()
+    )
+    keyed = pair(on, "==", ("Int", "Text"))
+    if join["equalities"] or not (
+        keyed
+        or len(bodies) == 1
+        and (
+            float_key(on)
+            or len(both) == 2
+            and float_key(both[0])
+            and pair(both[1], "==", ("Text",))
+        )
+    ):
+        return frozenset()
+    if (
+        [body["block_kind"] for body in bodies]
+        != ["where"] * (len(bodies) - 1) + ["projection"]
+        or any(
+            body["window"] is not None or body["aggregation"] is not None
+            for body in bodies
+        )
+        or bodies[-1]["final"] is not True
+    ):
+        return frozenset()
+    named: dict[Ref, int] = {}
+    for record in doc.records.values():
+        pending = list(record.fields.values())
+        while pending:
+            item = pending.pop()
+            if type(item) is tuple:
+                pending.extend(item)
+            elif type(item) is Ref:
+                named[item] = named.get(item, 0) + 1
+
+    def read(item) -> bool:
+        return _mysql_remainder_carrier(doc, item) == "Float" and _is_float(
+            doc[doc[item]["realization"]], "mysql"
+        )
+
+    cells, values = set(), []
+    for column in bodies[-1]["columns"]:
+        value = doc[column]["value"] if column.kind == "row_value_column" else None
+        values.append(value)
+        if _mysql_field_read(doc, value):
+            continue
+        if type(value) is not Ref or value.kind != "sql_operation":
+            return frozenset()
+        op = doc[value]
+        operands = op["operands"]
+        reads = sum(map(read, operands))
+        if not (
+            named.get(value) == 1
+            and (op["kind"], op["operator"]) in _E4B_OPERATIONS
+            and doc[op["realization"]]["tag"] == "Float"
+            and all(read(item) or _mysql_float_token(doc, item) for item in operands)
+            and (
+                reads == 1
+                and len(operands) == (1 if op["kind"] == "sign" else 2)
+                or reads == 2
+                and op["operator"] in ("+", "*")
+                and len(bodies) == 1
+            )
+        ):
+            return frozenset()
+        cells.add(value)
+
+    def size(ref) -> int:
+        if ref.kind == "sql_operation":
+            return 1 + sum(map(size, doc[ref]["operands"]))
+        return 1 + (size(doc[ref]["operand"]) if ref.kind == "sql_unary" else 0)
+
+    if (
+        not cells
+        or any(
+            (doc[ref]["kind"], doc[ref]["operator"]) in _E4B_OPERATIONS
+            and doc[doc[ref]["realization"]]["tag"] == "Float"
+            and ref not in cells
+            for ref in doc.all("sql_operation")
+        )
+        # S06's bound (the emitter's _unit_query) over its tree: nine
+        # expressions at most in the ON and the values beyond one per value.
+        or not keyed
+        and size(on) + sum(map(size, values)) > len(values) + 9
+    ):
+        return frozenset()
+    return frozenset(cells)
+
+
 def _mysql_division_read(doc, ref) -> bool:
     """R08: a read of an Int source field of a SMALLINT, INT or BIGINT
     storage."""
@@ -5338,6 +5538,7 @@ class _Check:
         )
         if family == "mysql":
             mysql_floats |= _mysql_float_statement(doc)
+            mysql_floats |= _mysql_float_join_statement(doc)
         on_operations = _on_operations(doc)
         for ref in doc.all("sql_operation"):
             op = doc[ref]

@@ -24921,12 +24921,28 @@ E4B_TABLES = {
             ),
         ),
     ),
+    "j": tuple(
+        (
+            name,
+            "JRow",
+            "phase77 " + name,
+            (
+                ("id", "int8", False, None),
+                ("v", "double", True, None),
+                ("kn", "text", False, 64),
+                ("kw", "text", False, 1000),
+            ),
+        )
+        for name in ("f6o", "f6i")
+    ),
 }
 
 
 def _e4b_world(chain, directory, target, body, policy):
     """``body`` after the chain's shapes and sources (E4B_TABLES), with exact
-    identifier case and the native parameter protocol, as float_world's."""
+    identifier case and the native parameter protocol, as float_world's; a
+    dict ``body`` maps module paths to their text, main.pietto's after the
+    shapes and sources."""
     contract = json.loads(parameterized_fixture(target, "", protocol=True)["contract"])
     base = contract["sources"][0]
     text = next(field for field in base["fields"] if field["name"] == "text")
@@ -24980,7 +24996,9 @@ def _e4b_world(chain, directory, target, body, policy):
             )
         sources.append(source)
     contract["sources"] = sources
-    return build_case(directory, header + body, encoded(contract).decode(), policy)
+    files = dict(body) if type(body) is dict else {"main.pietto": body}
+    files["main.pietto"] = header + files.get("main.pietto", "")
+    return build_case(directory, files, encoded(contract).decode(), policy)
 
 
 def e4b_world(directory, target, body, policy="preserve_literals"):
@@ -24991,6 +25009,11 @@ def e4b_world(directory, target, body, policy="preserve_literals"):
 def e4bc_world(directory, target, body, policy="preserve_literals"):
     """``body`` over chain C's source `csrc` (E4B_TABLES)."""
     return _e4b_world("c", directory, target, body, policy)
+
+
+def e4bj_world(directory, target, body, policy="preserve_literals"):
+    """``body`` over chain J's sources `f6o` and `f6i` (E4B_TABLES)."""
+    return _e4b_world("j", directory, target, body, policy)
 
 
 def _e4b(kind, source, *lines, params=""):
@@ -25934,6 +25957,244 @@ E4BC_FORM_SQL = {
         "EPO3",
         "mysql",
     ): "WITH `p0` (`c0`, `c1`, `c2`, `c3`, `c4`, `c5`, `c6`, `c7`, `c8`) AS (SELECT `s0`.`id` AS `c0`, `s0`.`g` AS `c1`, `s0`.`x` AS `c2`, `s0`.`y` AS `c3`, `s0`.`w` AS `c4`, `s0`.`v` AS `c5`, `s0`.`u` AS `c6`, `s0`.`kn` AS `c7`, (`s0`.`y` - CAST(? AS DOUBLE)) AS `c8` FROM `phase66`.`phase77 csrc` AS `s0`), `p1` (`c0`, `c1`, `c2`) AS (SELECT `t1`.`c0` AS `c0`, `t1`.`c8` AS `c1`, `t1`.`c8` AS `c2` FROM `p0` AS `t1`) SELECT `t0`.`c0` AS `id`, `t0`.`c1` AS `r` FROM `p1` AS `t0` ORDER BY `t0`.`c2` ASC",
+}
+
+# The emitted list `e4b-join-emitted` (PREREG Emitted forms, chain J): P9, an
+# operation as a whole SELECT item over the row of an S06 Float-keyed JOIN or
+# of a plain JOIN on an Int or Text key. EJ10 to EJ14 stand over the S06 JOIN
+# cells EJ1 to EJ4 leave: `==` beside the wide Text key, LEFT `==` beside
+# each Text key and `not (!=)` beside each, where S06's bound leaves a sign.
+E4BJ_FORMS = {
+    "EJ1": _e4b(
+        "query",
+        "f6o",
+        "inner join f6i on f6i.v == f6o.v",
+        "select:",
+        "    oid = f6o.id",
+        "    r = f6o.v * 2.0",
+    ),
+    "EJ2": _e4b(
+        "query",
+        "f6o",
+        "left join f6i on f6i.v == f6o.v",
+        "select:",
+        "    oid = f6o.id",
+        "    r = f6i.v + 1.0",
+    ),
+    "EJ3": _e4b(
+        "table",
+        "f6o",
+        "inner join f6i on f6i.v == f6o.v and f6i.kn == f6o.kn",
+        "select:",
+        "    oid = f6o.id",
+        "    r = -f6o.v",
+    ),
+    "EJ4": _e4b(
+        "query",
+        "f6o",
+        "inner join f6i on not (f6i.v != f6o.v)",
+        "select:",
+        "    oid = f6o.id",
+        "    r = f6o.v - 0.5",
+    ),
+    "EJ5": _e4b(
+        "query",
+        "f6o",
+        "inner join f6i on f6i.id == f6o.id",
+        "select:",
+        "    oid = f6o.id",
+        "    r = f6o.v * f6i.v",
+    ),
+    "EJ6": _e4b(
+        "table",
+        "f6o",
+        "left join f6i on f6i.id == f6o.id",
+        "select:",
+        "    oid = f6o.id",
+        "    r = {B} - f6i.v",
+    ),
+    "EJ7": _e4b(
+        "query",
+        "f6o",
+        "inner join f6i on f6i.kn == f6o.kn",
+        "select:",
+        "    oid = f6o.id",
+        "    ov = f6o.v",
+        "    r = f6o.v + {B}",
+    ),
+    "EJ8": _e4b(
+        "query",
+        "f6o",
+        "inner join f6i on f6i.id == f6o.id",
+        "where f6o.id > 1",
+        "select:",
+        "    oid = f6o.id",
+        "    r = -f6i.v",
+    ),
+    "EJ9": _e4b(
+        "table",
+        "f6o",
+        "inner join f6i on f6i.kw == f6o.kw",
+        "select:",
+        "    oid = f6o.id",
+        "    iv = f6i.v",
+        "    r = f6o.v * 0.5",
+    ),
+    "EJ10": _e4b(
+        "query",
+        "f6o",
+        "inner join f6i on f6i.v == f6o.v and f6i.kw == f6o.kw",
+        "select:",
+        "    oid = f6o.id",
+        "    r = f6o.v * 2.0",
+    ),
+    "EJ11": _e4b(
+        "query",
+        "f6o",
+        "left join f6i on f6i.v == f6o.v and f6i.kn == f6o.kn",
+        "select:",
+        "    oid = f6o.id",
+        "    r = f6i.v - {B}",
+    ),
+    "EJ12": _e4b(
+        "table",
+        "f6o",
+        "left join f6i on f6i.v == f6o.v and f6i.kw == f6o.kw",
+        "select:",
+        "    oid = f6o.id",
+        "    r = f6o.v + {B}",
+    ),
+    "EJ13": _e4b(
+        "query",
+        "f6o",
+        "inner join f6i on not (f6i.v != f6o.v) and f6i.kn == f6o.kn",
+        "select:",
+        "    oid = f6o.id",
+        "    r = -f6o.v",
+    ),
+    "EJ14": _e4b(
+        "table",
+        "f6o",
+        "inner join f6i on not (f6i.v != f6o.v) and f6i.kw == f6o.kw",
+        "select:",
+        "    oid = f6o.id",
+        "    r = -f6i.v",
+    ),
+}
+
+E4BJ_FORM_SQL = {
+    (
+        "EJ1",
+        "postgres",
+    ): 'WITH "p0" ("c0", "c1", "c2", "c3", "c4", "c5", "c6", "c7") AS (SELECT "m0"."id" AS "c0", "m0"."v" AS "c1", "m0"."kn" AS "c2", "m0"."kw" AS "c3", "m1"."id" AS "c4", "m1"."v" AS "c5", "m1"."kn" AS "c6", "m1"."kw" AS "c7" FROM "public"."phase77 f6o" AS "m0" INNER JOIN "public"."phase77 f6i" AS "m1" ON ("m1"."v" = "m0"."v")) SELECT "t0"."c0" AS "oid", ("t0"."c1" * CAST(\'2.0\' AS pg_catalog.float8)) AS "r" FROM "p0" AS "t0"',
+    (
+        "EJ1",
+        "mysql",
+    ): "WITH `p0` (`c0`, `c1`, `c2`, `c3`, `c4`, `c5`, `c6`, `c7`) AS (SELECT `m0`.`id` AS `c0`, `m0`.`v` AS `c1`, `m0`.`kn` AS `c2`, `m0`.`kw` AS `c3`, `m1`.`id` AS `c4`, `m1`.`v` AS `c5`, `m1`.`kn` AS `c6`, `m1`.`kw` AS `c7` FROM `phase66`.`phase77 f6o` AS `m0` INNER JOIN `phase66`.`phase77 f6i` AS `m1` ON (`m1`.`v` = `m0`.`v`)) SELECT `t0`.`c0` AS `oid`, CASE WHEN (`t0`.`c1` * CAST(2.0e0 AS DOUBLE)) = 0 AND `t0`.`c1` <> 0 AND CAST(2.0e0 AS DOUBLE) <> 0 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) ELSE (`t0`.`c1` * CAST(2.0e0 AS DOUBLE)) END AS `r` FROM `p0` AS `t0`",
+    (
+        "EJ2",
+        "postgres",
+    ): 'WITH "p0" ("c0", "c1", "c2", "c3", "c4", "c5", "c6", "c7") AS (SELECT "m0"."id" AS "c0", "m0"."v" AS "c1", "m0"."kn" AS "c2", "m0"."kw" AS "c3", "m1"."id" AS "c4", "m1"."v" AS "c5", "m1"."kn" AS "c6", "m1"."kw" AS "c7" FROM "public"."phase77 f6o" AS "m0" LEFT JOIN "public"."phase77 f6i" AS "m1" ON ("m1"."v" = "m0"."v")) SELECT "t0"."c0" AS "oid", ("t0"."c5" + CAST(\'1.0\' AS pg_catalog.float8)) AS "r" FROM "p0" AS "t0"',
+    (
+        "EJ2",
+        "mysql",
+    ): "WITH `p0` (`c0`, `c1`, `c2`, `c3`, `c4`, `c5`, `c6`, `c7`) AS (SELECT `m0`.`id` AS `c0`, `m0`.`v` AS `c1`, `m0`.`kn` AS `c2`, `m0`.`kw` AS `c3`, `m1`.`id` AS `c4`, `m1`.`v` AS `c5`, `m1`.`kn` AS `c6`, `m1`.`kw` AS `c7` FROM `phase66`.`phase77 f6o` AS `m0` LEFT JOIN `phase66`.`phase77 f6i` AS `m1` ON (`m1`.`v` = `m0`.`v`)) SELECT `t0`.`c0` AS `oid`, (`t0`.`c5` + CAST(1.0e0 AS DOUBLE)) AS `r` FROM `p0` AS `t0`",
+    (
+        "EJ3",
+        "postgres",
+    ): 'WITH "p0" ("c0", "c1", "c2", "c3", "c4", "c5", "c6", "c7") AS (SELECT "m0"."id" AS "c0", "m0"."v" AS "c1", "m0"."kn" AS "c2", "m0"."kw" AS "c3", "m1"."id" AS "c4", "m1"."v" AS "c5", "m1"."kn" AS "c6", "m1"."kw" AS "c7" FROM "public"."phase77 f6o" AS "m0" INNER JOIN "public"."phase77 f6i" AS "m1" ON (("m1"."v" = "m0"."v") AND ("m1"."kn" = "m0"."kn"))) SELECT "t0"."c0" AS "oid", (-"t0"."c1") AS "r" FROM "p0" AS "t0"',
+    (
+        "EJ3",
+        "mysql",
+    ): "WITH `p0` (`c0`, `c1`, `c2`, `c3`, `c4`, `c5`, `c6`, `c7`) AS (SELECT `m0`.`id` AS `c0`, `m0`.`v` AS `c1`, `m0`.`kn` AS `c2`, `m0`.`kw` AS `c3`, `m1`.`id` AS `c4`, `m1`.`v` AS `c5`, `m1`.`kn` AS `c6`, `m1`.`kw` AS `c7` FROM `phase66`.`phase77 f6o` AS `m0` INNER JOIN `phase66`.`phase77 f6i` AS `m1` ON ((`m1`.`v` = `m0`.`v`) AND (`m1`.`kn` = `m0`.`kn`))) SELECT `t0`.`c0` AS `oid`, (-`t0`.`c1`) AS `r` FROM `p0` AS `t0`",
+    (
+        "EJ4",
+        "postgres",
+    ): 'WITH "p0" ("c0", "c1", "c2", "c3", "c4", "c5", "c6", "c7") AS (SELECT "m0"."id" AS "c0", "m0"."v" AS "c1", "m0"."kn" AS "c2", "m0"."kw" AS "c3", "m1"."id" AS "c4", "m1"."v" AS "c5", "m1"."kn" AS "c6", "m1"."kw" AS "c7" FROM "public"."phase77 f6o" AS "m0" INNER JOIN "public"."phase77 f6i" AS "m1" ON (NOT ("m1"."v" <> "m0"."v"))) SELECT "t0"."c0" AS "oid", ("t0"."c1" - CAST(\'0.5\' AS pg_catalog.float8)) AS "r" FROM "p0" AS "t0"',
+    (
+        "EJ4",
+        "mysql",
+    ): "WITH `p0` (`c0`, `c1`, `c2`, `c3`, `c4`, `c5`, `c6`, `c7`) AS (SELECT `m0`.`id` AS `c0`, `m0`.`v` AS `c1`, `m0`.`kn` AS `c2`, `m0`.`kw` AS `c3`, `m1`.`id` AS `c4`, `m1`.`v` AS `c5`, `m1`.`kn` AS `c6`, `m1`.`kw` AS `c7` FROM `phase66`.`phase77 f6o` AS `m0` INNER JOIN `phase66`.`phase77 f6i` AS `m1` ON (NOT (`m1`.`v` <> `m0`.`v`))) SELECT `t0`.`c0` AS `oid`, (`t0`.`c1` - CAST(0.5e0 AS DOUBLE)) AS `r` FROM `p0` AS `t0`",
+    (
+        "EJ5",
+        "postgres",
+    ): 'WITH "p0" ("c0", "c1", "c2", "c3", "c4", "c5", "c6", "c7") AS (SELECT "m0"."id" AS "c0", "m0"."v" AS "c1", "m0"."kn" AS "c2", "m0"."kw" AS "c3", "m1"."id" AS "c4", "m1"."v" AS "c5", "m1"."kn" AS "c6", "m1"."kw" AS "c7" FROM "public"."phase77 f6o" AS "m0" INNER JOIN "public"."phase77 f6i" AS "m1" ON ("m1"."id" = "m0"."id")) SELECT "t0"."c0" AS "oid", ("t0"."c1" * "t0"."c5") AS "r" FROM "p0" AS "t0"',
+    (
+        "EJ5",
+        "mysql",
+    ): "WITH `p0` (`c0`, `c1`, `c2`, `c3`, `c4`, `c5`, `c6`, `c7`) AS (SELECT `m0`.`id` AS `c0`, `m0`.`v` AS `c1`, `m0`.`kn` AS `c2`, `m0`.`kw` AS `c3`, `m1`.`id` AS `c4`, `m1`.`v` AS `c5`, `m1`.`kn` AS `c6`, `m1`.`kw` AS `c7` FROM `phase66`.`phase77 f6o` AS `m0` INNER JOIN `phase66`.`phase77 f6i` AS `m1` ON (`m1`.`id` = `m0`.`id`)) SELECT `t0`.`c0` AS `oid`, CASE WHEN (`t0`.`c1` * `t0`.`c5`) = 0 AND `t0`.`c1` <> 0 AND `t0`.`c5` <> 0 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) ELSE (`t0`.`c1` * `t0`.`c5`) END AS `r` FROM `p0` AS `t0`",
+    (
+        "EJ6",
+        "postgres",
+    ): 'WITH "p0" ("c0", "c1", "c2", "c3", "c4", "c5", "c6", "c7") AS (SELECT "m0"."id" AS "c0", "m0"."v" AS "c1", "m0"."kn" AS "c2", "m0"."kw" AS "c3", "m1"."id" AS "c4", "m1"."v" AS "c5", "m1"."kn" AS "c6", "m1"."kw" AS "c7" FROM "public"."phase77 f6o" AS "m0" LEFT JOIN "public"."phase77 f6i" AS "m1" ON ("m1"."id" = "m0"."id")) SELECT "t0"."c0" AS "oid", (CAST(\'1e+308\' AS pg_catalog.float8) - "t0"."c5") AS "r" FROM "p0" AS "t0"',
+    (
+        "EJ6",
+        "mysql",
+    ): "WITH `p0` (`c0`, `c1`, `c2`, `c3`, `c4`, `c5`, `c6`, `c7`) AS (SELECT `m0`.`id` AS `c0`, `m0`.`v` AS `c1`, `m0`.`kn` AS `c2`, `m0`.`kw` AS `c3`, `m1`.`id` AS `c4`, `m1`.`v` AS `c5`, `m1`.`kn` AS `c6`, `m1`.`kw` AS `c7` FROM `phase66`.`phase77 f6o` AS `m0` LEFT JOIN `phase66`.`phase77 f6i` AS `m1` ON (`m1`.`id` = `m0`.`id`)) SELECT `t0`.`c0` AS `oid`, (CAST(1e+308 AS DOUBLE) - `t0`.`c5`) AS `r` FROM `p0` AS `t0`",
+    (
+        "EJ7",
+        "postgres",
+    ): 'WITH "p0" ("c0", "c1", "c2", "c3", "c4", "c5", "c6", "c7") AS (SELECT "m0"."id" AS "c0", "m0"."v" AS "c1", "m0"."kn" AS "c2", "m0"."kw" AS "c3", "m1"."id" AS "c4", "m1"."v" AS "c5", "m1"."kn" AS "c6", "m1"."kw" AS "c7" FROM "public"."phase77 f6o" AS "m0" INNER JOIN "public"."phase77 f6i" AS "m1" ON ("m1"."kn" = "m0"."kn")) SELECT "t0"."c0" AS "oid", "t0"."c1" AS "ov", ("t0"."c1" + CAST(\'1e+308\' AS pg_catalog.float8)) AS "r" FROM "p0" AS "t0"',
+    (
+        "EJ7",
+        "mysql",
+    ): "WITH `p0` (`c0`, `c1`, `c2`, `c3`, `c4`, `c5`, `c6`, `c7`) AS (SELECT `m0`.`id` AS `c0`, `m0`.`v` AS `c1`, `m0`.`kn` AS `c2`, `m0`.`kw` AS `c3`, `m1`.`id` AS `c4`, `m1`.`v` AS `c5`, `m1`.`kn` AS `c6`, `m1`.`kw` AS `c7` FROM `phase66`.`phase77 f6o` AS `m0` INNER JOIN `phase66`.`phase77 f6i` AS `m1` ON (`m1`.`kn` = `m0`.`kn`)) SELECT `t0`.`c0` AS `oid`, `t0`.`c1` AS `ov`, (`t0`.`c1` + CAST(1e+308 AS DOUBLE)) AS `r` FROM `p0` AS `t0`",
+    (
+        "EJ8",
+        "postgres",
+    ): 'WITH "p0" ("c0", "c1", "c2", "c3", "c4", "c5", "c6", "c7") AS (SELECT "m0"."id" AS "c0", "m0"."v" AS "c1", "m0"."kn" AS "c2", "m0"."kw" AS "c3", "m1"."id" AS "c4", "m1"."v" AS "c5", "m1"."kn" AS "c6", "m1"."kw" AS "c7" FROM "public"."phase77 f6o" AS "m0" INNER JOIN "public"."phase77 f6i" AS "m1" ON ("m1"."id" = "m0"."id")), "p1" ("c0", "c1", "c2", "c3", "c4", "c5", "c6", "c7") AS (SELECT "t0"."c0" AS "c0", "t0"."c1" AS "c1", "t0"."c2" AS "c2", "t0"."c3" AS "c3", "t0"."c4" AS "c4", "t0"."c5" AS "c5", "t0"."c6" AS "c6", "t0"."c7" AS "c7" FROM "p0" AS "t0" WHERE ("t0"."c0" > CAST(1 AS pg_catalog.int8))) SELECT "t1"."c0" AS "oid", (-"t1"."c5") AS "r" FROM "p1" AS "t1"',
+    (
+        "EJ8",
+        "mysql",
+    ): "WITH `p0` (`c0`, `c1`, `c2`, `c3`, `c4`, `c5`, `c6`, `c7`) AS (SELECT `m0`.`id` AS `c0`, `m0`.`v` AS `c1`, `m0`.`kn` AS `c2`, `m0`.`kw` AS `c3`, `m1`.`id` AS `c4`, `m1`.`v` AS `c5`, `m1`.`kn` AS `c6`, `m1`.`kw` AS `c7` FROM `phase66`.`phase77 f6o` AS `m0` INNER JOIN `phase66`.`phase77 f6i` AS `m1` ON (`m1`.`id` = `m0`.`id`)), `p1` (`c0`, `c1`, `c2`, `c3`, `c4`, `c5`, `c6`, `c7`) AS (SELECT `t0`.`c0` AS `c0`, `t0`.`c1` AS `c1`, `t0`.`c2` AS `c2`, `t0`.`c3` AS `c3`, `t0`.`c4` AS `c4`, `t0`.`c5` AS `c5`, `t0`.`c6` AS `c6`, `t0`.`c7` AS `c7` FROM `p0` AS `t0` WHERE (`t0`.`c0` > CAST(1 AS SIGNED))) SELECT `t1`.`c0` AS `oid`, (-`t1`.`c5`) AS `r` FROM `p1` AS `t1`",
+    (
+        "EJ9",
+        "postgres",
+    ): 'WITH "p0" ("c0", "c1", "c2", "c3", "c4", "c5", "c6", "c7") AS (SELECT "m0"."id" AS "c0", "m0"."v" AS "c1", "m0"."kn" AS "c2", "m0"."kw" AS "c3", "m1"."id" AS "c4", "m1"."v" AS "c5", "m1"."kn" AS "c6", "m1"."kw" AS "c7" FROM "public"."phase77 f6o" AS "m0" INNER JOIN "public"."phase77 f6i" AS "m1" ON ("m1"."kw" = "m0"."kw")) SELECT "t0"."c0" AS "oid", "t0"."c5" AS "iv", ("t0"."c1" * CAST(\'0.5\' AS pg_catalog.float8)) AS "r" FROM "p0" AS "t0"',
+    (
+        "EJ9",
+        "mysql",
+    ): "WITH `p0` (`c0`, `c1`, `c2`, `c3`, `c4`, `c5`, `c6`, `c7`) AS (SELECT `m0`.`id` AS `c0`, `m0`.`v` AS `c1`, `m0`.`kn` AS `c2`, `m0`.`kw` AS `c3`, `m1`.`id` AS `c4`, `m1`.`v` AS `c5`, `m1`.`kn` AS `c6`, `m1`.`kw` AS `c7` FROM `phase66`.`phase77 f6o` AS `m0` INNER JOIN `phase66`.`phase77 f6i` AS `m1` ON (`m1`.`kw` = `m0`.`kw`)) SELECT `t0`.`c0` AS `oid`, `t0`.`c5` AS `iv`, CASE WHEN (`t0`.`c1` * CAST(0.5e0 AS DOUBLE)) = 0 AND `t0`.`c1` <> 0 AND CAST(0.5e0 AS DOUBLE) <> 0 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) ELSE (`t0`.`c1` * CAST(0.5e0 AS DOUBLE)) END AS `r` FROM `p0` AS `t0`",
+    (
+        "EJ10",
+        "postgres",
+    ): 'WITH "p0" ("c0", "c1", "c2", "c3", "c4", "c5", "c6", "c7") AS (SELECT "m0"."id" AS "c0", "m0"."v" AS "c1", "m0"."kn" AS "c2", "m0"."kw" AS "c3", "m1"."id" AS "c4", "m1"."v" AS "c5", "m1"."kn" AS "c6", "m1"."kw" AS "c7" FROM "public"."phase77 f6o" AS "m0" INNER JOIN "public"."phase77 f6i" AS "m1" ON (("m1"."v" = "m0"."v") AND ("m1"."kw" = "m0"."kw"))) SELECT "t0"."c0" AS "oid", ("t0"."c1" * CAST(\'2.0\' AS pg_catalog.float8)) AS "r" FROM "p0" AS "t0"',
+    (
+        "EJ10",
+        "mysql",
+    ): "WITH `p0` (`c0`, `c1`, `c2`, `c3`, `c4`, `c5`, `c6`, `c7`) AS (SELECT `m0`.`id` AS `c0`, `m0`.`v` AS `c1`, `m0`.`kn` AS `c2`, `m0`.`kw` AS `c3`, `m1`.`id` AS `c4`, `m1`.`v` AS `c5`, `m1`.`kn` AS `c6`, `m1`.`kw` AS `c7` FROM `phase66`.`phase77 f6o` AS `m0` INNER JOIN `phase66`.`phase77 f6i` AS `m1` ON ((`m1`.`v` = `m0`.`v`) AND (`m1`.`kw` = `m0`.`kw`))) SELECT `t0`.`c0` AS `oid`, CASE WHEN (`t0`.`c1` * CAST(2.0e0 AS DOUBLE)) = 0 AND `t0`.`c1` <> 0 AND CAST(2.0e0 AS DOUBLE) <> 0 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) ELSE (`t0`.`c1` * CAST(2.0e0 AS DOUBLE)) END AS `r` FROM `p0` AS `t0`",
+    (
+        "EJ11",
+        "postgres",
+    ): 'WITH "p0" ("c0", "c1", "c2", "c3", "c4", "c5", "c6", "c7") AS (SELECT "m0"."id" AS "c0", "m0"."v" AS "c1", "m0"."kn" AS "c2", "m0"."kw" AS "c3", "m1"."id" AS "c4", "m1"."v" AS "c5", "m1"."kn" AS "c6", "m1"."kw" AS "c7" FROM "public"."phase77 f6o" AS "m0" LEFT JOIN "public"."phase77 f6i" AS "m1" ON (("m1"."v" = "m0"."v") AND ("m1"."kn" = "m0"."kn"))) SELECT "t0"."c0" AS "oid", ("t0"."c5" - CAST(\'1e+308\' AS pg_catalog.float8)) AS "r" FROM "p0" AS "t0"',
+    (
+        "EJ11",
+        "mysql",
+    ): "WITH `p0` (`c0`, `c1`, `c2`, `c3`, `c4`, `c5`, `c6`, `c7`) AS (SELECT `m0`.`id` AS `c0`, `m0`.`v` AS `c1`, `m0`.`kn` AS `c2`, `m0`.`kw` AS `c3`, `m1`.`id` AS `c4`, `m1`.`v` AS `c5`, `m1`.`kn` AS `c6`, `m1`.`kw` AS `c7` FROM `phase66`.`phase77 f6o` AS `m0` LEFT JOIN `phase66`.`phase77 f6i` AS `m1` ON ((`m1`.`v` = `m0`.`v`) AND (`m1`.`kn` = `m0`.`kn`))) SELECT `t0`.`c0` AS `oid`, (`t0`.`c5` - CAST(1e+308 AS DOUBLE)) AS `r` FROM `p0` AS `t0`",
+    (
+        "EJ12",
+        "postgres",
+    ): 'WITH "p0" ("c0", "c1", "c2", "c3", "c4", "c5", "c6", "c7") AS (SELECT "m0"."id" AS "c0", "m0"."v" AS "c1", "m0"."kn" AS "c2", "m0"."kw" AS "c3", "m1"."id" AS "c4", "m1"."v" AS "c5", "m1"."kn" AS "c6", "m1"."kw" AS "c7" FROM "public"."phase77 f6o" AS "m0" LEFT JOIN "public"."phase77 f6i" AS "m1" ON (("m1"."v" = "m0"."v") AND ("m1"."kw" = "m0"."kw"))) SELECT "t0"."c0" AS "oid", ("t0"."c1" + CAST(\'1e+308\' AS pg_catalog.float8)) AS "r" FROM "p0" AS "t0"',
+    (
+        "EJ12",
+        "mysql",
+    ): "WITH `p0` (`c0`, `c1`, `c2`, `c3`, `c4`, `c5`, `c6`, `c7`) AS (SELECT `m0`.`id` AS `c0`, `m0`.`v` AS `c1`, `m0`.`kn` AS `c2`, `m0`.`kw` AS `c3`, `m1`.`id` AS `c4`, `m1`.`v` AS `c5`, `m1`.`kn` AS `c6`, `m1`.`kw` AS `c7` FROM `phase66`.`phase77 f6o` AS `m0` LEFT JOIN `phase66`.`phase77 f6i` AS `m1` ON ((`m1`.`v` = `m0`.`v`) AND (`m1`.`kw` = `m0`.`kw`))) SELECT `t0`.`c0` AS `oid`, (`t0`.`c1` + CAST(1e+308 AS DOUBLE)) AS `r` FROM `p0` AS `t0`",
+    (
+        "EJ13",
+        "postgres",
+    ): 'WITH "p0" ("c0", "c1", "c2", "c3", "c4", "c5", "c6", "c7") AS (SELECT "m0"."id" AS "c0", "m0"."v" AS "c1", "m0"."kn" AS "c2", "m0"."kw" AS "c3", "m1"."id" AS "c4", "m1"."v" AS "c5", "m1"."kn" AS "c6", "m1"."kw" AS "c7" FROM "public"."phase77 f6o" AS "m0" INNER JOIN "public"."phase77 f6i" AS "m1" ON ((NOT ("m1"."v" <> "m0"."v")) AND ("m1"."kn" = "m0"."kn"))) SELECT "t0"."c0" AS "oid", (-"t0"."c1") AS "r" FROM "p0" AS "t0"',
+    (
+        "EJ13",
+        "mysql",
+    ): "WITH `p0` (`c0`, `c1`, `c2`, `c3`, `c4`, `c5`, `c6`, `c7`) AS (SELECT `m0`.`id` AS `c0`, `m0`.`v` AS `c1`, `m0`.`kn` AS `c2`, `m0`.`kw` AS `c3`, `m1`.`id` AS `c4`, `m1`.`v` AS `c5`, `m1`.`kn` AS `c6`, `m1`.`kw` AS `c7` FROM `phase66`.`phase77 f6o` AS `m0` INNER JOIN `phase66`.`phase77 f6i` AS `m1` ON ((NOT (`m1`.`v` <> `m0`.`v`)) AND (`m1`.`kn` = `m0`.`kn`))) SELECT `t0`.`c0` AS `oid`, (-`t0`.`c1`) AS `r` FROM `p0` AS `t0`",
+    (
+        "EJ14",
+        "postgres",
+    ): 'WITH "p0" ("c0", "c1", "c2", "c3", "c4", "c5", "c6", "c7") AS (SELECT "m0"."id" AS "c0", "m0"."v" AS "c1", "m0"."kn" AS "c2", "m0"."kw" AS "c3", "m1"."id" AS "c4", "m1"."v" AS "c5", "m1"."kn" AS "c6", "m1"."kw" AS "c7" FROM "public"."phase77 f6o" AS "m0" INNER JOIN "public"."phase77 f6i" AS "m1" ON ((NOT ("m1"."v" <> "m0"."v")) AND ("m1"."kw" = "m0"."kw"))) SELECT "t0"."c0" AS "oid", (-"t0"."c5") AS "r" FROM "p0" AS "t0"',
+    (
+        "EJ14",
+        "mysql",
+    ): "WITH `p0` (`c0`, `c1`, `c2`, `c3`, `c4`, `c5`, `c6`, `c7`) AS (SELECT `m0`.`id` AS `c0`, `m0`.`v` AS `c1`, `m0`.`kn` AS `c2`, `m0`.`kw` AS `c3`, `m1`.`id` AS `c4`, `m1`.`v` AS `c5`, `m1`.`kn` AS `c6`, `m1`.`kw` AS `c7` FROM `phase66`.`phase77 f6o` AS `m0` INNER JOIN `phase66`.`phase77 f6i` AS `m1` ON ((NOT (`m1`.`v` <> `m0`.`v`)) AND (`m1`.`kw` = `m0`.`kw`))) SELECT `t0`.`c0` AS `oid`, (-`t0`.`c5`) AS `r` FROM `p0` AS `t0`",
 }
 
 # MySQL statements outside E4B's cells beside chain B's positions (PREREG Rule
@@ -27052,5 +27313,564 @@ E4BC_POSTGRES_BLOCKERS = {
     "count_sign_distinct": [
         ("PIE-B1003", "semantic_result_unsuccessful", 11, 1),
         ("PIE-B1003", "active_output_unavailable", 11, 1),
+    ],
+}
+# MySQL statements outside E4B's cells beside chain J's P9 (PREREG Rule two
+# and neighbours, Not in any list), each keeping main's blockers
+# (E4BJ_REFUSAL_BLOCKERS): a refused label; a nesting, a `-` of two fields;
+# two fields under a WHERE on an Int or a Text JOIN; an operation in the `on`
+# (P10), or an operation, a sign or an `any` in the WHERE; an `on` that is
+# neither one `==` of an Int or a Text field of each input nor S06's: a
+# Float or Text ordering comparison, under a WHERE or not, a comparison with
+# a literal, an `or`, a second key, a Float key or an ordering beside an Int
+# key, a `not` over an Int `!=`, a `not` over a Float `!=` under LEFT and a
+# key of one input; a WHERE beside each S06 Float-keyed JOIN; a `let` or a
+# header parameter; a RIGHT JOIN; an input that is an upstream query, an
+# alias `let` of a source, the query's own source again through one or a
+# source of another module; a literal item beside an operation item; ORDER
+# BY by a field, LIMIT and DISTINCT beside an operation item. (`ordered` and
+# `grouped` are refused on PostgreSQL too, so they witness nothing of E4B's
+# law.) The `s06_` forms are inside the law but over S06's expression
+# bound: S06's unit query (_unit_query) admits at most nine plan expressions
+# beyond its projections, and `not (!=)` beside a Text key with a `*`, `+`
+# or `-` item holds twelve beside two projections (its statement with the
+# item's field holds ten), as `==` beside a Text key does with a `*` over a
+# signed literal, so emission keeps main's blocker; compiled replay and the
+# pure boundary count the bound from their own input.
+_E4BJ_INNER = "inner join f6i on f6i.id == f6o.id"
+_E4BJ_IMPORT = 'from "main.pietto" import (\n    source f6o,\n    source f6i,\n)\n'
+E4BJ_REFUSALS = {
+    "p9_long_label": _e4b(
+        "query",
+        "f6o",
+        _E4BJ_INNER,
+        "select:",
+        "    oid = f6o.id",
+        f"    {_E4B_LABEL} = f6o.v * 2.0",
+    ),
+    "nested": _e4b(
+        "query",
+        "f6o",
+        _E4BJ_INNER,
+        "select:",
+        "    oid = f6o.id",
+        "    r = (f6o.v * 2.0) + 1.0",
+    ),
+    "difference_of_fields": _e4b(
+        "query",
+        "f6o",
+        _E4BJ_INNER,
+        "select:",
+        "    oid = f6o.id",
+        "    r = f6o.v - f6i.v",
+    ),
+    "fields_where_int": _e4b(
+        "query",
+        "f6o",
+        _E4BJ_INNER,
+        "where f6o.id > 1",
+        "select:",
+        "    oid = f6o.id",
+        "    r = f6o.v * f6i.v",
+    ),
+    "fields_where_text": _e4b(
+        "query",
+        "f6o",
+        "inner join f6i on f6i.kn == f6o.kn",
+        "where f6o.id > 1",
+        "select:",
+        "    oid = f6o.id",
+        "    r = f6o.v + f6i.v",
+    ),
+    "operation_in_on": _e4b(
+        "query",
+        "f6o",
+        "inner join f6i on f6i.v == f6o.v * 2.0",
+        "select:",
+        "    oid = f6o.id",
+    ),
+    "operation_in_where": _e4b(
+        "query",
+        "f6o",
+        _E4BJ_INNER,
+        "where f6o.v * 2.0 > 1.0",
+        "select:",
+        "    oid = f6o.id",
+    ),
+    "where_beside_float_key": _e4b(
+        "query",
+        "f6o",
+        "inner join f6i on f6i.v == f6o.v",
+        "where f6o.id > 1",
+        "select:",
+        "    oid = f6o.id",
+        "    r = f6o.v * 2.0",
+    ),
+    "negated_float_key_where": _e4b(
+        "query",
+        "f6o",
+        "inner join f6i on not (f6i.v != f6o.v)",
+        "where f6o.id > 1",
+        "select:",
+        "    oid = f6o.id",
+        "    r = f6o.v * 2.0",
+    ),
+    "left_float_key_where": _e4b(
+        "query",
+        "f6o",
+        "left join f6i on f6i.v == f6o.v",
+        "where f6o.id > 1",
+        "select:",
+        "    oid = f6o.id",
+        "    r = f6o.v * 2.0",
+    ),
+    "float_text_keys_where": _e4b(
+        "query",
+        "f6o",
+        "inner join f6i on f6i.v == f6o.v and f6i.kn == f6o.kn",
+        "where f6o.id > 1",
+        "select:",
+        "    oid = f6o.id",
+        "    r = f6o.v * 2.0",
+    ),
+    "float_key_and_int_key": _e4b(
+        "query",
+        "f6o",
+        "inner join f6i on f6i.v == f6o.v and f6i.id == f6o.id",
+        "select:",
+        "    oid = f6o.id",
+        "    r = f6o.v * 2.0",
+    ),
+    "left_not_ne": _e4b(
+        "query",
+        "f6o",
+        "left join f6i on not (f6i.v != f6o.v)",
+        "select:",
+        "    oid = f6o.id",
+        "    r = f6o.v * 2.0",
+    ),
+    "s06_expression_bound": _e4b(
+        "query",
+        "f6o",
+        "inner join f6i on not (f6i.v != f6o.v) and f6i.kn == f6o.kn",
+        "select:",
+        "    oid = f6o.id",
+        "    r = f6o.v * 2.0",
+    ),
+    "s06_expression_bound_sum": _e4b(
+        "query",
+        "f6o",
+        "inner join f6i on not (f6i.v != f6o.v) and f6i.kn == f6o.kn",
+        "select:",
+        "    oid = f6o.id",
+        "    r = f6o.v + 1.0",
+    ),
+    "s06_expression_bound_difference": _e4b(
+        "query",
+        "f6o",
+        "inner join f6i on not (f6i.v != f6o.v) and f6i.kw == f6o.kw",
+        "select:",
+        "    oid = f6o.id",
+        "    r = f6i.v - 0.5",
+    ),
+    "s06_bound_signed_literal": _e4b(
+        "query",
+        "f6o",
+        "inner join f6i on f6i.v == f6o.v and f6i.kn == f6o.kn",
+        "select:",
+        "    oid = f6o.id",
+        "    r = f6o.v * -2.0",
+    ),
+    "sign_in_where": _e4b(
+        "query",
+        "f6o",
+        _E4BJ_INNER,
+        "where -f6o.v > 1.0",
+        "select:",
+        "    oid = f6o.id",
+        "    r = f6o.v * 2.0",
+    ),
+    "any_in_where": _e4b(
+        "query",
+        "f6o",
+        _E4BJ_INNER,
+        "where any(z.id == f6o.id for z in f6i)",
+        "select:",
+        "    oid = f6o.id",
+        "    r = f6o.v * 2.0",
+    ),
+    "float_order_on": _e4b(
+        "query",
+        "f6o",
+        "inner join f6i on f6i.v < f6o.v",
+        "select:",
+        "    oid = f6o.id",
+        "    r = f6o.v * 2.0",
+    ),
+    "float_order_on_where": _e4b(
+        "query",
+        "f6o",
+        "inner join f6i on f6i.v <= f6o.v",
+        "where f6o.id > 1",
+        "select:",
+        "    oid = f6o.id",
+        "    r = f6i.v + 1.0",
+    ),
+    "float_order_on_fields": _e4b(
+        "query",
+        "f6o",
+        "left join f6i on f6i.v > f6o.v",
+        "select:",
+        "    oid = f6o.id",
+        "    r = f6o.v + f6i.v",
+    ),
+    "float_order_on_sign": _e4b(
+        "query",
+        "f6o",
+        "left join f6i on f6i.v >= f6o.v",
+        "where f6o.v < 2.0",
+        "select:",
+        "    oid = f6o.id",
+        "    r = -f6i.v",
+    ),
+    "float_literal_on": _e4b(
+        "query",
+        "f6o",
+        "inner join f6i on f6i.v > 1.0",
+        "select:",
+        "    oid = f6o.id",
+        "    r = f6o.v * 2.0",
+    ),
+    "text_order_on": _e4b(
+        "query",
+        "f6o",
+        "inner join f6i on f6i.kn < f6o.kn",
+        "select:",
+        "    oid = f6o.id",
+        "    r = f6o.v * 2.0",
+    ),
+    "or_on": _e4b(
+        "query",
+        "f6o",
+        "inner join f6i on f6i.id == f6o.id or f6i.kn == f6o.kn",
+        "select:",
+        "    oid = f6o.id",
+        "    r = f6o.v * 2.0",
+    ),
+    # An `or` of S06's Float key and a Text key.
+    "float_or_text_on": _e4b(
+        "query",
+        "f6o",
+        "inner join f6i on f6i.v == f6o.v or f6i.kn == f6o.kn",
+        "select:",
+        "    oid = f6o.id",
+        "    r = f6o.v * 2.0",
+    ),
+    "literal_on": _e4b(
+        "query",
+        "f6o",
+        "inner join f6i on f6i.id == 1",
+        "select:",
+        "    oid = f6o.id",
+        "    r = f6o.v * 2.0",
+    ),
+    "key_and_float_order_on": _e4b(
+        "query",
+        "f6o",
+        "inner join f6i on f6i.id == f6o.id and f6i.v < f6o.v",
+        "select:",
+        "    oid = f6o.id",
+        "    r = f6o.v * 2.0",
+    ),
+    "two_keys_on": _e4b(
+        "query",
+        "f6o",
+        "inner join f6i on f6i.id == f6o.id and f6i.kn == f6o.kn",
+        "select:",
+        "    oid = f6o.id",
+        "    r = f6o.v * 2.0",
+    ),
+    "negated_key_on": _e4b(
+        "query",
+        "f6o",
+        "inner join f6i on not (f6i.id != f6o.id)",
+        "select:",
+        "    oid = f6o.id",
+        "    r = f6o.v * 2.0",
+    ),
+    "one_input_key_on": _e4b(
+        "query",
+        "f6o",
+        "inner join f6i on f6i.id == f6i.id",
+        "select:",
+        "    oid = f6o.id",
+        "    r = f6o.v * 2.0",
+    ),
+    "let": _e4b(
+        "query",
+        "f6o",
+        _E4BJ_INNER,
+        "let t = f6o.v * 2.0",
+        "select:",
+        "    oid = f6o.id",
+        "    r = t",
+    ),
+    "parameter": _e4b(
+        "query",
+        "f6o",
+        _E4BJ_INNER,
+        "select:",
+        "    oid = f6o.id",
+        "    r = f6o.v + p",
+        params="(p: Float)",
+    ),
+    "right_join": _e4b(
+        "query",
+        "f6o",
+        "right join f6i on f6i.id == f6o.id",
+        "select:",
+        "    oid = f6o.id",
+        "    r = f6i.v * 2.0",
+    ),
+    "upstream_input": "query up:\n    from f6i\n    select:\n        id\n        v\n"
+    + _e4b(
+        "query",
+        "f6o",
+        "inner join up on up.id == f6o.id",
+        "select:",
+        "    oid = f6o.id",
+        "    r = f6o.v * 2.0",
+    ),
+    "alias_input": _e4b(
+        "query",
+        "f6o",
+        "let i = f6i",
+        "inner join i on i.id == f6o.id",
+        "select:",
+        "    oid = f6o.id",
+        "    r = f6o.v * 2.0",
+    ),
+    "self_join_alias": _e4b(
+        "query",
+        "f6o",
+        "let o2 = f6o",
+        "inner join o2 on o2.id == f6o.id",
+        "select:",
+        "    oid = f6o.id",
+        "    r = f6o.v * 2.0",
+    ),
+    "imported_input": {
+        "main.pietto": "export source f6o\nexport source f6i\n",
+        "other.pietto": _E4BJ_IMPORT
+        + _e4b(
+            "query",
+            "f6o",
+            _E4BJ_INNER,
+            "select:",
+            "    oid = f6o.id",
+            "    r = f6o.v * 2.0",
+        ),
+    },
+    **{
+        name: _e4b(
+            "query",
+            "f6o",
+            _E4BJ_INNER,
+            "select:",
+            "    oid = f6o.id",
+            "    r = f6o.v * 2.0",
+            f"    c = {literal}",
+        )
+        for name, literal in (
+            ("literal_item", "2.0"),
+            ("int_literal_item", "1"),
+            ("text_literal_item", '"a"'),
+            ("signed_literal_item", "-2.0"),
+        )
+    },
+    "ordered": _e4b(
+        "query",
+        "f6o",
+        _E4BJ_INNER,
+        "select:",
+        "    oid = f6o.id",
+        "    r = f6o.v * 2.0",
+        "order by oid",
+    ),
+    # A comparison is a SELECT operation, but it is outside the Float
+    # arithmetic cell. S06 still rejects the Float JOIN in either list.
+    "s06_comparison_item": _e4b(
+        "query",
+        "f6o",
+        "inner join f6i on f6i.v == f6o.v",
+        "select:",
+        "    oid = f6o.id",
+        "    c = f6o.id > 1",
+    ),
+    "s06_comparison_beside_operation": _e4b(
+        "query",
+        "f6o",
+        "inner join f6i on f6i.v == f6o.v",
+        "select:",
+        "    oid = f6o.id",
+        "    r = f6o.v * 2.0",
+        "    c = f6o.id > 1",
+    ),
+    **{
+        name: _e4b(
+            "query",
+            "f6o",
+            _E4BJ_INNER,
+            "select:",
+            "    oid = f6o.id",
+            "    r = f6o.v * 2.0",
+            f"    c = {expression}",
+        )
+        for name, expression in (
+            ("call_beside_operation", "coalesce(f6i.v, 1.0)"),
+            ("comparison_beside_operation", "f6o.id > 1"),
+        )
+    },
+    "ordered_by_field": _e4b(
+        "query",
+        "f6o",
+        _E4BJ_INNER,
+        "select:",
+        "    oid = f6o.id",
+        "    r = f6o.v * 2.0",
+        "order by f6o.id",
+    ),
+    "limited": _e4b(
+        "query",
+        "f6o",
+        _E4BJ_INNER,
+        "select:",
+        "    oid = f6o.id",
+        "    r = f6o.v * 2.0",
+        "limit 1",
+    ),
+    "grouped": _e4b(
+        "query",
+        "f6o",
+        _E4BJ_INNER,
+        "group by f6o.id",
+        "select:",
+        "    oid = f6o.id",
+        "    n = count(f6o.v * 2.0)",
+    ),
+    "distinct": _e4b(
+        "query",
+        "f6o",
+        _E4BJ_INNER,
+        "select distinct:",
+        "    oid = f6o.id",
+        "    r = f6o.v * 2.0",
+    ),
+}
+# The MySQL blockers main reports for each of E4BJ_REFUSALS under both literal
+# policies, observed at this slice's base, and PostgreSQL's where it refuses
+# the body too.
+E4BJ_REFUSAL_BLOCKERS = {
+    "p9_long_label": [
+        ("PIE-B1003", "float_literal_operands_required", 13, 9),
+        ("PIE-B1002", "output_label_unrepresentable", None, None),
+    ],
+    "nested": [("PIE-B1003", "float_literal_operands_required", 13, 9)],
+    "difference_of_fields": [("PIE-B1003", "float_literal_operands_required", 13, 9)],
+    "fields_where_int": [("PIE-B1003", "float_literal_operands_required", 14, 9)],
+    "fields_where_text": [("PIE-B1003", "float_literal_operands_required", 14, 9)],
+    "operation_in_on": [("PIE-B1003", "float_literal_operands_required", 10, 20)],
+    "operation_in_where": [("PIE-B1003", "float_literal_operands_required", 11, 5)],
+    "where_beside_float_key": [
+        ("PIE-B1003", "comparison_type_pair_not_admitted", 10, 20)
+    ],
+    "negated_float_key_where": [
+        ("PIE-B1003", "comparison_type_pair_not_admitted", 10, 20)
+    ],
+    "left_float_key_where": [
+        ("PIE-B1003", "comparison_type_pair_not_admitted", 10, 19)
+    ],
+    "float_text_keys_where": [
+        ("PIE-B1003", "comparison_type_pair_not_admitted", 10, 20)
+    ],
+    "float_key_and_int_key": [
+        ("PIE-B1003", "comparison_type_pair_not_admitted", 10, 20)
+    ],
+    "left_not_ne": [("PIE-B1003", "comparison_type_pair_not_admitted", 10, 19)],
+    **dict.fromkeys(
+        (
+            "s06_expression_bound",
+            "s06_expression_bound_sum",
+            "s06_expression_bound_difference",
+            "s06_bound_signed_literal",
+        ),
+        [("PIE-B1003", "comparison_type_pair_not_admitted", 10, 20)],
+    ),
+    "sign_in_where": [("PIE-B1003", "unary_sign_requires_int_operand", 11, 5)],
+    "any_in_where": [("PIE-B1003", "float_literal_operands_required", 14, 9)],
+    "float_order_on": [("PIE-B1003", "float_literal_operands_required", 13, 9)],
+    "float_order_on_where": [("PIE-B1003", "float_literal_operands_required", 14, 9)],
+    "float_order_on_fields": [("PIE-B1003", "float_literal_operands_required", 13, 9)],
+    "float_order_on_sign": [("PIE-B1003", "unary_sign_requires_int_operand", 14, 9)],
+    "float_literal_on": [("PIE-B1003", "float_literal_operands_required", 13, 9)],
+    "text_order_on": [("PIE-B1003", "float_literal_operands_required", 13, 9)],
+    "or_on": [("PIE-B1003", "float_literal_operands_required", 13, 9)],
+    "float_or_text_on": [("PIE-B1003", "comparison_type_pair_not_admitted", 10, 20)],
+    "literal_on": [("PIE-B1003", "float_literal_operands_required", 13, 9)],
+    "key_and_float_order_on": [("PIE-B1003", "float_literal_operands_required", 13, 9)],
+    "two_keys_on": [("PIE-B1003", "float_literal_operands_required", 13, 9)],
+    "negated_key_on": [("PIE-B1003", "float_literal_operands_required", 13, 9)],
+    "one_input_key_on": [("PIE-B1003", "float_literal_operands_required", 13, 9)],
+    "let": [("PIE-B1003", "float_literal_operands_required", 11, 5)],
+    "parameter": [("PIE-B1003", "float_literal_operands_required", 13, 9)],
+    "right_join": [("PIE-B1003", "float_literal_operands_required", 13, 9)],
+    "upstream_input": [("PIE-B1003", "float_literal_operands_required", 18, 9)],
+    "alias_input": [("PIE-B1003", "float_literal_operands_required", 14, 9)],
+    "self_join_alias": [("PIE-B1003", "float_literal_operands_required", 14, 9)],
+    "imported_input": [("PIE-B1003", "float_literal_operands_required", 10, 9)],
+    **dict.fromkeys(
+        (
+            "literal_item",
+            "int_literal_item",
+            "text_literal_item",
+            "signed_literal_item",
+        ),
+        [("PIE-B1003", "float_literal_operands_required", 13, 9)],
+    ),
+    "ordered": [
+        ("PIE-B1003", "semantic_result_unsuccessful", 8, 1),
+        ("PIE-B1003", "active_output_unavailable", 8, 1),
+        ("PIE-B1003", "join", 10, 5),
+    ],
+    "grouped": [
+        ("PIE-B1003", "semantic_result_unsuccessful", 8, 1),
+        ("PIE-B1003", "active_output_unavailable", 8, 1),
+        ("PIE-B1003", "join", 10, 5),
+        ("PIE-B1003", "group", 11, 5),
+    ],
+    **dict.fromkeys(
+        ("s06_comparison_item", "s06_comparison_beside_operation"),
+        [("PIE-B1003", "comparison_type_pair_not_admitted", 10, 20)],
+    ),
+    **dict.fromkeys(
+        ("call_beside_operation", "comparison_beside_operation"),
+        [("PIE-B1003", "float_literal_operands_required", 13, 9)],
+    ),
+    "ordered_by_field": [("PIE-B1003", "float_literal_operands_required", 13, 9)],
+    "limited": [("PIE-B1003", "float_literal_operands_required", 13, 9)],
+    "distinct": [("PIE-B1003", "float_literal_operands_required", 13, 9)],
+}
+E4BJ_POSTGRES_BLOCKERS = {
+    "p9_long_label": [("PIE-B1002", "output_label_unrepresentable", None, None)],
+    "ordered": [
+        ("PIE-B1003", "semantic_result_unsuccessful", 8, 1),
+        ("PIE-B1003", "active_output_unavailable", 8, 1),
+        ("PIE-B1003", "join", 10, 5),
+    ],
+    "grouped": [
+        ("PIE-B1003", "semantic_result_unsuccessful", 8, 1),
+        ("PIE-B1003", "active_output_unavailable", 8, 1),
+        ("PIE-B1003", "join", 10, 5),
+        ("PIE-B1003", "group", 11, 5),
     ],
 }
