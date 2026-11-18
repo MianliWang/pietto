@@ -188,7 +188,7 @@ adds the grouping, `having`, `order by`, `limit`, the wider filters and the
 higher limits; no release carries it yet, and it enters `0.2.2` (PL.55).
 B2's second tier adds `Date`, `Timestamp` and `Decimal(p, s)` fields, the
 arithmetic, several sources with their JOINs and the batch reading of every
-result, which are not qualified yet, and enters `0.2.2` too (D79.21).
+result, and enters `0.2.2` too (D79.21).
 
 Each row was recorded by running one plain example through
 `check --project` and `emit-sql --project --dialect duckdb`, with a DuckDB
