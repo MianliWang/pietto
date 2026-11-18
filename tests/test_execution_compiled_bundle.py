@@ -2991,6 +2991,10 @@ _NUMERIC_UNFORGEABLE = {
     "G2_X2": "PIE-B1003",
     "G2_X3": "PIE-B1003",
     "G2_X4": "PIE-B1003",
+    # MC G8's: a label too long, a sum of an operation and a `Float` sum.
+    "G8_R1": "PIE-B1002",
+    "G8_R8": "PIE-B1004",
+    "G8_X1": "PIE-B1004",
 }
 
 
@@ -3038,20 +3042,53 @@ _NUMERIC_FORGED = [
         )
         for shape in sorted(_pietto_sql_emission.G2_REFUSALS)
     ),
+    *(
+        (
+            "G8_" + shape,
+            _pietto_sql_emission.G8_REFUSAL_POLICIES.get(shape, ("preserve_literals",))[
+                0
+            ],
+        )
+        for shape in sorted(
+            {
+                *_pietto_sql_emission.G8_REFUSALS,
+                *_pietto_sql_emission.G8_S03_REFUSALS,
+            }
+        )
+    ),
 ]
 # A relation alias leaves G1's neighbour X6 the records and document of L2,
-# and G2's R6 those of the same body read directly.
+# G2's R6 those of the same body read directly, and G8's R12, Q1 and Q2
+# those of D2 and its Q3 those of D1; G8's imports I1 and I2 leave D2's.
 _NUMERIC_ALIASES = {
     **_pietto_sql_emission.NUMERIC_ALIASES,
     "X6": _pietto_sql_emission.G1_FORMS["L2"],
     "G2_R6": "query result:\n    from rows\n    group by k, note\n    select:\n"
     "        k\n        note\n        s = sum(n)\n",
+    "G8_R12": _pietto_sql_emission.G8_FORMS["D2"],
+    "G8_Q1": _pietto_sql_emission.G8_FORMS["D2"],
+    "G8_Q2": _pietto_sql_emission.G8_FORMS["D2"],
+    "G8_Q3": _pietto_sql_emission.G8_FORMS["D1"],
+    "G8_I1": _pietto_sql_emission.G8_FORMS["D2"],
+    "G8_I2": _pietto_sql_emission.G8_FORMS["D2"],
 }
 
 
 def _numeric_forged_world(shape):
     """The world, keywords and body of a forged numeric shape: a G2
-    neighbour (`G2_` before its name) over grouping_world."""
+    neighbour (`G2_` before its name) over grouping_world, a G8 one (`G8_`)
+    over levels_world or, for T1 or T2 under a third level, s03_world."""
+    if shape.startswith("G8_"):
+        s03 = _pietto_sql_emission.G8_S03_REFUSALS.get(shape[3:])
+        return (
+            (
+                _pietto_sql_emission.levels_world,
+                {},
+                _pietto_sql_emission.G8_REFUSALS[shape[3:]],
+            )
+            if s03 is None
+            else (_pietto_sql_emission.s03_world, {}, s03[0])
+        )
     if shape.startswith("G2_"):
         return (
             _pietto_sql_emission.grouping_world,
@@ -3111,7 +3148,7 @@ def test_forged_mysql_numeric_cells_fail_every_reader(
         assert artifact is not None, outcome.blockers
         observed = portable.export_emission_observation(artifact, artifact.request)
         loaded = _numeric_loaded(artifact)
-    summed = shape.startswith(("sum_", "s02", "G2_")) or shape in (
+    summed = shape.startswith(("sum_", "s02", "G2_", "G8_")) or shape in (
         _pietto_sql_emission.G1_REFUSALS
     )
     assert not verify_project_sql_emission(artifact, artifact.request).verified
@@ -3922,6 +3959,96 @@ def test_the_mysql_pure_cell_law_refuses_each_edited_record(tmp_path, edit):
     assert pure._mysql_cells(pure._Doc(records)) == native
     edited = pure._Doc(_PURE_LAW_EDITS[edit](records))
     assert pure._mysql_cells(edited) == (frozenset(),) * 5
+
+
+# MC G8: each edit of a native chain that only the G8 law refuses, over
+# G8_FORMS' D2 (its bottom field 1 is `a`, summed by `mid`; `result`'s key
+# is read 13, its `x = sum(s)` value 3 and its read of `s` port 19), or
+# over S1 (its one JOIN).
+_COMPILED_G8_EDITS = {
+    "g8_summed_storage": _record_edit(
+        _A("field", 1), physical=_SMALLINT_PHYSICAL.replace("false", "true")
+    ),
+    "g8_sum_key": _record_edit(_A("read", 13), port=_A("port", 19)),
+    "g8_unread_sum": _record_edit(_A("aggregate_value", 3), function="count"),
+    "g8_join_kind": _record_edit(_A("join", 0), kind="inner"),
+    # A key of `items` (source 1, its `id` port 3), which the style page's
+    # `Item` has not.
+    "g8_join_item_key": _record_edit(
+        _A("source_unique", 0),
+        copy=True,
+        source=_A("source", 1),
+        fields=(_A("port", 3),),
+    ),
+}
+
+
+@pytest.mark.parametrize("edit", sorted(_COMPILED_G8_EDITS))
+def test_the_mysql_compiled_g8_law_refuses_each_edited_record(tmp_path, edit):
+    """Compiled replay derives the G8 law from the records on its own: it
+    finds every sum of a native chain, and none once one record changes: a
+    SMALLINT field summed, a lower sum column as a key, a lower sum that no
+    sum above reads, another kind for the per-order JOIN, or a key of its
+    joined source."""
+    from pietto._project import project_sql_emission_rows as rows
+
+    form = "S1" if edit.startswith("g8_join") else "D2"
+    records, query = _numeric_records(
+        tmp_path, _pietto_sql_emission.G8_FORMS[form], _pietto_sql_emission.levels_world
+    )
+    native = rows.mysql_g8_compiled(records, records[query])
+    assert native == frozenset(
+        address
+        for address, record in records.items()
+        if address.kind == "aggregate_value" and record.get("function") == "sum"
+    )
+    assert len(native) == (2 if form == "S1" else 5)
+    edited = _COMPILED_G8_EDITS[edit](records)
+    assert rows.mysql_g8_compiled(edited, edited[query]) == frozenset()
+
+
+# The same edits of the native document, over D2 (bound field 1 is `a`;
+# `result`'s key column is aggregate_key_column 2 and its `x = sum(s)`
+# aggregate_value_column 3, whose argument reads stage column 29) or S1.
+_PURE_G8_EDITS = {
+    "g8_summed_storage": _doc_edit(
+        "bound_field", 1, representation=_SMALLINT_PHYSICAL.replace("false", "true")
+    ),
+    "g8_sum_key": _doc_edit(
+        "aggregate_key_column", 2, read=_doc_ref("stage_column", 29)
+    ),
+    "g8_unread_sum": _doc_edit("aggregate_value_column", 3, function="count"),
+    "g8_join_kind": _doc_edit("join_body", 0, join_kind="inner"),
+}
+
+
+@pytest.mark.parametrize("edit", sorted(_PURE_G8_EDITS))
+def test_the_mysql_pure_g8_law_refuses_each_edited_record(tmp_path, edit):
+    """The pure boundary derives the G8 law from the document on its own:
+    it finds every sum column of a native chain, and none once one record
+    changes, as compiled replay does from its records."""
+    import _pietto_sql_emission_portable as portable
+    import _pietto_sql_emission_pure_boundary as pure
+
+    form = "S1" if edit == "g8_join_kind" else "D2"
+    _, outcome = _pietto_sql_emission.levels_world(
+        tmp_path, "mysql", _pietto_sql_emission.G8_FORMS[form]
+    )
+    artifact = outcome.artifact
+    assert artifact is not None, outcome.blockers
+    exported = portable.export_emission_observation(artifact, artifact.request)
+    assert exported.canonical_bytes is not None
+    view = pure.parse_emission_observation(exported.canonical_bytes).view
+    assert view is not None
+    records = dict(view.records)
+    native = pure._mysql_g8(pure._Doc(records))
+    assert native == frozenset(
+        ref
+        for ref, record in records.items()
+        if ref.kind == "aggregate_value_column" and record.fields["function"] == "sum"
+    )
+    assert len(native) == (2 if form == "S1" else 5)
+    assert pure._mysql_g8(pure._Doc(_PURE_G8_EDITS[edit](records))) == frozenset()
 
 
 def test_the_mysql_pure_cell_law_ends_at_a_fourth_body(tmp_path):

@@ -1507,7 +1507,8 @@ _FIRST = (
 # world its own tests build it in: S06 one that R2 executed refined and one
 # that failed at its first page, S06's `same_value` in a JOIN `on` (of an
 # Int and of a Float), S02 beside S01, R08's `Int /` over a literal
-# divisor, MC G1's INT and `let` carriers, and MC G2's aggregates and keys.
+# divisor, MC G1's INT and `let` carriers, MC G2's aggregates and keys,
+# and MC G8's chains of levels over a source and over the per-order level.
 PHASE77_MYSQL_FORMS = {
     "S05": ("agg", _STATISTIC),
     "S06_join": (
@@ -1571,6 +1572,24 @@ PHASE77_MYSQL_FORMS = {
         "grouping",
         "query result:\n    from rows\n    group by note, a\n    select:\n"
         "        note\n        x = sum(n)\n",
+    ),
+    "G8_levels": (
+        "levels",
+        "query base:\n    from rows\n    select:\n        k\n        a\n"
+        "query mid:\n    from base\n    group by k\n    select:\n        k\n"
+        "        s = sum(a)\nquery result:\n    from mid\n    select:\n"
+        "        x = sum(s)\n",
+    ),
+    "G8_route": (
+        "levels",
+        "query per_order:\n    from orders\n    let item = items\n"
+        "    left join item on item.order_id == orders.id\n"
+        "    group by orders.id, orders.customer_id, orders.amount\n"
+        "    select:\n        id = orders.id\n"
+        "        customer_id = orders.customer_id\n        amount = orders.amount\n"
+        "        lines = count(item.id)\nquery result:\n    from per_order\n"
+        "    group by customer_id\n    select:\n        customer_id\n"
+        "        revenue = sum(amount)\n",
     ),
     "S15": (
         "remainder",
@@ -1648,6 +1667,14 @@ MYSQL_0111_FORMS = {
         "grouping",
         "query result:\n    from rows\n    group by note, a\n    select:\n"
         "        note\n        hi = max(n)\n        mean = avg(c)\n",
+        _WORKSPACE,
+    ),
+    "G8": (
+        "levels",
+        "query base:\n    from rows\n    select:\n        k\n        a\n"
+        "query mid:\n    from base\n    group by k\n    select:\n        k\n"
+        "        s = max(a)\nquery result:\n    from mid\n    select:\n"
+        "        x = max(s)\n",
         _WORKSPACE,
     ),
     "S15": (

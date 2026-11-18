@@ -1923,8 +1923,11 @@ def build_stage(
         request.plan, tuple(available.get(key.input) for key in keys), available
     )
     # S03: whether the statement is a paired sum form, whose every sum and
-    # conditional sum is in its cell, asked once.
-    mysql_s03 = family == "mysql" and rows.mysql_s03_statement(request)
+    # conditional sum is in its cell, or (MC G8) a chain of levels, whose
+    # every sum is, asked once.
+    mysql_s03 = family == "mysql" and (
+        rows.mysql_s03_statement(request) or rows.mysql_g8_statement(request)
+    )
     for index, key in enumerate(keys):
         read = available.get(key.input)
         export = exports[index]
