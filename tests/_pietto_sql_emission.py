@@ -10980,8 +10980,20 @@ def _decode_fixed_public(document, limits):
         start = lexical[cursor][0]["start"]
         subject = lexical[cursor][0]["subject"]
         _need(subject["kind"] == "window", "window occurrence kind")
+        cast = peek() == "window_result_cast_open"
+        if cast:
+            take("syntax", "window_result_cast_open", "CAST(", subject)
         _, spelling = take("syntax", "window_open", subject=subject)
         _need(spelling in WINDOW_SPELLINGS, "window spelling")
+        # MySQL sends a rank or bucket as BIGINT UNSIGNED, so it is cast to SIGNED.
+        _need(
+            cast
+            is (
+                family == "mysql"
+                and WINDOW_SPELLINGS[spelling] in WINDOW_RANK_FUNCTIONS
+            ),
+            "window result cast",
+        )
         arguments = []
         while peek() not in {"window_close", None}:
             if peek() == "window_argument_separator":
@@ -11007,6 +11019,8 @@ def _decode_fixed_public(document, limits):
             expected_ranges.append(
                 ("window_specification", subject, inner, closed["end"])
             )
+        if cast:
+            take("syntax", "window_result_cast_close", " AS SIGNED)", subject)
         end = lexical[cursor - 1][0]["end"]
         expected_ranges.append(("window", subject, start, end))
         return {
@@ -12341,7 +12355,7 @@ def _decode_fixed_public(document, limits):
                 "aggregate_guard_open",
             ):
                 node = {"kind": "aggregate", **aggregate_parse(block)}
-            elif peek() == "window_open":
+            elif peek() in ("window_open", "window_result_cast_open"):
                 node = {"kind": "window", **window_parse(block)}
             else:
                 node = {"kind": "value", "value": row_parse(block)}

@@ -119,6 +119,80 @@ def test_every_admitted_family_emits_its_own_native_call(target, family):
             assert name not in emitted
 
 
+# Query `w` of an R08 `nums` world ranks its rows; each shape reads `w` and
+# names its result column's storage and range.
+RANKED = (
+    "query w:\n    from nums\n    select:\n        rn = {call} window(order by id)\n"
+)
+I64_MAX = str((1 << 63) - 1)
+RANK_SHAPES = {
+    "rank": (
+        "query result:\n    from w\n    select:\n        lo = rn\n",
+        "my_bigint",
+        "0",
+        I64_MAX,
+    ),
+    "operation": (
+        "query result:\n    from w\n    select:\n        lo = rn - 5\n",
+        "my_signed_int",
+        "-5",
+        str((1 << 63) - 6),
+    ),
+    "literal_set": (
+        "query a:\n    from w\n    select:\n        lo = rn\n"
+        "query b:\n    from nums\n    select:\n        lo = 1\n"
+        "query result:\n    union all:\n        from a\n        from b\n",
+        "my_signed_int",
+        "0",
+        I64_MAX,
+    ),
+    "bigint_set": (
+        "query a:\n    from w\n    select:\n        lo = rn\n"
+        "query b:\n    from nums\n    select:\n        lo = b\n"
+        "query result:\n    union all:\n        from b\n        from a\n",
+        "my_bigint",
+        str(-(1 << 63)),
+        I64_MAX,
+    ),
+}
+
+
+@pytest.mark.parametrize("shape", sorted(RANK_SHAPES))
+@pytest.mark.parametrize("family", ("row_number", "rank", "dense_rank", "ntile"))
+def test_a_mysql_rank_is_cast_to_signed(tmp_path, family, shape):
+    """MySQL sends a rank or bucket as BIGINT UNSIGNED, so `rn - 5` failed
+    with error 1690 below zero and a set of one beside a signed column was
+    DECIMAL, each PIE-R3005 on mysql_rows (native, 2026-11-18). Its project
+    SQL casts it to SIGNED: the rank keeps its my_bigint, and an operation
+    over it is the my_signed_int, and a set beside a literal or a BIGINT
+    column the signed BIGINT, MySQL then returns. Every reader accepts each,
+    and a PostgreSQL rank stays uncast."""
+    call, spelling = FAMILIES[family]
+    body, storage, low, high = RANK_SHAPES[shape]
+    _, mysql = probe.division_world(
+        tmp_path / "mysql", "mysql", RANKED.format(call=call) + body
+    )
+    probe.numeric_readers_accept(mysql)
+    assert (
+        f"CAST({spelling} OVER (ORDER BY `s0`.`id` ASC) AS SIGNED) AS `c7`"
+        in sql_of(mysql)
+    )
+    column = public(mysql)["columns"][-1]
+    assert column["representation"]["storage"] == {"kind": storage}
+    assert column["representation"]["domain"] == {
+        "kind": "int_range",
+        "min": low,
+        "max": high,
+    }
+    if shape == "rank":
+        _, postgres = probe.division_world(
+            tmp_path / "postgres", "postgres", RANKED.format(call=call) + body
+        )
+        probe.numeric_readers_accept(postgres)
+        assert f'{spelling} OVER (ORDER BY "s0"."id" ASC) AS "c7"' in sql_of(postgres)
+        assert "CAST(" + spelling not in sql_of(postgres)
+
+
 @pytest.mark.parametrize("target", TARGETS)
 def test_partition_and_order_bind_established_pre_window_ports(target):
     """R14: partition and order read their exact pre-window input columns."""
@@ -170,8 +244,9 @@ GROUPED_WINDOWS_FIRST_SQL = {
         'FROM `phase66`.`phase66 source é` AS `s0` GROUP BY `s0`.`text ``"é`), '
         "`p1` (`c0`, `c1`, `c2`, `c3`, `c4`) AS (SELECT `t1`.`c0` AS `c0`, "
         "`t1`.`c1` AS `c1`, `t1`.`c2` AS `c2`, "
-        "RANK() OVER (ORDER BY `t1`.`c1` DESC) AS `c3`, "
-        "ROW_NUMBER() OVER (ORDER BY `t1`.`c0` ASC) AS `c4` FROM `p0` AS `t1`) "
+        "CAST(RANK() OVER (ORDER BY `t1`.`c1` DESC) AS SIGNED) AS `c3`, "
+        "CAST(ROW_NUMBER() OVER (ORDER BY `t1`.`c0` ASC) AS SIGNED) AS `c4` "
+        "FROM `p0` AS `t1`) "
         "SELECT `t2`.`c3` AS `w`, `t2`.`c0` AS `text`, `t2`.`c1` AS `total`, "
         "`t2`.`c4` AS `n`, `t2`.`c2` AS `c` FROM `p1` AS `t2`"
     ),
@@ -247,10 +322,11 @@ COMPUTED_KEYS_SQL = {
         "AS `c5`, (`t1`.`c0` > CAST(1 AS SIGNED)) AS `c6` FROM `p0` AS `t1`), `p2` "
         "(`c0`, `c1`, `c2`, `c3`, `c4`, `c5`, `c6`, `c7`, `c8`, `c9`) AS (SELECT "
         "`t2`.`c0` AS `c0`, `t2`.`c1` AS `c1`, `t2`.`c2` AS `c2`, `t2`.`c3` AS `c3`, "
-        "`t2`.`c4` AS `c4`, `t2`.`c5` AS `c5`, `t2`.`c6` AS `c6`, ROW_NUMBER() OVER "
-        "(PARTITION BY `t2`.`c5` ORDER BY `t2`.`c6` DESC, `t2`.`c0` ASC) AS `c7`, "
-        "RANK() OVER `w0` AS `c8`, ROW_NUMBER() OVER (PARTITION BY `t2`.`c5` ORDER "
-        "BY `t2`.`c0` ASC) AS `c9` FROM `p1` AS `t2` WINDOW `w0` AS (PARTITION BY "
+        "`t2`.`c4` AS `c4`, `t2`.`c5` AS `c5`, `t2`.`c6` AS `c6`, CAST(ROW_NUMBER() "
+        "OVER (PARTITION BY `t2`.`c5` ORDER BY `t2`.`c6` DESC, `t2`.`c0` ASC) AS "
+        "SIGNED) AS `c7`, CAST(RANK() OVER `w0` AS SIGNED) AS `c8`, CAST(ROW_NUMBER() "
+        "OVER (PARTITION BY `t2`.`c5` ORDER BY `t2`.`c0` ASC) AS SIGNED) AS `c9` "
+        "FROM `p1` AS `t2` WINDOW `w0` AS (PARTITION BY "
         "`t2`.`c5` ORDER BY `t2`.`c6` DESC)), `p3` (`c0`, `c1`, `c2`, `c3`, `c4`, "
         "`c5`, `c6`, `c7`, `c8`, `c9`) AS (SELECT `t3`.`c0` AS `c0`, `t3`.`c1` AS "
         "`c1`, `t3`.`c2` AS `c2`, `t3`.`c3` AS `c3`, `t3`.`c4` AS `c4`, `t3`.`c5` AS "
@@ -751,6 +827,8 @@ def test_temporal_and_uuid_window_keys(tmp_path, target):
     assert checked.verified and outcome.status == "VERIFIED", outcome.blockers
     public = probe.decode_public(serialize_project_sql_emission(outcome))
     q = '"' if target == "postgres" else "`"
+    # A MySQL rank is cast to SIGNED.
+    cast = "" if target == "postgres" else " AS SIGNED)"
 
     def col(name):
         return f"{q}s0{q}.{q}{name}{q}"
@@ -769,7 +847,7 @@ def test_temporal_and_uuid_window_keys(tmp_path, target):
     public = probe.decode_public(serialize_project_sql_emission(outcome))
     assert (
         f"ROW_NUMBER() OVER (PARTITION BY {col('d')}"
-        f" ORDER BY {col('u')} DESC, {col('id')} ASC) AS {q}c6{q}"
+        f" ORDER BY {col('u')} DESC, {col('id')} ASC){cast} AS {q}c6{q}"
     ) in public["sql"]
     checked, outcome = probe.temporal_case(
         tmp_path / "uuid_range",

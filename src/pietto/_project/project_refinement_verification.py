@@ -1354,6 +1354,8 @@ class _Bytes:
             self.take(")")
         elif kind == "window":
             original, alias, partitions, orders, full = args
+            if original.result_cast is not None:
+                self.take("CAST(")
             self.take(original.function.upper() + "(")
             for i, item in enumerate(original.arguments):
                 if i:
@@ -1376,6 +1378,8 @@ class _Bytes:
             if full:
                 self.take(" ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING")
             self.take(")")
+            if original.result_cast is not None:
+                self.take(" AS " + original.result_cast + ")")
         elif kind in ("page", "page_limit"):
             index, tag, precision, scale = args
             _need(

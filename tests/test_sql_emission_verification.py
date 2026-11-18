@@ -142,11 +142,13 @@ def _reorder(body: str) -> str:
 
 
 def _over(sql: str) -> dict[str, str]:
-    """Each generated column's resolved OVER text, through WINDOW definitions."""
+    """Each generated column's resolved OVER text, through WINDOW definitions
+    (and a MySQL rank's SIGNED cast)."""
     definitions = dict(re.findall(r'["`](w\d+)["`] AS \(([^()]*)\)', sql))
     resolved = {}
     for symbol, inline, column in re.findall(
-        r'OVER (?:["`](w\d+)["`]|\(([^()]*)\)) AS ["`](c\d+)["`]', sql
+        r'OVER (?:["`](w\d+)["`]|\(([^()]*)\))(?: AS SIGNED\))? AS ["`](c\d+)["`]',
+        sql,
     ):
         resolved[column] = definitions[symbol] if symbol else inline
     return resolved

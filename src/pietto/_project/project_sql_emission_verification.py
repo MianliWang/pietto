@@ -3161,7 +3161,13 @@ def _verify_window_column(request, column, window, export, columns, definitions,
         grouping.argument_cast(request.family, function, control_read)
         if function in {"sum", "avg"}
         else None
-    ) or column.result_cast != ({"sum": "pg_catalog.int8"}.get(function)):
+    ) or column.result_cast != (
+        # MySQL sends a rank or bucket as BIGINT UNSIGNED; it is cast to SIGNED.
+        "SIGNED"
+        if request.family == "mysql"
+        and function in {"row_number", "rank", "dense_rank", "ntile"}
+        else {"sum": "pg_catalog.int8"}.get(function)
+    ):
         return False
     for item, realized, control in zip(items, column.arguments, expected, strict=True):
         if (

@@ -209,10 +209,12 @@ def check_native_column(
         ):
             raise ResultError("EXECUTION_METADATA")
         if real.tag == "Int" and meta[7] & 32:
-            # MySQL ranks expose UNSIGNED BIGINT. A computed result whose
-            # independently verified domain is within signed64's nonnegative
-            # half is losslessly consumed as Int64. Source storage contracts
-            # remain exact; this never widens the semantic value domain.
+            # MySQL sends a rank as UNSIGNED BIGINT, but project SQL and R2
+            # cast every rank to SIGNED, so no known result carries this flag.
+            # Any computed one whose independently verified domain is within
+            # signed64's nonnegative half is still losslessly consumed as
+            # Int64. Source storage contracts remain exact; this never widens
+            # the semantic value domain.
             if (
                 source_field is not None
                 or storage not in ("my_bigint", "my_signed_int")
