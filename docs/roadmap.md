@@ -311,8 +311,7 @@ diagnostic without a path (PL.44 (c), PL.66), and the
 classifiers name Linux and Windows. A verification result is reused only
 inside one public call, and a stored or cross-process result is verified
 again when loaded. The diagnostic review fixes texts, hints, positions, order
-and severity within the existing codes. Nullability v2 gets a read-only
-review first, reported to the owner at the midpoint. The assurance work uses
+and severity within the existing codes. The assurance work uses
 a bounded, seeded generator and shrinker with no new dependency and no
 network. The release tools move into `scripts/`, where CI runs only their
 dry run and self-tests. Phase81 keeps the sheet's ledger,
@@ -335,8 +334,9 @@ own code writing the files. The Windows scope covers a path-based batch
 directory writer, a claim of CLI and compile support with execution NOTRUN,
 and a native Windows editor acceptance, and that claim leaves out the extras
 (PL.40, D5); until then the package keeps its
-`Operating System :: OS Independent` classifier. Nullability v2 goes to
-Phase81 if it changes a public type contract, otherwise to `0.3.0`.
+`Operating System :: OS Independent` classifier. Nullability v2 changes a
+public type contract, as Phase81's review found, so the freeze keeps the
+v1 rules and v2 waits for `0.3.0` as a breaking item (PL.69).
 
 From the `0.2.1` lanes (PL.44), Phase81's diagnostic review also drops,
 by Q7 (d) (a) of PL.50, the PIE-B1004 `identifier_case_declaration_missing`
@@ -416,7 +416,7 @@ before its owner's Gate 1 takes it.
 | A new built-in table function | the first Gate 1 that names a case; Phase82 freeze input (D74.12) |
 | Database-native array and JSON columns; the `postgres_adbc` nested route | the Phase82 freeze, by its ledger row (D76.11, D80.06, PL.39) |
 | MySQL nested output and `JSON_TABLE` | the separate nested work package, at its own Gate 1 (D71.05, D77.32) |
-| pandas and Polars nesting; the Arrow data-analysis example; `compile_queries(...)`; `round` of a `Float` with digits | the owner's answer of 2026-11-15 to the lead's `0.2.1` plan, and for the example the lead's ruling under the owner's later instruction that day (J25, D75.03, D76.05, D80.06, PL.39): one level of nesting to the interop relief (PL.47, which revises PL.39 for that level), and other nesting to a Gate 1 after the nested work package that took Phase77 S24 (D77.32), which admits it before the Phase82 freeze or leaves it refused by the `pietto.interop` ledger row; `compile_queries(...)` after the forged-compiled trust decision below, at the latest the Phase82 freeze; `round` to its Phase82 freeze ledger row; and the example, whose inputs Phase79 B1 and Phase80 S02 deliver, is delivered by the `0.2.1` interop guidance in [An Arrow table through DuckDB](interop.md#an-arrow-table-through-duckdb) |
+| pandas and Polars nesting; the Arrow data-analysis example; `compile_queries(...)`; `round` of a `Float` with digits | the owner's answer of 2026-11-15 to the lead's `0.2.1` plan, and for the example the lead's ruling under the owner's later instruction that day (J25, D75.03, D76.05, D80.06, PL.39): one level of nesting to the interop relief (PL.47, which revises PL.39 for that level), and other nesting to a Gate 1 after the nested work package that took Phase77 S24 (D77.32), which admits it before the Phase82 freeze or leaves it refused by the `pietto.interop` ledger row; `compile_queries(...)` after the forged-compiled trust decision, which PL.70 took, at the latest the Phase82 freeze; `round` to its Phase82 freeze ledger row; and the example, whose inputs Phase79 B1 and Phase80 S02 deliver, is delivered by the `0.2.1` interop guidance in [An Arrow table through DuckDB](interop.md#an-arrow-table-through-duckdb) |
 | Nested fuzz and high-intensity differential work; a readability and compile-time benchmark | Phase81 (J25) |
 | The nested public format | the Phase82 freeze |
 | Multi-level collections and the refused nested combinations; a capture let that reads another capture let | the NestedRelation semantic owner and the ProjectSQLPlan owner; the scope and capture semantic owner; each at its first admission Gate 1 |
@@ -455,7 +455,7 @@ each completion audit adds the freeze inputs of its phase here.
 | The PostgreSQL TLS profile of `PostgresAccess.ca_file` | a support-matrix row | D76.07 |
 | Single files and projects | `language.md` states the rule before the freeze: single files open project-only forms one at a time, DISTINCT first, with no promise that they stay a subset of projects | owner, 2026-11-07 |
 | Bundles and saved jobs across versions; an upgrade-impact tool | the Phase82 compatibility and migration policy, and whether the tool comes before the freeze | D76.13, Phase76 reminder 7, PL.51 |
-| Nullability v2 | Phase81 if it changes a public type contract, otherwise `0.3.0` | D73.13, owner, 2026-11-07, PL.50, PL.51 |
+| Nullability v2 | frozen at the v1 rules; v2 is a breaking item for `0.3.0` (PL.69) | D73.13, owner, 2026-11-07, PL.50, PL.51, PL.69 |
 | The CPython matrix and the Windows claim | frozen as Phase81 decides them | owner, 2026-11-07 |
 | The release notes' history before the freeze, which keeps its file layout until then | archived by the Phase82 freeze | PL.40 (D10), PL.51 |
 | Compiled replay and live analysis give different JOIN key and grain facts for equal SQL bytes | decided (PL.61): live semantic analysis is the only authority, and adapters read the facts only from the verified plan; JF's J2 aligns the compiled replay with the same law before Phase82's Gate 1, and Phase82 audits the closed decision | Phase74 handoff, Phase76 reminder 8, PL.61, PL.62 |
