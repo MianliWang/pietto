@@ -43,7 +43,7 @@ def _body(module, private, public):
     return getattr(module, private, None) or getattr(module, public)
 
 
-# The complete bodies this guard counts: the seven memoized structural checks
+# The complete bodies this guard counts: the eight memoized structural checks
 # plus the description and semantics checks they call. The binding-layer
 # verifiers are not memoized; their nested compiled checks are memo hits.
 BODIES = {
@@ -73,6 +73,9 @@ BODIES = {
     "verify_preparation": _body(
         guard_preparation, "_verify_preparation", "verify_preparation"
     ),
+    "verify_project_sql_plan": _body(
+        plan_verification, "_verify_project_sql_plan", "_verify"
+    ),
 }
 
 
@@ -89,6 +92,10 @@ class Runs:
 
     def count(self, name, *subjects):
         return self.runs[(name, tuple(map(id, subjects)), threading.get_ident())]
+
+    def keys(self, name):
+        """The runs of one body per argument key, in first-run order."""
+        return [n for (body, _ids, _thread), n in self.runs.items() if body == name]
 
     def _start(self, code, offset):
         try:  # never raise into product code
@@ -198,6 +205,24 @@ def guarded(tmp_path_factory):
     return original, built, tuple(v.value for v in original.artifact.fixed_values)
 
 
+@pytest.fixture(scope="module")
+def emission(tmp_path_factory):
+    """The named chain of three tables (`first`, `second`, `result`) as a
+    project per target, with its emission contract."""
+    import _pietto_sql_emission as probe
+
+    roots = {}
+    for target in ("postgres", "mysql"):
+        item = probe.fixture(target, "M_named_chain", "table_bag")
+        root = tmp_path_factory.mktemp("verification-scope-emission-" + target)
+        (root / "pietto.toml").write_text(probe.CONFIG, encoding="utf-8")
+        for name, text in probe.source_files(item["source"]).items():
+            (root / name).write_text(text, encoding="utf-8")
+        (root / "contract.json").write_text(item["contract"], encoding="utf-8")
+        roots[target] = root
+    return roots
+
+
 def _load(built):
     return load_compiled(
         built.payload,
@@ -216,6 +241,30 @@ def _access():
 def _route(name, world):
     """(call, required objects named by display name, allowances) for one route.
     Every route loads its own fresh root, outside the counted calls."""
+    if name in EMISSION_ROUTES:
+        from pietto.compiler import compile_all_sql, compile_sql
+
+        # Each call reads the project afresh and builds its plans inside.
+        if name == "emit_sql":
+            return (
+                lambda: compile_sql(
+                    world["postgres"],
+                    module="main.pietto",
+                    kind="table",
+                    name="result",
+                    dialect="postgres",
+                    emission_contract="contract.json",
+                ),
+                [],
+                {},
+            )
+        return (
+            lambda: compile_all_sql(
+                world["mysql"], dialect="mysql", emission_contract="contract.json"
+            ),
+            [],
+            {},
+        )
     original, built, values = world
     root = _load(built)
     if name == "prepare":
@@ -406,6 +455,9 @@ GUARDED_ROUTES = (
     "render",
     "native_guard",
 )
+# Project emission: the chain's `result` alone on PostgreSQL, and all three of
+# its tables on MySQL, each a scope of its own; the plans each route verifies.
+EMISSION_ROUTES = {"emit_sql": 1, "emit_sql_all": 3}
 ROUTES = (
     "prepare",
     "bind",
@@ -419,6 +471,7 @@ ROUTES = (
     "public_mysql_attempt",
     "public_adbc_attempt",
     *GUARDED_ROUTES,
+    *EMISSION_ROUTES,
 )
 # Reached only inside an execution owner's attempt, which needs a live database;
 # the native campaign exercises it. result_schema intentionally needs optional
@@ -436,6 +489,8 @@ def _world(request, route):
                 monkeypatch.delenv(name)
     if route == "public_mysql_attempt":
         return request.getfixturevalue("mysql_ordinary")
+    if route in EMISSION_ROUTES:
+        return request.getfixturevalue("emission")
     return request.getfixturevalue("guarded" if route in GUARDED_ROUTES else "ordinary")
 
 
@@ -453,6 +508,11 @@ def test_each_exact_object_is_verified_once_per_top_level_call(request, route):
             root = cast(Any, result).artifact.request.verification.completed.root
             required = [("verify(root)", root)]
             assert runs.count("verify_description", root.description) == 4
+        if route in EMISSION_ROUTES:
+            # The plans are built inside the call: each is verified exactly once.
+            assert cast(Any, result).status == "VERIFIED"
+            plans = runs.keys("verify_project_sql_plan")
+            assert plans == [1] * EMISSION_ROUTES[route], (route, attempt, plans)
         for name, subject in required:
             assert runs.count(name, subject) == 1, (route, attempt, name)
 
@@ -621,6 +681,75 @@ def test_marks_key_every_argument_by_identity():
 
     scoped()
     assert seen == [(one, two), (one, three)]
+
+
+def test_a_changed_plan_input_never_hits(emission):
+    """A source plan's mark holds for its exact plan, semantic result, analysis
+    bundle, owner, literal policy and envelope only: a call that changes any
+    one of them checks completely, a failure every time. A plan changed between
+    calls is checked again and refused."""
+    from pietto._project.project_sql_emission_cli import _prepare_emission_context
+    from pietto._project.project_sql_plan import ProjectSQLPlan, build_project_sql_plan
+    from pietto._project.project_sql_plan_literals import ProjectSQLLiteralPolicy
+    from pietto._project.project_verification_scope import entry
+
+    def prepared():
+        context, failure = _prepare_emission_context(
+            emission["postgres"], "contract.json"
+        )
+        assert failure is None and context is not None
+        return context
+
+    first, second = prepared(), prepared()
+    owners = {owner.definition.name: owner for owner in first.owners}
+    preserve = ProjectSQLLiteralPolicy.PRESERVE_LITERALS
+    plan, twin = (
+        build_project_sql_plan(
+            first.completed, first.bundle, owners["result"], literal_policy=preserve
+        )
+        for _ in range(2)
+    )
+    assert type(plan) is ProjectSQLPlan and type(twin) is ProjectSQLPlan
+    base = (plan, first.completed, first.bundle, owners["result"], preserve)
+    base += (plan.fixed_envelope,)
+    changed = (
+        (twin, *base[1:5], twin.fixed_envelope),
+        (plan, second.completed, *base[2:]),
+        (*base[:2], second.bundle, *base[3:]),
+        (*base[:3], owners["second"], *base[4:]),
+        (*base[:4], ProjectSQLLiteralPolicy.BIND_SAFE_LITERALS, base[5]),
+        (*base[:5], twin.fixed_envelope),
+    )
+
+    def verdict(arguments):
+        p, c, b, o, policy, envelope = arguments
+        return plan_verification.verify_project_sql_plan(
+            p, c, b, o, literal_policy=policy, envelope=envelope
+        ).issues
+
+    @entry
+    def call():
+        return [verdict(arguments) for arguments in (base, base, *changed * 2)]
+
+    with Runs() as runs:
+        issues = call()
+    Issue = plan_verification.ProjectSQLPlanVerificationIssue
+    failures = (Issue.ROOT_CONTINUITY,) * 3 + (Issue.LITERAL_TRANSPORT,) * 2
+    expected = [(), ()] + [(), *((f,) for f in failures)] * 2
+    assert issues == expected
+    # Each passing input runs once, each failing one on every call.
+    counts = [runs.count("verify_project_sql_plan", *a) for a in (base, *changed)]
+    assert counts == [1, 1, 2, 2, 2, 2, 2]
+
+    bindings = plan.bindings
+    object.__setattr__(plan, "bindings", twin.bindings)
+    try:
+        with Runs() as runs:
+            assert verdict(base)
+        assert runs.count("verify_project_sql_plan", *base) == 1
+    finally:
+        object.__setattr__(plan, "bindings", bindings)
+    assert verdict(base) == ()
 
 
 def test_marks_keep_their_subjects_alive_until_the_scope_ends():
@@ -823,6 +952,7 @@ MEMOIZED = {
     ("project_sql_plan_requirements.py", "_verify_compiled_requirement_report"),
     ("project_guard_preparation.py", "_verify_scope"),
     ("project_guard_preparation.py", "_verify_preparation"),
+    ("project_sql_plan_verification.py", "_verify_project_sql_plan"),
 }
 
 
@@ -865,12 +995,14 @@ DECORATED = {
     ("project_refinement_verification.py", "verify_refinement", "entry"),
     ("project_result_output.py", "prepare_output", "entry"),
     ("project_result_output.py", "verify_output", "entry"),
+    ("project_sql_emission_cli.py", "_emit_batch_owner", "entry"),
+    ("project_sql_emission_cli.py", "_run_project_emit_sql_single", "entry"),
     ("project_sql_emission_inspection.py", "inspect_project_sql_emission", "entry"),
 }
 
 
 def test_scope_entry_inventory_is_exact(trees):
-    """Exactly the seven pure structural checks consult the call-scoped marks,
+    """Exactly the eight pure structural checks consult the call-scoped marks,
     each at one call site that names its private body. Scopes open only at the
     declared public calls and owner attempts. No entry runs caller-supplied code:
     none lives in the job, Arrow or store layers (their providers, sinks, fences
@@ -988,6 +1120,7 @@ def test_every_scope_entry_is_reached_by_a_route(request, monkeypatch):
         ),
         "_verify_scope": (GuardPreparationError, "^GUARD_PREPARATION_ROOT$"),
         "_verify_preparation": (GuardPreparationError, "^GUARD_PREPARATION_ROOT$"),
+        "_verify_project_sql_plan": (plan_verification._PlanRefused, "^non_concrete$"),
     }
     modules = {
         "model.py": model,
