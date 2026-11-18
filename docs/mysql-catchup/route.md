@@ -184,6 +184,13 @@ items come after the families because both they and every family change
 `project_sql_emission_rows.py`, and changing it first would void each
 family's byte equivalence under D77.50 again.
 
+PL.74 revises this order, which keeps its text above: G3–G8's slices are
+implemented in parallel and their commits keep the order; a family freezes
+once its slice and the harness are ready and the families before it have
+frozen, without waiting for their campaigns to be MATCHED; and a refreeze
+that an upstream repair forces counts under MC.09 only when a campaign ran
+on the old freeze.
+
 ## Qualification
 
 The harness is derived from the second freeze of S03's qualification
@@ -252,7 +259,9 @@ lane workflows stop and the lead reports to the owner: the S/H/L/K/Q
 review, the ledger's use and the estimate for G3–G8, D19 and PL.49's items,
 and the CI health of the latest published head. G3 starts only after that
 report. An owner answer that changes the scope or the order revises this
-route.
+route: PL.74 has the report drafted before G1, G2 and E4 each have a
+conclusion and delivered before G3 freezes, while G3's slice is implemented
+beside the others.
 
 ## Stop points
 
