@@ -4629,6 +4629,36 @@ the MySQL SQL of the same query with each `sum` written `max`. A `min` or
 paragraph above on `min` and `max` states, whether it reads the source
 directly or through a stage.
 
+Since `0.2.2` (MC G3), a query in that cell with at least one GROUP BY key
+may also hold HAVING, ORDER BY, LIMIT and DISTINCT. Each HAVING line is
+output OP literal, written in that order (`x > 10`): one selected output,
+named alone, compared with an unsigned `Int` literal (`==`, `!=`, `<`,
+`<=`, `>`, `>=`; a `def` call counts as the literal it returns), the lines
+joined by `and`; the output is a `BIGINT` or `INT` key or an aggregate
+other than `avg`, and a line that reads a `sum` is its block's only line.
+Each ORDER BY key is a selected output named alone, ascending or `desc`: a
+`BIGINT`, `INT` or `VARCHAR` key or an aggregate other than `avg`. A
+`limit n` of 1 or more follows an ORDER BY whose first key is an aggregate,
+and `select distinct:` stands beside no `avg`. A HAVING line written
+literal first (`10 < x`), one that reads a `sum` beside another line,
+compares two outputs, uses `or`, reads a `Text` key, an `avg` or S02's own
+`SMALLINT` key, a LIMIT with no ORDER BY, after keys only or after a key
+first, `limit 0`, an ORDER BY key that is an `avg` or S02's own `SMALLINT`
+key, DISTINCT beside an `avg`, any of these clauses with no GROUP BY key,
+and any of them in a query that groups by S02's own `SMALLINT` key or
+holds a `count` or `min` of a `SMALLINT` field (which no G3 form reads)
+keep the blockers they have without G3, object for object. Each `sum` is
+the cell's guarded `SUM` inside the aggregation stage, and HAVING, ORDER
+BY, LIMIT and DISTINCT read its column there, as the PostgreSQL SQL of the
+same query reads its checked sum: the clauses, the keys, the other
+aggregates, FROM, WHERE and GROUP BY are the MySQL SQL of the same query
+with each `sum` written `max`. The G3
+two-database qualification has not run yet, so what follows is expected
+from that SQL, not observed: a HAVING line that reads a `sum` reads it in
+every group, so an out-of-range sum fails the statement even where the
+line would drop that group, and every group that HAVING keeps is computed
+whether or not the LIMIT returns it.
+
 Since `0.1.12` (Phase77 S03), MySQL project SQL also emits each `sum` of an
 `Int` of a statement that is, names aside, one of nine forms its
 qualification ran on both databases, the selected definition's SELECT items
@@ -4855,14 +4885,15 @@ VERIFIED, without its sum blockers. `per_order`, which holds no sum,
 reports only the premise's blocker.
 
 Any other MySQL project `sum` of an `Int`, outside these forms and S02's
-cell as G1 and G2 widen it, is BLOCKED with PIE-B1004
+cell as G1 to G3 widen it, is BLOCKED with PIE-B1004
 `sum_int_aggregate_range_proof_missing`.
 This refusal is by design, not a defect: MySQL sums a `BIGINT` as a
 `DECIMAL`, which `CAST(... AS SIGNED)` would clamp, so a MySQL project emits
 only the guarded `SUM` of that cell and these forms. A plain `sum(amount)`
 shows it: without its last line, the query below over the module's `orders`
-is S02's cell and VERIFIED; with `order by customer` it is BLOCKED with that
-one blocker, at `total = sum(amount)`.
+is S02's cell with G3's ORDER BY and VERIFIED; with `limit 2` after an ORDER
+BY whose first key is no aggregate it is BLOCKED with that one blocker, at
+`total = sum(amount)`.
 
 ```text
 query totals:
@@ -4872,6 +4903,7 @@ query totals:
         customer
         total = sum(amount)
     order by customer
+    limit 2
 ```
 
 J2 with `inner join`, and T2 over a `j3` that also selects `n = count()`,

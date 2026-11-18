@@ -2582,6 +2582,9 @@ _SMALLINT_LAW_BODIES = {
     "keys": "query result:\n    from rows\n    group by k, n\n    select:\n"
     "        k\n        n\n        x = sum(a)\n        m = count(b)\n"
     "        lo = min(c)\n",
+    "having": "query result:\n    from rows\n    group by k\n    select:\n"
+    "        k\n        x = sum(a)\n        m = count(b)\n        lo = min(c)\n"
+    "    having:\n        m > 1\n",
 }
 
 
@@ -2595,15 +2598,18 @@ _SMALLINT_LAW_BODIES = {
         ("beside", "count"),
         ("beside", "min"),
         ("keys", "min"),
+        ("having", None),
+        ("having", "min"),
     ),
 )
 def test_the_mysql_sum_smallint_law_keeps_s02_own_cell(tmp_path, body, read):
-    """MC G1, G2 (lead ruling of 2026-11-21, S02-SMALLINT): emission's S02
+    """MC G1-G3 (lead ruling of 2026-11-21, S02-SMALLINT): emission's S02
     law takes a SMALLINT GROUP BY key, or a `count` or `min` of a SMALLINT
     field, in S02's own cell alone, every sum over a nullable BIGINT field
     and no `let`; beside a sum of a non-null BIGINT or an INT field (MC
-    G1), a `let` sum, another aggregate or a second key (MC G2) it refuses
-    the stage, which it takes without the SMALLINT read."""
+    G1), a `let` sum, another aggregate or a second key (MC G2) or under a
+    HAVING line (MC G3) it refuses the stage, which it takes without the
+    SMALLINT read."""
     seen = probe.numeric_law_inputs(tmp_path, _SMALLINT_LAW_BODIES[body])
     plan, keys, columns = seen["mysql_sum_query"]
     assert rows.mysql_sum_query(plan, keys, columns) is True
@@ -2665,6 +2671,72 @@ def test_the_mysql_g2_beside_law_takes_its_storages_only(tmp_path, function):
     small = replace(keys[0].realization, storage={"kind": "my_smallint"})
     small_key = (replace(keys[0], realization=small),)
     assert rows.mysql_sum_query(plan, small_key, columns) is False
+
+
+def test_the_mysql_g3_clause_law_refuses_each_edited_input(tmp_path):
+    """MC G3: emission's clause law takes a HAVING line on a BIGINT or INT
+    key and on a count, an ORDER BY whose first key is a sum and a LIMIT of
+    at least 1, and refuses once one input changes: the key's storage
+    another (a VARCHAR or SMALLINT one, which no HAVING line reads, also in
+    a body with HAVING alone), a LIMIT of 0, an ORDER BY whose first key is
+    the key, or no GROUP BY key. An ORDER BY key that no HAVING line reads
+    takes a VARCHAR storage, but not a SMALLINT one, which S02's own key
+    law admits."""
+    seen = probe.numeric_law_inputs(
+        tmp_path,
+        "query result:\n    from rows\n    group by k\n    select:\n        k\n"
+        "        x = sum(a)\n        r = count()\n    having:\n        k > 1\n"
+        "        r >= 1\n    order by:\n        x desc\n        k\n    limit 2\n",
+    )
+    plan, keys, columns = seen["mysql_sum_query"]
+    assert rows.mysql_sum_clauses(plan, columns) is True
+    (key,) = plan.group_keys
+    column = columns[key.input]
+    for storage, law in (
+        ({"kind": "my_bigint"}, True),
+        ({"kind": "my_varchar", "length": 64}, False),
+        ({"kind": "my_smallint"}, False),
+    ):
+        realization = replace(column.realization, storage=storage)
+        changed = {**columns, key.input: replace(column, realization=realization)}
+        assert rows.mysql_sum_clauses(plan, changed) is law
+    (limit,) = plan.result_limits
+    zero = _plan_with(plan, result_limits=(replace(limit, value=0),))
+    assert rows.mysql_sum_clauses(zero, columns) is False
+    first, second = sorted(plan.order_items, key=lambda item: item.position)
+    swapped = _plan_with(
+        plan,
+        order_items=(replace(first, position=1), replace(second, position=0)),
+    )
+    assert rows.mysql_sum_clauses(swapped, columns) is False
+    assert rows.mysql_sum_clauses(_plan_with(plan, group_keys=()), columns) is False
+    seen = probe.numeric_law_inputs(tmp_path / "having", probe.G3_CELLS["key_having"])
+    plan, keys, columns = seen["mysql_sum_query"]
+    (key,) = plan.group_keys
+    column = columns[key.input]
+    for storage, law in (
+        ({"kind": "my_bigint"}, True),
+        ({"kind": "my_varchar", "length": 64}, False),
+        ({"kind": "my_smallint"}, False),
+    ):
+        realization = replace(column.realization, storage=storage)
+        changed = {**columns, key.input: replace(column, realization=realization)}
+        assert rows.mysql_sum_clauses(plan, changed) is law
+    seen = probe.numeric_law_inputs(
+        tmp_path / "ordered",
+        "query result:\n    from rows\n    group by k\n    select:\n        k\n"
+        "        x = sum(a)\n    order by:\n        k\n",
+    )
+    plan, keys, columns = seen["mysql_sum_query"]
+    (key,) = plan.group_keys
+    column = columns[key.input]
+    for storage, law in (
+        ({"kind": "my_varchar", "length": 64}, True),
+        ({"kind": "my_smallint"}, False),
+    ):
+        realization = replace(column.realization, storage=storage)
+        changed = {**columns, key.input: replace(column, realization=realization)}
+        assert rows.mysql_sum_clauses(plan, changed) is law
 
 
 # --------------------------------------------------------------------------

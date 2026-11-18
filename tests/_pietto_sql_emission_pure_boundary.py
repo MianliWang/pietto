@@ -2127,7 +2127,10 @@ def _mysql_cells(
     emission refuses them. Every
     record is of a kind in _MYSQL_CELL_KINDS, and the one final projection
     body stands over one aggregate body at most, over one WHERE body at
-    most, over a source scan, with no window. An S01 operation is the whole
+    most, over a source scan, with no window; beside an aggregate (MC G3)
+    the final body may instead be one result body over that projection body,
+    which may stand over one HAVING body over the aggregate body, and the
+    document may then hold _MYSQL_CLAUSE_KINDS. An S01 operation is the whole
     value of a column of that body, named once, over reads of nullable
     BIGINT source fields; an S02 sum reads a BIGINT or INT source field
     (MC G1), its aggregate keeps S02's own law (one non-null Int source
@@ -2148,9 +2151,11 @@ def _mysql_cells(
     parameter of any other literal closes them, and any parameter closes
     every other cell. An E4 operation is, as an S01 one, the whole value of a
     column of the final body, named once, over its WHERE body at most
-    (_mysql_float_operation). The bound of three bodies beside an
-    aggregate's row value columns only ends the walk early: the block kinds
-    and the chain that holds every body imply it."""
+    (_mysql_float_operation). MC G3's HAVING body and result body over an
+    S02 aggregate keep _mysql_sum_clauses' law. The bound of three bodies,
+    four beside an aggregate's HAVING body and its row value columns, only
+    ends the walk early: the block kinds and the chain that holds every body
+    imply it."""
 
     empty: tuple[frozenset, frozenset, frozenset, frozenset, frozenset] = (
         frozenset(),
@@ -2159,19 +2164,30 @@ def _mysql_cells(
         frozenset(),
         frozenset(),
     )
-    if not (_MYSQL_CELL_KINDS | _MYSQL_SLOT_KINDS).issuperset(doc.kinds):
+    if not (_MYSQL_CELL_KINDS | _MYSQL_SLOT_KINDS | _MYSQL_CLAUSE_KINDS).issuperset(
+        doc.kinds
+    ):
         return empty
-    slotted = not _MYSQL_CELL_KINDS.issuperset(doc.kinds)
+    slotted = not (_MYSQL_CELL_KINDS | _MYSQL_CLAUSE_KINDS).issuperset(doc.kinds)
     bodies = doc.all("row_body")
-    # An S02 chain's `let` bodies each hold one row value column (MC G1).
+    # An S02 chain may add a HAVING body (MC G3) and `let` bodies, which each
+    # hold one row value column (MC G1).
     if len(bodies) > 3 + (
-        len(doc.all("row_value_column")) if doc.all("aggregate_stage") else 0
+        1 + len(doc.all("row_value_column")) if doc.all("aggregate_stage") else 0
     ):
         return empty
     finals = [ref for ref in bodies if doc[ref]["final"] is True]
-    if len(finals) != 1:
+    # MC G3: ORDER BY, LIMIT and DISTINCT are one final result body over the
+    # projection body.
+    results = doc.all("row_result_body")
+    if len(results) > 1 or len(finals) != 1 - len(results):
         return empty
-    chain = [finals[0]]
+    result = results[0] if results else None
+    if result is not None and (
+        doc[result]["final"] is not True or doc[result]["scan"].kind != "row_result_use"
+    ):
+        return empty
+    chain = [doc[doc[result]["scan"]]["body"] if result is not None else finals[0]]
     while doc[chain[-1]]["scan"].kind == "row_stage_use":
         inner = doc[doc[chain[-1]]["scan"]]["body"]
         # Only keeps the walk finite: producer order refuses a cycle first.
@@ -2192,9 +2208,11 @@ def _mysql_cells(
     if kinds[lets:] in (
         ["aggregate", "projection"],
         ["where", "aggregate", "projection"],
+        ["aggregate", "satisfying", "projection"],
+        ["where", "aggregate", "satisfying", "projection"],
     ):
-        aggregate = chain[1]
-    elif kinds not in (["projection"], ["where", "projection"]):
+        aggregate = chain[-1 - kinds.index("aggregate")]
+    elif kinds not in (["projection"], ["where", "projection"]) or result:
         return empty
     if (
         any(
@@ -2317,7 +2335,9 @@ def _mysql_cells(
             floats,
         )
     stage = doc[doc[aggregate]["aggregation"]]
-    if lets and not _mysql_sum_lets(doc, chain[:1:-1], stage):
+    if lets and not _mysql_sum_lets(
+        doc, chain[chain.index(aggregate) + 1 :][::-1], stage
+    ):
         return empty
     reads = [doc[key]["read"] for key in stage["keys"]]
     s02 = (
@@ -2344,11 +2364,22 @@ def _mysql_cells(
         in _MYSQL_SUM_BESIDE.get(doc[value]["function"], ())
         for value in stage["values"]
     )
-    if not (s02 or g2) or any(
-        column.kind != "aggregate_projection_column" for column in final["columns"]
+    if (
+        not (s02 or g2)
+        or any(
+            column.kind != "aggregate_projection_column"
+            # MC G3: an ORDER BY key is carried beside the projected columns.
+            and not (result is not None and column.kind == "row_carry_column")
+            for column in final["columns"]
+        )
+        or not _mysql_sum_clauses(
+            doc, chain[1] if chain[1] != aggregate else None, stage, result
+        )
     ):
         return empty
-    if not _mysql_sum_smallint(doc, stage, lets, s02):
+    if not _mysql_sum_smallint(
+        doc, stage, lets, s02, chain[1] != aggregate or result is not None
+    ):
         return empty
     return (
         frozenset(),
@@ -2365,13 +2396,13 @@ def _mysql_cells(
     )
 
 
-def _mysql_sum_smallint(doc, stage, lets, own) -> bool:
+def _mysql_sum_smallint(doc, stage, lets, own, clauses) -> bool:
     """MC G1-G3 (lead ruling of 2026-11-21, S02-SMALLINT), restated: beside
     a source field key column, or a `count` or `min` of one source field
     read, of `my_smallint` storage, S02's own law holds of ``stage``
-    (``own``), which stands over no `let` body (``lets`` counts them), and
-    its every sum reads a nullable BIGINT source field
-    (_mysql_checked_carrier)."""
+    (``own``), which stands over no `let` body (``lets`` counts them) and
+    under no HAVING or result body (``clauses``), and its every sum reads
+    a nullable BIGINT source field (_mysql_checked_carrier)."""
 
     reads = [
         doc[key]["read"]
@@ -2388,11 +2419,129 @@ def _mysql_sum_smallint(doc, stage, lets, own) -> bool:
     return (
         own
         and not lets
+        and not clauses
         and all(
             doc[value]["function"] != "sum"
             or _mysql_field_read(doc, doc[value]["argument"])
             and _mysql_checked_carrier(doc, doc[value]["argument"])
             for value in stage["values"]
+        )
+    )
+
+
+# MC G3: the result record kinds that ORDER BY, LIMIT and DISTINCT add to an
+# S02 chain's document; they close every cell outside one.
+_MYSQL_CLAUSE_KINDS = frozenset(
+    {
+        "result_column",
+        "result_distinct",
+        "result_limit",
+        "result_order",
+        "result_order_item",
+        "result_stage",
+        "row_result_body",
+        "row_result_use",
+    }
+)
+_MYSQL_COMPARISONS = frozenset({"==", "!=", "<", "<=", ">", ">="})
+
+
+def _mysql_sum_clauses(doc, satisfying, stage, result) -> bool:
+    """MC G3, from the document: the HAVING body (``satisfying``) and the
+    result body (``result``) over an S02 ``stage``, which then has a key.
+    The HAVING body carries its input's columns; its predicate is the `and`
+    of comparisons, each of a stage column with an unsigned Int literal,
+    the column carrying the stage's BIGINT or INT key column or a value
+    column other than `avg`, and a comparison of a sum stands alone. Each
+    ORDER BY item reads a column that carries a key column of
+    _MYSQL_SUM_KEY_KINDS storage or a value column other than `avg`; a LIMIT
+    is at least 1 after an ORDER BY whose first item reads a value column;
+    DISTINCT stands beside no `avg`. A column carries what its aggregate
+    origin's result is in the stage."""
+
+    if satisfying is None and result is None:
+        return True
+    columns = {
+        doc[column]["export"]: column for column in (*stage["keys"], *stage["values"])
+    }
+
+    def value(read, kinds):
+        origin = doc[read]["aggregate"] if read.kind == "stage_column" else None
+        column = None if origin is None else columns.get(doc[origin]["result"])
+        if column is None or doc[origin]["aggregation"] != stage["aggregation"]:
+            return None
+        if column.kind == "aggregate_key_column":
+            kind = _mysql_storage_kind(doc, doc[column]["read"])
+            return column if kind in kinds else None
+        return column if doc[column]["function"] != "avg" else None
+
+    read = []
+    pending = []
+    if satisfying is not None:
+        if doc[satisfying]["predicate"] is None or any(
+            column.kind != "row_carry_column" for column in doc[satisfying]["columns"]
+        ):
+            return False
+        pending.append(doc[doc[satisfying]["predicate"]]["value"])
+    while pending:
+        ref = pending.pop()
+        if ref.kind != "sql_operation":
+            return False
+        operation = doc[ref]
+        operands = operation["operands"]
+        if (operation["kind"], operation["operator"]) == ("logical", "and"):
+            pending.extend(operands)
+            continue
+        if not (
+            operation["kind"] == "comparison"
+            and operation["operator"] in _MYSQL_COMPARISONS
+            and len(operands) == 2
+            and operands[0].kind == "sql_stage_reference"
+            and operands[1].kind == "sql_anchor"
+        ):
+            return False
+        literal = doc[operands[1]]["operand"]
+        wire = doc[literal]["value"] if literal.kind == "sql_literal" else None
+        if not (
+            type(wire) is Fixed
+            and wire.tag == "Int"
+            and type(wire.wire) is str
+            and wire.wire.isascii()
+            and wire.wire.isdigit()
+        ):
+            return False
+        read.append(value(doc[operands[0]]["column"], {"my_bigint", "my_int"}))
+    order = None if result is None else doc[result]["order"]
+    items = (
+        ()
+        if order is None
+        else sorted(doc[order]["items"], key=lambda item: doc[item]["position"])
+    )
+    keys = [value(doc[item]["read"], _MYSQL_SUM_KEY_KINDS) for item in items]
+    limit = None if result is None else doc[result]["limit"]
+    first = keys[0] if keys else None
+    sums = [
+        column
+        for column in read
+        if column is not None
+        and column.kind == "aggregate_value_column"
+        and doc[column]["function"] == "sum"
+    ]
+    return (
+        bool(stage["keys"])
+        and None not in read
+        and (not sums or len(read) == 1)
+        and None not in keys
+        and (
+            limit is None
+            or doc[limit]["value"] >= 1
+            and first is not None
+            and first.kind == "aggregate_value_column"
+        )
+        and not (
+            result is not None
+            and doc[result]["distinct"] is not None
+            and any(doc[value]["function"] == "avg" for value in stage["values"])
         )
     )
 

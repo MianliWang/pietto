@@ -37,9 +37,11 @@
   a `let` whose value is anything but one field read, a `let` read in a
   WHERE, as the GROUP BY key, in a `count`, a `min` or anywhere else
   outside a `sum` argument, a value `let` that nothing reads, a relation
-  alias, and shapes that the S02 cell excludes, such as ORDER BY, a header
+  alias, and shapes that the S02 cell excludes, such as a header
   parameter, a bind-safe `?`, an aggregate beside the `sum` other than
-  those the G2 note below opens, and a `sum` outside every cell beside it.
+  those the G2 note below opens, HAVING, ORDER BY, LIMIT and DISTINCT
+  other than the G3 note below opens, and a `sum` outside every cell
+  beside it.
   R2 `save_recoverable` and `recover` refuse a MySQL query of these forms
   with PIE-R1004 (`detail` `PUBLIC_R2_UNQUALIFIED_FORM`), as for the other
   forms that MySQL opened after `0.1.11`.
