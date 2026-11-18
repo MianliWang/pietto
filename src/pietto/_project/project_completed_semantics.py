@@ -3369,6 +3369,10 @@ def derive_compiled_semantics(root, values, parameters=None):
         if family == "mysql"
         else (frozenset(), frozenset(), frozenset(), frozenset(), frozenset())
     )
+    if family == "mysql":
+        mysql_floats |= physical.mysql_compiled_float_statement(
+            records, records[root.description.query]
+        )
     mysql_s03 = (
         physical.mysql_s03_compiled(records, records[root.description.query])
         if family == "mysql"
@@ -4821,6 +4825,10 @@ def verify_compiled_semantics(value):
         if family == "mysql"
         else (frozenset(), frozenset(), frozenset(), frozenset(), frozenset())
     )
+    if family == "mysql":
+        mysql_floats |= physical.mysql_compiled_float_statement(
+            records, records[value.root.description.query]
+        )
     mysql_s03 = (
         physical.mysql_s03_compiled(records, records[value.root.description.query])
         if family == "mysql"

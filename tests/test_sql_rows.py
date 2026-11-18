@@ -2748,8 +2748,8 @@ def test_mysql_float_arithmetic_outside_its_cell_keeps_its_refusal(
     tmp_path, shape, policy
 ):
     """Every other MySQL Float arithmetic keeps the blockers main reports,
-    object for object (rule two): two Float fields, a nested operation, a
-    `let`, WHERE or aggregate use, ORDER BY, LIMIT, DISTINCT, `/`, unary
+    object for object (rule two): two Float fields, a nested operation, an
+    aggregate use, ORDER BY, LIMIT, DISTINCT, `/`, unary
     `+`, a header parameter or a bind-safe `?` operand, a JOIN, a window, an
     imported source, an upstream query, a relation alias or unread window, a
     literal under `+` or two signs, an `Int` literal, a negated or coalesced
@@ -2903,3 +2903,118 @@ def test_the_mysql_float_arithmetic_laws_refuse_each_edited_carrier():
             "mysql", "unary", "+", "Float", True, (double,), mysql_float=True
         )
     assert probe.MYSQL_PRODUCT_GUARD == rows.MYSQL_PRODUCT_GUARD
+
+
+# --------------------------------------------------------------------------
+# MC E4B: E4's wider positions on MySQL, chain B (P1-P3)
+# --------------------------------------------------------------------------
+
+
+def _e4b_double(document, label):
+    """A result column's (nullable, representation without nullability)."""
+    (column,) = [c for c in document["columns"] if c["label"] == label]
+    return column["nullable"], {**column["representation"], "nullable": None}
+
+
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+@pytest.mark.parametrize("form", sorted(probe.E4B_FORMS))
+def test_mysql_e4b_chain_b_forms_emit_and_every_reader_accepts(tmp_path, form, target):
+    """E4B's P1-P3: a narrow operation as a `let` value read by the select
+    list, a WHERE or ORDER BY key, or as one side of a whole WHERE comparison
+    with a Float literal (or its `not`), emits on MySQL. Both families emit
+    the pinned SQL, PostgreSQL's main's byte for byte and MySQL's each `*`
+    under MC.05's guard, every reader accepts it, and each `let` value keeps
+    the finite binary64 carrier and nullability of PostgreSQL's."""
+    checked, outcome = probe.e4b_world(tmp_path, target, probe.E4B_FORMS[form])
+    assert checked.verified
+    probe.numeric_readers_accept(outcome)
+    assert outcome.artifact is not None
+    assert outcome.artifact.rendered.sql.decode() == probe.E4B_FORM_SQL[form, target]
+    document = json.loads(serialize_project_sql_emission(outcome))
+    double = {
+        "storage": {"kind": "pg_float8" if target == "postgres" else "my_double"},
+        "nullable": None,
+        "domain": {"kind": "finite_float", "format": "binary64"},
+    }
+    body = probe.E4B_FORMS[form]
+    for label, let in (("r", "t"), ("s", "u")):
+        if f"        {label} = {let}\n" in body:
+            value = body.split(f"    let {let} = ", 1)[1].split("\n", 1)[0]
+            nullable = (
+                value == "-x" if value[0] == "-" and " " not in value else "unknown"
+            )
+            assert _e4b_double(document, label) == (nullable, double)
+
+
+def test_mysql_e4b_operations_carry_postgres_evidence(tmp_path):
+    """Each `+`, `-` and `*` of the chain B forms carries the binary64
+    evidence on MySQL as on PostgreSQL, and a sign none."""
+    for form, body in probe.E4B_FORMS.items():
+        evidence = {}
+        for target in ("postgres", "mysql"):
+            _, outcome = probe.e4b_world(tmp_path / form / target, target, body)
+            document = json.loads(serialize_project_sql_emission(outcome))
+            evidence[target] = sorted(
+                json.dumps(r["evidence"])
+                for r in document["requirements"]
+                if r["kind"] == "arithmetic"
+            )
+        assert evidence["mysql"] == evidence["postgres"], form
+        assert any(BINARY64 == json.loads(e)[-1] for e in evidence["mysql"]) == any(
+            f" {op} " in body.split("result", 1)[1] for op in "+-*"
+        ), form
+
+
+@pytest.mark.parametrize("policy", ("preserve_literals", "bind_safe_literals"))
+@pytest.mark.parametrize("shape", sorted(probe.E4B_REFUSALS))
+def test_mysql_e4b_neighbours_keep_their_refusal(tmp_path, shape, policy):
+    """Every statement beside chain B's positions that the law refuses or no
+    list holds keeps main's blockers, object for object, under both literal
+    policies (rule two); PostgreSQL emits it, or keeps main's blockers where
+    it refuses it too."""
+    body = probe.E4B_REFUSALS[shape]
+    _, outcome = probe.e4b_world(tmp_path / "mysql", "mysql", body, policy)
+    assert outcome.status == "BLOCKED" and outcome.artifact is None
+    assert _e4_blockers(outcome) == probe.E4B_REFUSAL_BLOCKERS[shape]
+    _, postgres = probe.e4b_world(tmp_path / "postgres", "postgres", body, policy)
+    expected = probe.E4B_POSTGRES_BLOCKERS.get(shape)
+    assert postgres.status == ("VERIFIED" if expected is None else "BLOCKED")
+    assert expected is None or _e4_blockers(postgres) == expected
+
+
+@pytest.mark.parametrize("shape", sorted(probe.E4B_SUBSTITUTED))
+def test_mysql_e4b_refuses_a_shape_main_emits_once_substituted(tmp_path, shape):
+    """The JOIN, grouped and window neighbours emit on MySQL once each
+    operation is its field, so the statement law, not the substitution,
+    keeps them refused."""
+    _, outcome = probe.e4b_world(tmp_path, "mysql", probe.E4B_SUBSTITUTED[shape])
+    assert outcome.status == "VERIFIED"
+
+
+def test_a_bind_safe_literal_leaves_the_mysql_e4b_cells(tmp_path):
+    """The control: under bind_safe_literals EB1A's literal is a bind-safe
+    `?`, which no E4B cell holds, so it keeps main's blocker."""
+    body = probe.E4B_FORMS["EB1A"]
+    _, outcome = probe.e4b_world(tmp_path, "mysql", body, "bind_safe_literals")
+    assert outcome.artifact is None
+    assert _e4_blockers(outcome) == [
+        ("PIE-B1003", "float_literal_operands_required", 8, 5)
+    ]
+
+
+@pytest.mark.parametrize("shape", sorted(probe.E4_OPENED))
+def test_e4s_let_and_where_refusals_open_in_e4b(tmp_path, shape):
+    """E4's R5 and R6, a cell's operation as a `let` value or compared in a
+    WHERE, now emit on MySQL as on PostgreSQL, `*` under its guard."""
+    sql = {}
+    for target in ("postgres", "mysql"):
+        _, outcome = probe.float_world(
+            tmp_path / target, target, probe.E4_OPENED[shape]
+        )
+        probe.numeric_readers_accept(outcome)
+        assert outcome.artifact is not None
+        sql[target] = outcome.artifact.rendered.sql.decode()
+    assert sql["mysql"].count("CASE WHEN (`s0`.`fx` * CAST(2.0e0 AS DOUBLE)) = 0") == 1
+    assert (
+        sql["postgres"].count('("s0"."fx" * CAST(\'2.0\' AS pg_catalog.float8))') == 1
+    )
