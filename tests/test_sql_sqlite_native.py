@@ -65,6 +65,7 @@ SQL_GOLDEN = REPO_ROOT / "tests/fixtures/golden/emit_sqlite_single_file.sql"
 # and golden statement (D78.08); the file states its source and regeneration.
 POSTGRES_REPLAY = REPO_ROOT / "tests/fixtures/sqlite/postgres_replay_v1.json"
 POSTGRES_REPLAY_R1 = REPO_ROOT / "tests/fixtures/sqlite/postgres_replay_r1.json"
+POSTGRES_REPLAY_R2 = REPO_ROOT / "tests/fixtures/sqlite/postgres_replay_r2.json"
 INT_MIN = -9_223_372_036_854_775_808
 INT_MAX = 9_223_372_036_854_775_807
 _RecordProperty = Callable[[str, object], None]
@@ -1372,11 +1373,11 @@ def _computed(
 # `-`, `*`, unary `-` and `abs` in `select` and `where`, and in the argument
 # of `avg` and `sum`. Each result is Python's exact `int`, so a REAL would
 # fail the judge. They stay out of `_PROJECT_CELLS`, whose PostgreSQL replay
-# R1 binds; R2 is to replay each that PostgreSQL project emission writes,
-# all but the minimum written as one signed literal (D78.15). The `premise`
-# cells break the declared range and show the harm the proof prevents:
-# SQLite answers a REAL, with no error, for a `+`, `-`, `*` or unary `-`
-# past signed 64 bits, and so does a `sum` of one.
+# R1 binds; R2's `postgres_replay_r2.json` binds each that PostgreSQL project
+# emission writes, all but the minimum written as one signed literal (D78.15,
+# D78.16). The `premise` cells break the declared range and show the harm
+# the proof prevents: SQLite answers a REAL, with no error, for a `+`, `-`,
+# `*` or unary `-` past signed 64 bits, and so does a `sum` of one.
 _PROJECT_T4_CELLS: tuple[_Cell, ...] = (
     _Cell(
         "project-t4-select-at-the-bounds",
@@ -1521,8 +1522,9 @@ _PROJECT_T4_CELLS: tuple[_Cell, ...] = (
 # order keys (again on the `nocase` fixture, where a key without `COLLATE
 # BINARY` would tie `a` with `A`), count, min and max over each frame unit
 # and bound kind, and `sum` over each monotone frame up to the signed 64-bit
-# bounds. They stay out of `_PROJECT_CELLS`, whose R1 replay binds; R2 is
-# to replay each that PostgreSQL project emission writes.
+# bounds. They stay out of `_PROJECT_CELLS`, whose R1 replay binds; R2's
+# `postgres_replay_r2.json` binds each that PostgreSQL project emission
+# writes.
 _W = "window"
 _WINDOW_BASE: tuple[_Cell, ...] = (
     _Cell(
@@ -2411,16 +2413,24 @@ def _pg_sent(kind: str, sent: object) -> object:
     return read(raw)
 
 
-def test_each_r1_postgres_replay_binds_the_bytes_it_ran(tmp_path: Path) -> None:
-    """R1's saved PostgreSQL result counts for a T2 or project cell only while
-    the tree emits the bytes and arguments that ran, over the fixture rows and
-    the PostgreSQL contract the run loaded, while each argument was sent in
-    its physical type's form, and while it meets the cell's prewritten oracle
-    under the replay judge; a project cell that PostgreSQL refuses stays
-    listed, so one that starts to emit has no saved run. No database opens."""
+_PgSubject = tuple[_Cell, dict[str, tuple[str, bool]], str, list[Any]]
 
-    replay = json.loads(POSTGRES_REPLAY_R1.read_text(encoding="utf-8"))
-    assert replay["format"] == "pietto.phase78.b2-r1.postgres-replay.v1"
+
+def _pg_bind(
+    replay: dict[str, Any],
+    subjects: list[_PgSubject],
+    cells: Sequence[_Cell],
+    tmp_path: Path,
+) -> list[list[Any]]:
+    """Binds a saved replay (R1, R2) to the tree: the fixture rows it loaded;
+    then, after `subjects`, each of `cells` that the PostgreSQL project
+    pipeline emits over the PostgreSQL contract of its fixture, with the
+    arguments it binds; one saved run per subject, in that order, holding its
+    bytes, arguments and sent forms, its rows judged against the prewritten
+    oracle. Premise controls (a name holding `-premise-`) and `-nocase`
+    variants are SQLite-only premises. Returns each refused cell with its
+    blockers' codes and details."""
+
     assert set(replay["fixtures"]) == {entry["fixture"] for entry in replay["entries"]}
     for name, saved in replay["fixtures"].items():
         table, _schema, rows = _FIXTURES[name]
@@ -2429,18 +2439,14 @@ def test_each_r1_postgres_replay_binds_the_bytes_it_ran(tmp_path: Path) -> None:
         for row, saved_row in zip(rows, saved["rows"]):
             pairs = zip(row, saved_row, strict=True)
             assert all(_loaded(value, item) for value, item in pairs), (name, row)
-    subjects: list[tuple[_Cell, dict[str, tuple[str, bool]], str, list[Any]]] = []
-    for cell in _T2_CELLS:
-        ((sql, columns),) = _postgres(cell.program).values()
-        subjects.append((cell, columns, sql, []))
     refused: list[list[Any]] = []
-    for index, cell in enumerate(_PROJECT_CELLS):
-        if cell.name.startswith("project-premise-"):
+    for index, cell in enumerate(cells):
+        if "-premise-" in cell.name:
             continue  # SQLite-only premises
         if cell.fixture.endswith("nocase"):
             # Same program and PostgreSQL contract as its base cell.
             base_name = cell.name.removesuffix("-nocase")
-            base = next(c for c in _PROJECT_CELLS if c.name == base_name)
+            base = next(c for c in cells if c.name == base_name)
             assert cell.program == base.program, cell.name
             assert _pg_contract(cell.fixture) == _pg_contract(base.fixture)
             continue
@@ -2459,7 +2465,8 @@ def test_each_r1_postgres_replay_binds_the_bytes_it_ran(tmp_path: Path) -> None:
             emission_cli.POLICIES["preserve"],
         )
         if outcome.artifact is None:
-            refused.append([cell.name, [blocker.code for blocker in outcome.blockers]])
+            blockers = [[blocker.code, blocker.detail] for blocker in outcome.blockers]
+            refused.append([cell.name, blockers])
             continue
         document = json.loads(emission_cli.serialize_emission(outcome))
         bound: dict[int, list[Any]] = {}
@@ -2478,7 +2485,6 @@ def test_each_r1_postgres_replay_binds_the_bytes_it_ran(tmp_path: Path) -> None:
         }
         sql = outcome.artifact.rendered.sql.decode("utf-8")
         subjects.append((cell, columns, sql, [bound[i] for i in sorted(bound)]))
-    assert replay["postgres_refused"] == refused
     # One saved run per emitted cell, in that order, and no other.
     assert [entry["id"] for entry in replay["entries"]] == [s[0].name for s in subjects]
     for entry, (cell, columns, sql, parameters) in zip(replay["entries"], subjects):
@@ -2509,6 +2515,70 @@ def test_each_r1_postgres_replay_binds_the_bytes_it_ran(tmp_path: Path) -> None:
                 candidates.append(options)
             assert difference["candidates"] == candidates, name
         _pg_judge(name, cell, columns, entry)
+    return refused
+
+
+def test_each_r1_postgres_replay_binds_the_bytes_it_ran(tmp_path: Path) -> None:
+    """R1's saved PostgreSQL result counts for a T2 or project cell only while
+    the tree emits the bytes and arguments that ran, over the fixture rows and
+    the PostgreSQL contract the run loaded, while each argument was sent in
+    its physical type's form, and while it meets the cell's prewritten oracle
+    under the replay judge; a project cell that PostgreSQL refuses stays
+    listed, so one that starts to emit has no saved run. No database opens."""
+
+    replay = json.loads(POSTGRES_REPLAY_R1.read_text(encoding="utf-8"))
+    assert replay["format"] == "pietto.phase78.b2-r1.postgres-replay.v1"
+    subjects: list[_PgSubject] = []
+    for cell in _T2_CELLS:
+        ((sql, columns),) = _postgres(cell.program).values()
+        subjects.append((cell, columns, sql, []))
+    refused = _pg_bind(replay, subjects, _PROJECT_CELLS, tmp_path)
+    codes = [[name, [code for code, _ in blockers]] for name, blockers in refused]
+    assert replay["postgres_refused"] == codes
+
+
+def test_each_r2_postgres_replay_binds_the_bytes_it_ran(tmp_path: Path) -> None:
+    """R2's saved PostgreSQL result counts for an S14 or S15 cell only under
+    R1's rule: the bytes that ran, over the fixture rows and the PostgreSQL
+    contract the run loaded, meeting the cell's prewritten oracle under the
+    replay judge, with no declared divergence (no `AVG_ORDER`); a cell that
+    PostgreSQL refuses stays listed with the blockers it had (D78.15 (2), its
+    native cells only, D78.16). No database opens."""
+
+    replay = json.loads(POSTGRES_REPLAY_R2.read_text(encoding="utf-8"))
+    assert replay["format"] == "pietto.phase78.b2-r2.postgres-replay.v1"
+    cells = (*_PROJECT_T4_CELLS, *_WINDOW_CELLS)
+    assert replay["postgres_refused"] == _pg_bind(replay, [], cells, tmp_path)
+
+
+def test_each_r2_row_number_entry_has_no_peers(
+    native: _Native,
+    project_emit: Callable[[_Cell], adapter.SQLiteArtifact],
+) -> None:
+    """A saved `row_number` result counts only while no two rows of its window
+    tie in the window's order (R2's D4): with `ROW_NUMBER()` read as `RANK()`
+    the SQLite statement gives the same rows, so the numbers do not depend on
+    how peers are ordered."""
+
+    replay = json.loads(POSTGRES_REPLAY_R2.read_text(encoding="utf-8"))
+    cells = {cell.name: cell for cell in (*_PROJECT_T4_CELLS, *_WINDOW_CELLS)}
+    checked = []
+    for entry in replay["entries"]:
+        cell = cells[entry["id"]]
+        sql = project_emit(cell).sql.decode("utf-8")
+        if "ROW_NUMBER()" not in sql:
+            continue
+        ranked = sql.replace("ROW_NUMBER() OVER", "RANK() OVER")
+        assert "ROW_NUMBER()" not in ranked, cell.name
+        checked.append(cell.name)
+        if native.qualified:
+            numbered, by_rank = (
+                _run(cell.fixture, text).rows for text in (sql, ranked)
+            )
+            assert Counter(numbered) == Counter(by_rank), cell.name
+    assert checked
+    if native.qualified:
+        native.observe("r2_no_peers", checked)
 
 
 _WIDE = """shape Wide:

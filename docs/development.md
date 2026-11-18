@@ -450,6 +450,19 @@ cell to stay refused, decodes the sent arguments, and judges the saved rows
 by the same rule, where a cancelling `avg` may differ from the compensated
 oracle only as one of the left-to-right sums the file lists (`AVG_ORDER`).
 
+`tests/fixtures/sqlite/postgres_replay_r2.json` keeps the replay of SQLite
+B2's second tier (R2) by the same rules: each cell of S14's range-proved
+arithmetic and S15's windows that the PostgreSQL project pipeline emits,
+none with an argument, the cells that pipeline refuses with each blocker's
+code and detail, and what R2 does not verify.
+`test_each_r2_postgres_replay_binds_the_bytes_it_ran` binds it as R1's test
+binds the project cells, requires each refused cell to keep its blockers,
+and admits no declared divergence other than `ZERO_SIGN`.
+`test_each_r2_row_number_entry_has_no_peers` runs each `row_number`
+entry's SQLite statement again on the measured build with `RANK()` in its
+place and requires the same rows, so a saved number does not depend on how
+peers are ordered.
+
 ## DuckDB native qualification
 
 The [DuckDB Arrow route](spec/duckdb-arrow-route-v1.md) is qualified in
