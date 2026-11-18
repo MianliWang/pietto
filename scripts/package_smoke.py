@@ -23,6 +23,8 @@ import tempfile
 import tomllib
 import zipfile
 from dataclasses import dataclass
+from datetime import date
+from decimal import Decimal
 from email import policy
 from email.parser import BytesParser
 from pathlib import Path
@@ -98,14 +100,24 @@ PROJECT_EMIT_ARGUMENTS = (
 )
 
 # The arrow-ready cell's real `duckdb_arrow` queries, so natural CI holds
-# DuckDB native evidence on CPython 3.12 and 3.13 (D79.07): B1's filter, and
+# DuckDB native evidence on CPython 3.12 and 3.13 (D79.07): B1's filter;
 # B2's grouped aggregate with `having`, `order by` with `limit`, and a filter
-# with a literal and two parameters.
+# with a literal and two parameters; and the second tier's `Int` arithmetic,
+# `Date` and `Decimal` fields with a `Date` parameter, and an inner JOIN over
+# a tuple of inputs.
 DUCKDB_SOURCE = """shape Item:
     id: Int
     label: Text | None
 
+shape Tag:
+    id: Int
+    name: Text
+    since: Date
+    fee: Decimal(6, 2) | None
+    key = unique(id)
+
 source items: Item = duckdb.arrow("items")
+source tags: Tag = duckdb.arrow("tags")
 
 query result(min_id: Int):
     from items
@@ -141,10 +153,34 @@ query filtered(low: Int, skip: Text):
     select:
         id
         label
+
+table computed:
+    from items
+    select:
+        id
+        more = id + 1
+        twice = id * 2
+
+query dated(start: Date):
+    from tags
+    where since >= start
+    select:
+        id
+        since
+        fee
+
+table joined:
+    from items
+    inner join tags on items.id == tags.id
+    select:
+        id = items.id
+        label = items.label
+        name = tags.name
 """
-# Each query's kind, name and parameters, its rows over the check's table
-# (id 3, 1, 2, 6, 5, 4; label b, a, NULL, a, NULL, a), whether their order is
-# part of the result, and the result schema's field names and nullability.
+# Each query's kind, name and parameters, its rows over the check's tables
+# (items: id 3, 1, 2, 6, 5, 4; label b, a, NULL, a, NULL, a; tags: id 1, 2, 7;
+# since 2024-01-01, 2024-02-29, 2023-12-31), whether their order is part of
+# the result, and the result schema's field names and nullability.
 DUCKDB_ITEM = [("id", False), ("label", True)]
 DUCKDB_QUERIES = (
     ("query", "result", {"min_id": 5}, [(6, "a"), (5, None)], False, DUCKDB_ITEM),
@@ -172,7 +208,34 @@ DUCKDB_QUERIES = (
         False,
         DUCKDB_ITEM,
     ),
+    (
+        "table",
+        "computed",
+        None,
+        [(3, 4, 6), (1, 2, 2), (2, 3, 4), (6, 7, 12), (5, 6, 10), (4, 5, 8)],
+        False,
+        [("id", False), ("more", False), ("twice", False)],
+    ),
+    (
+        "query",
+        "dated",
+        {"start": date(2024, 1, 1)},
+        [(1, date(2024, 1, 1), Decimal("1.50")), (2, date(2024, 2, 29), None)],
+        False,
+        [("id", False), ("since", False), ("fee", True)],
+    ),
+    (
+        "table",
+        "joined",
+        None,
+        [(1, "a", "x"), (2, None, "y")],
+        False,
+        [("id", False), ("label", True), ("name", False)],
+    ),
 )
+# The keys of each query that reads more than `items`; one input is passed
+# bare, several as a tuple.
+DUCKDB_INPUTS = {"dated": ("tags",), "joined": ("items", "tags")}
 DUCKDB_CONTRACT = """{
   "format": "pietto.emission-contract.v1",
   "target": {"family": "duckdb", "release": "2.0.0"},
@@ -189,6 +252,32 @@ DUCKDB_CONTRACT = """{
                           "domain": {"kind": "text", "max_characters": 64,
                                      "encoding": "UTF8", "collation": "C",
                                      "padding": "NO PAD"}}}
+    ],
+    "premises": [
+      {"key": "row_domain_matches", "scope": "source", "value": true},
+      {"key": "read_only_object", "scope": "source", "value": true}
+    ]
+  }, {
+    "selector": {"module": "main.pietto", "kind": "source", "name": "tags"},
+    "relation": {"namespace": "arrow", "name": "tags"},
+    "scan": "arrow_registration",
+    "fields": [
+      {"ordinal": 0, "name": "id", "column": "id",
+       "representation": {"storage": {"kind": "arrow_int64"}, "nullable": false,
+                          "domain": {"kind": "int_range", "min": "0", "max": "100"}}},
+      {"ordinal": 1, "name": "name", "column": "name",
+       "representation": {"storage": {"kind": "arrow_string"}, "nullable": false,
+                          "domain": {"kind": "text", "max_characters": 64,
+                                     "encoding": "UTF8", "collation": "C",
+                                     "padding": "NO PAD"}}},
+      {"ordinal": 2, "name": "since", "column": "since",
+       "representation": {"storage": {"kind": "arrow_date32"}, "nullable": false,
+                          "domain": {"kind": "date"}}},
+      {"ordinal": 3, "name": "fee", "column": "fee",
+       "representation": {"storage": {"kind": "arrow_decimal128", "precision": 6,
+                                      "scale": 2},
+                          "nullable": true,
+                          "domain": {"kind": "decimal", "precision": 6, "scale": 2}}}
     ],
     "premises": [
       {"key": "row_domain_matches", "scope": "source", "value": true},
@@ -1649,19 +1738,41 @@ def _installed_check(wheel: Path, extra: str) -> None:
                     )
                     for kind, name, *_ in DUCKDB_QUERIES
                 ]
-            table = pa.table(
-                {
-                    "id": pa.array([3, 1, 2, 6, 5, 4], pa.int64()),
-                    "label": pa.array(["b", "a", None, "a", None, "a"], pa.string()),
-                }
-            )
+            tables = {
+                "items": pa.table(
+                    {
+                        "id": pa.array([3, 1, 2, 6, 5, 4], pa.int64()),
+                        "label": pa.array(
+                            ["b", "a", None, "a", None, "a"], pa.string()
+                        ),
+                    }
+                ),
+                "tags": pa.table(
+                    {
+                        "id": pa.array([1, 2, 7], pa.int64()),
+                        "name": pa.array(["x", "y", "z"], pa.string()),
+                        "since": pa.array(
+                            [date(2024, 1, 1), date(2024, 2, 29), date(2023, 12, 31)],
+                            pa.date32(),
+                        ),
+                        "fee": pa.array(
+                            [Decimal("1.50"), None, Decimal("-0.25")],
+                            pa.decimal128(6, 2),
+                        ),
+                    }
+                ),
+            }
             for query, (_, name, parameters, expected, ordered, schema) in zip(
                 queries, DUCKDB_QUERIES, strict=True
             ):
+                inputs = tuple(
+                    execution.DuckDBArrowInput(key, tables[key])
+                    for key in DUCKDB_INPUTS.get(name, ("items",))
+                )
                 handle = execution.execute(
                     query,
                     route="duckdb_arrow",
-                    access=execution.DuckDBArrowInput("items", table),
+                    access=inputs[0] if len(inputs) == 1 else inputs,
                     premise=None,
                     parameters=parameters,
                 )

@@ -500,9 +500,11 @@ preregistration and a new run. The route's pytest owner
 PyArrow or the pinned `duckdb` without the extra, as on every CI job,
 whose pytest environments install no extra, so B2's acceptance counts
 those skips beside the passes on the integration host;
-natural CI's arrow-ready cell runs four real `duckdb_arrow` queries
-instead: B1's filter, and B2's grouped aggregate with `having`, `order by`
-with `limit`, and filter with a literal and two parameters.
+natural CI's arrow-ready cell runs seven real `duckdb_arrow` queries
+instead: B1's filter; B2's grouped aggregate with `having`, `order by`
+with `limit`, and filter with a literal and two parameters; and the second
+tier's `Int` arithmetic, `Date` and `Decimal` fields filtered by a `Date`
+parameter, and an inner JOIN over a tuple of inputs.
 [Validation runner acceptance](spec/validation-runner-acceptance-v1.md)
 row 10 states where the premise holds.
 
@@ -960,9 +962,10 @@ HOLD 则给出 focused continuation 或 consolidated decision sheet。执行代�
 两compiler/package jobs由 `scripts/package_smoke.py --dist-dir ... --extra-env ...`
 各构建一个wheel/sdist，先在全新core环境验证无PyArrow、lazy imports、真实缺依赖
 拒绝及原CLI/SQL，再在另一个全新prefix以候选wheel的 `[arrow,execute-duckdb]` 安装
-（D79.07；裸 `--extra-env PATH` 即该arrow-ready单元，其installed check另跑四条真实
+（D79.07；裸 `--extra-env PATH` 即该arrow-ready单元，其installed check另跑七条真实
 `duckdb_arrow` 查询并核对字面结果：B1的过滤，B2的分组聚合加`having`、`order by`
-加`limit`、字面量与两参数过滤），每个 `--extra-env interop-X=PATH`
+加`limit`、字面量与两参数过滤，第二层的`Int`算术、按`Date`参数过滤的`Date`与
+`Decimal`字段及输入元组上的inner JOIN），每个 `--extra-env interop-X=PATH`
 另在全新prefix安装 `[arrow,interop-X]`（D80.05）；各单元只按自身locked closure取
 `ci/` 哈希允许清单中的块预装。hash-pinned
 requirements仅预置并校验tested dependencies，随后wheel extra完整解析，不使用 `--no-deps`
