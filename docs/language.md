@@ -978,50 +978,73 @@ values rounds to zero, which MySQL alone would return as `0.0`; PostgreSQL
 raises 22003 in both cases. The result is a `my_double` `finite_float` of
 the nullability PostgreSQL gives it, and each `+`, `-` and `*` carries the
 binary64 evidence of PostgreSQL's (a sign carries none). Every other MySQL
-`Float` arithmetic keeps its refusal: two fields (`x + y`, `x - x`), a
+`Float` arithmetic keeps its refusal outside
+[E4B's cells](#mysql-float-wider-cells): two fields (`x + y`, `x - x`), a
 nested operation (`(x * 2.0) + 1.0`, `-(-x)`), unary `+`, an `Int` literal,
 a literal under `+` or two signs, `/`, `%`, `abs` of the operation, a header
-parameter, the same operation in a `let`, a WHERE or an ORDER BY key outside
-[E4B's cells](#mysql-float-wider-cells) or in an aggregate argument, and a
-cell's operation in a query that holds any of the clauses above or beside
-any other SELECT item, such as an `lpad`, `now()` or `date_of(now())`
-call, an S01 `Int` operation, a comparison, a literal or another
-expression; a statement still refused reports exactly the blockers it has
-without this cell.
+parameter, the same operation in a `let`, a WHERE, an ORDER BY key or an
+aggregate argument, and a cell's operation in a query that holds any of the
+clauses above or beside any other SELECT item, such as an `lpad`, `now()` or
+`date_of(now())` call, an S01 `Int` operation, a comparison, a literal or
+another expression; a statement still refused reports exactly the blockers
+it has without this cell.
 
-<a id="mysql-float-wider-cells"></a>MC E4B widens E4's cell on MySQL by the
-statement around the operation (PL.58 (4), E4B's own ledger). Each
-operation is narrow, as in E4's cell: a `Float` `+`, `-` or `*` of a
-nullable or non-null `DOUBLE` field and a `Float` literal under one `-` at
-most, in either order, or the unary `-` of such a field; a `let` name is not
-a field. The statement is a `query` or `table` that reads one source of its
-own module, with no JOIN, window, GROUP BY or aggregate, DISTINCT, LIMIT,
-header parameter (read or not), upstream query, relation alias, unread
-window or bind-safe `?`, and its clauses make one of these shapes:
+<a id="mysql-float-wider-cells"></a>MC E4B widens E4's cell on MySQL
+(PL.58 (4), E4B's own ledger). An E4B operation is a `Float` `+`, `-` or `*`
+with an operand that is a nullable or non-null `DOUBLE` field of the source,
+read by name, or one level deep an inner such operation, and beside it such
+a field or a `Float` literal under one `-` at most, in either order; a unary
+`-` takes such a field or an inner operation. It is narrow with one field
+and one literal (`x * 2.0`) or as the `-` of a field (`-x`), and wide with
+two fields (`x + w`, `x - x`) or a nesting (`(x * 2.0) + 1.0`,
+`x * (w + 1.0)`, `-(-x)`); two levels of nesting, two inner operations, an
+operation without a field and a `let` name as an operand stay refused. The
+statement is a `query` or `table` that reads one source of its own module,
+with no JOIN, window, HAVING, DISTINCT, LIMIT, header parameter (read or
+not), upstream query, relation alias, unread window or bind-safe `?`, and
+its clauses make one of these shapes:
 
-- one or two `let` values of such operations, read by the select list
-  (`let t = x * 2.0`, `r = t`);
+- an operation as a whole SELECT item with no WHERE (`r = x + w`), wide
+  ones included;
+- one `let` value of an operation, narrow or wide, or two `let` values of
+  narrow ones, read by the select list (`let t = x * 2.0`, `r = t`);
 - a WHERE that is one whole comparison (`<`, `<=`, `>`, `>=`, `==` or `!=`),
-  or its `not`, of such an operation with a `Float` literal on either side,
-  with no `let` (`where x * 2.0 > 1.0`), and E4 cell items beside it or not;
-- the same WHERE over the one `let` of such an operation instead
+  or its `not`, of an operation with a `Float` literal on either side, with
+  no `let` (`where x * 2.0 > 1.0`, `where x + w > 0.0`), and narrow E4 cell
+  items beside a narrow one or not;
+- the same WHERE over the one `let` of a narrow operation instead
   (`let t = -x`, `where t <= 0.0`);
-- ORDER BY keys that are `let` names of such operations, selected or not:
-  one key over one `let`, under such a WHERE over it or not, or two keys
-  over two `let`s (`order by t, u desc`).
+- ORDER BY keys that are `let` names, selected or not: one key over one
+  `let`, narrow or wide, one over a narrow `let` under such a WHERE over
+  it, or two keys over two narrow `let`s (`order by t, u desc`);
+- `count` of the unary `-` of a nullable field, ungrouped or beside GROUP
+  BY keys that are fields, with no WHERE (`n = count(-x)`, `group by g`).
+
+A `count` of a `+`, `-` or `*` keeps its refusal on MySQL, and so does any
+`count` under a WHERE, whose only form counted a product. MySQL may count a
+row without computing an argument that it types non-nullable, as over a
+`NOT NULL` column that a nullable declaration describes, which the contract
+allows: PostgreSQL computes the argument there and fails the statement where
+it overflows, while MySQL returns a count. A sign cannot fail, so its
+`count` is the same on both.
 
 Every `let` is read, and every one by the WHERE when there is one; the
-select list reads fields and those `let`s. The SQL is PostgreSQL's in
-MySQL's spelling: a `let` value is computed for every source row in the
-first CTE, a WHERE filters in its own CTE, and `*` stands under E4's guard.
-Values, failures, evidence and nullability are E4's. Every other statement
-keeps the blockers it has without this paragraph, among them a `let`
-nothing reads or that a WHERE beside it does not read, a WHERE with another
-condition or comparing with a field or another operation, a `let` name as
-an operand, a `let` or ORDER BY key beside an operation item, a field key
-beside a `let` key, three `let`s, and any clause above; two fields, a
-nested operation, `count`'s argument, a parameter operand, a computed `let`
-GROUP BY key and a JOIN row stay refused in this slice.
+select list reads fields, those `let`s, or the GROUP BY keys and `count`s.
+The SQL is PostgreSQL's in MySQL's spelling: a `let` value is computed for
+every source row in the first CTE, a WHERE filters in its own CTE, `count`
+counts in the aggregate CTE over it, and each `*` stands under E4's guard,
+an inner operation written inside it as its own SQL. Values, failures,
+evidence and nullability are E4's. Every other statement keeps the blockers
+it has without this paragraph, among them a `let` nothing reads or that a
+WHERE beside it does not read, a WHERE with another condition or comparing
+with a field or another operation, a `let` name as an operand, a `let` or
+ORDER BY key beside an operation item, an ORDER BY key that reads a field
+beside a `let` key,
+three `let`s, a wide operation in any other shape, `count` of a non-null
+value, of a nesting or of a `+`, `-` or `*`, `count` beside an aggregate
+other than such a `count` (`count()`, `max(y)`), ordered or under a WHERE,
+and any clause above; a parameter operand, a computed `let` GROUP BY key
+and a JOIN row stay refused in this slice.
 
 ## Sources and relations
 
@@ -5442,10 +5465,12 @@ columns, `count_distinct(x)` for one``, also as the JSON `suggestion`.
 
 In project SQL an admitted expression argument (`sum(qty * 2)`,
 `count(lower(label))`) is emitted inside the aggregate by the same rules as a
-`let`: it is admitted exactly where `let t = qty * 2` with `sum(t)` is, and
-refused with the same blocker where that `let` is; for example, Float
-arithmetic over a field on MySQL remains
-`float_literal_operands_required`. Over JOIN rows PostgreSQL also
+`let` in the ordinary case. For example, `sum(qty * 2)` has the same
+admission and blockers as `let t = qty * 2` with `sum(t)`. On MySQL,
+[E4B's count cell](#mysql-float-wider-cells) emits `count(-x)` over a
+nullable `Float` field when the sign is written inside the count.
+`let t = -x` with `count(t)` keeps `unary_sign_requires_int_operand`.
+Over JOIN rows PostgreSQL also
 emits an aggregate argument that holds a scalar call such as `lower`
 (`count(lower(r.label))`), while a joined `let t = lower(r.label)` with
 `count(t)` stays BLOCKED: a joined `let` admits such a call only directly

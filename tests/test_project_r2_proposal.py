@@ -1681,6 +1681,11 @@ PHASE77_MYSQL_FORMS = {
     # comparison of a `let` value.
     "E4B_let": ("e4b", sql_emission.E4B_FORMS["EB1M"]),
     "E4B_where": ("e4b", sql_emission.E4B_FORMS["EB2LM"]),
+    # Two fields as a `let` value, a nesting compared in a WHERE and a
+    # `count` of a sign (lead ruling R-E4B-P6).
+    "E4B_fields": ("e4bc", sql_emission.E4BC_FORMS["EC4L"]),
+    "E4B_nested": ("e4bc", sql_emission.E4BC_FORMS["EC5W"]),
+    "E4B_count": ("e4bc", sql_emission.E4BC_FORMS["EC6N"]),
 }
 # A neighbour of each that 0.1.11 already compiled, R2's cross JOIN of the
 # public journey, and an R01 class U form, with the R2 refusal each keeps.

@@ -1001,8 +1001,11 @@ satisfies the GROUP BY key law (so `-0.0` and `0.0` are one distinct value,
 and an extreme of equal values may be either member); `min` and `max` keep the
 argument's carrier and become nullable. An aggregate whose argument is a row
 expression (`sum(qty * 2)`, `count(lower(label))`) is lowered by the same rules
-as a `let` and emitted inside the aggregate, so it is admitted exactly where
-`let t = qty * 2` with `sum(t)` is. Over JOIN rows PostgreSQL also emits an
+as a `let` in the ordinary case. For example, `sum(qty * 2)` has the same
+admission as `let t = qty * 2` with `sum(t)`. On MySQL,
+[E4B's count cell](language.md#mysql-float-wider-cells) emits `count(-x)`
+over a nullable `Float` field when written directly. `let t = -x` with
+`count(t)` keeps `unary_sign_requires_int_operand`. Over JOIN rows PostgreSQL also emits an
 aggregate argument that holds a scalar call such as `lower`, `trim` or `len`
 (`count(lower(r.label))`), while a joined `let t = lower(r.label)` with
 `count(t)` stays BLOCKED with `operator_not_implemented_in_slice6` and
