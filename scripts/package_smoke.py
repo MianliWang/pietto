@@ -180,8 +180,9 @@ table joined:
 # Each query's kind, name and parameters, its rows over the check's tables
 # (items: id 3, 1, 2, 6, 5, 4; label b, a, NULL, a, NULL, a; tags: id 1, 2, 7;
 # since 2024-01-01, 2024-02-29, 2023-12-31), whether their order is part of
-# the result, and the result schema's field names and nullability.
-DUCKDB_ITEM = [("id", False), ("label", True)]
+# the result, and the result schema's field names, Arrow types and
+# nullability.
+DUCKDB_ITEM = [("id", "int64", False), ("label", "string", True)]
 DUCKDB_QUERIES = (
     ("query", "result", {"min_id": 5}, [(6, "a"), (5, None)], False, DUCKDB_ITEM),
     (
@@ -191,11 +192,11 @@ DUCKDB_QUERIES = (
         [("a", 3, 3, 11, 6), (None, 2, 0, 7, 5)],
         False,
         [
-            ("label", True),
-            ("n", False),
-            ("filled", False),
-            ("total", True),
-            ("high", True),
+            ("label", "string", True),
+            ("n", "int64", False),
+            ("filled", "int64", False),
+            ("total", "int64", True),
+            ("high", "int64", True),
         ],
     ),
     ("table", "ordered", None, [(2, None), (5, None), (3, "b")], True, DUCKDB_ITEM),
@@ -214,7 +215,7 @@ DUCKDB_QUERIES = (
         None,
         [(3, 4, 6), (1, 2, 2), (2, 3, 4), (6, 7, 12), (5, 6, 10), (4, 5, 8)],
         False,
-        [("id", False), ("more", False), ("twice", False)],
+        [("id", "int64", False), ("more", "int64", False), ("twice", "int64", False)],
     ),
     (
         "query",
@@ -222,7 +223,11 @@ DUCKDB_QUERIES = (
         {"start": date(2024, 1, 1)},
         [(1, date(2024, 1, 1), Decimal("1.50")), (2, date(2024, 2, 29), None)],
         False,
-        [("id", False), ("since", False), ("fee", True)],
+        [
+            ("id", "int64", False),
+            ("since", "date32[day]", False),
+            ("fee", "decimal128(6, 2)", True),
+        ],
     ),
     (
         "table",
@@ -230,11 +235,11 @@ DUCKDB_QUERIES = (
         None,
         [(1, "a", "x"), (2, None, "y")],
         False,
-        [("id", False), ("label", True), ("name", False)],
+        [("id", "int64", False), ("label", "string", True), ("name", "string", False)],
     ),
 )
-# The keys of each query that reads more than `items`; one input is passed
-# bare, several as a tuple.
+# The keys of each query that reads other than `items` alone; one input is
+# passed bare, several as a tuple.
 DUCKDB_INPUTS = {"dated": ("tags",), "joined": ("items", "tags")}
 DUCKDB_CONTRACT = """{
   "format": "pietto.emission-contract.v1",
@@ -1789,7 +1794,8 @@ def _installed_check(wheel: Path, extra: str) -> None:
                     rows != expected
                     or handle.outcome.end != "COMPLETE"
                     or any(
-                        [(f.name, f.nullable) for f in batch.schema] != schema
+                        [(f.name, str(f.type), f.nullable) for f in batch.schema]
+                        != schema
                         for batch in batches
                     )
                 ):
