@@ -1113,6 +1113,7 @@ included, and its Gate 2 binds the integrated tree. The lead reads
 | D79.27 | Batch reading as the specification lands it, restating D79.10 and D79.14 | Lead; bound by D79.29 |
 | D79.28 | Several inputs and JOINs as the specification lands them; its *derived* refusal of one source read twice replaced by D79.29 | Lead; bound by D79.29 |
 | D79.29 | The second part's texts pass as previewed, so D79.27 and D79.28 bind; one source read twice admitted as two reads | Owner, on the lead's preview |
+| D79.30 | D79.27's "of `batch_rows` rows" corrected: a batch holds at most `batch_rows` rows and can end early where a DuckDB result chunk ends | Lead |
 
 ### Tier 2 slices
 
@@ -1126,9 +1127,10 @@ Slice ids take U. Budgets are `C/F/D/S` planning allocations inside P79T2.
 | U03 | Arithmetic: rule 7c, the `Float` checks and their details | `project_duckdb_emission.py`, `project_duckdb_sql.py`, `execution/_errors.py`; their tests | 8/25/400/1 | In the batch |
 | U04 | Several inputs: the tuple, matching by name, the capture limits | `execution/_handle.py`, `_duckdb.py`, `__init__.py`, `_access.py`; `docs/execution.md` | 5/15/200/1 | In the batch, with U05 in one commit |
 | U05 | JOINs: admission, SQL, `ast_rules_hold`, the artifact verifier, the declared key check | `project_duckdb_emission.py`, `project_duckdb_sql.py`, `_duckdb.py`'s capture; their tests | 13/40/800/1 | In the batch |
-| U06 | Qualification v7: the four helpers in place, the harness self-test, U0–U3 once each and an independent integrity audit | `tests/_pietto_execution_duckdb_native_*.py`, `tests/test_harness_execution_api.py`, `docs/development.md` | 8/30/800/0 | Next |
-| U07 | Package smoke gains a JOIN, a typed and an arithmetic query | `scripts/package_smoke.py`, its sentence in `docs/development.md` | 0/5/120/0 | Next |
-| U08 | Closeout: the shared pages, `diagnostics.md`, the freeze-ledger row, status, the fragments, the acquisition review and Phase79's completion audit | The shared pages; a new audit under `docs/phases/phase-79/` | 6/20/500/0 | `diagnostics.md`'s `PIE-R1002` part in the batch; the rest next |
+| Self-join | One source read twice through a row-input alias (D79.29): fields and registered names numbered by source read, from the ports the verified plan gives each JOIN input | `project_duckdb_emission.py`; the specification, `docs/spec/diagnostics.md`, the capability page, this file, `docs/decisions.md` and the JOIN fragment; their tests | Spent 0/3/≈95/0, outside the allocations, within the ceiling | In the batch |
+| U06 | Qualification v7: the four helpers in place, the harness self-test, U0–U3 once each and an independent integrity audit | `tests/_pietto_execution_duckdb_native_*.py`, `tests/test_harness_execution_api.py`, `docs/development.md` | 8/30/800/0 | In the batch: v7 frozen on 2026-11-18, U0–U3 each accepted on its first attempt; the independent integrity audit waits for the lead ([completion audit](t2-completion-audit.md#the-v7-run)) |
+| U07 | Package smoke gains a JOIN, a typed and an arithmetic query | `scripts/package_smoke.py`, its sentence in `docs/development.md` | 0/5/120/0 | In the batch |
+| U08 | Closeout: the shared pages, `diagnostics.md`, the freeze-ledger row, status, the fragments, the acquisition review and Phase79's completion audit | The shared pages; the [completion audit](t2-completion-audit.md) | 6/20/500/0 | In the batch |
 | Integration, Gate 2 and the batch audit | | | 3/8/400/0 | |
 | Replay reserve | | | 0/0/500/0 | |
 | Total | | | 61/196/4,850/4 | |
@@ -1137,8 +1139,8 @@ Each slice is one commit, except U02's two and the one of U04 and U05, as
 the table states, and is reviewed on its own before delivery; a review
 with only low findings counts as clean (D77.51). The batch carries the
 records, the types, the arithmetic, the batch reading and the several
-inputs with their JOINs in that order, then U06–U08, one v7 run and one
-Gate 2. It publishes under PL.52 on D77.06's conditions, before the `0.2.2`
+inputs with their JOINs in that order, then the self-join and U06–U08,
+one v7 run and one Gate 2. It publishes under PL.52 on D77.06's conditions, before the `0.2.2`
 release commit (D79.21), and the first documentation commit after its push
 records its Gate 2 and natural CI.
 

@@ -294,9 +294,7 @@ release.
   measure more than 256 MiB together (read by the query or not), are
   refused. It is qualified
   only with CPython 3.12 and 3.13 on Linux x86-64 with glibc 2.28 or later
-  ([DuckDB local path](https://github.com/MianliWang/pietto/blob/main/docs/capabilities.md#duckdb-local-path));
-  the second tier's `Date`, `Timestamp` and `Decimal` fields, its
-  arithmetic, its JOINs and its batch reading are not qualified yet.
+  ([DuckDB local path](https://github.com/MianliWang/pietto/blob/main/docs/capabilities.md#duckdb-local-path)).
   `0.2.0` and `0.2.1` carry only the projection with one `Int` parameter
   comparison, over at most 65,536 rows and 16 MiB; the rest is Phase79's
   second slice, its first tier and its second tier, which enter `0.2.2`

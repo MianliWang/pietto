@@ -25,8 +25,8 @@ types, checks each parameter value's exact Python type and domain
 (`PIE-R1006`) and sends a `Decimal` value to DuckDB as its canonical text.
 See the [DuckDB Arrow route](../spec/duckdb-arrow-route-v1.md#admission) and
 the [DuckDB local path](../capabilities.md#duckdb-local-path). These forms
-are tested by the route's native cells with `duckdb` `2.0.0` and `pyarrow`
-`26.0.1`; their preregistered qualification is still to run. The example is
+are qualified with `duckdb` `2.0.0` and `pyarrow` `26.0.1` on CPython 3.12
+and 3.13, Linux x86-64 with glibc 2.28 or later. The example is
 a module of an explicit-module project; checked as a single file it reports
 PIE-S2346 for its header parameters.
 

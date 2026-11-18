@@ -8,7 +8,8 @@ grouped query), a literal, a number literal with a `-` sign (`price *
 result is NULL when an operand is. `pietto emit-sql --project ...
 --dialect duckdb` writes them and `execute(route="duckdb_arrow")` runs
 them. In a grouped query the language refuses a parameter as an operand
-(PIE-S2355).
+(PIE-S2355). These forms are qualified with `duckdb` `2.0.0` and `pyarrow`
+`26.0.1` on CPython 3.12 and 3.13, Linux x86-64 with glibc 2.28 or later.
 
 - `Int` arithmetic is admitted only where every result fits a signed 64-bit
   integer, proved by interval arithmetic from the contract's `int_range` of

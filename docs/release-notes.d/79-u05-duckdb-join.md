@@ -15,7 +15,9 @@ the source reads (`"c0"` onward); the emission document names each column's
 source and its field there. A source read twice through a row-input alias,
 such as `let parent = orders`, then `left join parent on parent.id ==
 orders.amount`, is two reads, each with its own registered name and fields.
-See [Admission](../spec/duckdb-arrow-route-v1.md#admission).
+See [Admission](../spec/duckdb-arrow-route-v1.md#admission). These forms are
+qualified with `duckdb` `2.0.0` and `pyarrow` `26.0.1` on CPython 3.12 and
+3.13, Linux x86-64 with glibc 2.28 or later.
 
 ```pietto PIE-S2346
 shape Order:

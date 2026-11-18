@@ -9,6 +9,8 @@ result that would take the delivered rows or bytes past `max_rows` or
 whole result, and the route reads no more of it; the batches delivered
 before stay delivered, as before. See
 [Session and attempt](../spec/duckdb-arrow-route-v1.md#session-and-attempt).
+The batch reading is qualified with `duckdb` `2.0.0` and `pyarrow` `26.0.1`
+on CPython 3.12 and 3.13, Linux x86-64 with glibc 2.28 or later.
 
 - Each batch is charged its `nbytes` as DuckDB's reader gives it, with a
   validity bitmap for every column, one without NULL included, where a batch

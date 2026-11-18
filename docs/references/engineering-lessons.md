@@ -521,6 +521,41 @@ evidence behind these lessons.
   driver sets the client and `DOCKER_HOST` itself rather than trusting a
   shell environment that may point them at another engine.
 
+## Phase79
+
+The [completion audit](../phases/phase-79/t2-completion-audit.md) keeps the
+evidence behind these lessons, with the [B1](../phases/phase-79/completion-audit.md)
+and [B2](../phases/phase-79/b2-completion-audit.md) audits.
+
+- **79-1 — State an engine's batch boundary as a bound.** D79.27 and the
+  specification first said that each batch holds `batch_rows` rows, the last
+  the rest; a dry run of the native matrix on a draft freeze then saw a left
+  JOIN's six rows in batches of 4 and 2, since DuckDB's reader ends a batch
+  where its result chunk ends. The specification was corrected before the
+  freeze and D79.30 records it. Write a library's chunking as "at most",
+  with an empty chunk skipped, until every shape that the route admits has
+  been measured, and let the checker judge sizes by those bounds.
+- **79-2 — Streaming moves errors into the reads and can strip their
+  class.** DuckDB raises an error that occurs while a batch is read as
+  `OSError`, while the same error at the reader's creation keeps its class,
+  and which of the two a statement meets depends on its plan. A route that
+  reads in batches classifies its failures by its own flags and by fixed
+  words that its SQL writes, never by the class name it receives.
+- **79-3 — Rehearse the real launch on draft freezes.** Four dry runs of
+  U0 and U1 with the real launch command on draft freezes found two producer
+  defects, one of them a sub-case chosen by the end of its name, two oracle
+  defects and a wrong sentence of the specification, all before the freeze;
+  the frozen run then accepted every unit on its first attempt. Rehearse
+  with the launch command itself, and choose a fixture by an explicit field,
+  never by a pattern of its name.
+- **79-4 — Key an adapter's state by the read the plan gives, not by the
+  source.** The first JOIN landing numbered fields and registered names by
+  source, so one source read twice could not be told apart and was refused
+  as *derived*; the verified plan already gave each JOIN input its own
+  ports, and numbering by read admitted the self-join with no plan change
+  (D79.29). Before an adapter refuses a form as indistinguishable, check
+  whether the plan already distinguishes it.
+
 ## Phase80
 
 The [completion audit](../phases/phase-80/completion-audit.md) keeps the

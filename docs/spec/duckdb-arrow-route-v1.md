@@ -22,10 +22,10 @@ several sources joined by `inner` and `left` equality JOINs over a tuple of
 input tables ([admission](#admission)); and it reads every result in
 batches. It refuses an input table of more than 1,048,576 rows, or inputs
 whose selected columns measure more than 256 MiB together
-([capture](#capture)). B1 and B2's first tier are qualified only for
+([capture](#capture)). B1 and both tiers of B2 are qualified only for
 `duckdb` `2.0.0` with `pyarrow` `26.0.1` on CPython 3.12 and 3.13, Linux
 x86-64 with glibc 2.28 or later; every other release and platform is not
-qualified, and tier 2 is not qualified yet. Its
+qualified. Its
 names, fields, detail words and limits may
 change in any later release, each with a release-note line and no deprecation
 period.
@@ -48,9 +48,9 @@ and this page's `memory_limit` rule; from the lead's choices that PL.47
 records, NULLS clauses that place NULL as the PostgreSQL emitter does (as
 D78.02 for SQLite) and B1's qualification framework; and from PL.50, the
 owner's agreement to the refusal texts as written. Tier 2's come from
-D79.17–D79.28, the owner's answers of 2026-11-17 to its Gate 1 sheet and
-to the preview of its first texts, and the lead's rulings and restatements
-under them: D79.17 opens its three families and
+D79.17–D79.30, the owner's answers of 2026-11-17 to its Gate 1 sheet and
+to the previews of its texts, and the lead's rulings, restatements and
+correction under them: D79.17 opens its three families and
 revises D79.04's list of Arrow types (`int64`, `string`, `bool` and
 `float64` only), to which tier 2 adds `date32`, `timestamp[us]` and
 `decimal128`. Rows marked *derived* are
@@ -62,13 +62,14 @@ or a product of non-zero `Float` values underflows to 0, with a hint that
 only the documentation gives (D79.18), and opens `Int` arithmetic only
 where a range proof holds (D79.25); the owner approved its texts and those
 of its types as previewed, with the hints in the SQL's words (D79.26).
-Its batch reading restates D79.10 and D79.14 (D79.27), and its JOINs and
-several inputs land as D79.28 states; the lead's texts of both await the
-owner (see [open items](#open-items)).
+Its batch reading restates D79.10 and D79.14 (D79.27, whose words on a
+batch's size D79.30 corrects), and its JOINs and several inputs land as
+D79.28 states; the owner passed the texts of both as previewed and admitted
+one source read twice (D79.29).
 
 Construction state: B1 PUBLISHED, B2's first tier QUALIFIED, B2's second
-tier IMPLEMENTED (types, arithmetic, batch reading, several inputs and
-JOINs) and not qualified. For B1, S02
+tier QUALIFIED (types, arithmetic, batch reading, several inputs and
+JOINs). For B1, S02
 landed the shared connector and dialect
 sets and the family firewall, S03 the independent adapter with the DuckDB
 target identity, S04 the execution route, S05 the `execute-duckdb` extra and
@@ -82,10 +83,15 @@ literals and parameters, and T05 the capture limits and the session; T06
 qualified them natively (preregistration v6, every unit accepted on its first
 attempt on 2026-11-16), T07 added B2's queries to the `arrow-ready` cell of
 natural CI, and T08 applied B2's shared-page hunks below. The
-[B2 audit](../phases/phase-79/b2-completion-audit.md) records them. Tier 2
-is not qualified: its three types, its arithmetic, its batch reading and
-its several inputs and JOINs landed with the route's own native cells, and
-their preregistered qualification is tier 2's.
+[B2 audit](../phases/phase-79/b2-completion-audit.md) records them. Tier 2's
+U02–U05 landed its three types, its arithmetic, its batch reading and its
+several inputs and JOINs, and a later commit one source read twice
+(D79.29); U06 qualified them natively (preregistration v7, every unit
+accepted on its first attempt on 2026-11-18), U07 added three of their
+queries to the `arrow-ready` cell of natural CI, and U08 applied their
+remaining shared-page hunks below. The
+[Phase79 completion audit](../phases/phase-79/t2-completion-audit.md)
+records them.
 
 ## Admission
 
@@ -741,8 +747,15 @@ together, the sorted key columns of the declared key check while it runs,
 at most 1 GiB in DuckDB and one batch in flight, of at most `batch_bytes`
 once it is delivered (*derived*). A result that would cross `max_rows` or
 `max_bytes` stops at the batch that crosses it, however large the whole
-result, a JOIN that repeats rows included. No peak of the batch-reading
-route has been measured in the repository yet.
+result, a JOIN that repeats rows included. Preregistration v7's cell C28
+measured these peaks on 2026-11-18 with CPython 3.13.13 and 3.12.13, each
+in its own process: a full sort of 1,048,576 rows, delivered in 4,096
+batches under the default limits, peaked at most 206,504 KiB above the
+process once `execute()` had returned, within the bound of 1 GiB, one batch of `batch_bytes` and 128 MiB
+of margin (1,180,672 KiB); and the capture with the declared key check of
+1,048,576 rows peaked at most 446,444 KiB above the process before
+`execute()`, within the selected bytes, twice the key's bytes, 8 bytes a
+row and the same margin.
 
 Until the second tier, the route read the whole result with
 `to_arrow_table()` before cutting its batches, outside `memory_limit` and
@@ -1254,6 +1267,16 @@ The second tier's several inputs and JOINs applied these with their code:
   once through `check --project` and `emit-sql --project --dialect duckdb`
   on that tree, and its summary, execution and support items.
 - `README.md`: the DuckDB local path's summary.
+
+The second tier's closeout U08 applied these:
+
+- `docs/spec/diagnostics.md`: the `PIE-R1002` row counts a column once for
+  one source read twice, as for two sources with one key.
+- `docs/execution.md`, `docs/capabilities.md` and `README.md`: the second
+  tier's native evidence; on the capability page also its measured peak and
+  the count of the `arrow-ready` cell's queries.
+- `docs/roadmap.md`: the DuckDB Arrow route's row of the Phase82 freeze
+  ledger; `docs/status.md`: the sentence on the second tier.
 
 ## Open items
 
