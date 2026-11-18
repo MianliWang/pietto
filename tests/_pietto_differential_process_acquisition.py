@@ -30,7 +30,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 TESTS_ROOT = REPO_ROOT / "tests"
 BATCH_CHILD = TESTS_ROOT / "_pietto_differential_probe_batch.py"
 SEEDS = ("0", "1", "7", "4294967295")
-SUPPORTED_INTERPRETERS = ((3, 12), (3, 13))
+SUPPORTED_INTERPRETERS = ((3, 12), (3, 13), (3, 14))
 FAMILY_ORDER = (
     "phase58",
     "phase59",
@@ -68,7 +68,11 @@ RELOCATION_SUPPORT_MANIFEST = (
     "_pietto_sql_emission.py",
     "_pietto_sql_emission_differential.py",
 )
-COMBINED_RELOCATED_CELLS = (((3, 12), "1"), ((3, 13), "4294967295"))
+COMBINED_RELOCATED_CELLS = (
+    ((3, 12), "1"),
+    ((3, 13), "4294967295"),
+    ((3, 14), "4294967295"),
+)
 ACQUISITION_TIMEOUT_SECONDS = 900.0
 POLL_SECONDS = 0.05
 

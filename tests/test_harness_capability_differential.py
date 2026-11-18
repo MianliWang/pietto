@@ -67,7 +67,7 @@ SOURCE_REL = "src/pietto/_project/capability_pure_boundary.py"
 EXPECTED_CORPUS_DIGEST = (
     "8453c3babda888b105f37f667f5fadf3a12aa68ca9a561bda98e5f6b6604a69e"
 )
-_SUPPORTED_INTERPRETERS = ((3, 12), (3, 13))
+_SUPPORTED_INTERPRETERS = ((3, 12), (3, 13), (3, 14))
 _IDENTIFIER_CHARACTERS = frozenset("abcdefghijklmnopqrstuvwxyz0123456789_")
 
 

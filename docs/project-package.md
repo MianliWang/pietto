@@ -1242,14 +1242,15 @@ include the five `interop-*` extras of [Python interoperability](interop.md#inst
 each installed beside `arrow`, as in `pip install "pietto[arrow,interop-pandas]"`,
 and `execute-duckdb` for the [DuckDB Arrow route](execution.md#duckdb-arrow-route),
 which includes the Arrow pin.
-The compiler and CLI are verified with CPython 3.12 and 3.13 on Linux x86-64.
-On Windows x86-64 the CLI (`check`, `emit-sql`, `fmt`, `explain` and `lsp`)
-and `pietto.compiler` are supported with CPython 3.12 and 3.13, where CI runs
-their tests and smoke-tests the installed wheel; this Windows support is not
-in `0.2.2`. Execution is not claimed on Windows: no route, saved result, job
-or extra is qualified there. The `sqlite_file` route refuses there
-(PIE-R2002), the workspace and saved-result names need `fcntl`, which
-Windows CPython lacks, and the other routes are not refused.
+The compiler and CLI are verified with CPython 3.12, 3.13 and 3.14 on Linux
+x86-64. On Windows x86-64 the CLI (`check`, `emit-sql`, `fmt`, `explain` and
+`lsp`) and `pietto.compiler` are supported with CPython 3.12 and 3.13, where
+CI runs their tests and smoke-tests the installed wheel, as it also does on
+3.14; CPython 3.14 and this Windows support are not in `0.2.2`. Execution is
+not claimed on Windows: no route, saved result, job or extra is qualified
+there. The `sqlite_file` route refuses there (PIE-R2002), the workspace and
+saved-result names need `fcntl`, which Windows CPython lacks, and the other
+routes are not refused.
 Other platforms and Python versions are not covered by this evidence
 ([platforms and qualification](capabilities.md#platforms-and-qualification)).
 

@@ -14,10 +14,10 @@ from _pietto_ci_workflow import job as _job
 REPO_ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW_PATH = REPO_ROOT / ".github/workflows/ci.yml"
 PYTHON_VERSION_PATH = REPO_ROOT / ".python-version"
-PRIMARY = (("3.12", "twelve"), ("3.13", "thirteen"))
+PRIMARY = (("3.12", "twelve"), ("3.13", "thirteen"), ("3.14", "fourteen"))
 # Exact setup-python patch per logical family. Reports compare the full
 # python_version, so every producer and consumer of a family moves together.
-SETUP_PATCH = {"3.12": "3.12.14", "3.13": "3.13.15"}
+SETUP_PATCH = {"3.12": "3.12.14", "3.13": "3.13.15", "3.14": "3.14.10"}
 EXPECTED_JOBS = (
     "checks_twelve",
     "runtime_twelve",
@@ -25,15 +25,20 @@ EXPECTED_JOBS = (
     "checks_thirteen",
     "runtime_thirteen",
     "python_thirteen",
+    "checks_fourteen",
+    "runtime_fourteen",
+    "python_fourteen",
     "windows_twelve",
     "windows_thirteen",
+    "windows_fourteen",
     "target_conformance",
     "target_conformance_aggregate",
 )
 # 3.12 security releases ship no Windows build (actions/python-versions stops
 # at 3.12.10); the Windows jobs produce no reports, so no family mixes patches.
+# The target jobs run on 3.13.
 EXPECTED_PINS = {
-    job: [SETUP_PATCH["3.12" if job.endswith("_twelve") else "3.13"]]
+    job: [SETUP_PATCH[next((p for p, w in PRIMARY if job.endswith("_" + w)), "3.13")]]
     for job in EXPECTED_JOBS
 } | {"windows_twelve": ["3.12.10"]}
 ACTIONS = {
@@ -93,8 +98,8 @@ def test_ci_triggers_permissions_runner_and_matrix_are_exact() -> None:
             workflow, f"checks_{word}"
         )
         assert "include:" not in runtime and "exclude:" not in runtime
-    # Two six-way runtime matrices and the two-target matrix add eleven jobs.
-    assert len(EXPECTED_JOBS) + 11 == 21
+    # Three six-way runtime matrices and the two-target matrix add sixteen jobs.
+    assert len(EXPECTED_JOBS) + 16 == 30
 
 
 @pytest.mark.parametrize(
@@ -356,10 +361,13 @@ def test_two_target_cells_and_strict_always_aggregate_are_explicit() -> None:
     )
     assert "fail-fast: false" in target
     assert "exclude:" not in target and "include:" not in target
-    assert "needs: [python_twelve, python_thirteen, target_conformance]" in aggregate
+    assert (
+        "needs: [python_twelve, python_thirteen, python_fourteen, target_conformance]"
+        in aggregate
+    )
     assert "if: always()" in aggregate
     assert (
-        "COMPILER_STATUS: ${{ needs.python_twelve.result == 'success' && needs.python_thirteen.result == 'success' && 'success' || 'failure' }}"
+        "COMPILER_STATUS: ${{ needs.python_twelve.result == 'success' && needs.python_thirteen.result == 'success' && needs.python_fourteen.result == 'success' && 'success' || 'failure' }}"
         in aggregate
     )
     assert "TARGET_STATUS: ${{ needs.target_conformance.result }}" in aggregate

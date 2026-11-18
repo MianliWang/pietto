@@ -413,7 +413,7 @@ def test_inspection_pure_boundaries_and_both_corpora_are_zero_delta() -> None:
         for vector in phase57_corpus
         if vector.boundary.value == "inspection"
     } == set(inspection_pure.ExtensionCatalogInspectionPureStatus)
-    assert differential._SUPPORTED_INTERPRETERS == ((3, 12), (3, 13))
+    assert differential._SUPPORTED_INTERPRETERS == ((3, 12), (3, 13), (3, 14))
     assert differential._SEEDS == (None, "0", "1", "4294967295")
     harness = inspect.getsource(differential._build_witness_matrix)
     for required in (
@@ -422,6 +422,7 @@ def test_inspection_pure_boundaries_and_both_corpora_are_zero_delta() -> None:
         "slice12-relocated-two",
         "combined:python3.12:seed1:relocated-one",
         "combined:python3.13:seed4294967295:relocated-two",
+        "combined:python3.14:seed4294967295:relocated-two",
     ):
         assert required in harness
 

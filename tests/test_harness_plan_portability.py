@@ -421,8 +421,16 @@ def test_process_request_manifest_covers_single_and_both_interpreters():
     current = (sys.version_info.major, sys.version_info.minor)
     for interpreters in (
         {current: sys.executable},
-        {(3, 13): "manifest-only-3.13", (3, 12): "manifest-only-3.12"},
-        {(3, 12): "manifest-only-3.12", (3, 13): "manifest-only-3.13"},
+        {
+            (3, 14): "manifest-only-3.14",
+            (3, 13): "manifest-only-3.13",
+            (3, 12): "manifest-only-3.12",
+        },
+        {
+            (3, 12): "manifest-only-3.12",
+            (3, 13): "manifest-only-3.13",
+            (3, 14): "manifest-only-3.14",
+        },
     ):
         expected = _available_request_manifest(interpreters)
         actual = tuple(

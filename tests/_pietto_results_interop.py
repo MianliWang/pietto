@@ -1483,7 +1483,7 @@ def _exact(actual, expected):
 
 def verify_report(report, *, cell, python, checkout):
     """Refuse every report that is not this cell's complete, exact witness."""
-    if cell not in CELLS or python not in ("3.12", "3.13"):
+    if cell not in CELLS or python not in ("3.12", "3.13", "3.14"):
         raise ValueError("interop cell")
     if (
         type(report) is not dict

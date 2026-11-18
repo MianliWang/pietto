@@ -19,7 +19,7 @@ SPEC = (
     REPO_ROOT / "docs/spec/phase59-slice11-differential-compatibility-assurance-v1.md"
 )
 SEEDS = ("0", "1", "7", "4294967295")
-SUPPORTED_INTERPRETERS = ((3, 12), (3, 13))
+SUPPORTED_INTERPRETERS = ((3, 12), (3, 13), (3, 14))
 
 # One shared expectation is consumed unchanged by every Python version, seed,
 # project/source relocation, repeated construction, and installed-wheel run.
@@ -271,7 +271,7 @@ def differential_matrix(
 
     observations["project-relocated"] = _decoded(documents["project-relocated"])
     observations["source-relocated"] = _decoded(documents["source-relocated"])
-    for version, seed in (((3, 12), "1"), ((3, 13), "4294967295")):
+    for version, seed in acquisition.COMBINED_RELOCATED_CELLS:
         if version not in interpreters:
             continue
         key = f"combined:python{version[0]}.{version[1]}:seed{seed}:relocated"

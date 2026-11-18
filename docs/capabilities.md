@@ -175,8 +175,9 @@ refused alike for every target.
   alpha); before a statement that joins sources and aggregates, it checks
   each source's declared keys. A single file is never run.
 - **Support.** The SQL text and its goldens are tested wherever CI runs
-  (CPython 3.12 and 3.13). The native cells qualify the SQL in process on one
-  measured SQLite library only: release `3.53.1`, source id `2026-05-05
+  (CPython 3.12, 3.13 and 3.14, 3.14 not in `0.2.2`). The native cells
+  qualify the SQL in process on one measured SQLite library only: release
+  `3.53.1`, source id `2026-05-05
   10:34:17 c88b22011a54b4f6fbd149e9f8e4de77658ce58143a1af0e3785e4e6475127e9`
   and the 46 compile options that `QUALIFIED_SQLITE_BUILD` in
   `src/pietto/sql/sqlite.py` records, observed under CPython 3.13.13 and
@@ -284,19 +285,20 @@ the legend above.
 This section gathers the platform claims that the other pages make, for each
 capability on Linux x86-64, Windows x86-64 and macOS. It adds no claim: the
 pages in the last column, and for CI-tested cells the CI workflow, state each
-one with its limits. Phase81 sets the Windows scope, whose cells say "not in
-`0.2.2`", and decides the CPython matrix
+one with its limits. Phase81 sets the Windows scope and the CPython matrix,
+and the cells and bullets that state them say "not in `0.2.2`"
 ([Phase81 scope](roadmap.md#phase81-scope)).
 
 - **qualified**: the page states that the capability was verified or
   qualified there, only within the Python versions, pins and builds that the
   cell names.
-- **CI-tested**: hosted CI runs the capability's tests there, on CPython 3.12
-  and 3.13, and that is no support claim. On Linux, CI runs every test area;
-  on Windows, it runs the parser, semantic, IR, plan, SQL, project, CLI and
-  results tests and those of the SQLite file route, which there assert its
-  refusal, with no optional extra installed, and smoke-tests the installed
-  wheel (the two Windows jobs of the [CI workflow](../.github/workflows/ci.yml),
+- **CI-tested**: hosted CI runs the capability's tests there, on CPython
+  3.12, 3.13 and 3.14 (3.14 not in `0.2.2`), and that is no support claim.
+  On Linux, CI runs every test area; on Windows, it runs the parser,
+  semantic, IR, plan, SQL, project, CLI and results tests and those of the
+  SQLite file route, which there assert its refusal, with no optional extra
+  installed, and smoke-tests the installed wheel (the three Windows jobs of
+  the [CI workflow](../.github/workflows/ci.yml),
   [Phase81 scope](roadmap.md#phase81-scope)).
 - **supported**: the page claims that the capability works there, on the
   evidence that CI gathers there: on Linux, CPython 3.12.14 and 3.13.15 with
@@ -307,7 +309,7 @@ one with its limits. Phase81 sets the Windows scope, whose cells say "not in
 
 | Capability | Linux x86-64 | Windows x86-64 | macOS | Stated in |
 | --- | --- | --- | --- | --- |
-| Compiler and CLI: `check`, `emit-sql`, `fmt` and `explain` of single files and projects, with PostgreSQL and MySQL SQL | qualified: CPython 3.12 and 3.13 | supported; not in `0.2.2` | not claimed | [Install](../README.md#install), [Installing a release](project-package.md#installing-a-release) |
+| Compiler and CLI: `check`, `emit-sql`, `fmt` and `explain` of single files and projects, with PostgreSQL and MySQL SQL | qualified: CPython 3.12 and 3.13, and 3.14 not in `0.2.2` | supported; not in `0.2.2` | not claimed | [Install](../README.md#install), [Installing a release](project-package.md#installing-a-release) |
 | `emit-sql --project ROOT --all --output DIR` | qualified on supported Linux filesystems | supported on CPython 3.12.4 or later: written by path into owner-only directories (with no access list on a volume that keeps none, such as FAT32 or exFAT), with DIR's ancestors resolved by path; not in `0.2.2` | not claimed: not supported; batch stdout, one `--output FILE` or `compile_all_sql(...)` instead | [Project SQL emission](project-package.md#project-sql-emission), [What works now](../README.md#what-works-now), [project CLI JSON v2](spec/project-cli-json-v2.md) |
 | Python compile API: `compile_sql`, `compile_all_sql` (alpha) | supported; not in `0.2.2` | supported; not in `0.2.2` | not claimed | [Python compile API](spec/python-compile-api-v1.md), [Install](../README.md#install), the [CI workflow](../.github/workflows/ci.yml) |
 | `pietto lsp` (alpha) | supported; not in `0.2.2` | supported, not in `0.2.2`; a native Windows editor acceptance is Phase81 scope | not claimed | [Editor support](editor-lsp.md), [Install](../README.md#install), [Phase81 scope](roadmap.md#phase81-scope), the [CI workflow](../.github/workflows/ci.yml) |
@@ -319,8 +321,11 @@ one with its limits. Phase81 sets the Windows scope, whose cells say "not in
 | `duckdb_arrow` route with the `execute-duckdb` extra (alpha) | qualified: CPython 3.13.13 and 3.12.13 with `duckdb==2.0.1` (the published `0.2.2`: `2.0.0`) and `pyarrow==26.0.1`, glibc 2.28 or later; CI runs the request checks and seven real queries | not claimed: not qualified | not claimed: not qualified | [Support matrix](execution.md#support-matrix), [DuckDB native qualification](development.md#duckdb-native-qualification) |
 | `pietto.interop` with an `interop-*` extra beside `arrow` (alpha) | qualified: only the pins of its table with `pyarrow==26.0.1`, CPython 3.12 and 3.13, glibc 2.28 or later | not claimed: not qualified; CI runs only the interop tests that need no PyArrow | not claimed: not qualified | [Installing](interop.md#installing), the [CI workflow](../.github/workflows/ci.yml) |
 
-- No page claims CPython 3.14, another Python implementation or another
-  processor architecture.
+- CPython 3.14 is claimed only in the compiler and CLI row, and not in
+  `0.2.2`; its extras, its
+  SQLite build, `save` and R2 are stated only as measured in the
+  [P04 record](phases/phase-81/route.md#p04-record). No page claims another
+  Python implementation or another processor architecture.
 - On Windows, trusted reads treat directory junctions as symbolic links, and
   the fallbacks that reading sources and `fmt --write` use there do not
   detect every directory race

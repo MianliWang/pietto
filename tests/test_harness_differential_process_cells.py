@@ -11,8 +11,8 @@ from _pietto_plan_process_acquisition import expected_request_manifest
 
 
 def test_process_cell_plan_preserves_current_requests() -> None:
-    two_interpreters = {(3, 13): "python3.13", (3, 12): "python3.12"}
-    plan = acquisition.cell_plan(two_interpreters)
+    interpreters = {(3, 14): "python3.14", (3, 13): "python3.13", (3, 12): "python3.12"}
+    plan = acquisition.cell_plan(interpreters)
     expected = expected_request_manifest()
     historical = ("phase58", "phase59", "phase60", "phase61", "phase62", "phase63")
     previous = (*historical, "phase64")
@@ -25,23 +25,25 @@ def test_process_cell_plan_preserves_current_requests() -> None:
             request.cell.mode,
             request.ambient,
         )
-        for request in acquisition.all_requests(two_interpreters)
+        for request in acquisition.all_requests(interpreters)
     )
     assert actual == expected
     assert len(plan) == len({row[2:5] for row in expected})
     assert sum(len(requests) for requests in plan.values()) == len(expected)
-    assert sum(row[0] in previous for row in actual) == 74
-    assert sum(row[0] in historical for row in actual) == 62
+    assert sum(row[0] in previous for row in actual) == 99
+    assert sum(row[0] in historical for row in actual) == 81
     assert acquisition.FAMILY_ORDER == tuple(batch.FAMILY_MODULES)
 
     modes = Counter(cell.mode for cell in plan)
-    assert modes == Counter({"checkout": 8, "relocated": 5, "installed": 3})
-    assert sum(modes.values()) == len(plan) == 16
+    assert modes == Counter({"checkout": 12, "relocated": 7, "installed": 4})
+    assert sum(modes.values()) == len(plan) == 23
     current = cast(tuple[int, int], sys.version_info[:2])
-    other = next(
-        version for version in acquisition.SUPPORTED_INTERPRETERS if version != current
+    assert Counter(cell.version for cell in plan) == Counter(
+        {
+            version: 9 if version == current else 7
+            for version in acquisition.SUPPORTED_INTERPRETERS
+        }
     )
-    assert Counter(cell.version for cell in plan) == Counter({current: 9, other: 7})
 
 
 def test_guarded_publication_rechecks_and_cleans() -> None:

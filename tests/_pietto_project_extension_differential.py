@@ -22,7 +22,7 @@ from pietto.semantic.extension_catalog_pure_boundary import (
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-_SUPPORTED_INTERPRETERS = ((3, 12), (3, 13))
+_SUPPORTED_INTERPRETERS = ((3, 12), (3, 13), (3, 14))
 _SEEDS = (None, "0", "1", "4294967295")
 _IDENTIFIER_CHARACTERS = frozenset("abcdefghijklmnopqrstuvwxyz0123456789_")
 
@@ -238,6 +238,14 @@ def _build_witness_matrix(
         observed["combined:python3.13:seed4294967295:relocated-two"] = (
             _subprocess_witness(
                 python313,
+                "4294967295",
+                roots[1],
+            )
+        )
+    if python314 := interpreters.get((3, 14)):
+        observed["combined:python3.14:seed4294967295:relocated-two"] = (
+            _subprocess_witness(
+                python314,
                 "4294967295",
                 roots[1],
             )

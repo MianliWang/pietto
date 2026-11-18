@@ -1,8 +1,10 @@
-# Selected optional Arrow-wheel allowlist: CPython 3.12/3.13, Linux glibc >=2.28, x86-64.
-# Official PyPI 26.0.1 wheel hashes; this is not runtime qualification.
+# Selected optional Arrow-wheel allowlist: CPython 3.12/3.13/3.14, Linux glibc >=2.28, x86-64.
+# Official PyPI 26.0.1 wheel hashes, the cp314 one as uv.lock lists it (PL.10 (b));
+# this is not runtime qualification.
 pyarrow==26.0.1 \
     --hash=sha256:c718bf97a92a6dea97fd1062c3b9f9e2e83cb9cc926e752289fa4ffff41738f9 \
-    --hash=sha256:f71221bbc7707e3fad920d0478db9350791d4714ec445299ee0d56559fbc156c
-# The arrow-ready cell's DuckDB 2.0.1 wheel (D79.07): one cp312-abi3 wheel serves 3.12/3.13.
+    --hash=sha256:f71221bbc7707e3fad920d0478db9350791d4714ec445299ee0d56559fbc156c \
+    --hash=sha256:7ae48ab53610b85e004b03bccff593fbdf22186d0ab48ed42c90797915dac814
+# The arrow-ready cell's DuckDB 2.0.1 wheel (D79.07): one cp312-abi3 wheel serves 3.12-3.14.
 duckdb==2.0.1 \
     --hash=sha256:39ffeb136abed770a496e5592a464f18a07b1543e7ddb1ff6453215e179f1647

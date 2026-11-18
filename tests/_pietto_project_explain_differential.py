@@ -21,7 +21,7 @@ SPEC = (
     / "docs/spec/phase58-slice16-pure-differential-compatibility-assurance-v1.md"
 )
 SEEDS = ("0", "1", "7", "4294967295")
-SUPPORTED_INTERPRETERS = ((3, 12), (3, 13))
+SUPPORTED_INTERPRETERS = ((3, 12), (3, 13), (3, 14))
 
 # One common, named, per-surface authority is consumed unchanged by Python
 # 3.12, Python 3.13, every seed, both relocation forms, and the installed wheel.

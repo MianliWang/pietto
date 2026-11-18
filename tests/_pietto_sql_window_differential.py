@@ -18,7 +18,7 @@ PHASE59_PROBE = REPO_ROOT / "tests/_pietto_project_graph_differential.py"
 SCENARIOS = REPO_ROOT / "tests/_pietto_project_explain_scenarios.py"
 SPEC = REPO_ROOT / "docs/spec/phase60-slice12-differential-compatibility-v1.md"
 SEEDS = ("0", "1", "7", "4294967295")
-SUPPORTED_INTERPRETERS = ((3, 12), (3, 13))
+SUPPORTED_INTERPRETERS = ((3, 12), (3, 13), (3, 14))
 
 
 # The single-file refusal of a RANGE frame with an offset, for one target.
@@ -585,7 +585,7 @@ def differential_matrix(
 
     observations["project-relocated"] = documents["project-relocated"]
     observations["source-relocated"] = documents["source-relocated"]
-    for version, seed in (((3, 12), "1"), ((3, 13), "4294967295")):
+    for version, seed in acquisition.COMBINED_RELOCATED_CELLS:
         if version not in interpreters:
             continue
         key = f"combined:python{version[0]}.{version[1]}:seed{seed}:relocated"

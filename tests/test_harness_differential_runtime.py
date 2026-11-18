@@ -24,10 +24,10 @@ import _pietto_project_query_differential as phase63
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
-def _two_interpreters() -> dict[tuple[int, int], str]:
-    """Evaluate the frozen logical matrices on the published two-interpreter set."""
+def _interpreters() -> dict[tuple[int, int], str]:
+    """Evaluate the frozen logical matrices on the supported interpreter set."""
 
-    return {(3, 13): "python3.13", (3, 12): "python3.12"}
+    return {(3, 14): "python3.14", (3, 13): "python3.13", (3, 12): "python3.12"}
 
 
 def _result(process: subprocess.CompletedProcess[bytes]) -> tuple[int, bytes, bytes]:
@@ -114,6 +114,7 @@ def test_all_differential_dimensions_and_independent_builds_remain_exact() -> No
         == (
             (3, 12),
             (3, 13),
+            (3, 14),
         )
     )
     assert phase58_probe.SCENARIO_ORDER == (
@@ -208,22 +209,22 @@ def test_all_differential_dimensions_and_independent_builds_remain_exact() -> No
 
 
 def test_process_reduction_preserves_variants_cli_calls_and_graph_builds() -> None:
-    phase58_variants = 8
-    phase59_variants = 10
+    phase58_variants = 9
+    phase59_variants = 12
     outer_probes = phase58_variants + phase59_variants
     phase58_cli_calls = phase58_variants * (len(phase58_probe.SCENARIO_ORDER) + 1) * 2
     phase59_cli_calls = phase59_variants * 2
     semantic_cli_calls = phase58_cli_calls + phase59_cli_calls
 
-    assert (phase58_variants, phase59_variants, outer_probes) == (8, 10, 18)
-    assert semantic_cli_calls == 116
-    assert phase59_variants * 2 == 20
+    assert (phase58_variants, phase59_variants, outer_probes) == (9, 12, 21)
+    assert semantic_cli_calls == 132
+    assert phase59_variants * 2 == 24
     assert (
-        len(acquisition_owner.family_requests("phase58", _two_interpreters()))
+        len(acquisition_owner.family_requests("phase58", _interpreters()))
         == phase58_variants
     )
     assert (
-        len(acquisition_owner.family_requests("phase59", _two_interpreters()))
+        len(acquisition_owner.family_requests("phase59", _interpreters()))
         == phase59_variants
     )
 

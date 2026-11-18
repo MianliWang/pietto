@@ -139,7 +139,7 @@ Use the layered policy in
 keep dirty-stage checks focused, run one complete review, then run the
 authoritative Python 3.13 validator exactly once. Run generated, golden, and
 package-smoke audits locally only when their owned risk surfaces change.
-Natural CI remains the final independent Python 3.12 and 3.13 coverage owner.
+Natural CI remains the final independent Python 3.12, 3.13 and 3.14 coverage owner.
 The current runtime shards (six per Python) and completion consumers are
 specified by [CI governance](architecture/ci-workload-governance-v1.md); older monolithic
 and no-gain records below retain their historical applicability.
@@ -255,7 +255,7 @@ which Gate 2's arrow-ready run qualifies on this host
 ([SQLite target validation](#sqlite-target-validation)). The accepted
 owner-controlled Teach account/scheduler is an execution trust premise;
 returned JSON and hashes bind bytes but do not independently prove execution.
-Natural CI still owns final Python 3.12 and 3.13 coverage.
+Natural CI still owns final Python 3.12, 3.13 and 3.14 coverage.
 
 ## Phase-end acquisition consolidation
 
@@ -873,7 +873,7 @@ partial 的 `scripts/ci_validation.py gates/run/collect/verify`。S3 当时采�
 `matrix/loadfile`、`standalone/load`、`remaining/loadfile`。仅 Phase65/66 六个独立 mode 节点
 使用 native load，从单独 job 的启动即参与逐 node 分发，不再按同文件绑定。共享矩阵成员与
 loadfile 不变，各分区保留 resource policy、ceiling4 和独立新鲜根，不复制 semantic observations。
-检查与 runtime jobs 并行，Python3.12/3.13 完成 jobs 必须同时核对依赖 success 和完整报告，
+检查与 runtime jobs 并行，Python3.12/3.13/3.14 完成 jobs 必须同时核对依赖 success 和完整报告，
 最后 target aggregate 才接收 complete compiler status。无新的池或持久结果 cache。
 
 `collect` 独立获取未分区 U；每个真实分区记录 full-collection identity、实际选中 IDs 及
@@ -902,13 +902,13 @@ S1/S2 的计数和 S2 环境事件保留在独立历史记录。S3 使用新的�
 冻结前还必须查全 script inventories 的直接 readers。具体时长分开记录 pytest、gate、job、critical
 path 与 summed runner time，不从一次 hosted run 推出版本因果或稳定 p95。
 
-CI 的 setup-python 对每个逻辑 family 使用确切 patch（3.12.14 / 3.13.15），因为 coverage/report
+CI 的 setup-python 对每个逻辑 family 使用确切 patch（3.12.14 / 3.13.15 / 3.14.10），因为 coverage/report
 上下文按完整 `python_version` 严格相等核对：PR #81 的 3.12 collection 记录 3.12.14，而同 family
 的聚合消费者被浮动 `"3.12"` 解析为 3.12.15，因此被拒绝。升级 patch 时同一 family 的全部
 producer/consumer/target 站点一起改（`tests/test_ci_workflow.py` 守护）；不放宽相等性，
 不回到 minor 浮动选择；`--python` 逻辑标签与 artifact 名称不变。
 Windows job 不产生 report，不属于这些 family；3.12 安全补丁没有 Windows 构建，Windows 3.12
-固定为最后一个有 Windows 构建的 3.12.10，Windows 3.13 与 Linux 同为 3.13.15。
+固定为最后一个有 Windows 构建的 3.12.10，Windows 3.13、3.14 与 Linux 同为 3.13.15、3.14.10。
 
 CI runtime 使用 `--durations=30 --durations-min=1`，另从实际 pytest reports 输出有界的慢节点、
 文件累计耗时和 worker 摘要；setup/call/teardown 与 child start/finish 分开，时序不取自 parent
@@ -931,7 +931,7 @@ health通过required报告与GitHub Job Summary进入正常CI；最终aggregate�
 和bounded main history，artifact字节按ID/size/digest/context验证。只有此job有actions:read，无写权限。
 health不足历史可为INSUFFICIENT_EVIDENCE；slow正确结果不失败，不自动调参、改配置、retry或省略测试。
 
-两compiler/package jobs各在独立环境跑真实PyArrow26.0.1 probe，completion要求完整readiness；core安装与CLI
+三compiler/package jobs各在独立环境跑真实PyArrow26.0.1 probe，completion要求完整readiness；core安装与CLI
 仍无Arrow。开发机统一外部launcher固定既有project解释器，隔离实验明确指定现有解释器，禁止环境重建。
 本次Gate2仅一次3.13完整equivalent：static、独立U、四分区串行、全部对账/health、auxiliary和精确输入匹配的
 两解释器小probe；不能另加monolithic/full3.12/cold-matrix。本期 [brief](https://github.com/MianliWang/pietto/blob/8e7c43f1852b2c26318b3217268a1f7416f44965/docs/phases/phase-67/brief.md)、
@@ -940,7 +940,7 @@ health不足历史可为INSUFFICIENT_EVIDENCE；slow正确结果不失败，不�
 ## Phase67 private result product checks
 
 [Slice02](https://github.com/MianliWang/pietto/blob/8e7c43f1852b2c26318b3217268a1f7416f44965/docs/phases/phase-67/slice-02.md) 在普通 Arrow-free tests 中检查 retained contract/producer identity；
-两 compiler/package jobs 另在 fresh isolated3.12/3.13 环境安装 locked core dependencies、candidate wheel，
+三 compiler/package jobs 另在 fresh isolated3.12/3.13/3.14 环境安装 locked core dependencies、candidate wheel，
 然后按原 hash lock 安装 PyArrow25.0.1（Slice02历史路径；当前S13见下）。原九组 SDK probe 保持；新增 installed product consumer 使用 `-I`，
 核验全部实际 Pietto import origins、当前 source input closure、14组测值/负例及 run context。
 completion 必须消费独立 product artifact；coverage、health 和 SDK report schema 不变。
@@ -953,7 +953,7 @@ HOLD 则给出 focused continuation 或 consolidated decision sheet。执行代�
 
 ## Slice03 private result contract 与轻量过程记录
 
-[Slice03](https://github.com/MianliWang/pietto/blob/8e7c43f1852b2c26318b3217268a1f7416f44965/docs/phases/phase-67/slice-03.md) 增加三private owners：stdlib-only pure boundary、checked exporter、独立runtime correspondence。原两compiler/package jobs及completion沿用现有required product report；不得把pure PASS、metadata或canonical bytes当作producer binding authority。比较两runtime的完整documents，排除外部evidence envelope；native inputs随新模块改变，必须消费fresh自然CI receipts。
+[Slice03](https://github.com/MianliWang/pietto/blob/8e7c43f1852b2c26318b3217268a1f7416f44965/docs/phases/phase-67/slice-03.md) 增加三private owners：stdlib-only pure boundary、checked exporter、独立runtime correspondence。三compiler/package jobs及completion沿用现有required product report；不得把pure PASS、metadata或canonical bytes当作producer binding authority。比较两runtime的完整documents，排除外部evidence envelope；native inputs随新模块改变，必须消费fresh自然CI receipts。
 
 每个后续Slice在原外部ledger旁记录轻量JSONL步骤及中文成本摘要：meaningful step的start/end/recovered/note，workflow/step/parent、起止/monotonic elapsed、timing basis、purpose、sanitized action、outcome/reason/retry、evidence refs、budget categories。长命令启动前写start，结束后写同step end；ledger仍唯一计数权威，raw logs留外部。报告区分Slice观察窗口、命令时间、HOLD/user wait、CI wall与runner sum，parent/child不重复相加；缺失时间明确unknown。终态附evidence-linked步骤/成本摘要和下一Slice至多三条改进建议，历史缺口不否定正确执行的product gates，不自动增加benchmark、豁免或scope。
 
@@ -997,7 +997,7 @@ HOLD 则给出 focused continuation 或 consolidated decision sheet。执行代�
 
 [Slice13](https://github.com/MianliWang/pietto/blob/8e7c43f1852b2c26318b3217268a1f7416f44965/docs/phases/phase-67/slice-13.md) 通过唯一 `pietto[arrow]` 选择精确
 `pyarrow==26.0.1`（已发布 `0.1.10` 为 `26.0.0`），默认 locked setup 与既有core `.venv` 保持Arrow-free。
-两compiler/package jobs由 `scripts/package_smoke.py --dist-dir ... --extra-env ...`
+三compiler/package jobs由 `scripts/package_smoke.py --dist-dir ... --extra-env ...`
 各构建一个wheel/sdist，先在全新core环境验证无PyArrow、lazy imports、真实缺依赖
 拒绝及原CLI/SQL，再在另一个全新prefix以候选wheel的 `[arrow,execute-duckdb]` 安装
 （D79.07；裸 `--extra-env PATH` 即该arrow-ready单元，其installed check另跑七条真实
@@ -1009,7 +1009,7 @@ HOLD 则给出 focused continuation 或 consolidated decision sheet。执行代�
 requirements仅预置并校验tested dependencies，随后wheel extra完整解析，不使用 `--no-deps`
 绕过selector。独立SDK9、product102/100及原22份neutral全文仍走既有required reports。
 
-已发布 `0.1.10` 的实测矩阵只覆盖Linux x86-64、CPython3.12/3.13、PyArrow26.0.0；本checkout的PyArrow26.0.1由两compiler/package jobs在CPython3.12/3.13上检查；不是环境marker或其他平台
+已发布 `0.1.10` 的实测矩阵只覆盖Linux x86-64、CPython3.12/3.13、PyArrow26.0.0；本checkout的PyArrow26.0.1由三compiler/package jobs在CPython3.12/3.13/3.14上检查；不是环境marker或其他平台
 支持承诺。安装日志记录exact wheel SHA、distribution metadata与resolved site-packages
 origins；raw/native闭合分别证明CI产物与既有native设施；除arrow-ready单元那几条进程内
 DuckDB查询外，不宣称数据库执行安装测试。

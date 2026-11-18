@@ -52,17 +52,16 @@ PROBES = {
     "phase65": phase65_probe,
     "phase66": phase66_probe,
 }
-TWO_INTERPRETERS = {(3, 13): "python3.13", (3, 12): "python3.12"}
+INTERPRETERS = {(3, 14): "python3.14", (3, 13): "python3.13", (3, 12): "python3.12"}
 HISTORICAL_FAMILIES = ("phase58", "phase59", "phase60", "phase61", "phase62", "phase63")
 PREVIOUS_FAMILIES = (*HISTORICAL_FAMILIES, "phase64")
 PHASE65_FAMILIES = (*PREVIOUS_FAMILIES, "phase65")
 CURRENT_FAMILIES = (*PHASE65_FAMILIES, "phase66")
 
 
-def expected_request_manifest():
+def expected_request_manifest(versions=tuple(INTERPRETERS)):
     """Independent keys, environments and ordering; no live registry reads."""
     current = tuple(sys.version_info[:2])
-    versions = ((3, 13), (3, 12))
     seeds = ("0", "1", "7", "4294967295")
     rows = []
     for family in CURRENT_FAMILIES:
@@ -96,7 +95,11 @@ def expected_request_manifest():
                 )
             )
             if family != "phase58":
-                for version, seed in (((3, 12), "1"), ((3, 13), "4294967295")):
+                for version, seed in (
+                    ((3, 12), "1"),
+                    ((3, 13), "4294967295"),
+                    ((3, 14), "4294967295"),
+                ):
                     key = (
                         f"combined:python{version[0]}.{version[1]}:seed{seed}:relocated"
                     )
@@ -183,7 +186,7 @@ def _normalized(heading: str) -> str:
 
 
 def _plan() -> dict[acquisition.Cell, tuple[acquisition.Request, ...]]:
-    return acquisition.cell_plan(TWO_INTERPRETERS)
+    return acquisition.cell_plan(INTERPRETERS)
 
 
 def _run_batch(

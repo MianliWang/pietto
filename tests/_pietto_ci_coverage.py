@@ -2,38 +2,9 @@ from __future__ import annotations
 
 from copy import deepcopy
 import importlib.util
-import re
 from typing import Any, cast
 
 from pathlib import Path
-
-from _pietto_ci_workflow import job as _job
-
-REPO_ROOT = Path(__file__).resolve().parents[1]
-WORKFLOW_PATH = REPO_ROOT / ".github/workflows/ci.yml"
-PYTHON_VERSION_PATH = REPO_ROOT / ".python-version"
-EXPECTED_JOBS = (
-    "checks_twelve",
-    "runtime_twelve",
-    "python_twelve",
-    "checks_thirteen",
-    "runtime_thirteen",
-    "python_thirteen",
-    "target_conformance",
-    "target_conformance_aggregate",
-)
-
-
-def _setup_pins(workflow: str) -> dict[str, list[str]]:
-    pins = {
-        job: re.findall(
-            r'(?m)^          python-version: "([^"]*)"$', _job(workflow, job)
-        )
-        for job in EXPECTED_JOBS
-    }
-    assert workflow.count("python-version:") == sum(map(len, pins.values()))
-    return pins
-
 
 ROOT = Path(__file__).resolve().parents[1]
 SPEC = importlib.util.spec_from_file_location(

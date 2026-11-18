@@ -555,16 +555,19 @@ def _natural_ci_job_names() -> tuple[str, ...]:
             {
                 "Compiler / Package 3.12",
                 "Compiler / Package 3.13",
+                "Compiler / Package 3.14",
                 "Python 3.12",
                 "Python 3.13",
+                "Python 3.14",
                 "Windows 3.12",
                 "Windows 3.13",
+                "Windows 3.14",
                 "Target postgres",
                 "Target mysql",
                 "Target conformance aggregate",
                 *{
                     f"Runtime {python} / {partition}"
-                    for python in ("3.12", "3.13")
+                    for python in ("3.12", "3.13", "3.14")
                     for partition in ci_validation.PARTITIONS
                 },
             }

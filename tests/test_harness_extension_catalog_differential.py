@@ -486,6 +486,10 @@ def test_python_312_313_witnesses_are_byte_identical(
             "python3.13:0",
             "combined:python3.13:seed4294967295:relocated-two",
         ),
+        (
+            "python3.14:0",
+            "combined:python3.14:seed4294967295:relocated-two",
+        ),
     ):
         assert (combined_key in witness_matrix) == (direct_key in witness_matrix)
         if combined_key in witness_matrix:
@@ -510,7 +514,7 @@ def test_missing_opposite_interpreter_keeps_current_proof(
     combined_key = (
         "combined:python3.12:seed1:relocated-one"
         if current == (3, 12)
-        else "combined:python3.13:seed4294967295:relocated-two"
+        else f"combined:python{current[0]}.{current[1]}:seed4294967295:relocated-two"
     )
     assert set(observed) == {
         "current:default",

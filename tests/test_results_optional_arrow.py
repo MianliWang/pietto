@@ -124,7 +124,7 @@ def test_project_and_lock_select_exactly_one_optional_arrow_dependency():
         REPO_ROOT / "ci/phase67-arrow-compatibility-requirements.txt"
     ).read_text()
     assert "pyarrow==26.0.1" in verified
-    for tag in ("cp312-cp312", "cp313-cp313"):
+    for tag in ("cp312-cp312", "cp313-cp313", "cp314-cp314"):
         (tested,) = [
             w for w in arrow["wheels"] if tag + "-manylinux_2_28_x86_64.whl" in w["url"]
         ]

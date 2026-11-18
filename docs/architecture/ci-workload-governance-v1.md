@@ -41,19 +41,22 @@ placement以`shards`列出目标；列出多个shard时，可选的`whole_files`
 不在列表中的文件仍可分在多个job，每个job内仍按loadfile；有acquisition group的需求只能有一个shard，
 旧单值`shard`字段拒绝。改`whole_files`即改policy身份，health把前后样本作为policy差异呈现。
 
-托管CI每job资源选择≤4workers，无嵌套池。checks/runtime/targets/windows独立启动；共21realized jobs（每个Python六个runtime分片与一个Windows job）；保留两个Python
+托管CI每job资源选择≤4workers，无嵌套池。checks/runtime/targets/windows独立启动；共30realized jobs（CPython 3.12、3.13、3.14各一个checks job、
+六个runtime分片、一个completion job与一个Windows job，加两个target job与target aggregate；PL.50 Q2 A）；保留三个Python
 completion contexts与strict target aggregate。共享lock/Ruff、双Pyright/generated/golden/installed和pins不变；
 两个Pyright gate各以`--threads 4`运行，仍是两个独立权威。
-小Arrow实验是两compiler/package jobs中的required隔离step，core全量测试不靠缺依赖skip。
+小Arrow实验是三compiler/package jobs中的required隔离step，core全量测试不靠缺依赖skip。
 
 | job | runner | 范围 | coverage/health |
 | --- | --- | --- | --- |
-| Windows 3.12 / 3.13 | windows-latest；确切setup-python补丁pin：3.13与Linux同为3.13.15，3.12安全补丁无Windows构建，固定为最后一个有Windows构建的3.12.10 | parser、semantic、ir、plan、sql、project、cli、results八个area的`tests/test_<area>_*.py`，加SQLite文件路由的`tests/test_execution_api_sqlite_file.py`（原生格在此断言路由自身的拒绝后跳过，PL.59），`-n 4 --dist=loadfile` | 不进exact v2 coverage与partition health；health成本把它们记为必需job与各自独立的路径 |
+| Windows 3.12 / 3.13 / 3.14 | windows-latest；确切setup-python补丁pin：3.13、3.14与Linux同为3.13.15、3.14.10，3.12安全补丁无Windows构建，固定为最后一个有Windows构建的3.12.10 | parser、semantic、ir、plan、sql、project、cli、results八个area的`tests/test_<area>_*.py`，加SQLite文件路由的`tests/test_execution_api_sqlite_file.py`（原生格在此断言路由自身的拒绝后跳过，PL.59），`-n 4 --dist=loadfile` | 不进exact v2 coverage与partition health；health成本把它们记为必需job与各自独立的路径 |
 
 Windows job不needs其他job，也不被needs；失败即整个run失败。POSIX专属测试以自身的skipif/importorskip跳过，
 不另设选择清单；job、execution（上述SQLite文件路由测试除外）、harness、ci、release、repo与其余文件只在Linux运行。`.gitattributes`
 的`* text=auto eol=lf`让Windows checkout保持与Linux相同的LF字节。此前的run没有这两个job，成本不完整，
 history在有三次含Windows job的run之前保持INSUFFICIENT_EVIDENCE。
+加入3.14同理：没有3.14九个job的run不再通过health校验，history在有三次含3.14的run之前保持
+INSUFFICIENT_EVIDENCE。
 集成主机的权威validator至多20workers（`PYTEST_MAX_RESOURCE_WORKERS`；显式worker数绕过该上限与内存估算，须经批准，
 现行常设为显式20（owner 2026-11-10要求试用20、至多24，lead实测后采用，D77.17），见[开发文档](../development.md#validation-tiers)）。改动上述任一上限都需单独授权。
 

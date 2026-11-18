@@ -215,7 +215,7 @@ def verify_report(
             type(v) is not list
             or len(v) != 2
             or any(type(n) is not int for n in v)
-            or v not in ([3, 12], [3, 13])
+            or f"{v[0]}.{v[1]}" not in workloads.PYTHONS
             for v in domain
         )
         or len({tuple(v) for v in domain}) != len(domain)
@@ -734,12 +734,12 @@ def complete_health(args, context):
             + json.dumps(facts, ensure_ascii=True)
         )
     expected_names = {
-        health_name({**context, "python": py}, "summary") for py in ("3.12", "3.13")
+        health_name({**context, "python": py}, "summary") for py in workloads.PYTHONS
     }
     if {p.name for p in args.health_dir.iterdir()} != expected_names:
         raise ValueError("missing or foreign runtime summary files")
     runtimes = {}
-    for py in ("3.12", "3.13"):
+    for py in workloads.PYTHONS:
         value = workloads.read_json(
             args.health_dir / health_name({**context, "python": py}, "summary")
         )
@@ -840,7 +840,7 @@ def main(argv: list[str] | None = None) -> int:
             "health",
         ),
     )
-    parser.add_argument("--python", choices=("3.12", "3.13"), required=True)
+    parser.add_argument("--python", choices=workloads.PYTHONS, required=True)
     parser.add_argument("--common", action="store_true")
     parser.add_argument("--report", type=Path)
     parser.add_argument("--health", type=Path)

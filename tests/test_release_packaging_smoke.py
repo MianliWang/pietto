@@ -322,6 +322,7 @@ def test_project_declares_the_reviewed_classifiers_urls_and_keywords() -> None:
         "Programming Language :: Python :: 3 :: Only",
         "Programming Language :: Python :: 3.12",
         "Programming Language :: Python :: 3.13",
+        "Programming Language :: Python :: 3.14",
         "Topic :: Database",
         "Topic :: Software Development :: Compilers",
     )

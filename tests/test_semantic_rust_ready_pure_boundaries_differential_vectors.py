@@ -55,7 +55,7 @@ _SHAPE_PREFIX = (
     'source rows: Row = postgres.table("rows")\n'
 )
 
-_SUPPORTED_INTERPRETERS = ((3, 12), (3, 13))
+_SUPPORTED_INTERPRETERS = ((3, 12), (3, 13), (3, 14))
 
 
 def _configured_project(
