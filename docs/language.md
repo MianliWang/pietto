@@ -4690,14 +4690,14 @@ stay as above. An alias of an alias, an unread alias of a relation that
 FROM does not read (a second import name of FROM's upstream included), a
 window that is read, a third level, an upstream declared as a relation
 `let` block of the query, an upstream with a JOIN, a clause, a header
-parameter or a bind-safe `?`, a plain upstream with a `let` or an item
-that computes, an aggregating upstream with no key, no `sum` or a `sum`
-that the query does not read (a mention in an unread window is no read),
-any of these ways beside S02's own `SMALLINT` reads (a `SMALLINT` GROUP BY
-key, or a `count` or `min` of a `SMALLINT` field, at either level), which
-keep S02's own cell as the G1 paragraph states, and everything the
-paragraphs above exclude keep the blockers they have without G4, object
-for object. Each `sum`, at either
+parameter or a bind-safe `?` (but for G5's below), a plain upstream with
+a `let` or an item that computes, an aggregating upstream with no key, no
+`sum` or a `sum` that the query does not read (a mention in an unread
+window is no read), any of these ways beside S02's own `SMALLINT` reads (a
+`SMALLINT` GROUP BY key, or a `count` or `min` of a `SMALLINT` field, at
+either level), which keep S02's own cell as the G1 paragraph states, and
+everything the paragraphs above exclude keep the blockers they have
+without G4, object for object. Each `sum`, at either
 level, is the cell's guarded `SUM`; everything else is the MySQL SQL of
 the same statement with each relation alias and unread window dropped,
 each read unqualified, each import declared in place and each `sum`
@@ -4706,6 +4706,43 @@ run yet, so what follows is expected from that SQL, not observed: each
 `sum` of an aggregating upstream is a column of its aggregation stage that
 the query reads under no filter, so an out-of-range one fails the whole
 statement.
+
+Since `0.2.2` (MC G5), a statement in that cell may also hold placeholders.
+The selected query may declare header parameters of type `Bool`, `Int`,
+`Float` or `Text`, nullable or not (`query result(lo: Int, label: Text |
+None):`), read or not. A parameter is read only in the query's own WHERE,
+over its source or a plain upstream, where every operation over the read
+up to the WHERE's predicate has a `Bool` result (such as a comparison,
+`is None`, `not`, `and` or `or`; a `Bool` read may also stand alone), so
+that no check of the statement waits for a bound value; or as the right
+side of a HAVING line that reads a `sum` and is its block's only line,
+the parameter a non-null `Int` that the line compares by `>` or `>=`
+(`x > lo`). Under `bind-safe` a WHERE literal of the query or of a plain
+upstream is a placeholder bound with its value (a negative literal a
+minus over its magnitude's) where the MySQL SQL binds one; a literal it
+keeps inline, such as a `coalesce` default, a `contains` needle, a HAVING
+literal or a LIMIT, stays inline
+(`where coalesce(a, 0) > 3` binds the 3 alone). A parameter of another type
+(`Decimal(p, s)`, `Date`, `Timestamp`, `UUID`, which keep their
+PIE-B1003 alone), a `Float` parameter that is read, a read under a minus
+or `Int` arithmetic in the WHERE (`id > -lo`, `id > lo + 1`, which leave a
+binding obligation), a parameter or a placeholder beside a HAVING line
+that reads no `sum`, a nullable parameter on a HAVING line, a bind-safe
+literal in an aggregating upstream's WHERE or in a conditional `sum`, a
+header parameter, read or not, or a placeholder beside S02's own
+`SMALLINT` reads (a `SMALLINT` GROUP BY key, or a `count` or `min` of a
+`SMALLINT` field), which keep S02's own cell as the G1 paragraph states,
+and everything the paragraphs above exclude keep the blockers they have
+without G5, object for object. Each `sum` is the cell's guarded `SUM`;
+everything else, every placeholder, its cast, owner, physical type and
+server index and every fixed value included, is the MySQL SQL of the same
+statement under the same header and policy with each `sum` written `max`,
+and a parameter that nothing reads puts nothing in the SQL. A compiled
+template re-derives the statement for each binding and replays the same
+bytes. The G5 two-database qualification has not run yet, so what follows
+is expected from that SQL, not observed: G3's evaluation rules above hold
+with each bound value in place of the literal it stands for, under
+prepared execution as under the text protocol.
 
 Since `0.1.12` (Phase77 S03), MySQL project SQL also emits each `sum` of an
 `Int` of a statement that is, names aside, one of nine forms its
@@ -4933,7 +4970,7 @@ VERIFIED, without its sum blockers. `per_order`, which holds no sum,
 reports only the premise's blocker.
 
 Any other MySQL project `sum` of an `Int`, outside these forms and S02's
-cell as G1 to G4 widen it, is BLOCKED with PIE-B1004
+cell as G1 to G5 widen it, is BLOCKED with PIE-B1004
 `sum_int_aggregate_range_proof_missing`.
 This refusal is by design, not a defect: MySQL sums a `BIGINT` as a
 `DECIMAL`, which `CAST(... AS SIGNED)` would clamp, so a MySQL project emits

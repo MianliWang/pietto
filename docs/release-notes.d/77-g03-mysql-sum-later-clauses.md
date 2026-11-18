@@ -51,10 +51,10 @@
   beside an `avg`, any of these clauses with no GROUP BY key or in a query
   grouped by S02's own `SMALLINT` key or holding a `count` or `min` of a
   `SMALLINT` field, a relation alias other than the G4 note below opens,
-  and a header parameter and a bind-safe `?` as before. R2
-  `save_recoverable` and `recover` refuse a MySQL query of these forms
-  with PIE-R1004 (`detail` `PUBLIC_R2_UNQUALIFIED_FORM`), as for the other
-  forms that MySQL opened after `0.1.11`.
+  and a header parameter and a bind-safe `?` other than the G5 note below
+  opens. R2 `save_recoverable` and `recover` refuse a MySQL query of these
+  forms with PIE-R1004 (`detail` `PUBLIC_R2_UNQUALIFIED_FORM`), as for the
+  other forms that MySQL opened after `0.1.11`.
 
 Changed diagnostics: a MySQL statement whose only blockers in `0.2.1` were
 PIE-B1004 `sum_int_aggregate_range_proof_missing` at sums of these forms is

@@ -59,10 +59,11 @@
   does not read (a second import name of FROM's upstream included), a
   window that is read, a third level, an upstream declared as a relation
   `let` block of the query, an upstream with a JOIN, HAVING, ORDER BY,
-  LIMIT, DISTINCT, a header parameter or a bind-safe `?`, a plain upstream
-  with a `let` or an item that computes, an aggregating upstream with no
-  key, no `sum` or a `sum` the query does not read (a mention in an unread
-  window is no read), a WHERE or a G3 clause over one, a query with no
+  LIMIT, DISTINCT, a header parameter or a bind-safe `?` other than the G5
+  note below opens, a plain upstream with a `let` or an item that
+  computes, an aggregating upstream with no key, no `sum` or a `sum` the
+  query does not read (a mention in an unread window is no read), a WHERE
+  or a G3 clause over one, a query with no
   `sum` over one, an upstream `sum` or `avg` as a key or as the argument of
   `max`, `avg` or `count_distinct`, an upstream `min` or `max` of a
   `SMALLINT` or `INT` field in either place, a `min` of an upstream `min`
@@ -76,9 +77,6 @@
   `save_recoverable` and `recover` refuse a MySQL query of these forms with
   PIE-R1004 (`detail` `PUBLIC_R2_UNQUALIFIED_FORM`), as for the other forms
   that MySQL opened after `0.1.11`.
-- Under J12 (3), the MySQL project `sum` of an `Int` outside the forms
-  that `0.1.12`, the G1 to G3 notes and this note open stays beyond the
-  MySQL cadence, with the MySQL catch-up work package as its target.
 
 Changed diagnostics: a MySQL statement whose only blockers in `0.2.1` were
 PIE-B1004 `sum_int_aggregate_range_proof_missing` at sums of these forms is

@@ -218,6 +218,10 @@ _MYSQL_CLAUSE_AUTHORED = frozenset(
     {"satisfying_clause", "order_by_clause", "limit_clause", "distinct_clause"}
 )
 MYSQL_SUM_HAVING_KEY_KINDS = frozenset({"my_bigint", "my_int"})
+# MC G5 (lead ruling of 2026-11-21, R-witness): the comparisons by which a
+# HAVING line on a sum may read a header parameter, the only ones a G5 form
+# witnesses.
+MYSQL_SUM_HAVING_PARAMETER_COMPARISONS = frozenset({">", ">="})
 # MC G4, item 5: the MySQL carrier of an upstream's value that the query
 # reads, by function (a `min` or `max` keeps its field's, but one of a
 # SMALLINT or INT is the `my_signed_int` of its SIGNED cast, which is no
@@ -275,6 +279,7 @@ def mysql_checked_query(
     lets: bool = False,
     clauses: bool = False,
     organized: bool = False,
+    parameters: bool = False,
 ) -> bool:
     """A cell's query, from the plan and its authored `query` or `table`:
     its non-empty tables are among _MYSQL_CELL_PLAN_TABLES (and, with
@@ -296,8 +301,10 @@ def mysql_checked_query(
     query may read, in place of the source, one upstream definition
     (_mysql_levels) that reads the source so: a block of each of its own
     `let`s, one WHERE at most, one aggregation at most and its projection,
-    as written setting no _MYSQL_CLAUSE_AUTHORED field. No query is one
-    while emission derives as main (AS_MAIN)."""
+    as written setting no _MYSQL_CLAUSE_AUTHORED field. With ``parameters``
+    (MC G5) the plan may also hold header parameters and the query's own
+    definition may declare them, whose law is mysql_sum_placeholders'. No
+    query is one while emission derives as main (AS_MAIN)."""
 
     from pietto._project.module_catalog import authored_definitions
     from pietto._project.project_sql_plan import (
@@ -370,6 +377,7 @@ def mysql_checked_query(
                 for name in authored.__dataclass_fields__
                 if name not in _MYSQL_CELL_AUTHORED
                 and not (clauses and not upstream and name in _MYSQL_CLAUSE_AUTHORED)
+                and not (parameters and not upstream and name == "parameters")
                 and not (organized and name == "named_windows")
                 and not (
                     lets
@@ -392,6 +400,7 @@ def mysql_checked_query(
             and value
             and name not in _MYSQL_CELL_PLAN_TABLES
             and not (slots and name in _MYSQL_SLOT_PLAN_TABLES)
+            and not (parameters and name == "parameters")
             and not (lets and name == "let_values")
             and not (clauses and name in _MYSQL_CLAUSE_PLAN_TABLES)
             for name in plan.__dataclass_fields__
@@ -549,18 +558,28 @@ def mysql_sum_query(plan, stage, keys, columns) -> bool:
     argument of an aggregate of the query or the value of a `let` of it, the
     query reads upstream extremes and averages under _mysql_upstream_read,
     and the query has no WHERE and no HAVING, ORDER BY, LIMIT or DISTINCT.
-    The scans of the plan's aggregates and expressions run only for a query
-    with one or two aggregations."""
+    MC G5: the query may declare header parameters and hold bind-safe
+    slots, placed as mysql_sum_placeholders has them. The scans of the
+    plan's aggregates and expressions run only for a query with one or two
+    aggregations."""
 
     from pietto._project.project_sql_emission_aggregation import function_name
     from pietto.ast_nodes import LetBinding
 
     if not mysql_checked_query(
-        plan, aggregate=True, lets=True, clauses=True, organized=True
+        plan,
+        aggregate=True,
+        slots=True,
+        lets=True,
+        clauses=True,
+        organized=True,
+        parameters=True,
     ):
         return False
     levels = _mysql_levels(plan)
     assert levels is not None
+    if not mysql_sum_placeholders(plan, levels):
+        return False
     position = next(
         (
             index
@@ -722,11 +741,13 @@ def mysql_sum_smallint(plan, keys, columns, own) -> bool:
     GROUP BY key column is of `my_smallint` storage, or that holds a
     `count` or `min` of one field read of that storage (its realized column
     in ``columns``), stays in S02's own cell as main takes it: S02's own
-    law holds (``own``) of a query with no value `let`, no MC G3 clause and
-    none of MC G4's organization, an upstream included (mysql_checked_query
-    without MC G1's ``lets``, MC G3's ``clauses`` and MC G4's
-    ``organized``), whose every sum reads a nullable BIGINT source field
-    (mysql_checked_operands). Linear in the aggregation's values."""
+    law holds (``own``) of a query with no value `let`, no MC G3 clause,
+    none of MC G4's organization, an upstream included, and no MC G5 header
+    parameter or bind-safe slot (mysql_checked_query without MC G1's
+    ``lets``, MC G3's ``clauses``, MC G4's ``organized`` and MC G5's
+    ``parameters`` and ``slots``), whose every sum reads a nullable BIGINT
+    source field (mysql_checked_operands). Linear in the aggregation's
+    values."""
 
     from pietto._project.project_sql_emission_aggregation import function_name
 
@@ -766,6 +787,83 @@ def mysql_sum_smallint(plan, keys, columns, own) -> bool:
     )
 
 
+def mysql_sum_placeholders(plan, levels) -> bool:
+    """MC G5: the header parameters and bind-safe slots of an S02 query. Each
+    parameter is a Bool, Int, Float or Text, read or not. A read is of no
+    Float, in the selected query's WHERE, and every operation over it up to
+    the WHERE's predicate has a Bool result, so no value is computed from it
+    and no check waits for a bound value; or it is the right side of a HAVING
+    line (mysql_sum_clauses). Each bind-safe slot is a WHERE literal of the
+    selected query or of an upstream (``levels``) with no aggregation. Linear
+    in the plan."""
+
+    if not (plan.parameters or plan.literal_slots):
+        return True
+    parents = {_at(item.child): item.parent for item in plan.operands}
+    where = {
+        _at(item.predicate)
+        for item in plan.filters
+        if getattr(item.site, "role", None) is row.ProjectSQLExpressionRole.WHERE
+    }
+    selected = {_at(block.ref) for block in levels[-1][2]}
+    plain = (
+        {_at(block.ref) for block in levels[0][2]}
+        if len(levels) == 2
+        and not any(
+            block.kind is row.ProjectSQLStageKind.AGGREGATE for block in levels[0][2]
+        )
+        else set()
+    )
+
+    def placed(expression, blocks) -> bool:
+        site = getattr(expression, "site", None)
+        return (
+            type(site) is row.ProjectSQLExpressionSite
+            and site.role is row.ProjectSQLExpressionRole.WHERE
+            and _at(site.block) in blocks
+        )
+
+    def guarded(expression) -> bool:
+        """Every operation above ``expression`` has a Bool result, up to a
+        WHERE predicate."""
+        reference = expression.ref
+        for _ in range(len(plan.expressions)):
+            parent = parents.get(_at(reference))
+            if parent is None:
+                return _at(reference) in where
+            above = _planned(plan, parent)
+            if above is None or value_tag(above) != "Bool":
+                return False
+            reference = parent
+        return False
+
+    for expression in plan.expressions:
+        if type(expression) is row.ProjectSQLParameterRead and not (
+            expression.parameter.tag != "Float"
+            and (
+                getattr(expression.site, "role", None)
+                is row.ProjectSQLExpressionRole.SATISFYING
+                or placed(expression, selected)
+                and guarded(expression)
+            )
+        ):
+            return False
+    uses = {_at(use.slot.ref) for use in plan.bind_uses}
+    return (
+        all(
+            parameter.tag in ("Bool", "Int", "Float", "Text")
+            for parameter in plan.parameters
+        )
+        and uses == {_at(slot.ref) for slot in plan.literal_slots}
+        and all(
+            type(expression := _planned(plan, use.expression))
+            is row.ProjectSQLBoundLiteral
+            and placed(expression, selected | plain)
+            for use in plan.bind_uses
+        )
+    )
+
+
 def mysql_sum_clauses(plan, columns) -> bool:
     """MC G3: the HAVING, ORDER BY, LIMIT and DISTINCT of an S02 query, which
     need a GROUP BY key. Each HAVING line compares one output named alone
@@ -777,7 +875,10 @@ def mysql_sum_clauses(plan, columns) -> bool:
     ORDER BY whose first key is an aggregate. DISTINCT stands beside no
     `avg`. An output's value is found by following its ports' sources down
     to the aggregation, each step to a lower port (``columns`` realizes a
-    key's field)."""
+    key's field). MC G5: a HAVING line on a sum may compare it by `>` or
+    `>=` with a non-null Int header parameter instead
+    (MYSQL_SUM_HAVING_PARAMETER_COMPARISONS), and beside a header parameter
+    read or a bind-safe slot the one HAVING line reads a sum."""
 
     from pietto._project.project_sql_emission_aggregation import function_name
 
@@ -836,9 +937,16 @@ def mysql_sum_clauses(plan, columns) -> bool:
             and line.expression.operator in MYSQL_TYPED_COMPARISONS
             and type(left) is aggregation.ProjectSQLResultReference
             and type(left.expression) is NameExpr
-            and type(right) is row.ProjectSQLLiteral
-            and type(literal) is int
-            and literal >= 0
+            and (
+                type(right) is row.ProjectSQLLiteral
+                and type(literal) is int
+                and literal >= 0
+                # MC G5: a non-null Int header parameter, by `>` or `>=`.
+                or type(right) is row.ProjectSQLParameterRead
+                and right.parameter.tag == "Int"
+                and value_nullable(right.parameter) is False
+                and line.expression.operator in MYSQL_SUM_HAVING_PARAMETER_COMPARISONS
+            )
         ):
             return False
         read.append(value(left.port, MYSQL_SUM_HAVING_KEY_KINDS))
@@ -869,6 +977,18 @@ def mysql_sum_clauses(plan, columns) -> bool:
         and len(satisfying) <= 1
         and None not in read
         and (not sums or len(read) == 1)
+        # MC G5: beside a placeholder, HAVING's one line reads a sum.
+        and not (
+            read
+            and not sums
+            and (
+                plan.literal_slots
+                or any(
+                    type(item) is row.ProjectSQLParameterRead
+                    for item in plan.expressions
+                )
+            )
+        )
         and len(plan.orders) <= 1
         and None not in keys
         and len(plan.result_limits) <= 1
@@ -1292,7 +1412,8 @@ def mysql_guarded_product(family: str, operation) -> bool:
 # match, window, JOIN, result but an S02 terminal's (MC G3), set, VALUES,
 # table function, Unnest, a legacy scan, or a kind a later format adds)
 # closes its cells. A bind-safe slot and its native use close all but R08's
-# (mysql_compiled_cells).
+# and an S02 sum's, a header parameter and its reads all but an S02 sum's
+# (MC G5; mysql_compiled_cells).
 _MYSQL_CELL_RECORDS = frozenset(
     {
         "aggregate",
@@ -1388,8 +1509,9 @@ def mysql_compiled_cells(
     `count` or `min` that reads a field of `my_smallint` storage (followed
     through the chain's carries), at the query's aggregate or an
     upstream's, S02's own law holds, the aggregate stands over no `let` row
-    and no upstream, under no HAVING row or result, and its every sum reads
-    a nullable BIGINT field (mysql_sum_smallint).
+    and no upstream, under no HAVING row or result, beside no header
+    parameter or bind-safe slot, and its every sum reads a nullable BIGINT
+    field (mysql_sum_smallint).
     S15 cells need a terminal straight over the source, each of whose values
     is a read of a marked port whose field's physical storage is its tag's
     MYSQL_REMAINDER_CARRIERS one, or a `%` that no other counted record
@@ -1404,7 +1526,11 @@ def mysql_compiled_cells(
     of one read of a marked port whose field's physical storage is
     `my_double` and one Float literal record (or a `-` operation over one),
     in either order, or a `-` of such a read. A slot or native use record
-    closes every other cell."""
+    closes every other cell outside an aggregate, and a header parameter
+    record every cell outside one. MC G5: beside an aggregate, header
+    parameters, their reads and bind-safe slots keep placeholders_law, and a
+    HAVING line may compare a sum by `>` or `>=` with a non-null Int
+    parameter (clauses_law)."""
 
     empty: tuple[frozenset, frozenset, frozenset, frozenset, frozenset] = (
         frozenset(),
@@ -1485,12 +1611,20 @@ def mysql_compiled_cells(
     }
     inner = upper[1] if upper[1:2] and upper[1].address.kind == "aggregate" else None
     marked, named, slotted = set(), {}, set()
+    parameters, reads, held = {}, set(), {}
     for address, record in records.items():
         kind = address.kind
         if kind == "slot":
             slotted.add(record.get("literal"))
             continue
         if kind == "native_use":
+            continue
+        # MC G5: a header parameter and each read of one.
+        if kind == "parameter":
+            parameters[address] = record
+            continue
+        if kind == "parameter_read":
+            reads.add(address)
             continue
         if (
             kind not in _MYSQL_CELL_RECORDS
@@ -1505,6 +1639,8 @@ def mysql_compiled_cells(
                 pending.extend(item)
             elif type(item) is Address and item.kind == "operation":
                 named.setdefault(item, []).append(address)
+            elif type(item) is Address and item.kind in ("parameter_read", "literal"):
+                held.setdefault(item, []).append(address)
         if kind == "port":
             port_owner, port_source = record.get("owner"), record.get("source")
             if port_owner.kind == "source" or (
@@ -1783,13 +1919,28 @@ def mysql_compiled_cells(
             if not (
                 operation.get("operator") in _MYSQL_TYPED_OPERATORS
                 and len(pair) == 2
-                and pair[1].kind == "literal"
+                and pair[1].kind in ("literal", "parameter_read")
             ):
                 return False
             literal = records[pair[1]]
-            number = getattr(literal.get("value"), "value", None)
-            if not (
-                literal.get("tag") == "Int" and type(number) is int and number >= 0
+            if pair[1].kind == "parameter_read":
+                # MC G5: a non-null Int header parameter, by `>` or `>=`.
+                parameter = parameters.get(literal.get("parameter"))
+                if (
+                    parameter is None
+                    or (parameter.get("tag"), parameter.get("nullable"))
+                    != ("Int", False)
+                    or operation.get("operator")
+                    not in {
+                        ("comparison", comparison)
+                        for comparison in MYSQL_SUM_HAVING_PARAMETER_COMPARISONS
+                    }
+                ):
+                    return False
+            elif not (
+                literal.get("tag") == "Int"
+                and type(number := getattr(literal.get("value"), "value", None)) is int
+                and number >= 0
             ):
                 return False
             read.append(value(pair[0], MYSQL_SUM_HAVING_KEY_KINDS))
@@ -1806,6 +1957,15 @@ def mysql_compiled_cells(
                     records[item].get("function") != "sum"
                     for item in read
                     if item in values
+                )
+            )
+            # MC G5: beside a placeholder, HAVING's one line reads a sum.
+            and not (
+                (reads or slotted)
+                and read
+                and not any(
+                    item in values and records[item].get("function") == "sum"
+                    for item in read
                 )
             )
             and None not in keys
@@ -1828,9 +1988,63 @@ def mysql_compiled_cells(
             )
         )
 
+    def placeholders_law() -> bool:
+        """MC G5: each header parameter is a Bool, Int, Float or Text. A read
+        is of no Float and stands in the selected WHERE row's predicate, every
+        operation over it a Bool one up to that predicate, or in the HAVING
+        row's (clauses_law); each bind-safe slot's literal stands in that
+        WHERE row's predicate or a plain upstream's WHERE row's."""
+        if not (parameters or slotted):
+            return True
+
+        def tree(row, boolean) -> set:
+            """``row`` and the operations under its predicate, through Bool
+            ones alone when ``boolean``."""
+            if row is None:
+                return set()
+            found, pending = {row.address}, [row.get("predicate")]
+            while pending:
+                item = pending.pop()
+                if getattr(item, "kind", None) != "operation" or item in found:
+                    continue
+                if boolean and records[item].get("logical")[0] != "Bool":
+                    continue
+                found.add(item)
+                pending.extend(records[item].get("operands"))
+            return found
+
+        selected = records[where] if where is not None else None
+        plain = next(
+            (
+                unit
+                for unit in upper
+                if inner is None
+                and unit.address.kind == "row"
+                and unit.get("stage") == "where"
+            ),
+            None,
+        )
+        allowed = tree(selected, True) | tree(satisfying, False)
+        bound = tree(selected, False) | tree(plain, False)
+        tags = {address: record.get("tag") for address, record in parameters.items()}
+        return (
+            set(tags.values()) <= {"Bool", "Int", "Float", "Text"}
+            and all(
+                tags.get(records[item].get("parameter")) not in (None, "Float")
+                and held.get(item)
+                and set(held[item]) <= allowed
+                for item in reads
+            )
+            and all(held.get(item) and set(held[item]) <= bound for item in slotted)
+        )
+
     if chain[1:2] and chain[1].address.kind == "aggregate":
         aggregate = chain[1]
-        if slotted or lets and not _mysql_compiled_lets(records, chain[2:], aggregate):
+        if (
+            lets
+            and not _mysql_compiled_lets(records, chain[2:], aggregate)
+            or not placeholders_law()
+        ):
             return empty
         below = aggregate if satisfying is None else satisfying
         if (
@@ -1847,8 +2061,8 @@ def mysql_compiled_cells(
         # mysql_sum_smallint, from the records: beside a SMALLINT key, or a
         # count or min of one SMALLINT field read, of the query's aggregate
         # or an upstream's, S02's own law holds, no upstream, `let` row,
-        # HAVING row or result stands and every sum reads one field of
-        # nullable BIGINT storage.
+        # HAVING row, result, header parameter or bind-safe slot stands and
+        # every sum reads one field of nullable BIGINT storage.
         items = [
             records[value]
             for unit in (aggregate, inner)
@@ -1872,6 +2086,8 @@ def mysql_compiled_cells(
             upper
             or lets
             or clauses
+            or parameters
+            or slotted
             or not own_law(aggregate, field)
             or not all(
                 item.get("function") != "sum"
@@ -1927,6 +2143,8 @@ def mysql_compiled_cells(
         """R08: an Int literal token's record."""
         return address.kind == "literal" and records[address].get("tag") == "Int"
 
+    if parameters:
+        return empty
     divisions, operands = set(), set()
     for value in terminal.get("values") if where is None else ():
         operation = records[value] if value.kind == "operation" else None

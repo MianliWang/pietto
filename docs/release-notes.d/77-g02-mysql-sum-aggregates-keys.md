@@ -44,7 +44,8 @@
   name or of a field of another storage, a GROUP BY key of another storage
   (a `Bool` included), HAVING, ORDER BY, LIMIT and DISTINCT other than
   the G3 note below opens, a relation alias other than the G4 note below
-  opens, and a header parameter and a bind-safe `?` as before. R2
+  opens, and a header parameter and a bind-safe `?` other than the G5
+  note below opens. R2
   `save_recoverable` and
   `recover` refuse a MySQL query of these forms with PIE-R1004 (`detail`
   `PUBLIC_R2_UNQUALIFIED_FORM`), as for the other forms that MySQL opened

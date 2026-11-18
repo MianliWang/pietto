@@ -2782,6 +2782,70 @@ def test_the_mysql_g4_upstream_law_refuses_each_edited_input(tmp_path, monkeypat
     assert rows.mysql_sum_query(upstream[0], upstream[1], (), upstream[3]) is False
 
 
+def test_the_mysql_g5_placeholder_law_refuses_each_edited_input(tmp_path, monkeypatch):
+    """MC G5: emission's placeholder law takes P1's Int parameter read in its
+    WHERE and S2's bind-safe literal in a plain upstream's WHERE, and
+    refuses once one input changes: the read of a Float parameter, a Date
+    parameter declared, the read in a `let` or under an Int value, a slot
+    that no use binds, or one in an upstream that aggregates."""
+    from pietto._project.project_sql_plan_expressions import (
+        ProjectSQLParameterRead,
+        ProjectSQLStageKind,
+    )
+
+    calls = []
+    law = rows.mysql_sum_placeholders
+    monkeypatch.setattr(
+        rows,
+        "mysql_sum_placeholders",
+        lambda *args: calls.append(args) or law(*args),
+    )
+    for name in ("P1", "S2"):
+        _, outcome = probe.grouping_world(
+            tmp_path / name,
+            "mysql",
+            probe.G5_FORMS[name],
+            probe.G5_FORM_POLICY[name],
+        )
+        assert outcome.status == "VERIFIED", outcome.blockers
+    monkeypatch.undo()
+    (plan, levels), (upstream, organized) = calls[0], calls[-1]
+    assert law(plan, levels) is True and law(upstream, organized) is True
+    (read,) = (e for e in plan.expressions if type(e) is ProjectSQLParameterRead)
+
+    def reading(edited):
+        return _plan_with(
+            plan,
+            expressions=tuple(
+                edited if item is read else item for item in plan.expressions
+            ),
+        )
+
+    floated = replace(read.parameter, tag="Float")
+    assert law(reading(replace(read, parameter=floated)), levels) is False
+    dated = (replace(plan.parameters[0], tag="Date"),)
+    assert law(_plan_with(plan, parameters=dated), levels) is False
+    in_let = replace(read.site, role=ProjectSQLExpressionRole.LET)
+    assert law(reading(replace(read, site=in_let)), levels) is False
+    field = next(
+        item
+        for item in plan.expressions
+        if rows.value_tag(item) == "Int" and item is not read
+    )
+    under = tuple(
+        replace(item, parent=field.ref) if item.child is read.ref else item
+        for item in plan.operands
+    )
+    assert law(_plan_with(plan, operands=under), levels) is False
+    assert law(_plan_with(upstream, bind_uses=()), organized) is False
+    ref, owner, blocks = organized[0]
+    aggregating = (
+        (ref, owner, (*blocks, SimpleNamespace(kind=ProjectSQLStageKind.AGGREGATE))),
+        *organized[1:],
+    )
+    assert law(upstream, aggregating) is False
+
+
 # --------------------------------------------------------------------------
 # Phase77 S15: MySQL Int % and Float % in their cell (template T15-1)
 # --------------------------------------------------------------------------

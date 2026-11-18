@@ -1508,7 +1508,8 @@ _FIRST = (
 # that failed at its first page, S06's `same_value` in a JOIN `on` (of an
 # Int and of a Float), S02 beside S01, R08's `Int /` over a literal
 # divisor, MC G1's INT and `let` carriers, MC G2's aggregates and keys,
-# MC G3's later clauses, and MC G4's relation alias and aggregating upstream.
+# MC G3's later clauses, MC G4's relation alias and aggregating upstream,
+# and MC G5's header parameter.
 PHASE77_MYSQL_FORMS = {
     "S05": ("agg", _STATISTIC),
     "S06_join": (
@@ -1594,6 +1595,11 @@ PHASE77_MYSQL_FORMS = {
         "query base:\n    from rows\n    group by note\n    select:\n"
         "        note\n        s = sum(n)\nquery result:\n    from base\n"
         "    select:\n        x = sum(s)\n",
+    ),
+    "G5_parameter": (
+        "grouping",
+        "query result(lo: Int):\n    from rows\n    where id > lo\n    group by k\n"
+        "    select:\n        k\n        x = sum(n)\n",
     ),
     "S15": (
         "remainder",
@@ -1685,6 +1691,12 @@ MYSQL_0111_FORMS = {
         "query base:\n    from rows\n    select:\n        k\n        a\n"
         "query result:\n    let b = base\n    from b\n    group by k\n"
         "    select:\n        k\n        hi = max(b.a)\n",
+        _WORKSPACE,
+    ),
+    "G5": (
+        "grouping",
+        "query result(lo: Int):\n    from rows\n    where id > lo\n    group by k\n"
+        "    select:\n        k\n        hi = max(n)\n",
         _WORKSPACE,
     ),
     "S15": (
