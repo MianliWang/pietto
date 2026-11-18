@@ -313,6 +313,8 @@ def test_unread_let_keeps_independent_aggregate_type_errors(grouped: bool) -> No
         )
     )
     line = 8 if grouped else 6
+    # Inside an expression argument `k` is read as its value (PL.48 (1)), as
+    # `x + 1` written in place is: before, each read was PIE-S2102 too.
     assert [
         (d.code, d.message, d.location.line, d.location.column)
         for d in result.diagnostics
@@ -325,7 +327,6 @@ def test_unread_let_keeps_independent_aggregate_type_errors(grouped: bool) -> No
             line,
             13,
         ),
-        ("PIE-S2102", "Unknown field: k", line, 24),
         (
             "PIE-S2314",
             "Aggregate function max expects Int, Float, Decimal, Date, or "
@@ -333,10 +334,14 @@ def test_unread_let_keeps_independent_aggregate_type_errors(grouped: bool) -> No
             line + 1,
             13,
         ),
-        ("PIE-S2102", "Unknown field: k", line + 1, 17),
-        ("PIE-S2102", "Unknown field: k", line + 1, 22),
         ("PIE-S2102", "Unknown field: k", line + 2, 17),
-        ("PIE-S2102", "Unknown field: k", line + 3, 21),
+        (
+            "PIE-S2315",
+            "Aggregate function max requires a direct field argument; "
+            "expression arguments are not supported yet",
+            line + 3,
+            13,
+        ),
     ]
 
 
@@ -356,10 +361,6 @@ def test_unread_let_keeps_independent_aggregate_type_errors(grouped: bool) -> No
         (
             "    let y = x\n    select:\n        a = max(y)\n",
             ("PIE-S2102", "Unknown field: y", 6, 17),
-        ),
-        (
-            "    let y = t\n    select:\n        a = count_distinct(lower(y))\n",
-            ("PIE-S2102", "Unknown field: y", 6, 34),
         ),
         (
             "    select:\n        kind\n        m = max(x)\n",
@@ -508,6 +509,75 @@ def test_aggregate_over_a_source_without_a_shape_checks_its_argument_form(
         for diagnostic in result.diagnostics
         if diagnostic.severity is Severity.ERROR
     ] == [expected]
+
+
+@pytest.mark.parametrize(
+    ("lets", "read", "written"),
+    [
+        ("let d = amount * 2", "sum(d + 1)", "sum(amount * 2 + 1)"),
+        (
+            "let d = amount\n    let e = d - tax",
+            "avg(e * 2)",
+            "avg((amount - tax) * 2)",
+        ),
+        ("let d = amount", "count(d + tax)", "count(amount + tax)"),
+        (
+            "let l = lower(status)",
+            "count_distinct(trim(l))",
+            "count_distinct(trim(lower(status)))",
+        ),
+        (
+            "let l = status",
+            'string_agg(l if active else "-", ",", order by amount)',
+            'string_agg(status if active else "-", ",", order by amount)',
+        ),
+        ("let f = score", "sum(f * 2.0)", "sum(score * 2.0)"),
+        # The other aggregates, and refused forms, report what the field does.
+        ("let d = amount % 2", "sum(d + 1)", "sum(amount % 2 + 1)"),
+        ("let d = amount", "sum(d if active else 0)", "sum(amount if active else 0)"),
+        ("let d = price", "avg(d + 1)", "avg(price + 1)"),
+        ("let l = status", "count_distinct(len(l))", "count_distinct(len(status))"),
+        (
+            "let d = amount",
+            "first(d + 1, order by tax)",
+            "first(amount + 1, order by tax)",
+        ),
+        ("let d = amount", "min(d + 1)", "min(amount + 1)"),
+        ("let d = score", "median(d * 2.0)", "median(score * 2.0)"),
+        ("let d = amount", "max(abs(d))", "max(abs(amount))"),
+        ("let d = amount", "sum(d + nosuch)", "sum(amount + nosuch)"),
+        # A `let` name passed to a def is null where its value is.
+        ("let n = None", "sum(nn(n) + 1)", "sum(nn(None) + 1)"),
+    ],
+)
+@pytest.mark.parametrize("shaped", [True, False])
+def test_a_let_name_inside_an_aggregate_argument_is_read_as_its_value(
+    lets: str, read: str, written: str, shaped: bool
+) -> None:
+    """PL.48 (1): an aggregate reads a `let:` name inside its expression
+    argument as its value, so `sum`, `avg`, `count`, `count_distinct` and
+    `string_agg` accept what they accept with the value written in place and
+    every aggregate reports what it reports for that value, also over a row
+    of unknown type, and a name passed to a def is null where its value is
+    (before: PIE-S2102 `Unknown field`, or over a known row PIE-S2315 for
+    `min`, `max` and the Float statistics whatever the value)."""
+
+    def errors(body: str) -> list[tuple[str, str]]:
+        source = "def nn(x: Int) -> Int: return x\n" + (
+            SOURCE_PREFIX + "query q:\n    from orders\n"
+            if shaped
+            else _SHAPELESS_PREFIX
+        )
+        result = analyze(
+            _parse(source + f"    {lets}\n    select:\n        v = {body}\n")
+        )
+        return [
+            (diagnostic.code, diagnostic.message)
+            for diagnostic in result.diagnostics
+            if diagnostic.severity is Severity.ERROR
+        ]
+
+    assert errors(read) == errors(written)
 
 
 # A value of only `None` has no type and no error of its own, so an extra one

@@ -361,11 +361,11 @@ field; and
 relation with GROUP BY, as `k` or `x = k` after `let k = qty` and
 `group by k`. Item (3) is also a semantic extension: single files accept
 `min` and `max` of a numeric `let`, which projects already accept. Each
-extension takes a slice of its own with a
-two-database verification, and none lands before the `0.2.2` release
-commit (PL.57); until each lands,
-`0.2.1`'s behavior and the [diagnostics reference](spec/diagnostics.md)
-stand.
+extension takes a slice of its own with a two-database verification, and
+none reaches `main` before the `0.2.2` release commit (PL.57). Item (1)
+landed with [P09](phases/phase-81/route.md#p09-record), and the
+[diagnostics reference](spec/diagnostics.md) states it; until items (3)
+and (4) land, `0.2.1`'s behavior for them stands.
 
 ### Tests and maintenance
 

@@ -248,7 +248,8 @@ def test_cli_json_and_explain_shapes_remain_compatible(
     ("binding", "projection", "expected_code"),
     [
         ("one = 1", "known = count(one)", "PIE-S2315"),
-        ("label = status", "known = count_distinct(len(label))", "PIE-S2102"),
+        # Read as its value, as `count_distinct(len(status))` (PL.48 (1)).
+        ("label = status", "known = count_distinct(len(label))", "PIE-S2315"),
         ("gross = amount + tax", "known = count_distinct(gross)", "PIE-S2315"),
         ("raw_value = raw", "known = count_distinct(raw_value)", "PIE-S2314"),
         (

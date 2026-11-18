@@ -2073,6 +2073,60 @@ def test_a_scalar_call_in_an_aggregate_argument_over_join_rows(tmp_path, target)
 
 
 @pytest.mark.parametrize("target", TARGETS)
+@pytest.mark.parametrize(
+    "read,written",
+    (
+        ("s = sum(d + 1)", "s = sum(lhs.id + 1)"),
+        ("c = count(d * 2)", "c = count(lhs.id * 2)"),
+        ("m = min(d + 1)", "m = min(lhs.id + 1)"),
+    ),
+)
+def test_a_let_read_inside_an_aggregate_argument_over_join_rows(
+    tmp_path, capsys, target, read, written
+):
+    """PL.48 (1): over JOIN rows an aggregate reads a `let` name inside its
+    argument as its value too: a project emits it where the value written in
+    place is emitted, with the same blockers, or reports the same error, and
+    a single file checks it as it checks that value (before, for `sum` and
+    `count`: PIE-S2315 in a project and PIE-S2102 in a single file; `min`
+    was PIE-S2315 in both already)."""
+    from pietto import cli
+
+    def outcome(name, lets, select):
+        return labelled(
+            tmp_path / name,
+            target,
+            "query result:\n    from lhs\n    let r = rhs\n"
+            "    inner join r on lhs.id == r.id\n"
+            f"{lets}    group by lhs.key\n    select:\n        k = lhs.key\n"
+            f"        {select}\n",
+        )
+
+    let_form = outcome("read", "    let d = lhs.id\n", read)
+    field_form = outcome("written", "", written)
+    assert let_form.status == field_form.status
+    assert [(b.code, b.detail) for b in let_form.blockers] == [
+        (b.code, b.detail) for b in field_form.blockers
+    ]
+    assert [(d.code, d.message) for d in let_form.diagnostics] == [
+        (d.code, d.message) for d in field_form.diagnostics
+    ]
+    if target == "postgres" and not read.startswith("m"):
+        assert public(let_form)["status"] == "VERIFIED"
+    found = []
+    for name in ("read", "written"):
+        cli.main(["check", str(tmp_path / name / "main.pietto"), "--format", "json"])
+        found.append(
+            [
+                (d["code"], d["message"])
+                for d in json.loads(capsys.readouterr().out)["diagnostics"]
+            ]
+        )
+    assert found[0] == found[1]
+    assert bool(found[0]) is read.startswith("m")
+
+
+@pytest.mark.parametrize("target", TARGETS)
 @pytest.mark.parametrize("site", ("where", "let"))
 def test_joined_sites_keep_their_scalar_limits(tmp_path, target, site):
     """A def conditional in the joined query's own WHERE, and a joined `let` of

@@ -2838,8 +2838,10 @@ def test_an_aggregate_keeps_the_s2315_of_an_unfit_def_argument_form(
     argument type, as in a single file: not for `event.metric + 1` in
     `count` (before: PIE-S2315 too), but for a `let:` value the aggregate
     reads as `upper(event.label)` or a constant (before: PIE-S2395 alone),
-    as the same forms are without the def, and for an expression that
-    reads a `let:` name."""
+    as the same forms are without the def. An expression that reads a
+    `let:` name is read as its value, so `count(nn(j + 1))` with
+    `j = event.metric` is PIE-S2395 alone, as `plus` is (PL.48 (1); before:
+    PIE-S2315 too)."""
     header = PROJECT_SOURCE.split("query absent_stage:")[0]
     joined = (
         "    from accounts\n"
@@ -2896,7 +2898,6 @@ def test_an_aggregate_keeps_the_s2315_of_an_unfit_def_argument_form(
         mismatch(26, 17, "Float"),
         expression_argument("sum", 26),
         mismatch(35, 19, "Int of unknown nullability"),
-        expression_argument("count", 35),
     ]
 
 

@@ -442,15 +442,13 @@ def _single_file_grouping_diagnostics(
     none. A `let:` name is read as its value, as a single file reads it, as
     an aggregate's argument or outside one. One that reads a nested relation
     field, a relation, a captured field, a query parameter or `any(...)` in
-    those positions, also through a `let:` name, or a `let:` name in a `min`
-    or `max` argument, unless its known type is one they refuse, or inside an
-    aggregate's expression argument (`sum(d + 1)`, which a single file reads
-    as no `let:` name), or that selects or projects a `let:` name under
-    GROUP BY that a single file refuses (its PIE-S2329, or PIE-S2102 with a
-    GROUP BY hint), which a project checks otherwise, gets only its
-    generators' errors (`_generator_errors`) and the refusals of its
-    `count_distinct(a, b, ...)`, `first` and `last` calls
-    (`_call_argument_errors`)."""
+    those positions, also through a `let:` name, or a `let:` name as the
+    whole argument of `min` or `max`, unless its known type is one they
+    refuse, or that selects or projects a `let:` name under GROUP BY that a
+    single file refuses (its PIE-S2329, or PIE-S2102 with a GROUP BY hint),
+    which a project checks otherwise, gets only its generators' errors
+    (`_generator_errors`) and the refusals of its `count_distinct(a, b, ...)`,
+    `first` and `last` calls (`_call_argument_errors`)."""
 
     if input_schema.is_unknown:
         return ()
@@ -472,9 +470,8 @@ def _single_file_grouping_diagnostics(
     }
     # Each expression with whether it is in a `quantile` fraction, which is
     # never read: a `let` name there is the single file's PIE-S2104 at it;
-    # and whether it is in a `min` or `max` argument, where a project also
-    # admits a `let` name that a single file refuses, or in an aggregate's
-    # expression argument, where a single file reads no `let` name.
+    # and whether it is the whole argument of `min` or `max`, where a project
+    # also admits a `let` name that a single file refuses.
     roots: list[tuple[Expression, bool, bool]] = [
         (item.expression, False, False) for item in definition.select_items
     ]
@@ -580,22 +577,13 @@ def _single_file_grouping_diagnostics(
             and not is_supported_extrema_argument(known)
         ):
             extremum = False
-        # An aggregate's argument other than a name: a single file reads no
-        # `let` name in it (`sum(d + 1)`), whatever the binding.
-        expression_arguments = (
-            {
-                id(argument)
-                for argument in node.arguments
-                if type(argument) is not NameExpr and argument is not fraction
-            }
-            if type(node) is CallExpr and semantic_aggregate_call_name(node)
-            else set()
-        )
+        # Inside an aggregate's expression argument a `let` name is read as
+        # its value, as in a single file (`sum(d + 1)`, `min(d + 1)`).
         roots.extend(
             (
                 child,
                 in_fraction or child is fraction,
-                wide or extremum or id(child) in expression_arguments,
+                wide or (extremum and type(child) is NameExpr),
             )
             for child in child_expressions(node)
         )

@@ -1015,6 +1015,64 @@ stay with P08.
   the SQLite and DuckDB targets. Each is an opened form that a later
   registration may add with its own rules; none is claimed here.
 
+## P09 record
+
+P09 lands H3 (1) of PL.48 on `6fa66291` in one commit. Its write set is
+`semantic/aggregates.py`, `semantic/expressions.py`, `semantic/group_by.py`,
+`ir/lowering.py`, `_project/aggregate_grouped_schema.py`,
+`_project/aggregate_grouped_clause_facts.py` and
+`_project/project_joined_aggregation.py`, eight test owners, the language,
+project and diagnostics pages and a release-note fragment.
+
+- **Law.** `count`, `count_distinct`, `sum`, `avg`, `string_agg`, `first`
+  and `last` read a `let` name anywhere in their argument, but not inside a
+  generator, as its value (`aggregate_reads_let_values`), and their argument
+  check reads the argument with each such name's value written in place.
+  Every aggregate then reports what the value written in place reports: the
+  forms above are accepted, `min(d + 1)`, `max(abs(d))`, `median(d * 2.0)`,
+  `first(d + 1, order by id)` and, after `let d = qty % 2`, `sum(d + 1)` are
+  PIE-S2315. A `let` name that is the whole argument of `min` or `max` is
+  unchanged (H3 (2) and (3), P03 and P10).
+- **Routes.** A single file checks the value and inlines it, so its SQL is
+  the SQL of the value written in place on both targets; a
+  `schema_version = 1` project checks it as a single file does; an
+  EXPLICIT_MODULES project, without and with JOIN inputs, checks it the same
+  way and emits an aggregate over the `let` column of its row stage, as for
+  `sum(t)`; its compiled bundle replays, binds as a template and loads
+  through `load_bundle` under its own pin; `explain` reports it. Over a row
+  of unknown type the name is read as its value too, except as the whole
+  argument of `min`, `max`, `median`, `quantile` or a variance or standard
+  deviation, which keeps PIE-S2102. Execution, `save` and
+  R2 reach the form only through that compiled artifact and were not run
+  apart.
+- **Diagnostics.** No code or detail is added or removed. A single file's
+  PIE-S2102 `Unknown field` for such a name becomes acceptance or the value's
+  own error; a project's bare PIE-S2333 becomes acceptance or the single
+  file's errors (also PIE-S2315 for `min(d + 1)`); over JOIN rows a
+  project's PIE-S2315 becomes acceptance; `count_distinct(len(l))` after
+  `let l = status` is PIE-S2315, not PIE-S2102; and `count(nn(j + 1))` over
+  JOIN rows, with `j` a field that `nn` does not fit, keeps PIE-S2395 alone,
+  as `count(nn(event.metric + 1))` does. A `let` name passed to a `def`
+  inside the argument fits its parameter as its value must: the bare
+  PIE-S2333 in an EXPLICIT_MODULES project without JOIN inputs, PIE-S2395
+  elsewhere, `got null` in a single file for a binding that is always null.
+  Such a project relation that has a `let` bound to `None` alone keeps the
+  bare PIE-S2333 where a single file accepts it, as before.
+- **Two databases.** PostgreSQL 18.6 and MySQL 8.4.12, each one owned
+  container of the repository's native resource owner under the slot locks,
+  ran fourteen forms with their values written in place over the published
+  aggregate relation, as single files and as projects, and four forms over
+  the labelled JOIN relations: each `let` form returned the rows of its
+  written form, and each emitted project the rows of its single file. MySQL
+  projects of `Int` arithmetic were run over a contract that declares `INT`
+  columns, as the published `BIGINT` domain is PIE-B1002 for the written
+  form too; MySQL `sum` of an `Int` stays PIE-B1004 for both.
+- **Row 20.** On this base a bundle of `sum(d + 1)` whose `let d = value * 2`
+  is forged to `value % 2`, which the source refuses, replays and loads, as
+  the forged `sum(t)` of row 20 does; its refusal is row 20's
+  ([Row 20's write set](#row-20s-write-set)), and P09's positive bundle test
+  checks that the refusal keeps this form.
+
 ## P12 record
 
 P12 takes PL.44 (a) on the route's base `6fa66291`, with the scope that

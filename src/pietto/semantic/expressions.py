@@ -58,6 +58,7 @@ from pietto.semantic.aggregates import (
     accepts_argument_form,
     aggregate_argument_can_use_let_scope,
     aggregate_composition_leaves,
+    aggregate_reads_let_values,
     contains_semantic_aggregate,
     count_distinct_tuple_diagnostic,
     extremum_reads_let,
@@ -5956,7 +5957,7 @@ def _call_argument_types(
         # with their binding types make, as for the value written in place.
         argument_bare_value_types = (
             bare_value_types
-            if aggregate_argument_can_use_let_scope(
+            if aggregate_reads_let_values(
                 function_name,
                 argument,
                 bare_value_expressions,
@@ -5969,15 +5970,52 @@ def _call_argument_types(
         # A `let:` name that an aggregate reads is checked with its binding's
         # type, not written in (`LetValues`), and is null where its binding
         # written in is, as a read of it written in place is.
-        binding = (
-            cast(LetValues, bare_value_expressions).written.get(
-                cast(NameExpr, argument).name
-            )
+        written = (
+            cast(LetValues, bare_value_expressions).written
             if argument_bare_value_types is not None
             and type(bare_value_expressions) is LetValues
-            and type(argument) is NameExpr
+            else {}
+        )
+        binding = (
+            written.get(cast(NameExpr, argument).name)
+            if type(argument) is NameExpr
             else None
         )
+        argument_lets = (
+            None
+            if bare_value_expressions is None
+            else MappingProxyType(bare_value_expressions)
+        )
+        # So is one passed to a ``def`` inside the argument (`sum(nn(n) + 1)`):
+        # it is typed first, and typing the argument keeps its type.
+        pending = list(_captured_field_children(argument)) if written else []
+        while pending:
+            node = pending.pop()
+            if type(node) is ast.GeneratorExpr:
+                continue
+            pending.extend(_captured_field_children(node))
+            read = (
+                written.get(node.name)
+                if type(node) is NameExpr
+                and inlined_arguments(node)
+                and not has_bare_field(row_schema, node.name)
+                else None
+            )
+            if read is not None and read.always_null:
+                _infer(
+                    node,
+                    row_schema,
+                    value_types,
+                    temporary_diagnostics,
+                    report_unknown_name=report_unknown_name,
+                    field_qualifier=field_qualifier,
+                    bare_value_types=argument_bare_value_types,
+                    bare_value_expressions=argument_lets,
+                    suppressed_unknown_names=suppressed_unknown_names,
+                    type_expansions=type_expansions,
+                    relation_columns=relation_columns,
+                    argument_null=True,
+                )
         # An aggregate reads a type alias argument as the type it expands to.
         argument_type = _canonical_value_type(
             _infer(
@@ -5988,11 +6026,7 @@ def _call_argument_types(
                 report_unknown_name=report_unknown_name,
                 field_qualifier=field_qualifier,
                 bare_value_types=argument_bare_value_types,
-                bare_value_expressions=(
-                    None
-                    if bare_value_expressions is None
-                    else MappingProxyType(bare_value_expressions)
-                ),
+                bare_value_expressions=argument_lets,
                 suppressed_unknown_names=suppressed_unknown_names,
                 type_expansions=type_expansions,
                 relation_columns=relation_columns,

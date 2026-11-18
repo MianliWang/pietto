@@ -1003,7 +1003,9 @@ and an extreme of equal values may be either member); `min` and `max` keep the
 argument's carrier and become nullable. An aggregate whose argument is a row
 expression (`sum(qty * 2)`, `count(lower(label))`) is lowered by the same rules
 as a `let` and emitted inside the aggregate, so it is admitted exactly where
-`let t = qty * 2` with `sum(t)` is. Over JOIN rows PostgreSQL also emits an
+`let t = qty * 2` with `sum(t)` is. An argument that reads a `let` name
+inside it, such as `sum(t + 1)`, reads that `let`'s column of the row stage,
+as `sum(t)` does (PL.48 (1)). Over JOIN rows PostgreSQL also emits an
 aggregate argument that holds a scalar call such as `lower`, `trim` or `len`
 (`count(lower(r.label))`), while a joined `let t = lower(r.label)` with
 `count(t)` stays BLOCKED with `operator_not_implemented_in_slice6` and

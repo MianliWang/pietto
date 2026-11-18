@@ -4429,6 +4429,22 @@ still an aggregate projection: beside another projection, a window included,
 without GROUP BY it is PIE-S2312, as `max` is, and `emit-sql` refuses it with
 PIE-B1000 there, as it refuses every aggregate over such a source (see below).
 
+An aggregate reads a `let` name inside its argument as the name's value,
+as it reads a `let` name that is its whole argument (PL.48 (1)): `sum`,
+`avg`, `count`, `count_distinct` and `string_agg` accept with a `let` name
+the arguments that they accept with the value written in place, such as
+`sum(d + 1)` after `let d = qty * 2`, which is `sum(qty * 2 + 1)`, and every
+aggregate reports for such an argument what it reports for that value:
+`min(d + 1)` and `first(d + 1, order by id)` are PIE-S2315, as for a field,
+and so is `sum(d + 1)` after `let d = qty % 2`. A single file inlines the
+value; a project reads the `let` column of its row stage, also over JOIN
+rows, and a `schema_version = 1` project checks it as a single file does.
+A `let` name passed to a `def` there must fit its parameter as the value
+written in place must. Over a source without a shape the name is read as its
+value too, except as the whole argument of an aggregate that reads no `let`
+name by value, `min`, `max`, `median`, `quantile` or a variance or standard
+deviation, which keeps PIE-S2102 (see below).
+
 `count()` lowers to `COUNT(*)`; supported `count(field)` forms count non-null
 field values. `count` of a `Bool` field counts its False values too; to count
 the True ones write `sum(1 for o in group if o.paid)` (PIE-S2388 warns). The selected project numeric boundary admits Int unary `+`/`-`,

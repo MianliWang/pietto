@@ -1089,7 +1089,7 @@ def _aggregate_attempt(
         let_expansions = _let_expansions(input_filter)
         if (
             let_resolutions
-            and not semantic_aggregates.aggregate_argument_can_use_let_scope(
+            and not semantic_aggregates.aggregate_reads_let_values(
                 function_name,
                 argument,
                 let_expansions,
@@ -1294,9 +1294,10 @@ def _unfit_argument_alone(
     it, at any depth, does not fit its parameter (PIE-S2395), as in a single
     file, or because it reads a nested relation field (PIE-S2805), in a form
     the aggregate accepts for some argument type: that is then its one error.
-    A form it accepts for no type, or one that reads a `let:` name other than
-    as the whole argument, is also PIE-S2315, which no argument type would
-    avoid."""
+    A form it accepts for no type, or one that reads a `let:` name that the
+    aggregate does not read by value (`aggregate_reads_let_values`), such as
+    `min(d + 1)`, other than as the whole argument of `min` or `max`, is also
+    PIE-S2315, which no argument type would avoid."""
 
     codes = {
         diagnostic.code
@@ -1311,7 +1312,7 @@ def _unfit_argument_alone(
                 type(resolution) is not ProjectJoinedLetReferenceResolution
                 for resolution in analysis.resolutions
             )
-            or semantic_aggregates.aggregate_argument_can_use_let_scope(
+            or semantic_aggregates.aggregate_reads_let_values(
                 function_name, argument, let_expansions
             )
             or _is_let_extremum(function_name, argument, let_expansions)

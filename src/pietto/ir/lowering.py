@@ -94,7 +94,7 @@ from pietto.semantic.generators import generator_of
 from pietto.semantic.aggregates import (
     GROUP_TEST_AGGREGATE_NAMES,
     ORDERED_VALUE_AGGREGATE_NAMES,
-    aggregate_argument_can_use_let_scope,
+    aggregate_reads_let_values,
     aggregate_composition_leaves,
     ordered_value_result,
     semantic_aggregate_call_name,
@@ -1416,13 +1416,7 @@ def _aggregate_argument_let_expansions(
     argument: Expression,
     let_expansions: Mapping[str, Expression],
 ) -> Mapping[str, Expression]:
-    if function_name == "string_agg":
-        return let_expansions
-    if aggregate_argument_can_use_let_scope(
-        function_name,
-        argument,
-        let_expansions,
-    ):
+    if aggregate_reads_let_values(function_name, argument, let_expansions):
         return let_expansions
     return {}
 

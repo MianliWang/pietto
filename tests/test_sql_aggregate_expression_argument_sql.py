@@ -770,6 +770,46 @@ def test_malformed_hand_built_aggregate_expression_ir_fails_closed_with_pie_b100
     assert result.diagnostics[0].severity is Severity.ERROR
 
 
+@pytest.mark.parametrize(
+    ("connector", "emitter"),
+    [("postgres.table", emit_postgres_sql), ("mysql.table", emit_mysql_sql)],
+)
+@pytest.mark.parametrize("grouped", [False, True])
+def test_a_let_name_inside_an_aggregate_argument_is_written_as_its_value(
+    connector: str, emitter: Callable[[ScriptIR], SqlResult], grouped: bool
+) -> None:
+    """PL.48 (1): a single file reads a `let:` name inside an aggregate's
+    expression argument as its value and inlines it, so its SQL is the SQL of
+    the value written in place (before: PIE-S2102 `Unknown field`)."""
+
+    def sql(lets: str, body: str) -> str:
+        (artifact,) = emitter(
+            _compile(
+                BASE_SHAPE
+                + f'source orders: Order = {connector}("orders")\n'
+                + "table aggregate_stats:\n    from orders\n"
+                + lets
+                + ("    group by:\n        region\n" if grouped else "")
+                + "    select:\n"
+                + ("        region\n" if grouped else "")
+                + body
+            )
+        ).artifacts
+        return artifact.sql
+
+    assert sql(
+        "    let d = amount * 2\n    let e = d + tax\n    let l = lower(status)\n"
+        "    let f = score\n",
+        "        s = sum(d + 1)\n        a = avg(e - d)\n        c = count(-e)\n"
+        "        u = count_distinct(trim(l))\n        w = sum(f * 2.0)\n",
+    ) == sql(
+        "",
+        "        s = sum(amount * 2 + 1)\n        a = avg(amount * 2 + tax - amount * 2)\n"
+        "        c = count(-(amount * 2 + tax))\n        u = count_distinct(trim(lower(status)))\n"
+        "        w = sum(score * 2.0)\n",
+    )
+
+
 def _source(
     connector: str,
     select_body: str,

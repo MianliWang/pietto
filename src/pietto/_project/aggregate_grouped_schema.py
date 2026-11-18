@@ -65,6 +65,7 @@ from pietto.semantic.aggregates import (
     aggregate_composition_leaves,
     is_semantic_aggregate_call,
     aggregate_argument_can_use_let_scope,
+    child_expressions,
     contains_semantic_aggregate,
     count_distinct_tuple_diagnostic,
     effective_semantic_aggregate_argument_expression,
@@ -2300,6 +2301,18 @@ def _project_aggregate_argument_type_attempt(
             or definition.from_clause.source_name,
         )
         argument_type = effective_value_types.get(effective_argument)
+        if effective_argument is not argument:
+            # An argument that reads a `let:` name by value (`sum(d + 1)`) is
+            # typed as that value written in, and each name it reads has its
+            # binding's type, as the whole argument `sum(d)` has.
+            authored_value_types = _authored_value_types(
+                argument, effective_argument, effective_value_types, let_scope_facts
+            )
+            if authored_value_types is None:
+                return _failed_argument_type_attempt(
+                    ProjectRelationRowSchemaReason.UNAVAILABLE_AGGREGATE_OR_GROUPED_FACT
+                )
+            effective_value_types = {**effective_value_types, **authored_value_types}
 
     if argument_type is None or argument_type.kind is not ValueTypeKind.KNOWN:
         return _failed_argument_type_attempt(
@@ -2339,6 +2352,41 @@ def _project_aggregate_argument_type_attempt(
         effective_expression=effective_argument,
         value_types=effective_value_types,
     )
+
+
+def _authored_value_types(
+    authored: Expression,
+    effective: Expression,
+    effective_value_types: Mapping[Expression, ValueType],
+    let_scope_facts: ProjectRelationLetScopeFacts,
+) -> dict[Expression, ValueType] | None:
+    """The types of an aggregate argument's authored nodes, each that of its
+    node with the `let:` names written in, and of a name read that of its
+    binding; the two trees differ only at those names. A node left untyped
+    keeps its read unlowered. None when a node of known type passed to a
+    ``def`` does not fit its parameter, as for the whole argument `sum(d)`:
+    the value written in no longer records the parameter."""
+
+    types: dict[Expression, ValueType] = {}
+    pending = [(authored, effective)]
+    while pending:
+        node, value = pending.pop()
+        if type(node) is NameExpr and node.name in let_scope_facts.binding_expressions:
+            value_type = let_scope_facts.value_types.get(node.name)
+        else:
+            value_type = effective_value_types.get(value)
+            pending.extend(
+                zip(child_expressions(node), child_expressions(value), strict=True)
+            )
+        if value_type is None:
+            continue
+        if (
+            _check_inlined_argument(node, value_type, [], None).kind
+            is not value_type.kind
+        ):
+            return None
+        types[node] = value_type
+    return types
 
 
 def _is_bool_test(value_type: ValueType | None) -> bool:
