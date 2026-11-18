@@ -2088,6 +2088,7 @@ _MYSQL_CELL_KINDS = frozenset(
         "request",
         "row_body",
         "row_carry_column",
+        "row_named_use",
         "row_predicate",
         "row_scan",
         "row_stage_use",
@@ -2151,10 +2152,18 @@ def _mysql_cells(
     every other cell. An E4 operation is, as an S01 one, the whole value of a
     column of the final body, named once, over its WHERE body at most
     (_mysql_float_operation). MC G3's HAVING body and result body over an
-    S02 aggregate keep _mysql_sum_clauses' law. The bound of three bodies,
-    four beside an aggregate's HAVING body and its row value columns, only
-    ends the walk early: the block kinds and the chain that holds every body
-    imply it."""
+    S02 aggregate keep _mysql_sum_clauses' law. MC G4: the aggregate's chain
+    may instead stand over the named use of one upstream definition's
+    projection body, over its own aggregate body, WHERE body and `let`
+    bodies (one each at most but the `let`s), over the scan: a plain one
+    projects field reads and has no `let`, and an aggregating one keeps
+    S02's or G2's law with a key and a sum, and each of its sums is the
+    aggregate origin of an argument or a `let` value of the query, which
+    then has no WHERE and no clause; the query's keys and arguments may read
+    its keys and values (carried), at their realized carriers. The bound of
+    three bodies, four beside an aggregate's HAVING body and its row value
+    columns, three more beside a named use, only ends the walk early: the
+    block kinds and the chain that holds every body imply it."""
 
     empty: tuple[frozenset, frozenset, frozenset, frozenset, frozenset] = (
         frozenset(),
@@ -2170,10 +2179,10 @@ def _mysql_cells(
     slotted = not (_MYSQL_CELL_KINDS | _MYSQL_CLAUSE_KINDS).issuperset(doc.kinds)
     bodies = doc.all("row_body")
     # An S02 chain may add a HAVING body (MC G3) and `let` bodies, which each
-    # hold one row value column (MC G1).
+    # hold one row value column (MC G1), and an upstream's three (MC G4).
     if len(bodies) > 3 + (
         1 + len(doc.all("row_value_column")) if doc.all("aggregate_stage") else 0
-    ):
+    ) + (3 if doc.all("row_named_use") else 0):
         return empty
     finals = [ref for ref in bodies if doc[ref]["final"] is True]
     # MC G3: ORDER BY, LIMIT and DISTINCT are one final result body over the
@@ -2187,23 +2196,41 @@ def _mysql_cells(
     ):
         return empty
     chain = [doc[doc[result]["scan"]]["body"] if result is not None else finals[0]]
-    while doc[chain[-1]]["scan"].kind == "row_stage_use":
-        inner = doc[doc[chain[-1]]["scan"]]["body"]
-        # Only keeps the walk finite: producer order refuses a cycle first.
-        if inner in chain:
-            return empty
-        chain.append(inner)
+    upper: list = []
+    for walked in (chain, upper):
+        while walked and doc[walked[-1]]["scan"].kind == "row_stage_use":
+            inner = doc[doc[walked[-1]]["scan"]]["body"]
+            # Only keeps the walk finite: producer order refuses a cycle first.
+            if inner in chain or inner in upper:
+                return empty
+            walked.append(inner)
+        # MC G4, item 5: the named use of an upstream's projection body.
+        scan = doc[chain[-1]]["scan"]
+        if walked is chain and scan.kind == "row_named_use":
+            if scan not in doc.records:
+                return empty
+            upper.append(doc[scan]["body"])
+            if upper[0] in chain:
+                return empty
     kinds = [doc[ref]["block_kind"] for ref in reversed(chain)]
     lets = next(
         (index for index, kind in enumerate(kinds) if kind != "let"), len(kinds)
     )
     if (
-        doc[chain[-1]]["scan"].kind != "row_scan"
-        or len(chain) != len(bodies)
-        or any(doc[ref]["window"] is not None for ref in chain)
+        doc[(upper or chain)[-1]]["scan"].kind != "row_scan"
+        or len(chain) + len(upper) != len(bodies)
+        or any(doc[ref]["window"] is not None for ref in (*chain, *upper))
+        or upper
+        and (
+            doc[upper[0]]["final"] is not False
+            or len({doc[ref]["definition"] for ref in chain}) != 1
+            or {doc[ref]["definition"] for ref in upper}
+            != {doc[upper[0]]["definition"]}
+            or doc[upper[0]]["definition"] == doc[chain[0]]["definition"]
+        )
     ):
         return empty
-    aggregate = None
+    aggregate = inner = None
     if kinds[lets:] in (
         ["aggregate", "projection"],
         ["where", "aggregate", "projection"],
@@ -2211,14 +2238,26 @@ def _mysql_cells(
         ["where", "aggregate", "satisfying", "projection"],
     ):
         aggregate = chain[-1 - kinds.index("aggregate")]
-    elif kinds not in (["projection"], ["where", "projection"]) or result:
+    elif kinds not in (["projection"], ["where", "projection"]) or result or upper:
+        return empty
+    above = [doc[ref]["block_kind"] for ref in reversed(upper)]
+    ahead = next(
+        (index for index, kind in enumerate(above) if kind != "let"), len(above)
+    )
+    if above[ahead:] in (
+        ["aggregate", "projection"],
+        ["where", "aggregate", "projection"],
+    ):
+        inner = upper[-1 - above.index("aggregate")]
+    elif upper and above[ahead:] not in (["projection"], ["where", "projection"]):
         return empty
     if (
         any(
-            (doc[ref]["aggregation"] is not None) is not (ref == aggregate)
-            for ref in chain
+            (doc[ref]["aggregation"] is not None) is not (ref in (aggregate, inner))
+            for ref in (*chain, *upper)
         )
-        or len(doc.all("aggregate_stage")) != (aggregate is not None)
+        or len(doc.all("aggregate_stage"))
+        != (aggregate is not None) + (inner is not None)
         or slotted
         and aggregate is not None
     ):
@@ -2338,33 +2377,136 @@ def _mysql_cells(
         doc, chain[chain.index(aggregate) + 1 :][::-1], stage
     ):
         return empty
-    reads = [doc[key]["read"] for key in stage["keys"]]
-    s02 = (
-        len(reads) <= 1
-        and all(
-            _mysql_field_column(doc, read)
-            and doc[doc[read]["realization"]]["tag"] == "Int"
-            and doc[doc[read]["realization"]]["nullable"] is False
-            for read in reads
+    staging = inner is not None and len(upper) > upper.index(inner) + 1
+    lower = None if inner is None else doc[doc[inner]["aggregation"]]
+
+    def carried(column) -> bool:
+        """MC G4, item 5: a source field, or a key or value of the
+        upstream's aggregate stage."""
+        origin = doc[column]["aggregate"] if column.kind == "stage_column" else None
+        return _mysql_field_column(doc, column) or (
+            lower is not None
+            and origin is not None
+            and doc[column]["literal"] is None
+            and doc[column]["window"] is None
+            and doc[origin]["kind"] in ("group_key", "aggregate_result")
+            and doc[origin]["aggregation"] == lower["aggregation"]
         )
-        and all(
-            doc[value]["function"] in ("sum", "count", "min")
+
+    def kind(read) -> object:
+        """A read's storage kind; none for an upstream `min` or `max` of an
+        INT field below the upstream's WHERE or `let` (MC G4, item 5)."""
+        column = doc[read]["column"] if read.kind == "sql_stage_reference" else read
+        origin = doc[column]["aggregate"]
+        found = _mysql_storage_kind(doc, read)
+        if (
+            staging
+            and origin is not None
+            and doc[origin]["function"] in ("min", "max")
+            and found == "my_int"
+        ):
+            return None
+        return found
+
+    def law(current, field) -> bool:
+        """S02's law or MC G2's of an aggregate stage over ``field`` columns."""
+        reads = [doc[key]["read"] for key in current["keys"]]
+        return (
+            len(reads) <= 1
+            and all(
+                field(read)
+                and doc[doc[read]["realization"]]["tag"] == "Int"
+                and doc[doc[read]["realization"]]["nullable"] is False
+                for read in reads
+            )
+            and all(
+                doc[value]["function"] in ("sum", "count", "min")
+                for value in current["values"]
+            )
+        ) or (
+            all(field(read) and kind(read) in _MYSQL_SUM_KEY_KINDS for read in reads)
+            and all(
+                doc[value]["function"] in ("sum", "count", "min")
+                or type(argument := doc[value]["argument"]) is Ref
+                and argument.kind == "sql_stage_reference"
+                and field(doc[argument]["column"])
+                and kind(argument) in _MYSQL_SUM_BESIDE.get(doc[value]["function"], ())
+                for value in current["values"]
+            )
+        )
+
+    def summed(current, field) -> set:
+        return {
+            value
+            for value in current["values"]
+            if doc[value]["function"] == "sum"
+            and type(argument := doc[value]["argument"]) is Ref
+            and argument.kind == "sql_stage_reference"
+            and field(doc[argument]["column"])
+            and _mysql_sum_carrier(doc, argument)
+        }
+
+    def field(column) -> bool:
+        return _mysql_field_column(doc, column)
+
+    def upstream() -> bool:
+        """MC G4, item 5: a plain upstream projects field reads and has no
+        `let`; an aggregating one keeps S02's or G2's law with a key and a
+        sum and MC G1's `let` law, projects its stage's columns, and each of
+        its sums is the origin of an argument of the query's stage or of a
+        `let` value of the query, which then has no WHERE and no clause; the
+        query's stage holds a sum."""
+        if not upper:
+            return True
+        if not any(doc[value]["function"] == "sum" for value in stage["values"]):
+            return False
+        if inner is None:
+            return ahead == 0 and all(
+                column.kind == "row_value_column"
+                and _mysql_field_read(doc, doc[column]["value"])
+                for column in doc[upper[0]]["columns"]
+            )
+        assert lower is not None
+        if not (
+            law(lower, field)
+            and lower["keys"]
+            and summed(lower, field)
+            and (
+                ahead == 0
+                or _mysql_sum_lets(doc, upper[upper.index(inner) + 1 :][::-1], lower)
+            )
+            and all(
+                column.kind == "aggregate_projection_column"
+                for column in doc[upper[0]]["columns"]
+            )
+            and kinds[lets:] == ["aggregate", "projection"]
+            and result is None
+        ):
+            return False
+        reads = [
+            doc[value]["argument"]
             for value in stage["values"]
+            if type(doc[value]["argument"]) is Ref
+        ]
+        for body in chain[chain.index(aggregate) + 1 :]:
+            columns = doc[body]["columns"]
+            if doc[body]["block_kind"] == "let" and columns:
+                reads.append(doc[columns[-1]]["value"])
+        origins = set()
+        for read in reads:
+            if read.kind == "sql_stage_reference":
+                origin = doc[doc[read]["column"]]["aggregate"]
+                if origin is not None:
+                    origins.add(doc[origin]["aggregate"])
+        return all(
+            doc[value]["aggregate"] in origins
+            for value in lower["values"]
+            if doc[value]["function"] == "sum"
         )
-    )
-    g2 = all(
-        _mysql_field_column(doc, read)
-        and _mysql_storage_kind(doc, read) in _MYSQL_SUM_KEY_KINDS
-        for read in reads
-    ) and all(
-        doc[value]["function"] in ("sum", "count", "min")
-        or _mysql_field_read(doc, doc[value]["argument"])
-        and _mysql_storage_kind(doc, doc[value]["argument"])
-        in _MYSQL_SUM_BESIDE.get(doc[value]["function"], ())
-        for value in stage["values"]
-    )
+
     if (
-        not (s02 or g2)
+        not law(stage, carried)
+        or not upstream()
         or any(
             column.kind != "aggregate_projection_column"
             # MC G3: an ORDER BY key is carried beside the projected columns.
@@ -2379,11 +2521,7 @@ def _mysql_cells(
     return (
         frozenset(),
         frozenset(
-            value
-            for value in stage["values"]
-            if doc[value]["function"] == "sum"
-            and _mysql_field_read(doc, doc[value]["argument"])
-            and _mysql_sum_carrier(doc, doc[value]["argument"])
+            summed(stage, carried) | (set() if lower is None else summed(lower, field))
         ),
         frozenset(),
         frozenset(),
@@ -2886,12 +3024,14 @@ def _mysql_storage_kind(doc, ref) -> object:
 
 
 def _mysql_sum_carrier(doc, ref) -> bool:
-    """MC G1: an S02 sum's argument carrier, a MySQL BIGINT or INT."""
+    """MC G1: an S02 sum's argument carrier, a MySQL BIGINT or INT; MC G4,
+    item 5: or an upstream sum's `my_signed_int`."""
 
     realization = doc[doc[ref]["realization"]]
     return realization["tag"] == "Int" and dict(realization["storage"]) in (
         {"kind": "my_bigint"},
         {"kind": "my_int"},
+        {"kind": "my_signed_int"},
     )
 
 

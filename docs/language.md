@@ -4636,6 +4636,47 @@ every group, so an out-of-range sum fails the statement even where the
 line would drop that group, and every group that HAVING keeps is computed
 whether or not the LIMIT returns it.
 
+Since `0.2.2` (MC G4), a statement in that cell may also name and reach
+its rows in other ways. Each `query` or `table` may declare relation
+aliases (`let r = rows`) of the relation that its FROM reads, read by
+`from r` or not at all, and windows that nothing reads; each field read
+may be qualified by the name under which the query reads its relation
+(`rows.a`, `r.a`, `base.a`); and the source may be declared in another
+module and imported, under its own name or another, directly or through
+re-exports. The query may read, in place of the source, one upstream
+`query` or `table` of its module (declared there or imported) that reads
+the source so through one WHERE at most and nothing else: a plain
+upstream whose SELECT items are field reads under any names, or an
+aggregating one that is itself a query of the cell with at least one
+GROUP BY key and at least one `sum`. The query reads an upstream column as
+a field of the column's carrier: a field or key keeps its field's, a `sum`
+is a nullable `Int`, a count a non-null `BIGINT`, a `min` or `max` keeps
+its field's and an `avg` is a `DOUBLE`. A `sum` of the query may read a
+`sum`, count, `min`, `max`, key or field column, while its keys and the
+arguments of its `max`, `avg` and `count_distinct` keep the storages
+above, and an upstream `min` or `max` of an `INT` field below the
+upstream's WHERE or `let` is neither. Over an aggregating upstream the
+query holds a `sum`, reads every `sum` of the upstream as the argument of
+one of its aggregates, directly or through a `let`, and has no WHERE,
+HAVING, ORDER BY, LIMIT or DISTINCT; over a plain upstream the clauses
+stay as above. An alias of an alias, an unread alias of a relation that
+FROM does not read (a second import name of FROM's upstream included), a
+window that is read, a third level, an upstream declared as a relation
+`let` block of the query, an upstream with a JOIN, a clause, a header
+parameter or a bind-safe `?`, a plain upstream with a `let` or an item
+that computes, an aggregating upstream with no key, no `sum` or a `sum`
+that the query does not read (a mention in an unread window is no read)
+and everything the paragraphs above exclude keep the blockers they have
+without G4, object for object. Each `sum`, at either
+level, is the cell's guarded `SUM`; everything else is the MySQL SQL of
+the same statement with each relation alias and unread window dropped,
+each read unqualified, each import declared in place and each `sum`
+written `max` at both levels. The G4 two-database qualification has not
+run yet, so what follows is expected from that SQL, not observed: each
+`sum` of an aggregating upstream is a column of its aggregation stage that
+the query reads under no filter, so an out-of-range one fails the whole
+statement.
+
 Since `0.1.12` (Phase77 S03), MySQL project SQL also emits each `sum` of an
 `Int` of a statement that is, names aside, one of nine forms its
 qualification ran on both databases, the selected definition's SELECT items
