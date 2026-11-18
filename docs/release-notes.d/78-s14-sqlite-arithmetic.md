@@ -37,3 +37,15 @@ emitted before. Only SQLite programs that were refused change:
 | PIE-B1003 | `count` of such arithmetic | `sqlite_expression_not_admitted` and `sqlite_aggregate_not_admitted` | `sqlite_aggregate_not_admitted`, after `int_arithmetic_range_proof_missing` where the bounds leave signed 64 bits |
 | suggestion (JSON) and `hint:` (text) | `sqlite_expression_not_admitted` | `use fields, literals, parameters, comparisons of two values of one type, and, or, not and is None; arithmetic, signs, in, ranges, conditionals, casts and function calls are not available on SQLite` | `use fields, literals, parameters, comparisons of two values of one type, and, or, not, is None, and Int +, -, *, unary - and abs of fields and Int literals; Float arithmetic, /, %, arithmetic on parameters or aggregates, in, ranges, conditionals, casts and other function calls are not available on SQLite` |
 | suggestion (JSON) and `hint:` (text) | `sqlite_aggregate_not_admitted` | `use count, count_distinct of an Int, Text or Bool field, min or max of an Int or Float field, or avg or sum of an Int field, each over one field of the source` | `use count, count_distinct of an Int, Text or Bool field, min or max of an Int or Float field, or avg or sum of an Int field or of Int arithmetic, each over the fields of the source` |
+
+Known limitations:
+
+- These forms are qualified on the measured SQLite library of the first
+  tier, release `3.53.1` with its source id and compile options, under
+  CPython 3.13.13 and 3.12.13 on Linux x86-64, by native cells and a
+  PostgreSQL replay of their bytes; no other build or platform is
+  qualified.
+- The `Int` minimum written as one signed literal has native cells only,
+  since PostgreSQL project emission does not write it.
+- `check` refuses arithmetic in `having` (PIE-S2327) and as the argument of
+  `min` or `max` (PIE-S2315) on every target.

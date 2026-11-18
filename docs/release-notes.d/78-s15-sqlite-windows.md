@@ -50,3 +50,17 @@ a `sqlite.table` source, these outputs change:
   reads of another table or query are not available on SQLite`.
 - The `sqlite_file` route's authorizer also allows the functions
   `row_number`, `rank` and `dense_rank`.
+
+Known limitations:
+
+- These forms are qualified on the measured SQLite library of the first
+  tier, release `3.53.1` with its source id and compile options, under
+  CPython 3.13.13 and 3.12.13 on Linux x86-64, by native cells and a
+  PostgreSQL replay of their bytes; no other build or platform is
+  qualified.
+- A window `count`, `min` or `max` of a `Float` and `count()` over a window
+  with no partition or order key have native cells only, since PostgreSQL
+  project emission does not write them.
+- `qualify`, `lag`, `lead`, `ntile`, `first_value`, `last_value`,
+  `nth_value`, `percent_rank`, `cume_dist`, a window `avg` and windows over
+  joined rows are not available on SQLite.

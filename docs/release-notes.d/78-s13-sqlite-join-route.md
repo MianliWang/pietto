@@ -27,3 +27,12 @@ The `sqlite_file` route now runs a SQLite project statement that joins
 
 Compatibility: the route runs a statement over one source as before, and
 `0.2.2` refused every statement that joins sources.
+
+Known limitations:
+
+- The route over a JOIN is qualified by native cells on the measured
+  SQLite library, under CPython 3.13.13 and 3.12.13 on Linux x86-64; it
+  writes no SQL of its own, so no PostgreSQL replay reaches it.
+- A statement that joins sources and aggregates checks every declared
+  `unique(...)` key of each source, so a file that breaks a key the
+  statement does not use is refused too.
