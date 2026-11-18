@@ -2110,7 +2110,7 @@ _MYSQL_CELL_KINDS = frozenset(
 
 
 # R08: the bind-safe slot kinds a division cell's document may also hold;
-# they close every other cell.
+# they close every other cell but an S02 sum's (MC G5).
 _MYSQL_SLOT_KINDS = frozenset({"fixed_value", "native_use", "sql_parameter"})
 
 
@@ -2149,11 +2149,14 @@ def _mysql_cells(
     or BIGINT storage or a `/` named once of an unsigned Int literal and one
     such read, the law restated here (_mysql_division_literal); a bind-safe
     parameter of any other literal closes them, and any parameter closes
-    every other cell. An E4 operation is, as an S01 one, the whole value of a
-    column of the final body, named once, over its WHERE body at most
-    (_mysql_float_operation). MC G3's HAVING body and result body over an
-    S02 aggregate keep _mysql_sum_clauses' law. MC G4: the aggregate's chain
-    may instead stand over the named use of one upstream definition's
+    every other cell but an S02 sum's: MC G5 admits a bind-safe parameter of
+    a literal of the query's WHERE body's predicate or of a plain upstream's
+    beside an aggregate (a header parameter never reaches this document). An
+    E4 operation is, as an S01 one, the whole value of a column of the final
+    body, named once, over its WHERE body at most (_mysql_float_operation).
+    MC G3's HAVING body and result body over an S02 aggregate keep
+    _mysql_sum_clauses' law. MC G4: the aggregate's chain may instead stand
+    over the named use of one upstream definition's
     projection body, over its own aggregate body, WHERE body and `let`
     bodies (one each at most but the `let`s), over the scan: a plain one
     projects field reads and has no `let`, and an aggregating one keeps
@@ -2251,17 +2254,33 @@ def _mysql_cells(
         inner = upper[-1 - above.index("aggregate")]
     elif upper and above[ahead:] not in (["projection"], ["where", "projection"]):
         return empty
-    if (
-        any(
-            (doc[ref]["aggregation"] is not None) is not (ref in (aggregate, inner))
-            for ref in (*chain, *upper)
-        )
-        or len(doc.all("aggregate_stage"))
-        != (aggregate is not None) + (inner is not None)
-        or slotted
-        and aggregate is not None
+    if any(
+        (doc[ref]["aggregation"] is not None) is not (ref in (aggregate, inner))
+        for ref in (*chain, *upper)
+    ) or len(doc.all("aggregate_stage")) != (aggregate is not None) + (
+        inner is not None
     ):
         return empty
+    if slotted and aggregate is not None:
+        # MC G5: each bind-safe slot is a literal of the query's WHERE body's
+        # predicate or a plain upstream's.
+        reached: set = set()
+        pending = [
+            doc[doc[ref]["predicate"]]["value"]
+            for ref in (*chain, *(upper if inner is None else ()))
+            if doc[ref]["block_kind"] == "where"
+        ]
+        while pending:
+            ref = pending.pop()
+            if type(ref) is not Ref or ref in reached:
+                continue
+            reached.add(ref)
+            if ref.kind == "sql_operation":
+                pending.extend(doc[ref]["operands"])
+            elif ref.kind in ("sql_unary", "sql_anchor"):
+                pending.append(doc[ref]["operand"])
+        if not reached.issuperset(doc.all("sql_parameter")):
+            return empty
     final = doc[chain[0]]
     if aggregate is None:
         named: dict[Ref, int] = {}
@@ -2557,7 +2576,8 @@ def _mysql_sum_clauses(doc, satisfying, stage, result) -> bool:
     _MYSQL_SUM_KEY_KINDS storage or a value column other than `avg`; a LIMIT
     is at least 1 after an ORDER BY whose first item reads a value column;
     DISTINCT stands beside no `avg`. A column carries what its aggregate
-    origin's result is in the stage."""
+    origin's result is in the stage. MC G5: beside a bind-safe slot the one
+    HAVING line compares a sum."""
 
     if satisfying is None and result is None:
         return True
@@ -2631,6 +2651,8 @@ def _mysql_sum_clauses(doc, satisfying, stage, result) -> bool:
         bool(stage["keys"])
         and None not in read
         and (not sums or len(read) == 1)
+        # MC G5: beside a bind-safe slot, HAVING's one line reads a sum.
+        and not (doc.all("sql_parameter") and read and not sums)
         and None not in keys
         and (
             limit is None

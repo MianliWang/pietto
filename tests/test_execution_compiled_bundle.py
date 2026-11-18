@@ -3002,6 +3002,13 @@ _NUMERIC_UNFORGEABLE = {
     "G4_R2": "PIE-B1008",
     "G4_R9": "PIE-B1004",
     "G4_R16": "PIE-B1002",
+    # MC G5's: a label too long, a Date, Decimal or UUID parameter, and a
+    # bind-safe literal in a conditional sum.
+    "G5_R1": "PIE-B1002",
+    "G5_R2": "PIE-B1003",
+    "G5_R3": "PIE-B1003",
+    "G5_R4": "PIE-B1003",
+    "G5_R9": "PIE-B1004",
 }
 
 
@@ -3021,16 +3028,15 @@ def _numeric_cells_opened(patch):
     patch.setattr(rows, "mysql_sum_cell", lambda aggregate, argument: True)
 
 
-# Each refused S01/S02 body, a WHERE cell whose literal a bind-safe `?`
-# replaces, and each MC G1 and G2 (`G2_` before its name) neighbour under a
-# policy that refuses it.
+# Each refused S01/S02 body, the S01 WHERE cell whose literal a bind-safe
+# `?` replaces, and each MC G1 to G5 (`G2_` to `G5_` before its name)
+# neighbour under a policy that refuses it.
 _NUMERIC_FORGED = [
     *(
         (shape, "preserve_literals")
         for shape in sorted(_pietto_sql_emission.NUMERIC_REFUSALS)
     ),
     ("s01_where", "bind_safe_literals"),
-    ("s02_where", "bind_safe_literals"),
     *(
         (
             shape,
@@ -3067,6 +3073,15 @@ _NUMERIC_FORGED = [
         )
         for shape in sorted(_pietto_sql_emission.G4_REFUSALS)
     ),
+    *(
+        (
+            "G5_" + shape,
+            _pietto_sql_emission.G5_REFUSAL_POLICIES.get(shape, ("preserve_literals",))[
+                0
+            ],
+        )
+        for shape in sorted(_pietto_sql_emission.G5_REFUSALS)
+    ),
 ]
 # An alias of an alias, an unread alias of another relation or of a second
 # import name of the upstream and an upstream declared as a relation `let`
@@ -3079,14 +3094,13 @@ _NUMERIC_ALIASES = {
 
 
 def _numeric_forged_world(shape):
-    """The world, keywords and body of a forged numeric shape: a G2, G3 or
-    G4 neighbour (`G2_`, `G3_` or `G4_` before its name) over
-    grouping_world."""
-    if shape.startswith("G4_"):
+    """The world, keywords and body of a forged numeric shape: a G2 to G5
+    neighbour (`G2_` to `G5_` before its name) over grouping_world."""
+    if shape.startswith(("G4_", "G5_")):
         return (
             _pietto_sql_emission.grouping_world,
             {},
-            _pietto_sql_emission.G4_REFUSALS[shape[3:]],
+            getattr(_pietto_sql_emission, shape[:2] + "_REFUSALS")[shape[3:]],
         )
     if shape.startswith("G2_"):
         return (
@@ -3155,7 +3169,7 @@ def test_forged_mysql_numeric_cells_fail_every_reader(
         assert artifact is not None, outcome.blockers
         observed = portable.export_emission_observation(artifact, artifact.request)
         loaded = _numeric_loaded(artifact)
-    summed = shape.startswith(("sum_", "s02", "G2_", "G3_", "G4_")) or shape in (
+    summed = shape.startswith(("sum_", "s02", "G2_", "G3_", "G4_", "G5_")) or shape in (
         _pietto_sql_emission.G1_REFUSALS
     )
     assert not verify_project_sql_emission(artifact, artifact.request).verified
@@ -3628,7 +3642,8 @@ _A = wire.Address
 
 
 def _slot_added(records):
-    """A bind-safe slot record added, which only an R08 cell may hold."""
+    """A bind-safe slot record added of a literal outside every WHERE, which
+    only an R08 cell may hold."""
     slot = _A("slot", 0)
     return {**records, slot: wire.Record(slot, (None, _A("literal", 0), "Int"))}
 
@@ -4283,6 +4298,109 @@ def test_the_mysql_pure_g4_law_refuses_each_edited_record(tmp_path, edit):
         tmp_path,
         "mysql",
         _pietto_sql_emission.G4_FORMS.get(name) or _pietto_sql_emission.G4_CELLS[name],
+    )
+    artifact = outcome.artifact
+    assert artifact is not None, outcome.blockers
+    exported = portable.export_emission_observation(artifact, artifact.request)
+    assert exported.canonical_bytes is not None
+    view = pure.parse_emission_observation(exported.canonical_bytes).view
+    assert view is not None
+    records = dict(view.records)
+    sums = frozenset(
+        ref
+        for ref, record in records.items()
+        if ref.kind == "aggregate_value_column" and record.fields["function"] == "sum"
+    )
+    assert sums and pure._mysql_cells(pure._Doc(records))[1] == sums
+    edited = pure._Doc(change(records))
+    assert pure._mysql_cells(edited) == (frozenset(),) * 5
+
+
+# MC G5: each edit of a G5 form's bundle that only one check of the compiled
+# placeholder law refuses, with the form it edits. P1's parameter 0 (`lo`)
+# is read once, by operation 0 (`id > lo`), the predicate of WHERE row 1;
+# U1's parameter 3 (`f`) is read by nothing; L1's parameter 0 (`lo`) is the
+# right side of the HAVING comparison on value 0 (`x = sum(n)`); B1's slot
+# 0 binds literal 1, of its WHERE, while literal 0 is the source's locator.
+_COMPILED_G5_EDITS = {
+    "float_read": ("P1", _record_edit(_A("parameter", 0), tag="Float")),
+    "unread_date": ("U1", _record_edit(_A("parameter", 3), tag="Date")),
+    "read_under_int": (
+        "P1",
+        _record_edit(_A("operation", 0), logical=("Int", "unknown")),
+    ),
+    "read_outside_where": ("P1", _record_edit(_A("row", 1), predicate=None)),
+    "having_nullable": ("L1", _record_edit(_A("parameter", 0), nullable=True)),
+    "having_text": ("L1", _record_edit(_A("parameter", 0), tag="Text")),
+    "having_count_beside_parameter": (
+        "L1",
+        _record_edit(_A("aggregate_value", 0), function="count"),
+    ),
+    "slot_outside_where": (
+        "B1",
+        _record_edit(_A("slot", 0), literal=_A("literal", 0)),
+    ),
+}
+
+
+@pytest.mark.parametrize("edit", sorted(_COMPILED_G5_EDITS))
+def test_the_mysql_compiled_g5_law_refuses_each_edited_record(tmp_path, edit):
+    """MC G5: compiled replay's placeholder law finds a G5 form's sums and
+    none once one record changes: a Float parameter read, an unread Date
+    parameter, a read under an operation with no Bool result or outside the
+    WHERE row's predicate, a nullable or Text parameter on the HAVING line,
+    that line on a count beside a parameter, or a bind-safe slot of a
+    literal outside every WHERE."""
+    from pietto._project import project_sql_emission_rows as rows
+    from pietto._project.project_compiled_build import build_compiled
+
+    name, change = _COMPILED_G5_EDITS[edit]
+    _, outcome = _pietto_sql_emission.grouping_world(
+        tmp_path,
+        "mysql",
+        _pietto_sql_emission.G5_FORMS[name],
+        _pietto_sql_emission.G5_FORM_POLICY[name],
+    )
+    assert outcome.artifact is not None, outcome.blockers
+    description = wire.decode(build_compiled(outcome.artifact).payload)
+    records = {record.address: record for record in description.records}
+    query = description.query
+    sums = frozenset(
+        address
+        for address, record in records.items()
+        if address.kind == "aggregate_value" and record.get("function") == "sum"
+    )
+    assert sums and rows.mysql_compiled_cells(records, records[query])[1] == sums
+    edited = change(records)
+    assert rows.mysql_compiled_cells(edited, edited[query]) == (frozenset(),) * 5
+
+
+# MC G5: each edit of a bind-safe G5 form's document that only one check of
+# the pure placeholder law refuses (a header parameter never reaches the
+# document). B1's WHERE predicate is row predicate 0, whose value compares
+# stage reference 0 with its one slot's anchor.
+_PURE_G5_EDITS = {
+    "slot_unreached": (
+        "B1",
+        _doc_edit("row_predicate", 0, value=_doc_ref("sql_stage_reference", 0)),
+    ),
+}
+
+
+@pytest.mark.parametrize("edit", sorted(_PURE_G5_EDITS))
+def test_the_mysql_pure_g5_law_refuses_each_edited_record(tmp_path, edit):
+    """MC G5: the pure boundary's placeholder law finds a bind-safe G5 form's
+    sums and none once one record of the document changes: a bind-safe
+    parameter that no WHERE predicate holds."""
+    import _pietto_sql_emission_portable as portable
+    import _pietto_sql_emission_pure_boundary as pure
+
+    name, change = _PURE_G5_EDITS[edit]
+    _, outcome = _pietto_sql_emission.grouping_world(
+        tmp_path,
+        "mysql",
+        _pietto_sql_emission.G5_FORMS[name],
+        _pietto_sql_emission.G5_FORM_POLICY[name],
     )
     artifact = outcome.artifact
     assert artifact is not None, outcome.blockers
