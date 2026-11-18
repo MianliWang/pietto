@@ -1507,7 +1507,8 @@ _FIRST = (
 # world its own tests build it in: S06 one that R2 executed refined and one
 # that failed at its first page, S06's `same_value` in a JOIN `on` (of an
 # Int and of a Float), S02 beside S01, R08's `Int /` over a literal
-# divisor, MC G1's INT and `let` carriers, and MC G2's aggregates and keys.
+# divisor, MC G1's INT and `let` carriers, MC G2's aggregates and keys, and
+# MC G3's later clauses.
 PHASE77_MYSQL_FORMS = {
     "S05": ("agg", _STATISTIC),
     "S06_join": (
@@ -1571,6 +1572,17 @@ PHASE77_MYSQL_FORMS = {
         "grouping",
         "query result:\n    from rows\n    group by note, a\n    select:\n"
         "        note\n        x = sum(n)\n",
+    ),
+    "G3_having": (
+        "grouping",
+        "query result:\n    from rows\n    group by c\n    select:\n        g = c\n"
+        "        x = sum(a)\n        r = count()\n    having:\n        r <= 3\n",
+    ),
+    "G3_ordered": (
+        "grouping",
+        "query result:\n    from rows\n    group by k, note\n    select distinct:\n"
+        "        kk = k\n        z = sum(n)\n    order by:\n        z desc\n"
+        "        kk\n    limit 2\n",
     ),
     "S15": (
         "remainder",
@@ -1648,6 +1660,13 @@ MYSQL_0111_FORMS = {
         "grouping",
         "query result:\n    from rows\n    group by note, a\n    select:\n"
         "        note\n        hi = max(n)\n        mean = avg(c)\n",
+        _WORKSPACE,
+    ),
+    "G3": (
+        "grouping",
+        "query result:\n    from rows\n    group by k, note\n    select distinct:\n"
+        "        kk = k\n        z = max(n)\n    order by:\n        z desc\n"
+        "        kk\n    limit 2\n",
         _WORKSPACE,
     ),
     "S15": (

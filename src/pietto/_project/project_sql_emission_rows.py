@@ -198,6 +198,25 @@ MYSQL_SUM_BESIDE = {
     "max": frozenset({"my_bigint", "my_int"}),
     "avg": frozenset({"my_bigint", "my_int"}),
 }
+# MC G3: the plan tables and authored fields that an S02 cell's HAVING,
+# ORDER BY, LIMIT and DISTINCT add, and the storage kinds of a GROUP BY key
+# that a HAVING line reads (an ORDER BY key reads MYSQL_SUM_KEY_KINDS).
+_MYSQL_CLAUSE_PLAN_TABLES = frozenset(
+    {
+        "distincts",
+        "order_expressions",
+        "order_items",
+        "order_uses",
+        "orders",
+        "quotient_fields",
+        "result_boundaries",
+        "result_limits",
+    }
+)
+_MYSQL_CLAUSE_AUTHORED = frozenset(
+    {"satisfying_clause", "order_by_clause", "limit_clause", "distinct_clause"}
+)
+MYSQL_SUM_HAVING_KEY_KINDS = frozenset({"my_bigint", "my_int"})
 
 
 def mysql_checked_operands(values) -> bool:
@@ -235,7 +254,12 @@ def mysql_s03_operand(value) -> bool:
 
 
 def mysql_checked_query(
-    plan, *, aggregate: bool, slots: bool = False, lets: bool = False
+    plan,
+    *,
+    aggregate: bool,
+    slots: bool = False,
+    lets: bool = False,
+    clauses: bool = False,
 ) -> bool:
     """A cell's query, from the plan and its authored `query` or `table`:
     its non-empty tables are among _MYSQL_CELL_PLAN_TABLES (and, with
@@ -246,8 +270,11 @@ def mysql_checked_query(
     With ``lets`` (MC G1) a block of each of its value `let`s may come
     first, and its authored names are those `let`s alone: a relation alias
     leaves no value `let`. Every check is O(1) in the program beside its
-    `let`s: at most four more blocks, one source and one authored
-    declaration are read. No query is one while emission derives as main
+    `let`s: at most five more blocks, one source and one authored
+    declaration are read. With ``clauses`` (MC G3) a HAVING block may follow
+    the aggregation, and the query may also hold _MYSQL_CLAUSE_PLAN_TABLES
+    and set _MYSQL_CLAUSE_AUTHORED fields, whose law is
+    mysql_sum_clauses'. No query is one while emission derives as main
     (AS_MAIN)."""
 
     from pietto._project.module_catalog import authored_definitions
@@ -258,6 +285,7 @@ def mysql_checked_query(
 
     stage = row.ProjectSQLStageKind
     middle = (stage.AGGREGATE,) if aggregate else ()
+    middles = (middle, (*middle, stage.SATISFYING)) if clauses else (middle,)
     named = (stage.LET,) * len(plan.let_values) if lets else ()
     owner = plan.scope.selected_owner
     module = plan.scope.completed.semantic_result.modules[owner.module_position]
@@ -270,12 +298,17 @@ def mysql_checked_query(
             and name not in _MYSQL_CELL_PLAN_TABLES
             and not (slots and name in _MYSQL_SLOT_PLAN_TABLES)
             and not (lets and name == "let_values")
+            and not (clauses and name in _MYSQL_CLAUSE_PLAN_TABLES)
             for name in plan.__dataclass_fields__
         )
-        or tuple(block.kind for block in plan.blocks[: len(named) + 4])
-        not in (
-            (*named, *middle, stage.PROJECTION),
-            (*named, stage.WHERE, *middle, stage.PROJECTION),
+        or tuple(block.kind for block in plan.blocks[: len(named) + 5])
+        not in tuple(
+            shape
+            for inner in middles
+            for shape in (
+                (*named, *inner, stage.PROJECTION),
+                (*named, stage.WHERE, *inner, stage.PROJECTION),
+            )
         )
         or any(
             type(block.boundary) is not ProjectSQLBoundary
@@ -293,6 +326,7 @@ def mysql_checked_query(
             getattr(authored, name) not in (None, ())
             for name in authored.__dataclass_fields__
             if name not in _MYSQL_CELL_AUTHORED
+            and not (clauses and name in _MYSQL_CLAUSE_AUTHORED)
             and not (
                 lets
                 and name == "naming_declarations"
@@ -350,8 +384,9 @@ def mysql_sum_query(plan, keys, columns) -> bool:
     MYSQL_SUM_KEY_KINDS storage, nullable or not, and each aggregate a sum,
     count or min or a `count_distinct`, `max` or `avg` of one source field
     read (its realized column in ``columns``) of its MYSQL_SUM_BESIDE
-    storage. The scans of the plan's aggregates and expressions run only for
-    a query with one aggregation."""
+    storage. MC G3's HAVING, ORDER BY, LIMIT and DISTINCT keep
+    mysql_sum_clauses' law. The scans of the plan's aggregates and
+    expressions run only for a query with one aggregation."""
 
     from pietto._project.project_sql_emission_aggregation import function_name
 
@@ -398,13 +433,133 @@ def mysql_sum_query(plan, keys, columns) -> bool:
         )
 
     return (
-        mysql_checked_query(plan, aggregate=True, lets=True)
+        mysql_checked_query(plan, aggregate=True, lets=True, clauses=True)
         and mysql_sum_lets(plan)
         and (s02() or g2())
+        and mysql_sum_clauses(plan, columns)
         and not any(
             getattr(getattr(item, "site", None), "role", None)
             is row.ProjectSQLExpressionRole.SELECT
             for item in plan.expressions
+        )
+    )
+
+
+def mysql_sum_clauses(plan, columns) -> bool:
+    """MC G3: the HAVING, ORDER BY, LIMIT and DISTINCT of an S02 query, which
+    need a GROUP BY key. Each HAVING line compares one output named alone
+    with an unsigned Int literal (MYSQL_TYPED_COMPARISONS), the lines joined
+    by `and`; the output is a key of MYSQL_SUM_HAVING_KEY_KINDS storage or an
+    aggregate other than `avg`, and a line on a sum is its block's only line.
+    Each ORDER BY key is an output named alone, a key of MYSQL_SUM_KEY_KINDS
+    storage or an aggregate other than `avg`. A LIMIT is at least 1, after an
+    ORDER BY whose first key is an aggregate. DISTINCT stands beside no
+    `avg`. An output's value is found by following its ports' sources down
+    to the aggregation, each step to a lower port (``columns`` realizes a
+    key's field)."""
+
+    from pietto._project.project_sql_emission_aggregation import function_name
+
+    satisfying = [
+        item
+        for item in plan.filters
+        if getattr(item.site, "role", None) is row.ProjectSQLExpressionRole.SATISFYING
+    ]
+    if not (satisfying or plan.orders or plan.result_limits or plan.distincts):
+        return True
+
+    def at(ref):
+        return getattr(ref, "kind", None), getattr(ref, "position", None)
+
+    steps = {
+        at(item.ref): item.source for item in (*plan.stage_ports, *plan.result_ports)
+    }
+    steps.update((at(item.ref), item.input) for item in plan.aggregate_projections)
+    targets = {at(item.result): item for item in (*plan.group_keys, *plan.aggregates)}
+
+    def value(ref, kinds):
+        """The key of ``kinds`` storage or the aggregate other than `avg`
+        that a read of ``ref`` carries, or None."""
+        for _ in range(len(steps) + 1):
+            target = targets.get(at(ref))
+            if target is not None:
+                if type(target) is aggregation.ProjectSQLAggregate:
+                    return target if function_name(target.source) != "avg" else None
+                column = columns.get(target.input)
+                return (
+                    target
+                    if column is not None
+                    and column.realization.storage.get("kind") in kinds
+                    else None
+                )
+            if at(ref) not in steps:
+                return None
+            ref = steps[at(ref)]
+        return None
+
+    pending = [_planned(plan, item.predicate) for item in satisfying]
+    read = []
+    while pending:
+        line = pending.pop()
+        if (
+            type(line) is row.ProjectSQLBinary
+            and getattr(line.expression, "operator", None) == "and"
+        ):
+            pending += (_planned(plan, line.left), _planned(plan, line.right))
+            continue
+        left = _planned(plan, getattr(line, "left", None))
+        right = _planned(plan, getattr(line, "right", None))
+        literal = getattr(getattr(right, "expression", None), "value", None)
+        if not (
+            type(line) is row.ProjectSQLComparison
+            and line.expression.operator in MYSQL_TYPED_COMPARISONS
+            and type(left) is aggregation.ProjectSQLResultReference
+            and type(left.expression) is NameExpr
+            and type(right) is row.ProjectSQLLiteral
+            and type(literal) is int
+            and literal >= 0
+        ):
+            return False
+        read.append(value(left.port, MYSQL_SUM_HAVING_KEY_KINDS))
+    expressions = {at(item.ref): item for item in plan.order_expressions}
+    uses = {at(item.ref): item for item in plan.order_uses}
+    keys = []
+    for item in sorted(plan.order_items, key=lambda item: item.position):
+        expression = expressions.get(at(item.expression))
+        use = None if expression is None else uses.get(at(expression.use))
+        if (
+            expression is None
+            or use is None
+            or at(item.value) != at(item.expression)
+            or type(expression.expression) is not NameExpr
+            or expression.operands
+            or len(use.ports) != 1
+        ):
+            return False
+        keys.append(value(use.ports[0], MYSQL_SUM_KEY_KINDS))
+    sums = [
+        target
+        for target in read
+        if type(target) is aggregation.ProjectSQLAggregate
+        and function_name(target.source) == "sum"
+    ]
+    return (
+        bool(plan.group_keys)
+        and len(satisfying) <= 1
+        and None not in read
+        and (not sums or len(read) == 1)
+        and len(plan.orders) <= 1
+        and None not in keys
+        and len(plan.result_limits) <= 1
+        and all(
+            limit.value >= 1
+            and keys
+            and type(keys[0]) is aggregation.ProjectSQLAggregate
+            for limit in plan.result_limits
+        )
+        and not (
+            plan.distincts
+            and any(function_name(item.source) == "avg" for item in plan.aggregates)
         )
     )
 
@@ -810,9 +965,10 @@ def mysql_guarded_product(family: str, operation) -> bool:
 # The compiled record kinds a cell's bundle may hold (D77.24 whitelist), the
 # source's metadata and any literal or WHERE predicate call included; any
 # other kind (a parameter, slot, native use, block, capture or ANY read,
-# match, window, JOIN, result, set, VALUES, table function, Unnest, a legacy
-# scan, or a kind a later format adds) closes its cells. A bind-safe slot and
-# its native use close all but R08's (mysql_compiled_cells).
+# match, window, JOIN, result but an S02 terminal's (MC G3), set, VALUES,
+# table function, Unnest, a legacy scan, or a kind a later format adds)
+# closes its cells. A bind-safe slot and its native use close all but R08's
+# (mysql_compiled_cells).
 _MYSQL_CELL_RECORDS = frozenset(
     {
         "aggregate",
@@ -877,13 +1033,16 @@ def mysql_compiled_cells(
     The entry's terminal is a projection row of its declaration over one
     aggregate of that declaration at most, over one WHERE row of it at most,
     over a source; no other row or aggregate exists and every record is of a
-    kind in _MYSQL_CELL_RECORDS. One pass marks each port that carries a
+    kind in _MYSQL_CELL_RECORDS. Beside an aggregate (MC G3) the terminal may
+    instead be a result record of the declaration over that projection row,
+    which may stand over one HAVING row over the aggregate. One pass marks each port that carries a
     source field: a source port, or a port of that WHERE row that reads a
     marked port. An S01 operation is a whole value of the terminal row that
     no other counted record names (a requirement only anchors it, a port
     repeats its row's value), over reads of marked ports. An S02 value is a
-    sum over a read of a marked port; the terminal row only reads its
-    aggregate's ports, and S02's own law or MC G2's holds of the aggregate.
+    sum over a read of a marked port; the projection row only reads its
+    aggregate's ports (or its HAVING row's), S02's own law or MC G2's holds
+    of the aggregate, and MC G3's of the HAVING row and the result.
     S02's: one key at most, a read of a marked non-null Int port, and sums,
     counts and mins only (MYSQL_SUM_STAGE_FUNCTIONS). G2's: each key a read
     of a marked port whose field's physical storage is of
@@ -918,9 +1077,16 @@ def mysql_compiled_cells(
     )
     owner = entry.get("declaration")
     terminal = records[entry.get("terminal")]
+    # MC G3: ORDER BY, LIMIT and DISTINCT are one result record over the
+    # projection row, HAVING a row between it and its aggregate.
+    result = satisfying = None
+    if terminal.address.kind == "result":
+        result, terminal = terminal, records[terminal.get("input")]
     if terminal.address.kind != "row" or terminal.get("stage") != "projection":
         return empty
     chain, current = [terminal], records[terminal.get("input")]
+    if current.address.kind == "row" and current.get("stage") == "satisfying":
+        satisfying, current = current, records[current.get("input")]
     if current.address.kind == "aggregate":
         chain.append(current)
         current = records[current.get("input")]
@@ -939,13 +1105,17 @@ def mysql_compiled_cells(
         chain.append(current)
         lets.append(current.address)
         current = records[current.get("input")]
-    if current.address.kind != "source" or any(
-        unit.get("owner") != owner for unit in chain
+    clauses = tuple(unit for unit in (satisfying, result) if unit is not None)
+    if (
+        current.address.kind != "source"
+        or any(unit.get("owner") != owner for unit in (*chain, *clauses))
+        or clauses
+        and not (chain[1:2] and chain[1].address.kind == "aggregate")
     ):
         return empty
     from pietto._project.project_compiled_schema import Address
 
-    units = {unit.address for unit in chain}
+    units = {unit.address for unit in (*chain, *clauses)}
     marked, named, slotted = set(), {}, set()
     for address, record in records.items():
         kind = address.kind
@@ -954,8 +1124,10 @@ def mysql_compiled_cells(
             continue
         if kind == "native_use":
             continue
-        if kind not in _MYSQL_CELL_RECORDS or (
-            kind in {"row", "aggregate"} and address not in units
+        if (
+            kind not in _MYSQL_CELL_RECORDS
+            and kind != "result"
+            or (kind in {"row", "aggregate", "result"} and address not in units)
         ):
             return empty
         pending = [] if kind in {"requirement", "port"} else list(record.values)
@@ -1002,6 +1174,105 @@ def mysql_compiled_cells(
             in MYSQL_SUM_BESIDE.get(value.get("function"), ())
         )
 
+    def clauses_law(aggregate) -> bool:
+        """MC G3, from the records: over an aggregate with a key, the HAVING
+        row carries the aggregate's ports in order, and its predicate is the
+        `and` of comparisons (MYSQL_TYPED_COMPARISONS) of a read with an
+        unsigned Int literal, the read carrying a key of
+        MYSQL_SUM_HAVING_KEY_KINDS storage or a value other than `avg`, one
+        on a sum alone. The result's projection reads the projection row,
+        its each ordering read carries a key of MYSQL_SUM_KEY_KINDS storage
+        or a value other than `avg`, a LIMIT is at least 1 after an ordering
+        whose first read carries a value, and DISTINCT stands beside no
+        `avg`. A read carries what its port's sources lead to at the
+        aggregate."""
+        if not clauses:
+            return True
+        outputs = aggregate.get("outputs")
+
+        def value(address, kinds):
+            for _ in range(4):
+                if getattr(address, "kind", None) != "read":
+                    return None
+                port = records[records[address].get("port")]
+                address = port.get("source")
+                if port.get("owner") == aggregate.address:
+                    break
+            else:
+                return None
+            if address in aggregate.get("keys"):
+                return address if storage_kind(address) in kinds else None
+            if address in aggregate.get("values"):
+                function = records[address].get("function")
+                return address if function != "avg" else None
+            return None
+
+        read, pending = [], []
+        if satisfying is not None:
+            values = satisfying.get("values")
+            if len(values) != len(outputs) or not all(
+                item.kind == "read" and records[item].get("port") == port
+                for item, port in zip(values, outputs)
+            ):
+                return False
+            pending.append(satisfying.get("predicate"))
+        while pending:
+            address = pending.pop()
+            if getattr(address, "kind", None) != "operation":
+                return False
+            operation = records[address]
+            pair = operation.get("operands")
+            if operation.get("operator") == ("binary", "and"):
+                pending.extend(pair)
+                continue
+            if not (
+                operation.get("operator") in _MYSQL_TYPED_OPERATORS
+                and len(pair) == 2
+                and pair[1].kind == "literal"
+            ):
+                return False
+            literal = records[pair[1]]
+            number = getattr(literal.get("value"), "value", None)
+            if not (
+                literal.get("tag") == "Int" and type(number) is int and number >= 0
+            ):
+                return False
+            read.append(value(pair[0], MYSQL_SUM_HAVING_KEY_KINDS))
+        ordering = () if result is None else result.get("ordering")
+        keys = [value(item, MYSQL_SUM_KEY_KINDS) for item, _ in ordering]
+        limit = None if result is None else result.get("limit")
+        values = aggregate.get("values")
+        return (
+            bool(aggregate.get("keys"))
+            and None not in read
+            and (
+                len(read) <= 1
+                or all(
+                    records[item].get("function") != "sum"
+                    for item in read
+                    if item in values
+                )
+            )
+            and None not in keys
+            and all(
+                item.kind == "read"
+                and records[records[item].get("port")].get("owner") == terminal.address
+                for item in (() if result is None else result.get("projection"))
+            )
+            and (
+                limit is None
+                or type(limit) is int
+                and limit >= 1
+                and bool(keys)
+                and keys[0] in values
+            )
+            and not (
+                result is not None
+                and result.get("distinct") is True
+                and any(records[item].get("function") == "avg" for item in values)
+            )
+        )
+
     if chain[1:2] and chain[1].address.kind == "aggregate":
         aggregate = chain[1]
         if slotted or lets and not _mysql_compiled_lets(records, chain[2:], aggregate):
@@ -1027,10 +1298,15 @@ def mysql_compiled_cells(
             or beside(records[value])
             for value in values
         )
-        if not (s02 or g2) or not all(
-            value.kind == "read"
-            and records[records[value].get("port")].get("owner") == aggregate.address
-            for value in terminal.get("values")
+        below = aggregate if satisfying is None else satisfying
+        if (
+            not (s02 or g2)
+            or not all(
+                value.kind == "read"
+                and records[records[value].get("port")].get("owner") == below.address
+                for value in terminal.get("values")
+            )
+            or not clauses_law(aggregate)
         ):
             return empty
         return (
