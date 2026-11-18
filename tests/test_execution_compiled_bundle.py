@@ -3005,6 +3005,19 @@ _NUMERIC_UNFORGEABLE = {
     "G3_R1": "PIE-B1002",
     "G3_R2": "PIE-B1004",
     "G3_X8": "PIE-B1003",
+    # MC G4's: a label too long, over one level and two, an upstream item
+    # outside S01's cell, a sum of an `avg`'s DOUBLE, an upstream `avg` as
+    # a key or under `avg` or `count_distinct`, which main's Float key,
+    # Float `avg` and `count_distinct` laws refuse first, and an upstream
+    # set operation, which project semantics refuses first.
+    "G4_R1": "PIE-B1002",
+    "G4_R2": "PIE-B1008",
+    "G4_R9": "PIE-B1004",
+    "G4_R16": "PIE-B1002",
+    "G4_avg_key": "PIE-B1003",
+    "G4_avg_avg": "PIE-B1004",
+    "G4_avg_count_distinct": "PIE-B1003",
+    "G4_upstream_union": "PIE-B1003",
 }
 
 
@@ -3020,14 +3033,14 @@ def _numeric_cells_opened(patch):
         lambda values: bool(values) and all(value.tag == "Int" for value in values),
     )
     patch.setattr(rows, "mysql_sum_operand", lambda value: value.tag == "Int")
-    patch.setattr(rows, "mysql_sum_query", lambda plan, keys, columns: True)
+    patch.setattr(rows, "mysql_sum_query", lambda plan, stage, keys, columns: True)
     patch.setattr(rows, "mysql_sum_cell", lambda aggregate, argument: True)
 
 
 # Each refused S01/S02 body, a WHERE cell whose literal a bind-safe `?`
 # replaces, each MC G1 and G2 (`G2_` before its name) neighbour under a
-# policy that refuses it, and each SMALLINT read that G1 and G2 leave in
-# S02's cell (`G1S_` and `G2K_` before its name).
+# policy that refuses it, and each SMALLINT read that G1, G2 and G4 leave in
+# S02's cell (`G1S_`, `G2K_` and `G4S_` before its name).
 _NUMERIC_FORGED = [
     *(
         (shape, "preserve_literals")
@@ -3070,26 +3083,47 @@ _NUMERIC_FORGED = [
         ("G2K_" + shape, "preserve_literals")
         for shape in sorted(_pietto_sql_emission.G2_S02_KEY_REFUSALS)
     ),
+    *(
+        ("G4S_" + shape, "preserve_literals")
+        for shape in sorted(_pietto_sql_emission.G4_SMALLINT_REFUSALS)
+    ),
+    *(
+        (
+            "G4_" + shape,
+            _pietto_sql_emission.G4_REFUSAL_POLICIES.get(shape, ("preserve_literals",))[
+                0
+            ],
+        )
+        for shape in sorted(_pietto_sql_emission.G4_REFUSALS)
+    ),
 ]
-# A relation alias or an unread window leaves G1's neighbours X6 and
-# let_window the records and document of L2, and G2's R6 and G3's R5 those
-# of the same body read directly.
+# An alias of an alias, an unread alias of another relation or of a second
+# import name of the upstream and an upstream declared as a relation `let`
+# block leave G4's R6, R13, X10 and X9, and an alias or an unread window its
+# SMALLINT reads (G4S_), the records and document of the same body read
+# directly.
 _NUMERIC_ALIASES = {
     **_pietto_sql_emission.NUMERIC_ALIASES,
-    "X6": _pietto_sql_emission.G1_FORMS["L2"],
-    "let_window": _pietto_sql_emission.G1_FORMS["L2"],
-    "G2_R6": "query result:\n    from rows\n    group by k, note\n    select:\n"
-    "        k\n        note\n        s = sum(n)\n",
-    "G3_R5": "query result:\n    from rows\n    group by k\n    select:\n"
-    "        k\n        x = sum(n)\n    order by:\n        k\n",
+    **{"G4_" + shape: body for shape, body in _pietto_sql_emission.G4_ALIASES.items()},
+    **{
+        "G4S_" + shape: body
+        for shape, body in _pietto_sql_emission.G4_SMALLINT_ALIASES.items()
+    },
 }
 
 
 def _numeric_forged_world(shape):
-    """The world, keywords and body of a forged numeric shape: a G2 or G3
-    neighbour (`G2_` or `G3_` before its name) over grouping_world, or a
-    SMALLINT read beside G1, G2 or G3 (`G1S_`, `G2K_`) over
-    division_world."""
+    """The world, keywords and body of a forged numeric shape: a G2, G3 or
+    G4 neighbour (`G2_`, `G3_` or `G4_` before its name) over
+    grouping_world, or a SMALLINT read beside G1, G2 or G3 (`G1S_`, `G2K_`)
+    or under G4's organization (`G4S_`) over division_world (or
+    G4_SMALLINT_WORLDS' world)."""
+    if shape.startswith("G4_"):
+        return (
+            _pietto_sql_emission.grouping_world,
+            _pietto_sql_emission.G4_REFUSAL_WORLDS.get(shape[3:], {}),
+            _pietto_sql_emission.G4_REFUSALS[shape[3:]],
+        )
     if shape.startswith("G2_"):
         return (
             _pietto_sql_emission.grouping_world,
@@ -3102,13 +3136,16 @@ def _numeric_forged_world(shape):
             {},
             _pietto_sql_emission.G3_REFUSALS[shape[3:]],
         )
-    if shape.startswith(("G1S_", "G2K_")):
-        table = (
-            _pietto_sql_emission.G1_SMALLINT_REFUSALS
-            if shape.startswith("G1S_")
-            else _pietto_sql_emission.G2_S02_KEY_REFUSALS
+    if shape.startswith(("G1S_", "G2K_", "G4S_")):
+        table = {
+            "G1S_": _pietto_sql_emission.G1_SMALLINT_REFUSALS,
+            "G2K_": _pietto_sql_emission.G2_S02_KEY_REFUSALS,
+            "G4S_": _pietto_sql_emission.G4_SMALLINT_REFUSALS,
+        }[shape[:4]]
+        name, keywords = _pietto_sql_emission.G4_SMALLINT_WORLDS.get(
+            shape[4:] if shape.startswith("G4S_") else "", ("division_world", {})
         )
-        return _pietto_sql_emission.division_world, {}, table[shape[4:]][0]
+        return getattr(_pietto_sql_emission, name), keywords, table[shape[4:]][0]
     return (
         _pietto_sql_emission.numeric_world,
         _pietto_sql_emission.G1_REFUSAL_WORLDS.get(shape, {}),
@@ -3129,10 +3166,12 @@ def test_forged_mysql_numeric_cells_fail_every_reader(
     the re-rendering alone takes the records) and compiled replay and its
     template (records) once the law is back; a body whose
     emission verifies itself or that another rule refuses has no artifact.
-    A relation alias or a window, read or not, or an imported source fails
-    the plan's readers only: its document and records are the direct read's
-    apart from source positions and the source digest, so the pure boundary
-    and compiled replay accept them (NUMERIC_ALIASES)."""
+    A relation alias or a window, read or not, an imported source or an
+    upstream declared as a relation `let` block that no cell takes (MC
+    G4's R6, R13, X9 and X10 among them) fails the plan's readers only: its
+    document and records are the direct read's apart from source positions
+    and the source digest, so the pure boundary and compiled replay accept
+    them (NUMERIC_ALIASES)."""
     import _pietto_sql_emission_portable as portable
     import _pietto_sql_emission_pure_boundary as pure
     from pietto._project.project_compiled_lowering import emit_compiled
@@ -3162,15 +3201,21 @@ def test_forged_mysql_numeric_cells_fail_every_reader(
         assert artifact is not None, outcome.blockers
         observed = portable.export_emission_observation(artifact, artifact.request)
         loaded = _numeric_loaded(artifact)
-    summed = shape.startswith(("sum_", "s02", "G1S_", "G2_", "G2K_", "G3_")) or (
-        shape in _pietto_sql_emission.G1_REFUSALS
-    )
+    summed = shape.startswith(
+        ("sum_", "s02", "G1S_", "G2_", "G2K_", "G3_", "G4_", "G4S_")
+    ) or (shape in _pietto_sql_emission.G1_REFUSALS)
     assert not verify_project_sql_emission(artifact, artifact.request).verified
     with pytest.raises(BindingError, match="^BINDING_ARTIFACT$"):
         prepare_live_template(artifact)
     values = tuple(value.value for value in artifact.fixed_values)
     if shape in _NUMERIC_ALIASES:
-        _, direct = world(tmp_path / "direct", "mysql", _NUMERIC_ALIASES[shape])
+        _, direct = world(
+            tmp_path / "direct",
+            "mysql",
+            _NUMERIC_ALIASES[shape],
+            "preserve_literals",
+            **keywords,
+        )
         assert direct.artifact is not None
         assert artifact.rendered.sql == direct.artifact.rendered.sql
         assert observed.canonical_bytes is not None
@@ -4213,6 +4258,178 @@ def test_the_mysql_pure_g3_law_refuses_each_edited_record(tmp_path, edit):
         tmp_path,
         "mysql",
         {**_pietto_sql_emission.G3_FORMS, **_pietto_sql_emission.G3_CELLS}[form],
+    )
+    artifact = outcome.artifact
+    assert artifact is not None, outcome.blockers
+    exported = portable.export_emission_observation(artifact, artifact.request)
+    assert exported.canonical_bytes is not None
+    view = pure.parse_emission_observation(exported.canonical_bytes).view
+    assert view is not None
+    records = dict(view.records)
+    sums = frozenset(
+        ref
+        for ref, record in records.items()
+        if ref.kind == "aggregate_value_column" and record.fields["function"] == "sum"
+    )
+    assert sums and pure._mysql_cells(pure._Doc(records))[1] == sums
+    edited = pure._Doc(change(records))
+    assert pure._mysql_cells(edited) == (frozenset(),) * 5
+
+
+def _records_steps(*edits):
+    def edit(records):
+        for step in edits:
+            records = step(records)
+        return records
+
+    return edit
+
+
+# MC G4: each edit of a G4 body's bundle that only one check of the compiled
+# two-level law refuses, with the body it edits. A1's upstream (declaration
+# 1) aggregates by two keys (reads 0 and 1) into `s` and `m` (values 0 and
+# 1), projected by row 0 (reads 3 to 6 into ports 12 to 15); the query's
+# aggregate 1 groups by read 7 (port 12) and sums reads 8 (`s`, port 14),
+# 9 (`m`) and 10 (`n`) in values 2 to 4. In G4_CELLS' `staged_sum` value 3
+# sums `lo`, an upstream `min` of an INT field, here below the upstream's
+# WHERE (a `max` of one is refused below a WHERE or not).
+_COMPILED_G4_EDITS = {
+    "upstream_sum_as_key": (
+        "A1",
+        _record_edit(_A("aggregate", 1), keys=(_A("read", 8),)),
+    ),
+    "upstream_sum_unread": (
+        "A1",
+        _record_edit(_A("aggregate_value", 2), arguments=(_A("read", 9),)),
+    ),
+    "upstream_no_key": ("A1", _record_edit(_A("aggregate", 0), keys=())),
+    "upstream_projection_computes": (
+        "A1",
+        _record_edit(
+            _A("row", 0),
+            values=(_A("read", 3), _A("read", 4), _A("read", 5), _A("read", 2)),
+        ),
+    ),
+    "upstream_of_the_query": (
+        "A1",
+        _record_edit(_A("row", 0), owner=_A("declaration", 2)),
+    ),
+    "query_without_sum": (
+        "A1",
+        _records_steps(
+            *(
+                _record_edit(_A("aggregate_value", index), function="min")
+                for index in (2, 3, 4)
+            )
+        ),
+    ),
+    "staged_min_maximum": (
+        "staged_sum",
+        _record_edit(_A("aggregate_value", 3), function="max"),
+    ),
+    # G4_CELLS' `two_sums`: the upstream projection's read 5 of `t` (port
+    # 10) reads `s` (port 9) instead, so its sum value 1 is computed and
+    # read by nothing.
+    "upstream_sum_dropped": (
+        "two_sums",
+        _record_edit(_A("read", 5), port=_A("port", 9)),
+    ),
+}
+
+
+@pytest.mark.parametrize("edit", sorted(_COMPILED_G4_EDITS))
+def test_the_mysql_compiled_g4_law_refuses_each_edited_record(tmp_path, edit):
+    """MC G4: compiled replay's two-level law finds a G4 body's sums at both
+    levels and none once one record changes: an upstream sum as the query's
+    key, an upstream sum that no aggregate of the query reads or that the
+    upstream's projection drops, an
+    aggregating upstream with no key or whose projection reads past its
+    aggregate, an upstream row of the query's own declaration, a query that
+    holds no sum, or a `max` of an upstream `min` of an INT field below the
+    upstream's WHERE or not."""
+    from pietto._project import project_sql_emission_rows as rows
+
+    name, change = _COMPILED_G4_EDITS[edit]
+    records, query = _numeric_records(
+        tmp_path,
+        _pietto_sql_emission.G4_FORMS.get(name) or _pietto_sql_emission.G4_CELLS[name],
+        _pietto_sql_emission.grouping_world,
+    )
+    sums = frozenset(
+        address
+        for address, record in records.items()
+        if address.kind == "aggregate_value" and record.get("function") == "sum"
+    )
+    assert sums and rows.mysql_compiled_cells(records, records[query])[1] == sums
+    edited = change(records)
+    assert rows.mysql_compiled_cells(edited, edited[query]) == (frozenset(),) * 5
+
+
+# MC G4: each edit of a G4 body's document that only one check of the pure
+# two-level law refuses, with the body it edits. A1's upstream bodies 0 and
+# 1 (aggregate stage 0) stand under the named use of body 2 (aggregate stage
+# 1, its key column 2 and its sums in value columns 2 to 4, whose arguments
+# are stage references 1 to 3; stage column 17 carries the upstream sum
+# `s`). U1's upstream body 0 projects stage
+# reference 0 of a source field. In G4_CELLS' `staged_sum` value column 3
+# sums `lo`, an upstream `min` of an INT field, here below the upstream's
+# WHERE (a `max` of one is refused below a WHERE or not).
+_PURE_G4_EDITS = {
+    "upstream_definition": (
+        "A1",
+        _doc_edit("row_body", 1, definition=_doc_ref("scope_definition", 2)),
+    ),
+    "upstream_no_key": ("A1", _doc_edit("aggregate_stage", 0, keys=())),
+    "upstream_sum_unread": (
+        "A1",
+        _doc_edit(
+            "aggregate_value_column",
+            2,
+            argument=_doc_ref("sql_stage_reference", 2),
+        ),
+    ),
+    "upstream_sum_as_key": (
+        "A1",
+        _doc_edit("aggregate_key_column", 2, read=_doc_ref("stage_column", 17)),
+    ),
+    "plain_read_not_field": (
+        "U1",
+        lambda records: _doc_edit(
+            "stage_column",
+            records[_doc_ref("sql_stage_reference", 0)].fields["column"].index,
+            field=None,
+        )(records),
+    ),
+    "staged_min_maximum": (
+        "staged_sum",
+        _doc_edit("aggregate_value_column", 3, function="max"),
+    ),
+    # G4_CELLS' `two_sums`: the upstream projection's column 2 reads the
+    # stage column of `s` (8) in place of `t`'s (10).
+    "upstream_sum_dropped": (
+        "two_sums",
+        _doc_edit("aggregate_projection_column", 2, read=_doc_ref("stage_column", 8)),
+    ),
+}
+
+
+@pytest.mark.parametrize("edit", sorted(_PURE_G4_EDITS))
+def test_the_mysql_pure_g4_law_refuses_each_edited_record(tmp_path, edit):
+    """MC G4: the pure boundary's two-level law finds a G4 body's sums at
+    both levels and none once one record of the document changes: an
+    upstream body of the query's own definition, an aggregating upstream
+    with no key, an upstream sum that no aggregate of the query reads, that
+    the upstream's projection drops or that is its key, a plain upstream that projects no field read, or a
+    `max` of an upstream `min` of an INT field below the upstream's
+    WHERE or not."""
+    import _pietto_sql_emission_portable as portable
+    import _pietto_sql_emission_pure_boundary as pure
+
+    name, change = _PURE_G4_EDITS[edit]
+    _, outcome = _pietto_sql_emission.grouping_world(
+        tmp_path,
+        "mysql",
+        _pietto_sql_emission.G4_FORMS.get(name) or _pietto_sql_emission.G4_CELLS[name],
     )
     artifact = outcome.artifact
     assert artifact is not None, outcome.blockers

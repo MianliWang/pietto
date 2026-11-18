@@ -1507,8 +1507,8 @@ _FIRST = (
 # world its own tests build it in: S06 one that R2 executed refined and one
 # that failed at its first page, S06's `same_value` in a JOIN `on` (of an
 # Int and of a Float), S02 beside S01, R08's `Int /` over a literal
-# divisor, MC G1's INT and `let` carriers, MC G2's aggregates and keys, and
-# MC G3's later clauses.
+# divisor, MC G1's INT and `let` carriers, MC G2's aggregates and keys,
+# MC G3's later clauses, and MC G4's relation alias and aggregating upstream.
 PHASE77_MYSQL_FORMS = {
     "S05": ("agg", _STATISTIC),
     "S06_join": (
@@ -1583,6 +1583,17 @@ PHASE77_MYSQL_FORMS = {
         "query result:\n    from rows\n    group by k, note\n    select distinct:\n"
         "        kk = k\n        z = sum(n)\n    order by:\n        z desc\n"
         "        kk\n    limit 2\n",
+    ),
+    "G4_alias": (
+        "grouping",
+        "query result:\n    let r = rows\n    from r\n    group by r.tag\n"
+        "    select:\n        tag = r.tag\n        x = sum(r.c)\n",
+    ),
+    "G4_upstream": (
+        "grouping",
+        "query base:\n    from rows\n    group by note\n    select:\n"
+        "        note\n        s = sum(n)\nquery result:\n    from base\n"
+        "    select:\n        x = sum(s)\n",
     ),
     "S15": (
         "remainder",
@@ -1667,6 +1678,13 @@ MYSQL_0111_FORMS = {
         "query result:\n    from rows\n    group by k, note\n    select distinct:\n"
         "        kk = k\n        z = max(n)\n    order by:\n        z desc\n"
         "        kk\n    limit 2\n",
+        _WORKSPACE,
+    ),
+    "G4": (
+        "grouping",
+        "query base:\n    from rows\n    select:\n        k\n        a\n"
+        "query result:\n    let b = base\n    from b\n    group by k\n"
+        "    select:\n        k\n        hi = max(b.a)\n",
         _WORKSPACE,
     ),
     "S15": (

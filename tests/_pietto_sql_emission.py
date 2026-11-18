@@ -17859,7 +17859,6 @@ NUMERIC_REFUSALS = {
     "sum_having_outputs": "query result:\n    from rows\n    group by k\n    select:\n        k\n        x = sum(a)\n    having:\n        x > k\n",
     "sum_limit_by_key": "query result:\n    from rows\n    group by k\n    select:\n        k\n        x = sum(a)\n    order by:\n        k\n    limit 2\n",
     "sum_limit": "query result:\n    from rows\n    group by k\n    select:\n        k\n        x = sum(a)\n    limit 2\n",
-    "sum_upstream": "query up:\n    from rows\n    select:\n        k\n        a\nquery result:\n    from up\n    group by k\n    select:\n        k\n        x = sum(a)\n",
     "sum_filtered": "query result:\n    from rows\n    group by k\n    select:\n        k\n        x = sum(o.a for o in group if o.id > 0)\n",
     "sum_header_parameter": "query result(lo: Int):\n    from rows\n    where id > lo\n    group by k\n    select:\n        k\n        x = sum(a)\n",
     # D77.24: no relation alias, no unread header parameter and no let.
@@ -17868,14 +17867,11 @@ NUMERIC_REFUSALS = {
     "unused_header_parameter": "query result(z: Int):\n    from rows\n    select:\n        s = a + b\n",
     "let_carry": "query result:\n    from rows\n    let t = a\n    select:\n        s = t + b\n",
     "abs_nonnull": "query result:\n    from rows\n    select:\n        s = abs(n)\n",
-    "sum_row_input_alias": "query result:\n    let x = rows\n    from x\n    group by k\n    select:\n        k\n        total = sum(a)\n",
     "sum_row_input_alias_chain": "query result:\n    let x = rows\n    let y = x\n    from y\n    group by k\n    select:\n        k\n        total = sum(a)\n",
     "sum_unused_header_parameter": "query result(z: Int):\n    from rows\n    group by k\n    select:\n        k\n        t = sum(a)\n",
     # A relation alias that nothing reads leaves no trace in the plan.
     "unread_row_input_alias": "query result:\n    let x = rows\n    from rows\n    select:\n        s = a + b\n",
-    "sum_unread_row_input_alias": "query result:\n    let x = rows\n    from rows\n    group by k\n    select:\n        k\n        total = sum(a)\n",
     "unread_window": "query result:\n    from rows\n    let w = window(order by id)\n    select:\n        s = a + b\n",
-    "sum_unread_window": "query result:\n    from rows\n    let w = window(order by id)\n    group by k\n    select:\n        k\n        total = sum(a)\n",
     # A source of another module, imported under its own name or another.
     "imported_source": {
         **_NUMERIC_IMPORT,
@@ -17886,11 +17882,6 @@ NUMERIC_REFUSALS = {
         **_NUMERIC_IMPORT,
         "other.pietto": _NUMERIC_IMPORT["other.pietto"].format("rows as r")
         + "query result:\n    from r\n    select:\n        s = a + b\n",
-    },
-    "sum_imported_source_alias": {
-        **_NUMERIC_IMPORT,
-        "other.pietto": _NUMERIC_IMPORT["other.pietto"].format("rows as r")
-        + "query result:\n    from r\n    group by k\n    select:\n        k\n        total = sum(a)\n",
     },
     # Owner 2026-11-13T00:20Z: a cell beside another refused form keeps
     # main's refusal too.
@@ -17907,14 +17898,10 @@ NUMERIC_ALIASES = {
     "row_input_alias": NUMERIC_SPELLINGS["s01_parenthesized"],
     "row_input_alias_chain": NUMERIC_SPELLINGS["s01_parenthesized"],
     "unread_row_input_alias": NUMERIC_SPELLINGS["s01_parenthesized"],
-    "sum_row_input_alias": NUMERIC_CELLS["s02_grouped"],
     "sum_row_input_alias_chain": NUMERIC_CELLS["s02_grouped"],
-    "sum_unread_row_input_alias": NUMERIC_CELLS["s02_grouped"],
     "unread_window": NUMERIC_SPELLINGS["s01_parenthesized"],
-    "sum_unread_window": NUMERIC_CELLS["s02_grouped"],
     "imported_source": NUMERIC_SPELLINGS["s01_parenthesized"],
     "imported_source_alias": NUMERIC_SPELLINGS["s01_parenthesized"],
-    "sum_imported_source_alias": NUMERIC_CELLS["s02_grouped"],
 }
 NUMERIC_REFUSAL_BLOCKERS = {
     "nonnull_operand": [("PIE-B1002", "arithmetic_outside_physical_range", 12, 9)],
@@ -17948,7 +17935,6 @@ NUMERIC_REFUSAL_BLOCKERS = {
     ],
     "sum_limit_by_key": [("PIE-B1004", "sum_int_aggregate_range_proof_missing", 14, 9)],
     "sum_limit": [("PIE-B1004", "sum_int_aggregate_range_proof_missing", 14, 9)],
-    "sum_upstream": [("PIE-B1004", "sum_int_aggregate_range_proof_missing", 19, 9)],
     "sum_filtered": [("PIE-B1004", "sum_int_aggregate_range_proof_missing", 14, 9)],
     "sum_header_parameter": [
         ("PIE-B1004", "sum_int_aggregate_range_proof_missing", 15, 9)
@@ -17962,9 +17948,6 @@ NUMERIC_REFUSAL_BLOCKERS = {
     ],
     "let_carry": [("PIE-B1002", "arithmetic_outside_physical_range", 13, 9)],
     "abs_nonnull": [("PIE-B1002", "abs_result_outside_physical_range", 12, 9)],
-    "sum_row_input_alias": [
-        ("PIE-B1004", "sum_int_aggregate_range_proof_missing", 15, 9)
-    ],
     "sum_row_input_alias_chain": [
         ("PIE-B1004", "sum_int_aggregate_range_proof_missing", 16, 9)
     ],
@@ -17974,18 +17957,9 @@ NUMERIC_REFUSAL_BLOCKERS = {
     "unread_row_input_alias": [
         ("PIE-B1002", "arithmetic_outside_physical_range", 13, 9)
     ],
-    "sum_unread_row_input_alias": [
-        ("PIE-B1004", "sum_int_aggregate_range_proof_missing", 15, 9)
-    ],
     "unread_window": [("PIE-B1002", "arithmetic_outside_physical_range", 13, 9)],
-    "sum_unread_window": [
-        ("PIE-B1004", "sum_int_aggregate_range_proof_missing", 15, 9)
-    ],
     "imported_source": [("PIE-B1002", "arithmetic_outside_physical_range", 7, 9)],
     "imported_source_alias": [("PIE-B1002", "arithmetic_outside_physical_range", 7, 9)],
-    "sum_imported_source_alias": [
-        ("PIE-B1004", "sum_int_aggregate_range_proof_missing", 9, 9)
-    ],
     "beside_literal_operand": [
         ("PIE-B1002", "arithmetic_outside_physical_range", 12, 9),
         ("PIE-B1002", "arithmetic_outside_physical_range", 13, 9),
@@ -18248,9 +18222,10 @@ G1_CELLS = {
     "let_read_twice": "query result:\n    from rows\n    let t = c\n    where id > 3\n    group by k\n    select:\n        x = sum(t)\n        y = sum(t)\n",
 }
 # Rule two (D77.37) and G1's neighbours: R1, R2, R4 and R5 refused for
-# another reason beside the law (G1's R3, ORDER BY, is a G3 cell, and R6,
-# `avg` beside an INT sum, a G2 one), X1-X6 outside it (X1 over a SMALLINT
-# `c`, G1_REFUSAL_WORLDS), and `let` reads the law refuses.
+# another reason beside the law (G1's R3, ORDER BY, is a G3 cell, R6, `avg`
+# beside an INT sum, a G2 one, and X6, a relation alias, a G4 one), X1-X5
+# outside it (X1 over a SMALLINT `c`, G1_REFUSAL_WORLDS), and `let` reads
+# the law refuses.
 G1_REFUSALS = {
     "R1": "query result:\n    from rows\n    group by k\n    select:\n        k\n        %s = sum(n)\n"
     % ("x" * 257),
@@ -18262,14 +18237,12 @@ G1_REFUSALS = {
     "X3": "query result:\n    from rows\n    let t = c + 1\n    select:\n        s = sum(t)\n",
     "X4": "query result:\n    from rows\n    let t = n\n    group by k\n    select:\n        k\n        s = sum(t)\n        lo = min(t)\n",
     "X5": "query result:\n    from rows\n    let t = n\n    group by k\n    select:\n        k\n        s = sum(n)\n",
-    "X6": "query result:\n    let x = rows\n    from x\n    let t = n\n    select:\n        s = sum(t)\n",
     "let_in_where": "query result:\n    from rows\n    let t = n\n    where t > 3\n    select:\n        s = sum(t)\n",
     "let_counted": "query result:\n    from rows\n    let t = c\n    group by k\n    select:\n        k\n        s = sum(t)\n        m = count(t)\n",
     "let_unread_beside_read": "query result:\n    from rows\n    let t = n\n    let u = c\n    group by k\n    select:\n        k\n        s = sum(t)\n",
     "let_keyed": "query result:\n    from rows\n    let t = n\n    group by t\n    select:\n        s = sum(t)\n",
     "let_keyed_int": "query result:\n    from rows\n    let t = k\n    group by t\n    select:\n        s = sum(t)\n",
     "let_keyed_where": "query result:\n    from rows\n    let t = k\n    where id > 3\n    group by t\n    select:\n        s = sum(t)\n",
-    "let_window": "query result:\n    from rows\n    let w = window(order by id)\n    let t = n\n    select:\n        s = sum(t)\n",
 }
 G1_REFUSAL_POLICIES = {"R5": ("bind_safe_literals",)}
 G1_REFUSAL_WORLDS = {"X1": {"smallint": True}}
@@ -18289,7 +18262,6 @@ G1_REFUSAL_BLOCKERS = {
     "X3": [("PIE-B1004", "sum_int_aggregate_range_proof_missing", 13, 9)],
     "X4": [("PIE-B1004", "sum_int_aggregate_range_proof_missing", 15, 9)],
     "X5": [("PIE-B1004", "sum_int_aggregate_range_proof_missing", 15, 9)],
-    "X6": [("PIE-B1004", "sum_int_aggregate_range_proof_missing", 14, 9)],
     "let_in_where": [("PIE-B1004", "sum_int_aggregate_range_proof_missing", 14, 9)],
     "let_counted": [("PIE-B1004", "sum_int_aggregate_range_proof_missing", 15, 9)],
     "let_unread_beside_read": [
@@ -18298,7 +18270,6 @@ G1_REFUSAL_BLOCKERS = {
     "let_keyed": [("PIE-B1004", "sum_int_aggregate_range_proof_missing", 14, 9)],
     "let_keyed_int": [("PIE-B1004", "sum_int_aggregate_range_proof_missing", 14, 9)],
     "let_keyed_where": [("PIE-B1004", "sum_int_aggregate_range_proof_missing", 15, 9)],
-    "let_window": [("PIE-B1004", "sum_int_aggregate_range_proof_missing", 14, 9)],
 }
 # PostgreSQL emits each but this one, which keeps main's own blocker.
 G1_POSTGRES_BLOCKERS = {
@@ -18358,9 +18329,13 @@ source rows: Row = {target}.table("opaque.locator.not.sql")
 """
 
 
-def grouping_world(directory, target, body, policy="preserve_literals", *, flag=False):
+def grouping_world(
+    directory, target, body, policy="preserve_literals", *, flag=False, wide=False
+):
     """``body`` over GROUPING_HEADER's source, numeric_world's with `tag` and
-    `note` appended; ``flag`` appends a nullable Bool `f` too (G2's X6)."""
+    `note` appended; ``flag`` appends a nullable Bool `f` too (G2's X6), and
+    ``wide`` a nullable Float `fl`, Timestamp `ts`, Decimal(9, 2) `dc` and
+    Date `dt` (G4_REFUSAL_WORLDS)."""
     postgres = target == "postgres"
     text = {
         "storage": {"kind": "pg_text"}
@@ -18378,18 +18353,53 @@ def grouping_world(directory, target, body, policy="preserve_literals", *, flag=
         "storage": {"kind": "pg_bool" if postgres else "my_bool01"},
         "domain": {"kind": "bool01"},
     }
-    return _numeric_case(
-        directory,
-        target,
-        body,
-        policy,
-        False,
-        GROUPING_HEADER.replace("\nsource", "\n    f: Bool | None\nsource")
-        if flag
-        else GROUPING_HEADER,
-        (("tag", False, text), ("note", True, text))
-        + ((("f", True, boolean),) if flag else ()),
-    )
+    fields = (("tag", False, text), ("note", True, text))
+    header = GROUPING_HEADER
+    if flag:
+        fields += (("f", True, boolean),)
+        header = header.replace("\nsource", "\n    f: Bool | None\nsource")
+    if wide:
+        decimal = {"kind": "pg_numeric" if postgres else "my_decimal"}
+        fields += (
+            (
+                "fl",
+                True,
+                {"storage": {"kind": FLOAT_STORAGE[target]}, "domain": FINITE_FLOAT},
+            ),
+            (
+                "ts",
+                True,
+                {
+                    "storage": {
+                        "kind": "pg_timestamp" if postgres else "my_datetime",
+                        "fractional_seconds": 6,
+                    },
+                    "domain": {"kind": "timestamp"},
+                },
+            ),
+            (
+                "dc",
+                True,
+                {
+                    "storage": {**decimal, "precision": 9, "scale": 2},
+                    "domain": {"kind": "decimal", "precision": 9, "scale": 2},
+                },
+            ),
+            (
+                "dt",
+                True,
+                {
+                    "storage": {"kind": "pg_date" if postgres else "my_date"},
+                    "domain": {"kind": "date"},
+                },
+            ),
+        )
+        header = header.replace(
+            "\nsource",
+            "\n    fl: Float | None\n    ts: Timestamp | None"
+            "\n    dc: Decimal(9, 2) | None\n    dt: Date | None\nsource",
+        )
+    return _numeric_case(directory, target, body, policy, False, header, fields)
 
 
 # The thirteen forms of the G2 list's preregistration over GROUPING_HEADER's
@@ -18534,7 +18544,6 @@ G2_REFUSALS = {
     "R2": "query result:\n    from rows\n    group by tag\n    select:\n        tag\n        x = sum(n)\n        y = sum(a + b)\n        mean = avg(c)\n",
     "R4": "query result(lo: Int):\n    from rows\n    where id > lo\n    group by tag\n    select:\n        tag\n        x = sum(n)\n        hi = max(n)\n",
     "R5": G2_FORMS["A4"],
-    "R6": "query result:\n    let x = rows\n    from x\n    group by k, note\n    select:\n        k\n        note\n        s = sum(n)\n",
     "X1": _G2_GROUPED + '        s = string_agg(tag, ",", order by tag)\n',
     "X2": _G2_GROUPED + "        p = sum(1 for o in group if o.c > 0)\n",
     "X3": _G2_GROUPED + "        d = count_distinct(c, n)\n",
@@ -18568,7 +18577,6 @@ G2_REFUSAL_BLOCKERS = {
     ],
     "R4": [("PIE-B1004", "sum_int_aggregate_range_proof_missing", 17, 9)],
     "R5": [("PIE-B1004", "sum_int_aggregate_range_proof_missing", 17, 9)],
-    "R6": [("PIE-B1004", "sum_int_aggregate_range_proof_missing", 18, 9)],
     "X1": [
         ("PIE-B1004", "sum_int_aggregate_range_proof_missing", 16, 9),
         ("PIE-B1003", "aggregate_function_not_promised_in_slice8", 17, 9),
@@ -18889,7 +18897,6 @@ G3_REFUSALS = {
     .replace("query result:", "query result(lo: Int):")
     .replace("x > 10", "x > lo"),
     "R4": G3_FORMS["L3"],
-    "R5": "query result:\n    let src = rows\n    from src\n    group by k\n    select:\n        k\n        x = sum(n)\n    order by:\n        k\n",
     "X1": _G3_GROUPED + "    limit 2\n",
     "X2": _G3_GROUPED + "    order by:\n        k\n    limit 2\n",
     "X3": G3_FORMS["L1"].replace("limit 2", "limit 0"),
@@ -18928,7 +18935,6 @@ G3_REFUSAL_BLOCKERS = {
         ("PIE-B1004", "sum_int_aggregate_range_proof_missing", 18, 9),
         ("PIE-B1004", "sum_int_aggregate_range_proof_missing", 19, 9),
     ],
-    "R5": [("PIE-B1004", "sum_int_aggregate_range_proof_missing", 17, 9)],
     "X1": [("PIE-B1004", "sum_int_aggregate_range_proof_missing", 16, 9)],
     "X2": [("PIE-B1004", "sum_int_aggregate_range_proof_missing", 16, 9)],
     "X3": [("PIE-B1004", "sum_int_aggregate_range_proof_missing", 16, 9)],
@@ -18963,6 +18969,548 @@ G3_SEMANTIC_REFUSALS = {
     "order_unselected": _G3_GROUPED + "    order by:\n        n\n",
     "order_expression": _G3_GROUPED + "    order by:\n        x + 1\n",
     "having_unselected": "query result:\n    from rows\n    group by k\n    select:\n        x = sum(n)\n    having:\n        k > 1\n",
+}
+
+
+# MC G4 (Source organization): the fifteen forms of the G4 list's
+# preregistration over GROUPING_HEADER's source, S02's cell as G1 to G3 widen
+# it, reached through a relation alias, a window that nothing reads and reads
+# qualified by a relation's name (S), through a plain upstream definition
+# (U) or one that aggregates (A), and beside G3's clauses (L); the SQL each
+# emits (also the G4 campaign's byte source).
+G4_FORMS = {
+    "S1": "query result:\n    let r = rows\n    from r\n    group by r.k\n    select:\n        k = r.k\n        x = sum(r.a)\n        y = sum(r.n)\n",
+    "S2": "query result:\n    from rows\n    let r = rows\n    let w = window(order by id)\n    where id > 3\n    select:\n        x = sum(c)\n        y = sum(a)\n        m = count()\n",
+    "S3": "query result:\n    from rows\n    let w = window(partition by tag order by id desc)\n    group by rows.tag\n    select:\n        tag = rows.tag\n        x = sum(rows.n)\n        hi = max(rows.a)\n",
+    "S4": "query result:\n    let r = rows\n    let s = rows\n    from r\n    let v = r.a\n    group by r.c\n    select:\n        g = r.c\n        x = sum(v)\n        mean = avg(r.n)\n",
+    "U1": "query base:\n    from rows\n    select:\n        k\n        a\nquery result:\n    from base\n    group by k\n    select:\n        k\n        total = sum(a)\n",
+    "U2": "table base:\n    from rows\n    where id > 3\n    select:\n        v = c\n        w = n\n        g = tag\nquery result:\n    from base\n    select:\n        x = sum(v)\n        y = sum(w)\n        r = count()\n",
+    "U3": "query base:\n    from rows\n    select:\n        id\n        a\n        k\n        n\n        c\n        tag\n        note\nquery result:\n    from base\n    where base.id > 3\n    group by base.tag, base.c\n    select:\n        tag = base.tag\n        c = base.c\n        x = sum(base.n)\n        y = sum(base.a)\n        mean = avg(base.k)\n",
+    "U4": "query base:\n    from rows\n    select:\n        k\n        a\n        n\nquery result:\n    let b = base\n    from b\n    let v = a\n    group by k\n    select:\n        k\n        x = sum(v)\n        y = sum(b.n)\n",
+    "U5": "query base:\n    let r = rows\n    from r\n    let w = window(order by r.id)\n    where r.id > 3\n    select:\n        a = r.a\n        c = r.c\n        n = r.n\nquery result:\n    from base\n    group by a\n    select:\n        a\n        x = sum(c)\n        y = sum(n)\n        lo = min(c)\n",
+    "A1": "query base:\n    from rows\n    group by k, n\n    select:\n        k\n        n\n        s = sum(a)\n        m = count()\nquery result:\n    from base\n    group by k\n    select:\n        k\n        x = sum(s)\n        y = sum(m)\n        z = sum(n)\n",
+    "A2": "query base:\n    from rows\n    where id > 3\n    group by tag\n    select:\n        tag\n        s = sum(c)\n        hi = max(a)\nquery result:\n    from base\n    select:\n        x = sum(s)\n        y = sum(hi)\n        m = count()\n",
+    "A3": "query base:\n    from rows\n    let v = n\n    group by note, k\n    select:\n        note\n        k\n        s = sum(v)\n        d = count_distinct(c)\nquery result:\n    let q = base\n    from q\n    group by q.note\n    select:\n        note = q.note\n        x = sum(q.s)\n        y = sum(q.d)\n        kk = max(q.k)\n",
+    "A4": "query base:\n    from rows\n    group by c\n    select:\n        c\n        s = sum(a)\n        lo = min(n)\nquery result:\n    from base\n    select:\n        x = sum(s)\n        y = sum(lo)\n        z = sum(c)\n",
+    "L1": "query result:\n    let r = rows\n    from r\n    group by r.k\n    select:\n        k = r.k\n        x = sum(r.n)\n        y = sum(r.c)\n    having:\n        x > 0\n",
+    "L2": "query base:\n    from rows\n    select:\n        k\n        n\n        a\nquery result:\n    from base\n    group by k\n    select:\n        k\n        x = sum(n)\n        y = sum(a)\n    order by:\n        x desc\n    limit 2\n",
+}
+G4_FORM_SQL = {
+    ("S1", "postgres"): (
+        'WITH "p0" ("c0", "c1", "c2") AS (SELECT "s0"."group_key" AS "c0", CAST(SUM(CAST("s0"."left_value" AS pg_catalog.int8)) AS pg_catalog.int8) AS "c1", CAST(SUM(CAST("s0"."nn" AS pg_catalog.int8)) AS pg_catalog.int8) AS "c2" FROM "public"."phase66 source é" AS "s0" GROUP BY "s0"."group_key") SELECT "t1"."c0" AS "k", "t1"."c1" AS "x", "t1"."c2" AS "y" FROM "p0" AS "t1"'
+    ),
+    ("S1", "mysql"): (
+        "WITH `p0` (`c0`, `c1`, `c2`) AS (SELECT `s0`.`group_key` AS `c0`, CASE WHEN SUM(`s0`.`left_value`) > 9223372036854775807 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) WHEN SUM(`s0`.`left_value`) < -9223372036854775808 THEN CAST(-9223372036854775808 AS SIGNED) - CAST(1 AS SIGNED) ELSE CAST(SUM(`s0`.`left_value`) AS SIGNED) END AS `c1`, CASE WHEN SUM(`s0`.`nn`) > 9223372036854775807 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) WHEN SUM(`s0`.`nn`) < -9223372036854775808 THEN CAST(-9223372036854775808 AS SIGNED) - CAST(1 AS SIGNED) ELSE CAST(SUM(`s0`.`nn`) AS SIGNED) END AS `c2` FROM `phase66`.`phase66 source é` AS `s0` GROUP BY `s0`.`group_key`) SELECT `t1`.`c0` AS `k`, `t1`.`c1` AS `x`, `t1`.`c2` AS `y` FROM `p0` AS `t1`"
+    ),
+    ("S2", "postgres"): (
+        'WITH "p0" ("c0", "c1", "c2", "c3", "c4", "c5", "c6", "c7") AS (SELECT "s0"."id" AS "c0", "s0"."left_value" AS "c1", "s0"."right_value" AS "c2", "s0"."group_key" AS "c3", "s0"."nn" AS "c4", "s0"."narrow" AS "c5", "s0"."tag" AS "c6", "s0"."note" AS "c7" FROM "public"."phase66 source é" AS "s0" WHERE ("s0"."id" > CAST(3 AS pg_catalog.int8))), "p1" ("c0", "c1", "c2") AS (SELECT CAST(SUM(CAST("t1"."c5" AS pg_catalog.int8)) AS pg_catalog.int8) AS "c0", CAST(SUM(CAST("t1"."c1" AS pg_catalog.int8)) AS pg_catalog.int8) AS "c1", COUNT(*) AS "c2" FROM "p0" AS "t1") SELECT "t2"."c0" AS "x", "t2"."c1" AS "y", "t2"."c2" AS "m" FROM "p1" AS "t2"'
+    ),
+    ("S2", "mysql"): (
+        "WITH `p0` (`c0`, `c1`, `c2`, `c3`, `c4`, `c5`, `c6`, `c7`) AS (SELECT `s0`.`id` AS `c0`, `s0`.`left_value` AS `c1`, `s0`.`right_value` AS `c2`, `s0`.`group_key` AS `c3`, `s0`.`nn` AS `c4`, `s0`.`narrow` AS `c5`, `s0`.`tag` AS `c6`, `s0`.`note` AS `c7` FROM `phase66`.`phase66 source é` AS `s0` WHERE (`s0`.`id` > CAST(3 AS SIGNED))), `p1` (`c0`, `c1`, `c2`) AS (SELECT CASE WHEN SUM(`t1`.`c5`) > 9223372036854775807 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) WHEN SUM(`t1`.`c5`) < -9223372036854775808 THEN CAST(-9223372036854775808 AS SIGNED) - CAST(1 AS SIGNED) ELSE CAST(SUM(`t1`.`c5`) AS SIGNED) END AS `c0`, CASE WHEN SUM(`t1`.`c1`) > 9223372036854775807 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) WHEN SUM(`t1`.`c1`) < -9223372036854775808 THEN CAST(-9223372036854775808 AS SIGNED) - CAST(1 AS SIGNED) ELSE CAST(SUM(`t1`.`c1`) AS SIGNED) END AS `c1`, COUNT(*) AS `c2` FROM `p0` AS `t1`) SELECT `t2`.`c0` AS `x`, `t2`.`c1` AS `y`, `t2`.`c2` AS `m` FROM `p1` AS `t2`"
+    ),
+    ("S3", "postgres"): (
+        'WITH "p0" ("c0", "c1", "c2") AS (SELECT "s0"."tag" AS "c0", CAST(SUM(CAST("s0"."nn" AS pg_catalog.int8)) AS pg_catalog.int8) AS "c1", MAX("s0"."left_value") AS "c2" FROM "public"."phase66 source é" AS "s0" GROUP BY "s0"."tag") SELECT "t1"."c0" AS "tag", "t1"."c1" AS "x", "t1"."c2" AS "hi" FROM "p0" AS "t1"'
+    ),
+    ("S3", "mysql"): (
+        "WITH `p0` (`c0`, `c1`, `c2`) AS (SELECT `s0`.`tag` AS `c0`, CASE WHEN SUM(`s0`.`nn`) > 9223372036854775807 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) WHEN SUM(`s0`.`nn`) < -9223372036854775808 THEN CAST(-9223372036854775808 AS SIGNED) - CAST(1 AS SIGNED) ELSE CAST(SUM(`s0`.`nn`) AS SIGNED) END AS `c1`, MAX(`s0`.`left_value`) AS `c2` FROM `phase66`.`phase66 source é` AS `s0` GROUP BY `s0`.`tag`) SELECT `t1`.`c0` AS `tag`, `t1`.`c1` AS `x`, `t1`.`c2` AS `hi` FROM `p0` AS `t1`"
+    ),
+    ("S4", "postgres"): (
+        'WITH "p0" ("c0", "c1", "c2", "c3", "c4", "c5", "c6", "c7", "c8") AS (SELECT "s0"."id" AS "c0", "s0"."left_value" AS "c1", "s0"."right_value" AS "c2", "s0"."group_key" AS "c3", "s0"."nn" AS "c4", "s0"."narrow" AS "c5", "s0"."tag" AS "c6", "s0"."note" AS "c7", "s0"."left_value" AS "c8" FROM "public"."phase66 source é" AS "s0"), "p1" ("c0", "c1", "c2") AS (SELECT "t1"."c5" AS "c0", CAST(SUM(CAST("t1"."c8" AS pg_catalog.int8)) AS pg_catalog.int8) AS "c1", AVG(CAST("t1"."c4" AS pg_catalog.float8)) AS "c2" FROM "p0" AS "t1" GROUP BY "t1"."c5") SELECT "t2"."c0" AS "g", "t2"."c1" AS "x", "t2"."c2" AS "mean" FROM "p1" AS "t2"'
+    ),
+    ("S4", "mysql"): (
+        "WITH `p0` (`c0`, `c1`, `c2`, `c3`, `c4`, `c5`, `c6`, `c7`, `c8`) AS (SELECT `s0`.`id` AS `c0`, `s0`.`left_value` AS `c1`, `s0`.`right_value` AS `c2`, `s0`.`group_key` AS `c3`, `s0`.`nn` AS `c4`, `s0`.`narrow` AS `c5`, `s0`.`tag` AS `c6`, `s0`.`note` AS `c7`, `s0`.`left_value` AS `c8` FROM `phase66`.`phase66 source é` AS `s0`), `p1` (`c0`, `c1`, `c2`) AS (SELECT `t1`.`c5` AS `c0`, CASE WHEN SUM(`t1`.`c8`) > 9223372036854775807 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) WHEN SUM(`t1`.`c8`) < -9223372036854775808 THEN CAST(-9223372036854775808 AS SIGNED) - CAST(1 AS SIGNED) ELSE CAST(SUM(`t1`.`c8`) AS SIGNED) END AS `c1`, AVG(CAST(`t1`.`c4` AS DOUBLE)) AS `c2` FROM `p0` AS `t1` GROUP BY `t1`.`c5`) SELECT `t2`.`c0` AS `g`, `t2`.`c1` AS `x`, `t2`.`c2` AS `mean` FROM `p1` AS `t2`"
+    ),
+    ("U1", "postgres"): (
+        'WITH "p0" ("c0", "c1") AS (SELECT "s0"."group_key" AS "c0", "s0"."left_value" AS "c1" FROM "public"."phase66 source é" AS "s0"), "p1" ("c0", "c1") AS (SELECT "s1"."c0" AS "c0", CAST(SUM(CAST("s1"."c1" AS pg_catalog.int8)) AS pg_catalog.int8) AS "c1" FROM "p0" AS "s1" GROUP BY "s1"."c0") SELECT "t2"."c0" AS "k", "t2"."c1" AS "total" FROM "p1" AS "t2"'
+    ),
+    ("U1", "mysql"): (
+        "WITH `p0` (`c0`, `c1`) AS (SELECT `s0`.`group_key` AS `c0`, `s0`.`left_value` AS `c1` FROM `phase66`.`phase66 source é` AS `s0`), `p1` (`c0`, `c1`) AS (SELECT `s1`.`c0` AS `c0`, CASE WHEN SUM(`s1`.`c1`) > 9223372036854775807 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) WHEN SUM(`s1`.`c1`) < -9223372036854775808 THEN CAST(-9223372036854775808 AS SIGNED) - CAST(1 AS SIGNED) ELSE CAST(SUM(`s1`.`c1`) AS SIGNED) END AS `c1` FROM `p0` AS `s1` GROUP BY `s1`.`c0`) SELECT `t2`.`c0` AS `k`, `t2`.`c1` AS `total` FROM `p1` AS `t2`"
+    ),
+    ("U2", "postgres"): (
+        'WITH "p0" ("c0", "c1", "c2", "c3", "c4", "c5", "c6", "c7") AS (SELECT "s0"."id" AS "c0", "s0"."left_value" AS "c1", "s0"."right_value" AS "c2", "s0"."group_key" AS "c3", "s0"."nn" AS "c4", "s0"."narrow" AS "c5", "s0"."tag" AS "c6", "s0"."note" AS "c7" FROM "public"."phase66 source é" AS "s0" WHERE ("s0"."id" > CAST(3 AS pg_catalog.int8))), "p1" ("c0", "c1", "c2") AS (SELECT "t1"."c5" AS "c0", "t1"."c4" AS "c1", "t1"."c6" AS "c2" FROM "p0" AS "t1"), "p2" ("c0", "c1", "c2") AS (SELECT CAST(SUM(CAST("s1"."c0" AS pg_catalog.int8)) AS pg_catalog.int8) AS "c0", CAST(SUM(CAST("s1"."c1" AS pg_catalog.int8)) AS pg_catalog.int8) AS "c1", COUNT(*) AS "c2" FROM "p1" AS "s1") SELECT "t3"."c0" AS "x", "t3"."c1" AS "y", "t3"."c2" AS "r" FROM "p2" AS "t3"'
+    ),
+    ("U2", "mysql"): (
+        "WITH `p0` (`c0`, `c1`, `c2`, `c3`, `c4`, `c5`, `c6`, `c7`) AS (SELECT `s0`.`id` AS `c0`, `s0`.`left_value` AS `c1`, `s0`.`right_value` AS `c2`, `s0`.`group_key` AS `c3`, `s0`.`nn` AS `c4`, `s0`.`narrow` AS `c5`, `s0`.`tag` AS `c6`, `s0`.`note` AS `c7` FROM `phase66`.`phase66 source é` AS `s0` WHERE (`s0`.`id` > CAST(3 AS SIGNED))), `p1` (`c0`, `c1`, `c2`) AS (SELECT `t1`.`c5` AS `c0`, `t1`.`c4` AS `c1`, `t1`.`c6` AS `c2` FROM `p0` AS `t1`), `p2` (`c0`, `c1`, `c2`) AS (SELECT CASE WHEN SUM(`s1`.`c0`) > 9223372036854775807 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) WHEN SUM(`s1`.`c0`) < -9223372036854775808 THEN CAST(-9223372036854775808 AS SIGNED) - CAST(1 AS SIGNED) ELSE CAST(SUM(`s1`.`c0`) AS SIGNED) END AS `c0`, CASE WHEN SUM(`s1`.`c1`) > 9223372036854775807 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) WHEN SUM(`s1`.`c1`) < -9223372036854775808 THEN CAST(-9223372036854775808 AS SIGNED) - CAST(1 AS SIGNED) ELSE CAST(SUM(`s1`.`c1`) AS SIGNED) END AS `c1`, COUNT(*) AS `c2` FROM `p1` AS `s1`) SELECT `t3`.`c0` AS `x`, `t3`.`c1` AS `y`, `t3`.`c2` AS `r` FROM `p2` AS `t3`"
+    ),
+    ("U3", "postgres"): (
+        'WITH "p0" ("c0", "c1", "c2", "c3", "c4", "c5", "c6") AS (SELECT "s0"."id" AS "c0", "s0"."left_value" AS "c1", "s0"."group_key" AS "c2", "s0"."nn" AS "c3", "s0"."narrow" AS "c4", "s0"."tag" AS "c5", "s0"."note" AS "c6" FROM "public"."phase66 source é" AS "s0"), "p1" ("c0", "c1", "c2", "c3", "c4", "c5", "c6") AS (SELECT "s1"."c0" AS "c0", "s1"."c1" AS "c1", "s1"."c2" AS "c2", "s1"."c3" AS "c3", "s1"."c4" AS "c4", "s1"."c5" AS "c5", "s1"."c6" AS "c6" FROM "p0" AS "s1" WHERE ("s1"."c0" > CAST(3 AS pg_catalog.int8))), "p2" ("c0", "c1", "c2", "c3", "c4") AS (SELECT "t2"."c5" AS "c0", "t2"."c4" AS "c1", CAST(SUM(CAST("t2"."c3" AS pg_catalog.int8)) AS pg_catalog.int8) AS "c2", CAST(SUM(CAST("t2"."c1" AS pg_catalog.int8)) AS pg_catalog.int8) AS "c3", AVG(CAST("t2"."c2" AS pg_catalog.float8)) AS "c4" FROM "p1" AS "t2" GROUP BY "t2"."c5", "t2"."c4") SELECT "t3"."c0" AS "tag", "t3"."c1" AS "c", "t3"."c2" AS "x", "t3"."c3" AS "y", "t3"."c4" AS "mean" FROM "p2" AS "t3"'
+    ),
+    ("U3", "mysql"): (
+        "WITH `p0` (`c0`, `c1`, `c2`, `c3`, `c4`, `c5`, `c6`) AS (SELECT `s0`.`id` AS `c0`, `s0`.`left_value` AS `c1`, `s0`.`group_key` AS `c2`, `s0`.`nn` AS `c3`, `s0`.`narrow` AS `c4`, `s0`.`tag` AS `c5`, `s0`.`note` AS `c6` FROM `phase66`.`phase66 source é` AS `s0`), `p1` (`c0`, `c1`, `c2`, `c3`, `c4`, `c5`, `c6`) AS (SELECT `s1`.`c0` AS `c0`, `s1`.`c1` AS `c1`, `s1`.`c2` AS `c2`, `s1`.`c3` AS `c3`, `s1`.`c4` AS `c4`, `s1`.`c5` AS `c5`, `s1`.`c6` AS `c6` FROM `p0` AS `s1` WHERE (`s1`.`c0` > CAST(3 AS SIGNED))), `p2` (`c0`, `c1`, `c2`, `c3`, `c4`) AS (SELECT `t2`.`c5` AS `c0`, `t2`.`c4` AS `c1`, CASE WHEN SUM(`t2`.`c3`) > 9223372036854775807 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) WHEN SUM(`t2`.`c3`) < -9223372036854775808 THEN CAST(-9223372036854775808 AS SIGNED) - CAST(1 AS SIGNED) ELSE CAST(SUM(`t2`.`c3`) AS SIGNED) END AS `c2`, CASE WHEN SUM(`t2`.`c1`) > 9223372036854775807 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) WHEN SUM(`t2`.`c1`) < -9223372036854775808 THEN CAST(-9223372036854775808 AS SIGNED) - CAST(1 AS SIGNED) ELSE CAST(SUM(`t2`.`c1`) AS SIGNED) END AS `c3`, AVG(CAST(`t2`.`c2` AS DOUBLE)) AS `c4` FROM `p1` AS `t2` GROUP BY `t2`.`c5`, `t2`.`c4`) SELECT `t3`.`c0` AS `tag`, `t3`.`c1` AS `c`, `t3`.`c2` AS `x`, `t3`.`c3` AS `y`, `t3`.`c4` AS `mean` FROM `p2` AS `t3`"
+    ),
+    ("U4", "postgres"): (
+        'WITH "p0" ("c0", "c1", "c2") AS (SELECT "s0"."group_key" AS "c0", "s0"."left_value" AS "c1", "s0"."nn" AS "c2" FROM "public"."phase66 source é" AS "s0"), "p1" ("c0", "c1", "c2", "c3") AS (SELECT "s1"."c0" AS "c0", "s1"."c1" AS "c1", "s1"."c2" AS "c2", "s1"."c1" AS "c3" FROM "p0" AS "s1"), "p2" ("c0", "c1", "c2") AS (SELECT "t2"."c0" AS "c0", CAST(SUM(CAST("t2"."c3" AS pg_catalog.int8)) AS pg_catalog.int8) AS "c1", CAST(SUM(CAST("t2"."c2" AS pg_catalog.int8)) AS pg_catalog.int8) AS "c2" FROM "p1" AS "t2" GROUP BY "t2"."c0") SELECT "t3"."c0" AS "k", "t3"."c1" AS "x", "t3"."c2" AS "y" FROM "p2" AS "t3"'
+    ),
+    ("U4", "mysql"): (
+        "WITH `p0` (`c0`, `c1`, `c2`) AS (SELECT `s0`.`group_key` AS `c0`, `s0`.`left_value` AS `c1`, `s0`.`nn` AS `c2` FROM `phase66`.`phase66 source é` AS `s0`), `p1` (`c0`, `c1`, `c2`, `c3`) AS (SELECT `s1`.`c0` AS `c0`, `s1`.`c1` AS `c1`, `s1`.`c2` AS `c2`, `s1`.`c1` AS `c3` FROM `p0` AS `s1`), `p2` (`c0`, `c1`, `c2`) AS (SELECT `t2`.`c0` AS `c0`, CASE WHEN SUM(`t2`.`c3`) > 9223372036854775807 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) WHEN SUM(`t2`.`c3`) < -9223372036854775808 THEN CAST(-9223372036854775808 AS SIGNED) - CAST(1 AS SIGNED) ELSE CAST(SUM(`t2`.`c3`) AS SIGNED) END AS `c1`, CASE WHEN SUM(`t2`.`c2`) > 9223372036854775807 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) WHEN SUM(`t2`.`c2`) < -9223372036854775808 THEN CAST(-9223372036854775808 AS SIGNED) - CAST(1 AS SIGNED) ELSE CAST(SUM(`t2`.`c2`) AS SIGNED) END AS `c2` FROM `p1` AS `t2` GROUP BY `t2`.`c0`) SELECT `t3`.`c0` AS `k`, `t3`.`c1` AS `x`, `t3`.`c2` AS `y` FROM `p2` AS `t3`"
+    ),
+    ("U5", "postgres"): (
+        'WITH "p0" ("c0", "c1", "c2", "c3", "c4", "c5", "c6", "c7") AS (SELECT "s0"."id" AS "c0", "s0"."left_value" AS "c1", "s0"."right_value" AS "c2", "s0"."group_key" AS "c3", "s0"."nn" AS "c4", "s0"."narrow" AS "c5", "s0"."tag" AS "c6", "s0"."note" AS "c7" FROM "public"."phase66 source é" AS "s0" WHERE ("s0"."id" > CAST(3 AS pg_catalog.int8))), "p1" ("c0", "c1", "c2") AS (SELECT "t1"."c1" AS "c0", "t1"."c5" AS "c1", "t1"."c4" AS "c2" FROM "p0" AS "t1"), "p2" ("c0", "c1", "c2", "c3") AS (SELECT "s1"."c0" AS "c0", CAST(SUM(CAST("s1"."c1" AS pg_catalog.int8)) AS pg_catalog.int8) AS "c1", CAST(SUM(CAST("s1"."c2" AS pg_catalog.int8)) AS pg_catalog.int8) AS "c2", MIN("s1"."c1") AS "c3" FROM "p1" AS "s1" GROUP BY "s1"."c0") SELECT "t3"."c0" AS "a", "t3"."c1" AS "x", "t3"."c2" AS "y", "t3"."c3" AS "lo" FROM "p2" AS "t3"'
+    ),
+    ("U5", "mysql"): (
+        "WITH `p0` (`c0`, `c1`, `c2`, `c3`, `c4`, `c5`, `c6`, `c7`) AS (SELECT `s0`.`id` AS `c0`, `s0`.`left_value` AS `c1`, `s0`.`right_value` AS `c2`, `s0`.`group_key` AS `c3`, `s0`.`nn` AS `c4`, `s0`.`narrow` AS `c5`, `s0`.`tag` AS `c6`, `s0`.`note` AS `c7` FROM `phase66`.`phase66 source é` AS `s0` WHERE (`s0`.`id` > CAST(3 AS SIGNED))), `p1` (`c0`, `c1`, `c2`) AS (SELECT `t1`.`c1` AS `c0`, `t1`.`c5` AS `c1`, `t1`.`c4` AS `c2` FROM `p0` AS `t1`), `p2` (`c0`, `c1`, `c2`, `c3`) AS (SELECT `s1`.`c0` AS `c0`, CASE WHEN SUM(`s1`.`c1`) > 9223372036854775807 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) WHEN SUM(`s1`.`c1`) < -9223372036854775808 THEN CAST(-9223372036854775808 AS SIGNED) - CAST(1 AS SIGNED) ELSE CAST(SUM(`s1`.`c1`) AS SIGNED) END AS `c1`, CASE WHEN SUM(`s1`.`c2`) > 9223372036854775807 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) WHEN SUM(`s1`.`c2`) < -9223372036854775808 THEN CAST(-9223372036854775808 AS SIGNED) - CAST(1 AS SIGNED) ELSE CAST(SUM(`s1`.`c2`) AS SIGNED) END AS `c2`, CAST(MIN(`s1`.`c1`) AS SIGNED) AS `c3` FROM `p1` AS `s1` GROUP BY `s1`.`c0`) SELECT `t3`.`c0` AS `a`, `t3`.`c1` AS `x`, `t3`.`c2` AS `y`, `t3`.`c3` AS `lo` FROM `p2` AS `t3`"
+    ),
+    ("A1", "postgres"): (
+        'WITH "p0" ("c0", "c1", "c2", "c3") AS (SELECT "s0"."group_key" AS "c0", "s0"."nn" AS "c1", CAST(SUM(CAST("s0"."left_value" AS pg_catalog.int8)) AS pg_catalog.int8) AS "c2", COUNT(*) AS "c3" FROM "public"."phase66 source é" AS "s0" GROUP BY "s0"."group_key", "s0"."nn"), "p1" ("c0", "c1", "c2", "c3") AS (SELECT "t1"."c0" AS "c0", "t1"."c1" AS "c1", "t1"."c2" AS "c2", "t1"."c3" AS "c3" FROM "p0" AS "t1"), "p2" ("c0", "c1", "c2", "c3") AS (SELECT "s1"."c0" AS "c0", CAST(SUM(CAST("s1"."c2" AS pg_catalog.int8)) AS pg_catalog.int8) AS "c1", CAST(SUM(CAST("s1"."c3" AS pg_catalog.int8)) AS pg_catalog.int8) AS "c2", CAST(SUM(CAST("s1"."c1" AS pg_catalog.int8)) AS pg_catalog.int8) AS "c3" FROM "p1" AS "s1" GROUP BY "s1"."c0") SELECT "t3"."c0" AS "k", "t3"."c1" AS "x", "t3"."c2" AS "y", "t3"."c3" AS "z" FROM "p2" AS "t3"'
+    ),
+    ("A1", "mysql"): (
+        "WITH `p0` (`c0`, `c1`, `c2`, `c3`) AS (SELECT `s0`.`group_key` AS `c0`, `s0`.`nn` AS `c1`, CASE WHEN SUM(`s0`.`left_value`) > 9223372036854775807 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) WHEN SUM(`s0`.`left_value`) < -9223372036854775808 THEN CAST(-9223372036854775808 AS SIGNED) - CAST(1 AS SIGNED) ELSE CAST(SUM(`s0`.`left_value`) AS SIGNED) END AS `c2`, COUNT(*) AS `c3` FROM `phase66`.`phase66 source é` AS `s0` GROUP BY `s0`.`group_key`, `s0`.`nn`), `p1` (`c0`, `c1`, `c2`, `c3`) AS (SELECT `t1`.`c0` AS `c0`, `t1`.`c1` AS `c1`, `t1`.`c2` AS `c2`, `t1`.`c3` AS `c3` FROM `p0` AS `t1`), `p2` (`c0`, `c1`, `c2`, `c3`) AS (SELECT `s1`.`c0` AS `c0`, CASE WHEN SUM(`s1`.`c2`) > 9223372036854775807 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) WHEN SUM(`s1`.`c2`) < -9223372036854775808 THEN CAST(-9223372036854775808 AS SIGNED) - CAST(1 AS SIGNED) ELSE CAST(SUM(`s1`.`c2`) AS SIGNED) END AS `c1`, CASE WHEN SUM(`s1`.`c3`) > 9223372036854775807 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) WHEN SUM(`s1`.`c3`) < -9223372036854775808 THEN CAST(-9223372036854775808 AS SIGNED) - CAST(1 AS SIGNED) ELSE CAST(SUM(`s1`.`c3`) AS SIGNED) END AS `c2`, CASE WHEN SUM(`s1`.`c1`) > 9223372036854775807 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) WHEN SUM(`s1`.`c1`) < -9223372036854775808 THEN CAST(-9223372036854775808 AS SIGNED) - CAST(1 AS SIGNED) ELSE CAST(SUM(`s1`.`c1`) AS SIGNED) END AS `c3` FROM `p1` AS `s1` GROUP BY `s1`.`c0`) SELECT `t3`.`c0` AS `k`, `t3`.`c1` AS `x`, `t3`.`c2` AS `y`, `t3`.`c3` AS `z` FROM `p2` AS `t3`"
+    ),
+    ("A2", "postgres"): (
+        'WITH "p0" ("c0", "c1", "c2", "c3", "c4", "c5", "c6", "c7") AS (SELECT "s0"."id" AS "c0", "s0"."left_value" AS "c1", "s0"."right_value" AS "c2", "s0"."group_key" AS "c3", "s0"."nn" AS "c4", "s0"."narrow" AS "c5", "s0"."tag" AS "c6", "s0"."note" AS "c7" FROM "public"."phase66 source é" AS "s0" WHERE ("s0"."id" > CAST(3 AS pg_catalog.int8))), "p1" ("c0", "c1", "c2") AS (SELECT "t1"."c6" AS "c0", CAST(SUM(CAST("t1"."c5" AS pg_catalog.int8)) AS pg_catalog.int8) AS "c1", MAX("t1"."c1") AS "c2" FROM "p0" AS "t1" GROUP BY "t1"."c6"), "p2" ("c0", "c1", "c2") AS (SELECT "t2"."c0" AS "c0", "t2"."c1" AS "c1", "t2"."c2" AS "c2" FROM "p1" AS "t2"), "p3" ("c0", "c1", "c2") AS (SELECT CAST(SUM(CAST("s1"."c1" AS pg_catalog.int8)) AS pg_catalog.int8) AS "c0", CAST(SUM(CAST("s1"."c2" AS pg_catalog.int8)) AS pg_catalog.int8) AS "c1", COUNT(*) AS "c2" FROM "p2" AS "s1") SELECT "t4"."c0" AS "x", "t4"."c1" AS "y", "t4"."c2" AS "m" FROM "p3" AS "t4"'
+    ),
+    ("A2", "mysql"): (
+        "WITH `p0` (`c0`, `c1`, `c2`, `c3`, `c4`, `c5`, `c6`, `c7`) AS (SELECT `s0`.`id` AS `c0`, `s0`.`left_value` AS `c1`, `s0`.`right_value` AS `c2`, `s0`.`group_key` AS `c3`, `s0`.`nn` AS `c4`, `s0`.`narrow` AS `c5`, `s0`.`tag` AS `c6`, `s0`.`note` AS `c7` FROM `phase66`.`phase66 source é` AS `s0` WHERE (`s0`.`id` > CAST(3 AS SIGNED))), `p1` (`c0`, `c1`, `c2`) AS (SELECT `t1`.`c6` AS `c0`, CASE WHEN SUM(`t1`.`c5`) > 9223372036854775807 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) WHEN SUM(`t1`.`c5`) < -9223372036854775808 THEN CAST(-9223372036854775808 AS SIGNED) - CAST(1 AS SIGNED) ELSE CAST(SUM(`t1`.`c5`) AS SIGNED) END AS `c1`, MAX(`t1`.`c1`) AS `c2` FROM `p0` AS `t1` GROUP BY `t1`.`c6`), `p2` (`c0`, `c1`, `c2`) AS (SELECT `t2`.`c0` AS `c0`, `t2`.`c1` AS `c1`, `t2`.`c2` AS `c2` FROM `p1` AS `t2`), `p3` (`c0`, `c1`, `c2`) AS (SELECT CASE WHEN SUM(`s1`.`c1`) > 9223372036854775807 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) WHEN SUM(`s1`.`c1`) < -9223372036854775808 THEN CAST(-9223372036854775808 AS SIGNED) - CAST(1 AS SIGNED) ELSE CAST(SUM(`s1`.`c1`) AS SIGNED) END AS `c0`, CASE WHEN SUM(`s1`.`c2`) > 9223372036854775807 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) WHEN SUM(`s1`.`c2`) < -9223372036854775808 THEN CAST(-9223372036854775808 AS SIGNED) - CAST(1 AS SIGNED) ELSE CAST(SUM(`s1`.`c2`) AS SIGNED) END AS `c1`, COUNT(*) AS `c2` FROM `p2` AS `s1`) SELECT `t4`.`c0` AS `x`, `t4`.`c1` AS `y`, `t4`.`c2` AS `m` FROM `p3` AS `t4`"
+    ),
+    ("A3", "postgres"): (
+        'WITH "p0" ("c0", "c1", "c2", "c3", "c4", "c5", "c6", "c7", "c8") AS (SELECT "s0"."id" AS "c0", "s0"."left_value" AS "c1", "s0"."right_value" AS "c2", "s0"."group_key" AS "c3", "s0"."nn" AS "c4", "s0"."narrow" AS "c5", "s0"."tag" AS "c6", "s0"."note" AS "c7", "s0"."nn" AS "c8" FROM "public"."phase66 source é" AS "s0"), "p1" ("c0", "c1", "c2", "c3") AS (SELECT "t1"."c7" AS "c0", "t1"."c3" AS "c1", CAST(SUM(CAST("t1"."c8" AS pg_catalog.int8)) AS pg_catalog.int8) AS "c2", COUNT(DISTINCT "t1"."c5") AS "c3" FROM "p0" AS "t1" GROUP BY "t1"."c7", "t1"."c3"), "p2" ("c0", "c1", "c2", "c3") AS (SELECT "t2"."c0" AS "c0", "t2"."c1" AS "c1", "t2"."c2" AS "c2", "t2"."c3" AS "c3" FROM "p1" AS "t2"), "p3" ("c0", "c1", "c2", "c3") AS (SELECT "s1"."c0" AS "c0", CAST(SUM(CAST("s1"."c2" AS pg_catalog.int8)) AS pg_catalog.int8) AS "c1", CAST(SUM(CAST("s1"."c3" AS pg_catalog.int8)) AS pg_catalog.int8) AS "c2", MAX("s1"."c1") AS "c3" FROM "p2" AS "s1" GROUP BY "s1"."c0") SELECT "t4"."c0" AS "note", "t4"."c1" AS "x", "t4"."c2" AS "y", "t4"."c3" AS "kk" FROM "p3" AS "t4"'
+    ),
+    ("A3", "mysql"): (
+        "WITH `p0` (`c0`, `c1`, `c2`, `c3`, `c4`, `c5`, `c6`, `c7`, `c8`) AS (SELECT `s0`.`id` AS `c0`, `s0`.`left_value` AS `c1`, `s0`.`right_value` AS `c2`, `s0`.`group_key` AS `c3`, `s0`.`nn` AS `c4`, `s0`.`narrow` AS `c5`, `s0`.`tag` AS `c6`, `s0`.`note` AS `c7`, `s0`.`nn` AS `c8` FROM `phase66`.`phase66 source é` AS `s0`), `p1` (`c0`, `c1`, `c2`, `c3`) AS (SELECT `t1`.`c7` AS `c0`, `t1`.`c3` AS `c1`, CASE WHEN SUM(`t1`.`c8`) > 9223372036854775807 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) WHEN SUM(`t1`.`c8`) < -9223372036854775808 THEN CAST(-9223372036854775808 AS SIGNED) - CAST(1 AS SIGNED) ELSE CAST(SUM(`t1`.`c8`) AS SIGNED) END AS `c2`, COUNT(DISTINCT `t1`.`c5`) AS `c3` FROM `p0` AS `t1` GROUP BY `t1`.`c7`, `t1`.`c3`), `p2` (`c0`, `c1`, `c2`, `c3`) AS (SELECT `t2`.`c0` AS `c0`, `t2`.`c1` AS `c1`, `t2`.`c2` AS `c2`, `t2`.`c3` AS `c3` FROM `p1` AS `t2`), `p3` (`c0`, `c1`, `c2`, `c3`) AS (SELECT `s1`.`c0` AS `c0`, CASE WHEN SUM(`s1`.`c2`) > 9223372036854775807 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) WHEN SUM(`s1`.`c2`) < -9223372036854775808 THEN CAST(-9223372036854775808 AS SIGNED) - CAST(1 AS SIGNED) ELSE CAST(SUM(`s1`.`c2`) AS SIGNED) END AS `c1`, CASE WHEN SUM(`s1`.`c3`) > 9223372036854775807 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) WHEN SUM(`s1`.`c3`) < -9223372036854775808 THEN CAST(-9223372036854775808 AS SIGNED) - CAST(1 AS SIGNED) ELSE CAST(SUM(`s1`.`c3`) AS SIGNED) END AS `c2`, CAST(MAX(`s1`.`c1`) AS SIGNED) AS `c3` FROM `p2` AS `s1` GROUP BY `s1`.`c0`) SELECT `t4`.`c0` AS `note`, `t4`.`c1` AS `x`, `t4`.`c2` AS `y`, `t4`.`c3` AS `kk` FROM `p3` AS `t4`"
+    ),
+    ("A4", "postgres"): (
+        'WITH "p0" ("c0", "c1", "c2") AS (SELECT "s0"."narrow" AS "c0", CAST(SUM(CAST("s0"."left_value" AS pg_catalog.int8)) AS pg_catalog.int8) AS "c1", MIN("s0"."nn") AS "c2" FROM "public"."phase66 source é" AS "s0" GROUP BY "s0"."narrow"), "p1" ("c0", "c1", "c2") AS (SELECT "t1"."c0" AS "c0", "t1"."c1" AS "c1", "t1"."c2" AS "c2" FROM "p0" AS "t1"), "p2" ("c0", "c1", "c2") AS (SELECT CAST(SUM(CAST("s1"."c1" AS pg_catalog.int8)) AS pg_catalog.int8) AS "c0", CAST(SUM(CAST("s1"."c2" AS pg_catalog.int8)) AS pg_catalog.int8) AS "c1", CAST(SUM(CAST("s1"."c0" AS pg_catalog.int8)) AS pg_catalog.int8) AS "c2" FROM "p1" AS "s1") SELECT "t3"."c0" AS "x", "t3"."c1" AS "y", "t3"."c2" AS "z" FROM "p2" AS "t3"'
+    ),
+    ("A4", "mysql"): (
+        "WITH `p0` (`c0`, `c1`, `c2`) AS (SELECT `s0`.`narrow` AS `c0`, CASE WHEN SUM(`s0`.`left_value`) > 9223372036854775807 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) WHEN SUM(`s0`.`left_value`) < -9223372036854775808 THEN CAST(-9223372036854775808 AS SIGNED) - CAST(1 AS SIGNED) ELSE CAST(SUM(`s0`.`left_value`) AS SIGNED) END AS `c1`, MIN(`s0`.`nn`) AS `c2` FROM `phase66`.`phase66 source é` AS `s0` GROUP BY `s0`.`narrow`), `p1` (`c0`, `c1`, `c2`) AS (SELECT `t1`.`c0` AS `c0`, `t1`.`c1` AS `c1`, `t1`.`c2` AS `c2` FROM `p0` AS `t1`), `p2` (`c0`, `c1`, `c2`) AS (SELECT CASE WHEN SUM(`s1`.`c1`) > 9223372036854775807 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) WHEN SUM(`s1`.`c1`) < -9223372036854775808 THEN CAST(-9223372036854775808 AS SIGNED) - CAST(1 AS SIGNED) ELSE CAST(SUM(`s1`.`c1`) AS SIGNED) END AS `c0`, CASE WHEN SUM(`s1`.`c2`) > 9223372036854775807 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) WHEN SUM(`s1`.`c2`) < -9223372036854775808 THEN CAST(-9223372036854775808 AS SIGNED) - CAST(1 AS SIGNED) ELSE CAST(SUM(`s1`.`c2`) AS SIGNED) END AS `c1`, CASE WHEN SUM(`s1`.`c0`) > 9223372036854775807 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) WHEN SUM(`s1`.`c0`) < -9223372036854775808 THEN CAST(-9223372036854775808 AS SIGNED) - CAST(1 AS SIGNED) ELSE CAST(SUM(`s1`.`c0`) AS SIGNED) END AS `c2` FROM `p1` AS `s1`) SELECT `t3`.`c0` AS `x`, `t3`.`c1` AS `y`, `t3`.`c2` AS `z` FROM `p2` AS `t3`"
+    ),
+    ("L1", "postgres"): (
+        'WITH "p0" ("c0", "c1", "c2") AS (SELECT "s0"."group_key" AS "c0", CAST(SUM(CAST("s0"."nn" AS pg_catalog.int8)) AS pg_catalog.int8) AS "c1", CAST(SUM(CAST("s0"."narrow" AS pg_catalog.int8)) AS pg_catalog.int8) AS "c2" FROM "public"."phase66 source é" AS "s0" GROUP BY "s0"."group_key"), "p1" ("c0", "c1", "c2") AS (SELECT "t1"."c0" AS "c0", "t1"."c1" AS "c1", "t1"."c2" AS "c2" FROM "p0" AS "t1" WHERE ("t1"."c1" > CAST(0 AS pg_catalog.int8))) SELECT "t2"."c0" AS "k", "t2"."c1" AS "x", "t2"."c2" AS "y" FROM "p1" AS "t2"'
+    ),
+    ("L1", "mysql"): (
+        "WITH `p0` (`c0`, `c1`, `c2`) AS (SELECT `s0`.`group_key` AS `c0`, CASE WHEN SUM(`s0`.`nn`) > 9223372036854775807 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) WHEN SUM(`s0`.`nn`) < -9223372036854775808 THEN CAST(-9223372036854775808 AS SIGNED) - CAST(1 AS SIGNED) ELSE CAST(SUM(`s0`.`nn`) AS SIGNED) END AS `c1`, CASE WHEN SUM(`s0`.`narrow`) > 9223372036854775807 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) WHEN SUM(`s0`.`narrow`) < -9223372036854775808 THEN CAST(-9223372036854775808 AS SIGNED) - CAST(1 AS SIGNED) ELSE CAST(SUM(`s0`.`narrow`) AS SIGNED) END AS `c2` FROM `phase66`.`phase66 source é` AS `s0` GROUP BY `s0`.`group_key`), `p1` (`c0`, `c1`, `c2`) AS (SELECT `t1`.`c0` AS `c0`, `t1`.`c1` AS `c1`, `t1`.`c2` AS `c2` FROM `p0` AS `t1` WHERE (`t1`.`c1` > CAST(0 AS SIGNED))) SELECT `t2`.`c0` AS `k`, `t2`.`c1` AS `x`, `t2`.`c2` AS `y` FROM `p1` AS `t2`"
+    ),
+    ("L2", "postgres"): (
+        'WITH "p0" ("c0", "c1", "c2") AS (SELECT "s0"."group_key" AS "c0", "s0"."nn" AS "c1", "s0"."left_value" AS "c2" FROM "public"."phase66 source é" AS "s0"), "p1" ("c0", "c1", "c2") AS (SELECT "s1"."c0" AS "c0", CAST(SUM(CAST("s1"."c1" AS pg_catalog.int8)) AS pg_catalog.int8) AS "c1", CAST(SUM(CAST("s1"."c2" AS pg_catalog.int8)) AS pg_catalog.int8) AS "c2" FROM "p0" AS "s1" GROUP BY "s1"."c0"), "p2" ("c0", "c1", "c2", "c3") AS (SELECT "t2"."c0" AS "c0", "t2"."c1" AS "c1", "t2"."c2" AS "c2", "t2"."c1" AS "c3" FROM "p1" AS "t2") SELECT "t0"."c0" AS "k", "t0"."c1" AS "x", "t0"."c2" AS "y" FROM "p2" AS "t0" ORDER BY "t0"."c3" DESC LIMIT 2'
+    ),
+    ("L2", "mysql"): (
+        "WITH `p0` (`c0`, `c1`, `c2`) AS (SELECT `s0`.`group_key` AS `c0`, `s0`.`nn` AS `c1`, `s0`.`left_value` AS `c2` FROM `phase66`.`phase66 source é` AS `s0`), `p1` (`c0`, `c1`, `c2`) AS (SELECT `s1`.`c0` AS `c0`, CASE WHEN SUM(`s1`.`c1`) > 9223372036854775807 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) WHEN SUM(`s1`.`c1`) < -9223372036854775808 THEN CAST(-9223372036854775808 AS SIGNED) - CAST(1 AS SIGNED) ELSE CAST(SUM(`s1`.`c1`) AS SIGNED) END AS `c1`, CASE WHEN SUM(`s1`.`c2`) > 9223372036854775807 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) WHEN SUM(`s1`.`c2`) < -9223372036854775808 THEN CAST(-9223372036854775808 AS SIGNED) - CAST(1 AS SIGNED) ELSE CAST(SUM(`s1`.`c2`) AS SIGNED) END AS `c2` FROM `p0` AS `s1` GROUP BY `s1`.`c0`), `p2` (`c0`, `c1`, `c2`, `c3`) AS (SELECT `t2`.`c0` AS `c0`, `t2`.`c1` AS `c1`, `t2`.`c2` AS `c2`, `t2`.`c1` AS `c3` FROM `p1` AS `t2`) SELECT `t0`.`c0` AS `k`, `t0`.`c1` AS `x`, `t0`.`c2` AS `y` FROM `p2` AS `t0` ORDER BY `t0`.`c3` DESC LIMIT 2"
+    ),
+}
+# B3: each form that spells its reads (an alias, a window, a qualifier) as
+# the plain body it names, which emits the same SQL on both targets.
+G4_PLAIN = {
+    "S1": "query result:\n    from rows\n    group by k\n    select:\n        k\n        x = sum(a)\n        y = sum(n)\n",
+    "S2": "query result:\n    from rows\n    where id > 3\n    select:\n        x = sum(c)\n        y = sum(a)\n        m = count()\n",
+    "S3": "query result:\n    from rows\n    group by tag\n    select:\n        tag\n        x = sum(n)\n        hi = max(a)\n",
+    "S4": "query result:\n    from rows\n    let v = a\n    group by c\n    select:\n        g = c\n        x = sum(v)\n        mean = avg(n)\n",
+    "U3": "query base:\n    from rows\n    select:\n        id\n        a\n        k\n        n\n        c\n        tag\n        note\nquery result:\n    from base\n    where id > 3\n    group by tag, c\n    select:\n        tag\n        c\n        x = sum(n)\n        y = sum(a)\n        mean = avg(k)\n",
+    "U4": "query base:\n    from rows\n    select:\n        k\n        a\n        n\nquery result:\n    from base\n    let v = a\n    group by k\n    select:\n        k\n        x = sum(v)\n        y = sum(n)\n",
+    "U5": "query base:\n    from rows\n    where id > 3\n    select:\n        a\n        c\n        n\nquery result:\n    from base\n    group by a\n    select:\n        a\n        x = sum(c)\n        y = sum(n)\n        lo = min(c)\n",
+    "A3": "query base:\n    from rows\n    let v = n\n    group by note, k\n    select:\n        note\n        k\n        s = sum(v)\n        d = count_distinct(c)\nquery result:\n    from base\n    group by note\n    select:\n        note\n        x = sum(s)\n        y = sum(d)\n        kk = max(k)\n",
+    "L1": "query result:\n    from rows\n    group by k\n    select:\n        k\n        x = sum(n)\n        y = sum(c)\n    having:\n        x > 0\n",
+}
+# Other spellings of a form, each with the form whose SQL it emits: an
+# imported source or upstream, under its own name or another or through a
+# re-export (main.pietto holds the source; the query is in other.pietto),
+# a `table`, `group by:` blocks, a parenthesized argument and an identity
+# `def`.
+_G4_IMPORT = 'from "%s" import (\n    %s,\n)\n'
+_G4_U1_TOP = G4_FORMS["U1"][G4_FORMS["U1"].index("query result:") :]
+_G4_U1_BASE = G4_FORMS["U1"][: G4_FORMS["U1"].index("query result:")]
+G4_SPELLINGS = {
+    "import_source": (
+        "S1",
+        {
+            "main.pietto": "export source rows\n",
+            "other.pietto": _G4_IMPORT % ("main.pietto", "source rows")
+            + G4_FORMS["S1"],
+        },
+    ),
+    "import_source_renamed": (
+        "S1",
+        {
+            "main.pietto": "export source rows\n",
+            "other.pietto": _G4_IMPORT % ("main.pietto", "source rows as src")
+            + G4_FORMS["S1"].replace("let r = rows", "let r = src"),
+        },
+    ),
+    "import_reexport": (
+        "S3",
+        {
+            "main.pietto": "export source rows\n",
+            "mid.pietto": _G4_IMPORT % ("main.pietto", "source rows")
+            + "export source rows\n",
+            "other.pietto": _G4_IMPORT % ("mid.pietto", "source rows") + G4_FORMS["S3"],
+        },
+    ),
+    "import_upstream": (
+        "U1",
+        {
+            "main.pietto": _G4_U1_BASE + "export query base\n",
+            "other.pietto": _G4_IMPORT % ("main.pietto", "query base") + _G4_U1_TOP,
+        },
+    ),
+    "import_upstream_renamed": (
+        "U1",
+        {
+            "main.pietto": _G4_U1_BASE + "export query base\n",
+            "other.pietto": _G4_IMPORT % ("main.pietto", "query base as up")
+            + _G4_U1_TOP.replace("from base", "from up"),
+        },
+    ),
+    "import_source_of_upstream": (
+        "U1",
+        {
+            "main.pietto": "export source rows\n",
+            "other.pietto": _G4_IMPORT % ("main.pietto", "source rows")
+            + G4_FORMS["U1"],
+        },
+    ),
+    "table": ("A1", G4_FORMS["A1"].replace("query result:", "table result:")),
+    "group_block": (
+        "A1",
+        G4_FORMS["A1"]
+        .replace("    group by k, n\n", "    group by:\n        k\n        n\n")
+        .replace("    group by k\n", "    group by:\n        k\n"),
+    ),
+    "parenthesized": ("S3", G4_FORMS["S3"].replace("max(rows.a)", "max((rows.a))")),
+    "identity_def": (
+        "S1",
+        "def idf(x: Int) -> Int: return x\n"
+        + G4_FORMS["S1"].replace("sum(r.n)", "sum(idf(r.n))"),
+    ),
+}
+# Further bodies the law opens: main's refusals of a relation alias, read
+# or not, an unread window, an imported source and a plain upstream
+# (NUMERIC_REFUSALS', G1's X6 and let_window, G2's R6 and G3's R5 before
+# G4), an upstream
+# `min` of an INT field below its WHERE summed, a BIGINT `max` below a
+# WHERE as a key, a count as a key, an upstream sum counted, as a `min`
+# argument and through a `let`, HAVING over a plain upstream beside a
+# WHERE, an upstream with a `let` and a WHERE, and a Text key of a plain
+# upstream under a WHERE.
+G4_CELLS = {
+    "sum_row_input_alias": "query result:\n    let x = rows\n    from x\n    group by k\n    select:\n        k\n        total = sum(a)\n",
+    "sum_unread_row_input_alias": "query result:\n    let x = rows\n    from rows\n    group by k\n    select:\n        k\n        total = sum(a)\n",
+    "sum_unread_window": "query result:\n    from rows\n    let w = window(order by id)\n    group by k\n    select:\n        k\n        total = sum(a)\n",
+    "sum_imported_source_alias": {
+        "main.pietto": "export source rows\n",
+        "other.pietto": 'from "main.pietto" import (\n    source rows as r,\n)\nquery result:\n    from r\n    group by k\n    select:\n        k\n        total = sum(a)\n',
+    },
+    "sum_upstream": "query up:\n    from rows\n    select:\n        k\n        a\nquery result:\n    from up\n    group by k\n    select:\n        k\n        x = sum(a)\n",
+    "g1_x6": "query result:\n    let x = rows\n    from x\n    let t = n\n    select:\n        s = sum(t)\n",
+    "g1_let_window": "query result:\n    from rows\n    let w = window(order by id)\n    let t = n\n    select:\n        s = sum(t)\n",
+    "g2_r6": "query result:\n    let x = rows\n    from x\n    group by k, note\n    select:\n        k\n        note\n        s = sum(n)\n",
+    "g3_r5": "query result:\n    let src = rows\n    from src\n    group by k\n    select:\n        k\n        x = sum(n)\n    order by:\n        k\n",
+    "staged_sum": "query base:\n    from rows\n    where id > 3\n    group by tag\n    select:\n        tag\n        s = sum(c)\n        lo = min(c)\nquery result:\n    from base\n    select:\n        x = sum(s)\n        y = sum(lo)\n",
+    "bigint_max_key": "query base:\n    from rows\n    where id > 3\n    group by tag\n    select:\n        tag\n        s = sum(c)\n        hi = max(a)\nquery result:\n    from base\n    group by hi\n    select:\n        hi\n        x = sum(s)\n",
+    "bigint_min_min": "query base:\n    from rows\n    group by tag\n    select:\n        tag\n        s = sum(c)\n        lo = min(a)\nquery result:\n    from base\n    select:\n        x = sum(s)\n        y = min(lo)\n",
+    "count_key": "query base:\n    from rows\n    group by k, n\n    select:\n        k\n        n\n        s = sum(a)\n        m = count()\nquery result:\n    from base\n    group by m\n    select:\n        m\n        x = sum(s)\n        y = sum(n)\n",
+    "two_sums": "query base:\n    from rows\n    group by k\n    select:\n        k\n        s = sum(a)\n        t = sum(c)\nquery result:\n    from base\n    select:\n        x = sum(s)\n        y = sum(t)\n",
+    "count_of_sum": "query base:\n    from rows\n    group by k, n\n    select:\n        k\n        n\n        s = sum(a)\n        m = count()\nquery result:\n    from base\n    group by k\n    select:\n        k\n        x = sum(m)\n        c = count(s)\n",
+    "min_of_sum": "query base:\n    from rows\n    group by k, n\n    select:\n        k\n        n\n        s = sum(a)\n        m = count()\nquery result:\n    from base\n    group by k\n    select:\n        k\n        x = sum(m)\n        lo = min(s)\n",
+    "let_of_sum": "query base:\n    from rows\n    group by k, n\n    select:\n        k\n        n\n        s = sum(a)\n        m = count()\nquery result:\n    from base\n    let v = s\n    group by k\n    select:\n        k\n        x = sum(v)\n        y = sum(m)\n",
+    "plain_having": "query base:\n    from rows\n    select:\n        k\n        a\n        id\nquery result:\n    from base\n    where id > 3\n    group by k\n    select:\n        k\n        x = sum(a)\n    having:\n        x > 0\n",
+    "agg_with_where_up_let": "query base:\n    from rows\n    let v = n\n    where id > 3\n    group by k\n    select:\n        k\n        s = sum(v)\nquery result:\n    from base\n    select:\n        x = sum(s)\n",
+    "sel_where_plain_text": "query base:\n    from rows\n    select:\n        tag\n        n\nquery result:\n    from base\n    where n > 1\n    group by tag\n    select:\n        tag\n        x = sum(n)\n",
+}
+# S03's neighbour `ctl_t_plain_first_level` (P1), over s03_world.
+G4_ORDERS_CELLS = {
+    "P1": "query up:\n    from orders\n    select:\n        customer\n        amount\nquery result:\n    from up\n    group by customer\n    select:\n        customer\n        total = sum(amount)\n",
+}
+_G4_BASE = "query base:\n    from rows\n    select:\n        k\n        a\n        n\n"
+# Rule two (D77.37) and G4's neighbours (the preregistration's R1-R20): a
+# label too long beside the law (R1, and over two levels R16), an upstream
+# item that computes (R2), an upstream with ORDER BY and LIMIT (R3) or
+# DISTINCT (R4), a third level (R5), an alias of an alias (R6), an
+# aggregating upstream with a sum the query does not read (R7, R20 where
+# only an unread window mentions it), a WHERE (R8) or HAVING (R17) over
+# one, a sum of an `avg` (R9), a header parameter (R10), a bind-safe `?`
+# (R11, the run's control), an upstream sum as a key (R12), an unread alias
+# of a relation FROM does not read (R13), a window that is read (R14), an
+# upstream JOIN (R15), an upstream that aggregates with no sum (R18) or no
+# key (R19); and further shapes outside the law: an upstream `min` of an INT
+# field, MySQL's cast `my_signed_int` (Law item 5), as a key or `max`
+# argument, below the upstream's WHERE (X1, X2) or with neither a WHERE nor
+# a `let` below it (plain_min_key, plain_min_max), a query with no sum over
+# an aggregating upstream (X3), a plain upstream with a `let` (X4) or an
+# unread computed item (X5), HAVING on a sum or ORDER BY over an
+# aggregating upstream (X6, X7), a query that does not aggregate over one
+# (X8), an upstream declared as a relation `let` block of the query (X9) and
+# an unread alias of a second import name of FROM's upstream (X10).
+_G4_A1_BASE = G4_FORMS["A1"][: G4_FORMS["A1"].index("query result:")]
+_G4_AVG_BASE = "query base:\n    from rows\n    group by k\n    select:\n        k\n        s = sum(a)\n        v = avg(n)\n"
+_G4_MIN_MIN = "query base:\n    from rows\n    group by tag\n    select:\n        tag\n        s = sum(c)\n        lo = min(c)\nquery result:\n    from base\n    select:\n        x = sum(s)\n        y = min(lo)\n"
+G4_REFUSALS = {
+    "R1": "query result:\n    let r = rows\n    from r\n    group by r.k\n    select:\n        k = r.k\n        xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx = sum(r.a)\n        y = sum(r.n)\n",
+    "R2": "query base:\n    from rows\n    select:\n        k\n        v = a + 1\nquery result:\n    from base\n    group by k\n    select:\n        k\n        x = sum(v)\n",
+    "R3": "query base:\n    from rows\n    select:\n        k\n        a\n    order by:\n        k\n    limit 3\nquery result:\n    from base\n    group by k\n    select:\n        k\n        x = sum(a)\n",
+    "R4": "query base:\n    from rows\n    select distinct:\n        k\n        a\nquery result:\n    from base\n    group by k\n    select:\n        k\n        x = sum(a)\n",
+    "R5": "query base:\n    from rows\n    select:\n        k\n        a\n        n\nquery mid:\n    from base\n    group by k\n    select:\n        k\n        s = sum(a)\nquery result:\n    from mid\n    select:\n        x = sum(s)\n",
+    "R6": "query result:\n    let r = rows\n    let s = r\n    from s\n    group by k\n    select:\n        k\n        x = sum(a)\n",
+    "R7": "query base:\n    from rows\n    group by k, n\n    select:\n        k\n        n\n        s = sum(a)\n        m = count()\nquery result:\n    from base\n    group by k\n    select:\n        k\n        y = sum(m)\n",
+    "R8": "query base:\n    from rows\n    group by k, n\n    select:\n        k\n        n\n        s = sum(a)\n        m = count()\nquery result:\n    from base\n    where k > 1\n    group by k\n    select:\n        k\n        x = sum(s)\n        y = sum(m)\n        z = sum(n)\n",
+    "R9": "query base:\n    from rows\n    group by k\n    select:\n        k\n        s = sum(a)\n        m = avg(a)\nquery result:\n    from base\n    select:\n        x = sum(s)\n        y = sum(m)\n",
+    "R10": "query base:\n    from rows\n    select:\n        k\n        a\n        n\nquery result(lo: Int):\n    from base\n    where k > lo\n    group by k\n    select:\n        k\n        x = sum(a)\n",
+    "R11": "table base:\n    from rows\n    where id > 3\n    select:\n        v = c\n        w = n\n        g = tag\nquery result:\n    from base\n    select:\n        x = sum(v)\n        y = sum(w)\n        r = count()\n",
+    "R12": "query base:\n    from rows\n    group by k\n    select:\n        k\n        s = sum(a)\nquery result:\n    from base\n    group by s\n    select:\n        s\n        x = sum(k)\n",
+    "R13": "query base:\n    from rows\n    select:\n        k\n        a\n        n\nquery result:\n    let o = base\n    from rows\n    group by k\n    select:\n        k\n        x = sum(a)\n",
+    "R14": "query base:\n    from rows\n    let w = window(order by id)\n    select:\n        k\n        a\n        r = row_number() window w\nquery result:\n    from base\n    group by k\n    select:\n        k\n        x = sum(a)\n",
+    "R15": "query base:\n    from rows\n    let r2 = rows\n    inner join r2 on r2.id == rows.id\n    select:\n        k = rows.k\n        a = r2.a\nquery result:\n    from base\n    group by k\n    select:\n        k\n        x = sum(a)\n",
+    "R16": "query base:\n    from rows\n    group by k, n\n    select:\n        k\n        n\n        s = sum(a)\n        m = count()\nquery result:\n    from base\n    group by k\n    select:\n        k\n        xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx = sum(s)\n        y = sum(m)\n        z = sum(n)\n",
+    "R17": "query base:\n    from rows\n    group by k, n\n    select:\n        k\n        n\n        s = sum(a)\n        m = count()\nquery result:\n    from base\n    group by k\n    select:\n        k\n        x = sum(s)\n        y = sum(m)\n        z = sum(n)\n    having:\n        k > 1\n",
+    "R18": "query base:\n    from rows\n    group by k\n    select:\n        k\n        m = count()\nquery result:\n    from base\n    select:\n        x = sum(m)\n        y = sum(k)\n",
+    "R19": "query base:\n    from rows\n    select:\n        s = sum(a)\n        m = count()\nquery result:\n    from base\n    select:\n        x = sum(s)\n        y = sum(m)\n",
+    "R20": "query base:\n    from rows\n    group by k, n\n    select:\n        k\n        n\n        s = sum(a)\n        m = count()\nquery result:\n    from base\n    let w = window(order by s)\n    group by k\n    select:\n        k\n        y = sum(m)\n",
+    "X1": "query base:\n    from rows\n    where id > 3\n    group by tag\n    select:\n        tag\n        s = sum(c)\n        lo = min(c)\nquery result:\n    from base\n    group by lo\n    select:\n        lo\n        x = sum(s)\n",
+    "X2": "query base:\n    from rows\n    where id > 3\n    group by tag\n    select:\n        tag\n        s = sum(c)\n        lo = min(c)\nquery result:\n    from base\n    select:\n        x = sum(s)\n        y = max(lo)\n",
+    "plain_min_key": "query base:\n    from rows\n    group by tag\n    select:\n        tag\n        s = sum(c)\n        lo = min(c)\nquery result:\n    from base\n    group by lo\n    select:\n        lo\n        x = sum(s)\n",
+    "plain_min_max": "query base:\n    from rows\n    group by tag\n    select:\n        tag\n        s = sum(c)\n        lo = min(c)\nquery result:\n    from base\n    select:\n        x = sum(s)\n        y = max(lo)\n",
+    # Each further exclusion the G4 law states, on its own: that minimum
+    # under `avg` or `count_distinct`; an upstream sum under `max`, `avg`
+    # or `count_distinct`, and an upstream `avg` (a `my_double`) as a key
+    # or under them; an aggregating upstream with HAVING and a plain one
+    # with ORDER BY alone; an upstream that is a set operation, which
+    # project semantics refuses on both targets; and DISTINCT (X11) or
+    # ORDER BY and LIMIT over an aggregating upstream.
+    "plain_min_avg": "query base:\n    from rows\n    group by tag\n    select:\n        tag\n        s = sum(c)\n        lo = min(c)\nquery result:\n    from base\n    select:\n        x = sum(s)\n        y = avg(lo)\n",
+    "plain_min_count_distinct": "query base:\n    from rows\n    group by tag\n    select:\n        tag\n        s = sum(c)\n        lo = min(c)\nquery result:\n    from base\n    select:\n        x = sum(s)\n        y = count_distinct(lo)\n",
+    # No G4 form reads an upstream `min` or `max` by `min` (lead ruling of
+    # 2026-11-21, R-witness), so the query's `min` reads one only of a
+    # BIGINT field (G4_CELLS' bigint_min_min): not the cast `min` of the
+    # INT `c` or `max` of the INT `k`, nor the `min` of a nullable Float
+    # `fl`, Timestamp `ts`, Decimal(9, 2) `dc` or Date `dt`
+    # (G4_REFUSAL_WORLDS).
+    **{
+        f"{origin}_{function}": G4_CELLS["bigint_min_min"]
+        .replace("lo = min(a)", f"lo = {origin}(a)")
+        .replace("y = min(lo)", f"y = {function}(lo)")
+        for origin in ("min", "max")
+        for function in ("count", "count_distinct")
+    },
+    "plain_min_min": _G4_MIN_MIN,
+    "plain_kmax_min": _G4_MIN_MIN.replace("lo = min(c)", "lo = max(k)"),
+    **{
+        f"{field}_min_min": _G4_MIN_MIN.replace("lo = min(c)", f"lo = min({field})")
+        for field in ("fl", "ts", "dc", "dt")
+    },
+    **{
+        f"sum_{function}": _G4_A1_BASE
+        + "query result:\n    from base\n    group by k\n    select:\n"
+        f"        k\n        x = sum(m)\n        y = {function}(s)\n"
+        for function in ("max", "avg", "count_distinct")
+    },
+    "avg_key": _G4_AVG_BASE
+    + "query result:\n    from base\n    group by v\n    select:\n        v\n        x = sum(s)\n",
+    **{
+        f"avg_{function}": _G4_AVG_BASE + "query result:\n    from base\n    select:\n"
+        f"        x = sum(s)\n        y = {function}(v)\n"
+        for function in ("min", "max", "avg", "count", "count_distinct")
+    },
+    "upstream_having": "query base:\n    from rows\n    group by k\n    select:\n        k\n        s = sum(a)\n    having:\n        k > 1\nquery result:\n    from base\n    select:\n        x = sum(s)\n",
+    "upstream_order": "query base:\n    from rows\n    select:\n        k\n        a\n    order by:\n        k\nquery result:\n    from base\n    group by k\n    select:\n        k\n        x = sum(a)\n",
+    "upstream_union": "query one:\n    from rows\n    select:\n        k\n        a\nquery two:\n    from rows\n    select:\n        k\n        a\nquery base:\n    union all one, two\nquery result:\n    from base\n    group by k\n    select:\n        k\n        x = sum(a)\n",
+    "X11": G4_FORMS["A1"].replace(
+        "    select:\n        k\n        x",
+        "    select distinct:\n        k\n        x",
+    ),
+    "order_limit": G4_FORMS["A1"] + "    order by:\n        x desc\n    limit 2\n",
+    "X3": "query base:\n    from rows\n    group by k, n\n    select:\n        k\n        n\n        s = sum(a)\n        m = count()\nquery result:\n    from base\n    group by k\n    select:\n        k\n        lo = min(s)\n",
+    "X4": "query base:\n    from rows\n    let v = a\n    select:\n        k\n        v\nquery result:\n    from base\n    group by k\n    select:\n        k\n        x = sum(v)\n",
+    "X5": "query base:\n    from rows\n    select:\n        k\n        a\n        w = coalesce(a, 0)\nquery result:\n    from base\n    group by k\n    select:\n        k\n        x = sum(a)\n",
+    "X6": "query base:\n    from rows\n    group by k, n\n    select:\n        k\n        n\n        s = sum(a)\n        m = count()\nquery result:\n    from base\n    group by k\n    select:\n        k\n        x = sum(s)\n        y = sum(m)\n    having:\n        x > 0\n",
+    "X7": "query base:\n    from rows\n    group by k, n\n    select:\n        k\n        n\n        s = sum(a)\n        m = count()\nquery result:\n    from base\n    group by k\n    select:\n        k\n        x = sum(s)\n        y = sum(m)\n    order by:\n        x\n",
+    "X8": "query base:\n    from rows\n    group by k, n\n    select:\n        k\n        n\n        s = sum(a)\n        m = count()\nquery result:\n    from base\n    select:\n        k\n        s\n",
+    "X9": "query result:\n    let base:\n        from rows\n        group by k\n        select:\n            k\n            s = sum(a)\n    from base\n    select:\n        x = sum(s)\n",
+    "X10": {
+        "main.pietto": _G4_A1_BASE + "export query base\n",
+        "other.pietto": _G4_IMPORT
+        % ("main.pietto", "query base as up,\n    query base as up2")
+        + "query result:\n    let q = up2\n    from up\n    group by k\n    select:\n        k\n        x = sum(s)\n",
+    },
+}
+G4_REFUSAL_POLICIES = {"R11": ("bind_safe_literals",)}
+# The neighbours over grouping_world with `fl`, `ts`, `dc` and `dt`.
+G4_REFUSAL_WORLDS = {
+    f"{field}_min_min": {"wide": True} for field in ("fl", "ts", "dc", "dt")
+}
+# Project semantics refuses a read of a set operation's output on both
+# targets before any emission law.
+_G4_UNION_UNSUCCESSFUL = [
+    ("PIE-B1003", "semantic_result_unsuccessful", 23, 1),
+    ("PIE-B1003", "active_output_unavailable", 23, 1),
+    ("PIE-B1003", "group", 25, 5),
+]
+G4_REFUSAL_BLOCKERS = {
+    "R1": [
+        ("PIE-B1004", "sum_int_aggregate_range_proof_missing", 17, 9),
+        ("PIE-B1004", "sum_int_aggregate_range_proof_missing", 18, 9),
+        ("PIE-B1002", "output_label_unrepresentable", None, None),
+    ],
+    "R2": [("PIE-B1002", "arithmetic_outside_physical_range", 15, 9)],
+    "R3": [("PIE-B1004", "sum_int_aggregate_range_proof_missing", 24, 9)],
+    "R4": [("PIE-B1004", "sum_int_aggregate_range_proof_missing", 21, 9)],
+    "R5": [("PIE-B1004", "sum_int_aggregate_range_proof_missing", 22, 9)],
+    "R6": [("PIE-B1004", "sum_int_aggregate_range_proof_missing", 18, 9)],
+    "R7": [("PIE-B1004", "sum_int_aggregate_range_proof_missing", 17, 9)],
+    "R8": [("PIE-B1004", "sum_int_aggregate_range_proof_missing", 17, 9)],
+    "R9": [("PIE-B1004", "sum_int_aggregate_range_proof_missing", 16, 9)],
+    "R10": [("PIE-B1004", "sum_int_aggregate_range_proof_missing", 23, 9)],
+    "R11": [
+        ("PIE-B1004", "sum_int_aggregate_range_proof_missing", 21, 9),
+        ("PIE-B1004", "sum_int_aggregate_range_proof_missing", 22, 9),
+    ],
+    "R12": [("PIE-B1004", "sum_int_aggregate_range_proof_missing", 16, 9)],
+    "R13": [("PIE-B1004", "sum_int_aggregate_range_proof_missing", 23, 9)],
+    "R14": [("PIE-B1004", "sum_int_aggregate_range_proof_missing", 23, 9)],
+    "R15": [("PIE-B1004", "sum_int_aggregate_range_proof_missing", 23, 9)],
+    "R16": [
+        ("PIE-B1004", "sum_int_aggregate_range_proof_missing", 17, 9),
+        ("PIE-B1002", "output_label_unrepresentable", None, None),
+    ],
+    "R17": [("PIE-B1004", "sum_int_aggregate_range_proof_missing", 17, 9)],
+    "R18": [
+        ("PIE-B1004", "sum_int_aggregate_range_proof_missing", 20, 9),
+        ("PIE-B1004", "sum_int_aggregate_range_proof_missing", 21, 9),
+    ],
+    "R19": [("PIE-B1004", "sum_int_aggregate_range_proof_missing", 14, 9)],
+    "R20": [("PIE-B1004", "sum_int_aggregate_range_proof_missing", 17, 9)],
+    "X1": [("PIE-B1004", "sum_int_aggregate_range_proof_missing", 17, 9)],
+    "X2": [("PIE-B1004", "sum_int_aggregate_range_proof_missing", 17, 9)],
+    "plain_min_key": [("PIE-B1004", "sum_int_aggregate_range_proof_missing", 16, 9)],
+    "plain_min_max": [("PIE-B1004", "sum_int_aggregate_range_proof_missing", 16, 9)],
+    "plain_min_min": [("PIE-B1004", "sum_int_aggregate_range_proof_missing", 16, 9)],
+    "plain_kmax_min": [("PIE-B1004", "sum_int_aggregate_range_proof_missing", 16, 9)],
+    # Over G4_REFUSAL_WORLDS' header, four lines longer.
+    **{
+        f"{field}_min_min": [
+            ("PIE-B1004", "sum_int_aggregate_range_proof_missing", 20, 9)
+        ]
+        for field in ("fl", "ts", "dc", "dt")
+    },
+    **{
+        name: [("PIE-B1004", "sum_int_aggregate_range_proof_missing", 16, 9)]
+        for name in (
+            "plain_min_avg",
+            "plain_min_count_distinct",
+            "min_count",
+            "min_count_distinct",
+            "max_count",
+            "max_count_distinct",
+            "avg_key",
+            "avg_min",
+            "avg_count",
+            "avg_max",
+            "avg_avg",
+            "avg_count_distinct",
+            "upstream_having",
+        )
+    },
+    **{
+        name: [("PIE-B1004", "sum_int_aggregate_range_proof_missing", 17, 9)]
+        for name in ("sum_max", "sum_avg", "sum_count_distinct", "X11", "order_limit")
+    },
+    "upstream_order": [("PIE-B1004", "sum_int_aggregate_range_proof_missing", 23, 9)],
+    "upstream_union": _G4_UNION_UNSUCCESSFUL,
+    "X3": [("PIE-B1004", "sum_int_aggregate_range_proof_missing", 17, 9)],
+    "X4": [("PIE-B1004", "sum_int_aggregate_range_proof_missing", 22, 9)],
+    "X5": [("PIE-B1004", "sum_int_aggregate_range_proof_missing", 22, 9)],
+    "X6": [("PIE-B1004", "sum_int_aggregate_range_proof_missing", 17, 9)],
+    "X7": [("PIE-B1004", "sum_int_aggregate_range_proof_missing", 17, 9)],
+    "X8": [("PIE-B1004", "sum_int_aggregate_range_proof_missing", 17, 9)],
+    "X9": [("PIE-B1004", "sum_int_aggregate_range_proof_missing", 17, 13)],
+    "X10": [("PIE-B1004", "sum_int_aggregate_range_proof_missing", 17, 9)],
+}
+# PostgreSQL emits each but these, which keep main's own blocker.
+G4_POSTGRES_BLOCKERS = {
+    "upstream_union": _G4_UNION_UNSUCCESSFUL,
+    "R1": [("PIE-B1002", "output_label_unrepresentable", None, None)],
+    "R16": [("PIE-B1002", "output_label_unrepresentable", None, None)],
+}
+# A relation alias of an alias, an unread alias of a relation that FROM does
+# not read (a second import name of FROM's upstream included) and an
+# upstream declared as a relation `let` block leave the records and document
+# of the same body read directly, its upstream a `query` of its module: only
+# emission refuses them (D77.24).
+G4_ALIASES = {
+    "R6": "query result:\n    from rows\n    group by k\n    select:\n        k\n        x = sum(a)\n",
+    "R13": _G4_BASE
+    + "query result:\n    from rows\n    group by k\n    select:\n        k\n        x = sum(a)\n",
+    "X9": "query base:\n    from rows\n    group by k\n    select:\n        k\n        s = sum(a)\nquery result:\n    from base\n    select:\n        x = sum(s)\n",
+    "X10": _G4_A1_BASE
+    + "query result:\n    from base\n    group by k\n    select:\n        k\n        x = sum(s)\n",
+}
+# S02's own SMALLINT reads under G4's organization (lead ruling of
+# 2026-11-21, S02-SMALLINT): over division_world's `nums`, S02's own
+# SMALLINT GROUP BY key, and a `count` or `min` of a SMALLINT field, stay in
+# S02's cell as main takes it, so a relation alias, an unread window and a
+# plain or aggregating upstream beside one keep main's MySQL blockers under
+# both policies, as does an imported source over numeric_world's SMALLINT
+# `c` (G4_SMALLINT_WORLDS); PostgreSQL emits each. An alias, an unread window
+# or an import leaves the records and document of the body read directly
+# (G4_SMALLINT_ALIASES).
+_G4_SMALL_KEY = "    group by t\n    select:\n        t\n        x = sum(b)\n"
+_G4_SMALL_SUM = "    group by j\n    select:\n        j\n        x = sum(b)\n"
+G4_SMALLINT_REFUSALS = {
+    "alias_key": (
+        "query result:\n    let r = nums\n    from r\n" + _G4_SMALL_KEY,
+        [("PIE-B1004", "sum_int_aggregate_range_proof_missing", 16, 9)],
+    ),
+    "window_key": (
+        "query result:\n    from nums\n    let w = window(order by id)\n"
+        + _G4_SMALL_KEY,
+        [("PIE-B1004", "sum_int_aggregate_range_proof_missing", 16, 9)],
+    ),
+    "alias_count": (
+        "query result:\n    let r = nums\n    from r\n"
+        + _G4_SMALL_SUM
+        + "        m = count(s)\n",
+        [("PIE-B1004", "sum_int_aggregate_range_proof_missing", 16, 9)],
+    ),
+    "window_min": (
+        "query result:\n    from nums\n    let w = window(order by id)\n"
+        + _G4_SMALL_SUM
+        + "        lo = min(t)\n",
+        [("PIE-B1004", "sum_int_aggregate_range_proof_missing", 16, 9)],
+    ),
+    "plain_up_key": (
+        "query up:\n    from nums\n    select:\n        t\n        b\n"
+        "query result:\n    from up\n" + _G4_SMALL_KEY,
+        [("PIE-B1004", "sum_int_aggregate_range_proof_missing", 20, 9)],
+    ),
+    "plain_up_count": (
+        "query up:\n    from nums\n    select:\n        j\n        s\n        b\n"
+        "query result:\n    from up\n" + _G4_SMALL_SUM + "        m = count(s)\n",
+        [("PIE-B1004", "sum_int_aggregate_range_proof_missing", 21, 9)],
+    ),
+    "agg_up_key": (
+        "query up:\n    from nums\n    group by t\n    select:\n        t\n"
+        "        s = sum(b)\nquery result:\n    from up\n    select:\n"
+        "        x = sum(s)\n",
+        [("PIE-B1004", "sum_int_aggregate_range_proof_missing", 15, 9)],
+    ),
+    "agg_up_min": (
+        "query up:\n    from nums\n"
+        + _G4_SMALL_SUM.replace("x = sum(b)", "s = sum(b)")
+        + "        lo = min(t)\nquery result:\n    from up\n    select:\n"
+        "        x = sum(s)\n",
+        [("PIE-B1004", "sum_int_aggregate_range_proof_missing", 15, 9)],
+    ),
+    "import_count": (
+        {
+            "main.pietto": "export source rows\n",
+            "other.pietto": 'from "main.pietto" import (\n    source rows as r,\n)\n'
+            "query result:\n    from r\n    group by k\n    select:\n        k\n"
+            "        x = sum(a)\n        m = count(c)\n",
+        },
+        [("PIE-B1004", "sum_int_aggregate_range_proof_missing", 9, 9)],
+    ),
+}
+G4_SMALLINT_WORLDS: dict[str, tuple[str, dict[str, Any]]] = {
+    "import_count": ("numeric_world", {"smallint": True}),
+}
+G4_SMALLINT_ALIASES = {
+    "import_count": "query result:\n    from rows\n    group by k\n    select:\n"
+    "        k\n        x = sum(a)\n        m = count(c)\n",
+    "alias_key": "query result:\n    from nums\n" + _G4_SMALL_KEY,
+    "window_key": "query result:\n    from nums\n" + _G4_SMALL_KEY,
+    "alias_count": "query result:\n    from nums\n"
+    + _G4_SMALL_SUM
+    + "        m = count(s)\n",
+    "window_min": "query result:\n    from nums\n"
+    + _G4_SMALL_SUM
+    + "        lo = min(t)\n",
 }
 
 
@@ -19185,7 +19733,6 @@ S03_REFUSALS = {
     "ctl_j_inner_joined_side": "query result:\n    from orders\n    let i = items\n    inner join i on i.order_id == orders.id\n    group by orders.id\n    select:\n        id = orders.id\n        qty = sum(i.qty)\n",
     "ctl_j_two_sums": "query result:\n    from orders\n    let i = items\n    left join i on i.order_id == orders.id\n    group by orders.id\n    select:\n        id = orders.id\n        qty = sum(i.qty)\n        ids = sum(i.id)\n",
     "ctl_j_where": "query result:\n    from orders\n    let i = items\n    left join i on i.order_id == orders.id\n    where orders.nn > 0\n    group by orders.id\n    select:\n        id = orders.id\n        qty = sum(i.qty)\n",
-    "ctl_t_plain_first_level": "query up:\n    from orders\n    select:\n        customer\n        amount\nquery result:\n    from up\n    group by customer\n    select:\n        customer\n        total = sum(amount)\n",
     "ctl_t_second_where": S03_FORMS["T1"].replace(
         "    from per_order\n", "    from per_order\n    where lines > 0\n"
     ),
@@ -19385,9 +19932,6 @@ S03_REFUSAL_BLOCKERS = {
     ],
     "ctl_j_where": [
         ("PIE-B1004", "sum_int_aggregate_range_proof_missing", 23, 9),
-    ],
-    "ctl_t_plain_first_level": [
-        ("PIE-B1004", "sum_int_aggregate_range_proof_missing", 25, 9),
     ],
     "ctl_t_second_where": [
         ("PIE-B1004", "sum_int_aggregate_range_proof_missing", 31, 9),

@@ -2429,8 +2429,8 @@ def test_the_mysql_checked_operand_law_refuses_each_edited_carrier(tmp_path, edi
 
 
 def _key_edit(**changes):
-    def edit(plan, keys, columns):
-        return plan, (replace(keys[0], **changes), *keys[1:]), columns
+    def edit(plan, stage, keys, columns):
+        return plan, stage, (replace(keys[0], **changes), *keys[1:]), columns
 
     return edit
 
@@ -2448,8 +2448,9 @@ def _source_edit(**changes):
 # for.
 S02_QUERY_EDITS = {
     "key_not_field": _key_edit(field=None),
-    "key_storage": lambda plan, keys, columns: (
+    "key_storage": lambda plan, stage, keys, columns: (
         plan,
+        stage,
         (
             replace(
                 keys[0],
@@ -2460,16 +2461,19 @@ S02_QUERY_EDITS = {
         ),
         columns,
     ),
-    "select_expression": lambda plan, keys, columns: (
+    "select_expression": lambda plan, stage, keys, columns: (
         _plan_with(
             plan,
             expressions=(
                 *plan.expressions,
                 SimpleNamespace(
-                    site=SimpleNamespace(role=ProjectSQLExpressionRole.SELECT)
+                    site=SimpleNamespace(
+                        role=ProjectSQLExpressionRole.SELECT, block=stage.block
+                    )
                 ),
             ),
         ),
+        stage,
         keys,
         columns,
     ),
@@ -2503,16 +2507,17 @@ def test_the_mysql_sum_cell_law_refuses_each_edited_input(tmp_path, edit):
     plain verification's own result law does alone for a sum and S03's
     conditional sum, taking a BIGINT or INT one."""
     seen = probe.numeric_law_inputs(tmp_path, probe.NUMERIC_CELLS["s02_grouped"])
-    plan, keys, columns = seen["mysql_sum_query"]
+    plan, stage, keys, columns = seen["mysql_sum_query"]
     aggregate, argument = seen["mysql_sum_cell"]
-    assert keys and rows.mysql_sum_query(plan, keys, columns) is True
+    assert keys and rows.mysql_sum_query(plan, stage, keys, columns) is True
     small = replace(keys[0].realization, storage={"kind": "my_smallint"})
     small_key = (replace(keys[0], realization=small),)
-    assert rows.mysql_sum_query(plan, small_key, columns) is True
+    assert rows.mysql_sum_query(plan, stage, small_key, columns) is True
     assert rows.mysql_sum_cell(aggregate, argument) is True
     if edit in S02_QUERY_EDITS:
         assert (
-            rows.mysql_sum_query(*S02_QUERY_EDITS[edit](plan, keys, columns)) is False
+            rows.mysql_sum_query(*S02_QUERY_EDITS[edit](plan, stage, keys, columns))
+            is False
         )
     elif edit in S02_CELL_EDITS:
         assert rows.mysql_sum_cell(*S02_CELL_EDITS[edit](aggregate, argument)) is (
@@ -2611,8 +2616,8 @@ def test_the_mysql_sum_smallint_law_keeps_s02_own_cell(tmp_path, body, read):
     HAVING line (MC G3) it refuses the stage, which it takes without the
     SMALLINT read."""
     seen = probe.numeric_law_inputs(tmp_path, _SMALLINT_LAW_BODIES[body])
-    plan, keys, columns = seen["mysql_sum_query"]
-    assert rows.mysql_sum_query(plan, keys, columns) is True
+    plan, stage, keys, columns = seen["mysql_sum_query"]
+    assert rows.mysql_sum_query(plan, stage, keys, columns) is True
     ports = {}
     for value in plan.aggregates:
         argument = rows._planned(plan, value.arguments[0])
@@ -2626,12 +2631,14 @@ def test_the_mysql_sum_smallint_law_keeps_s02_own_cell(tmp_path, body, read):
         small_columns = _with_storage(
             columns, ports[read], storage={"kind": "my_smallint"}
         )
-    assert rows.mysql_sum_query(plan, small_keys, small_columns) is (body == "cell")
+    assert rows.mysql_sum_query(plan, stage, small_keys, small_columns) is (
+        body == "cell"
+    )
     for changes in ({"storage": {"kind": "my_int"}}, {"nullable": False}):
         widened = _with_storage(columns, ports["sum"], **changes)
-        assert rows.mysql_sum_query(plan, keys, widened) is True
+        assert rows.mysql_sum_query(plan, stage, keys, widened) is True
         small_widened = _with_storage(small_columns, ports["sum"], **changes)
-        assert rows.mysql_sum_query(plan, small_keys, small_widened) is False
+        assert rows.mysql_sum_query(plan, stage, small_keys, small_widened) is False
 
 
 @pytest.mark.parametrize("function", ("max", "avg", "count_distinct"))
@@ -2647,8 +2654,8 @@ def test_the_mysql_g2_beside_law_takes_its_storages_only(tmp_path, function):
         "query result:\n    from rows\n    group by k\n    select:\n"
         "        k\n        x = sum(a)\n        y = %s(c)\n" % function,
     )
-    plan, keys, columns = seen["mysql_sum_query"]
-    assert rows.mysql_sum_query(plan, keys, columns) is True
+    plan, stage, keys, columns = seen["mysql_sum_query"]
+    assert rows.mysql_sum_query(plan, stage, keys, columns) is True
     ((port, column),) = (
         (expression.port, columns[expression.port])
         for value in plan.aggregates
@@ -2665,12 +2672,12 @@ def test_the_mysql_g2_beside_law_takes_its_storages_only(tmp_path, function):
         (replace(column.realization, binding=True), False),
     ):
         changed = {**columns, port: replace(column, realization=edited)}
-        assert rows.mysql_sum_query(plan, keys, changed) is law
+        assert rows.mysql_sum_query(plan, stage, keys, changed) is law
     unread = {**columns, port: replace(column, field=None)}
-    assert rows.mysql_sum_query(plan, keys, unread) is False
+    assert rows.mysql_sum_query(plan, stage, keys, unread) is False
     small = replace(keys[0].realization, storage={"kind": "my_smallint"})
     small_key = (replace(keys[0], realization=small),)
-    assert rows.mysql_sum_query(plan, small_key, columns) is False
+    assert rows.mysql_sum_query(plan, stage, small_key, columns) is False
 
 
 def test_the_mysql_g3_clause_law_refuses_each_edited_input(tmp_path):
@@ -2688,7 +2695,7 @@ def test_the_mysql_g3_clause_law_refuses_each_edited_input(tmp_path):
         "        x = sum(a)\n        r = count()\n    having:\n        k > 1\n"
         "        r >= 1\n    order by:\n        x desc\n        k\n    limit 2\n",
     )
-    plan, keys, columns = seen["mysql_sum_query"]
+    plan, _, _, columns = seen["mysql_sum_query"]
     assert rows.mysql_sum_clauses(plan, columns) is True
     (key,) = plan.group_keys
     column = columns[key.input]
@@ -2711,7 +2718,7 @@ def test_the_mysql_g3_clause_law_refuses_each_edited_input(tmp_path):
     assert rows.mysql_sum_clauses(swapped, columns) is False
     assert rows.mysql_sum_clauses(_plan_with(plan, group_keys=()), columns) is False
     seen = probe.numeric_law_inputs(tmp_path / "having", probe.G3_CELLS["key_having"])
-    plan, keys, columns = seen["mysql_sum_query"]
+    plan, _, _, columns = seen["mysql_sum_query"]
     (key,) = plan.group_keys
     column = columns[key.input]
     for storage, law in (
@@ -2727,7 +2734,7 @@ def test_the_mysql_g3_clause_law_refuses_each_edited_input(tmp_path):
         "query result:\n    from rows\n    group by k\n    select:\n        k\n"
         "        x = sum(a)\n    order by:\n        k\n",
     )
-    plan, keys, columns = seen["mysql_sum_query"]
+    plan, _, _, columns = seen["mysql_sum_query"]
     (key,) = plan.group_keys
     column = columns[key.input]
     for storage, law in (
@@ -2737,6 +2744,42 @@ def test_the_mysql_g3_clause_law_refuses_each_edited_input(tmp_path):
         realization = replace(column.realization, storage=storage)
         changed = {**columns, key.input: replace(column, realization=realization)}
         assert rows.mysql_sum_clauses(plan, changed) is law
+
+
+def test_the_mysql_g4_upstream_law_refuses_each_edited_input(tmp_path, monkeypatch):
+    """MC G4: emission asks the S02 law at both aggregations of A1, an
+    upstream by `k, n` with a sum and a count read by the query's sums, and
+    holds it; the query's aggregation refuses once one input changes: an
+    input column that is a literal, the upstream sum as its key, or an
+    upstream sum that none of its aggregates reads; the upstream's refuses
+    with no key."""
+    calls = []
+    law = rows.mysql_sum_query
+    monkeypatch.setattr(
+        rows,
+        "mysql_sum_query",
+        lambda *args: calls.append(args) or law(*args),
+    )
+    _, outcome = probe.grouping_world(tmp_path, "mysql", probe.G4_FORMS["A1"])
+    assert outcome.status == "VERIFIED", outcome.blockers
+    monkeypatch.undo()
+    upstream = calls[0]
+    query = next(call for call in calls if call[1] is not upstream[1])
+    plan, stage, keys, columns = query
+    assert rows.mysql_sum_query(*upstream) is True
+    assert rows.mysql_sum_query(plan, stage, keys, columns) is True
+    total = next(
+        column
+        for column in columns.values()
+        if getattr(column.aggregate, "function", None) == "sum"
+    )
+    port, column = next(iter(columns.items()))
+    literal = {**columns, port: replace(column, literal=object())}
+    assert rows.mysql_sum_query(plan, stage, keys, literal) is False
+    assert rows.mysql_sum_query(plan, stage, (total,), columns) is False
+    unread = {**columns, object(): total}
+    assert rows.mysql_sum_query(plan, stage, keys, unread) is False
+    assert rows.mysql_sum_query(upstream[0], upstream[1], (), upstream[3]) is False
 
 
 # --------------------------------------------------------------------------
