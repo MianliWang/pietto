@@ -1247,3 +1247,30 @@ ledger, and each lane reports its commands (D, D76.17) and pytest starts
 ### B2 second tier record
 
 C writes this record; the midpoint's goes here too (80-5).
+
+**R2 record.** The campaign ran once on 2026-11-18 and ended `PASS` (exit 0)
+with its first attempt. Its preregistration delta derives from R1's delta
+r2; the draft was reviewed, and the prepared package (generator, manifest,
+judge with 38 forged shapes, driver and offline probe) had an independent
+review before it froze at 02:38:51Z (D78.10). Attempt: 02:44:44Z to
+02:45:11Z, outer wall time 26.37 s, charged 27 s of the two hours (D78.11);
+the pinned PostgreSQL 18.6 image on Docker Desktop 4.99.0 (Engine 29.9.3),
+one owned container with `--pull=never --network none`, PostgreSQL slot 3
+of 3 held through `engine-slot`, removed by its label with no container
+left. 13 entries passed with no divergence: 5 of S14's cells and 8 of
+S15's, none with an argument. Not entries: R1's 124 and B1's 105, reused
+because their bytes, fixtures, oracles and carriers are unchanged; 3
+premise controls and 1 `-nocase` variant (SQLite-only premises); 2 cells
+that the PostgreSQL project pipeline refuses, `PIE-B1002`
+`literal_leaf_representation` and `PIE-B1003`
+`count_argument_outside_reviewed_int_domain`, which hold only the forms
+of D78.15 (2). R2 does not verify: (1) those forms, which have native cells
+only (D78.16), where the fixture names them as D78.15 (2) does, though of
+`count()` with no key only the empty window's frame opens; (2) the results
+one past the bounds, whose SQLSTATE 22003 stays inferred, as R1's item 5;
+(3) whether a `sum` under a `limit` with no `order by` fails when its
+overflow lies where no delivered row needs it.
+The run bound the first batch's head before its rebase; the result is
+`tests/fixtures/sqlite/postgres_replay_r2.json`, bound to each later tree
+by `test_each_r2_postgres_replay_binds_the_bytes_it_ran` and
+`test_each_r2_row_number_entry_has_no_peers`.

@@ -670,7 +670,7 @@ conditions and the method of D78.10 and D78.11, on one PostgreSQL slot; its
 `avg` entries pass on data whose sum does not depend on the order, and a
 cancelling case is recorded as an observed difference, not a failure.
 S15's window cells, and a window query on the route, run beside them
-under the same law, outside R1's saved runs; R2 is to cover them, with
+under the same law, outside R1's saved runs; R2 covers them, with
 S14's. The route's
 [qualification rules](../phases/phase-78/route.md#b2-qualification-and-replay)
 hold the rest. The route's native cells in
@@ -694,7 +694,9 @@ minimum written as one signed literal have no PostgreSQL project emission,
 so they have native cells only and no R2 entry; the owner ruled that their
 native
 cells alone open them (D78.15, D78.16). A `row_number` entry compares only
-results that do not depend on the order of peers.
+results that do not depend on the order of peers. R2 ran once and ended
+`PASS` with 13 entries and no divergence
+(`tests/fixtures/sqlite/postgres_replay_r2.json`).
 
 ## Usability
 
