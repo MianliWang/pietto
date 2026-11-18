@@ -740,8 +740,6 @@ def test_unsupported_semantic_shapes_stop_before_sql_without_artifacts(
         "sum_arbitrary_call_argument",
         "count_distinct_binary_argument",
         "count_division_argument",
-        "min_expression_argument",
-        "max_expression_argument",
         "decimal_float_multiplication_argument",
     ],
 )
@@ -901,10 +899,6 @@ def _malformed_aggregate(case: str) -> AggregateCallIR:
         return _aggregate(
             "count", INT_NON_NULL, _binary(amount, "/", tax, INT_NON_NULL)
         )
-    if case == "min_expression_argument":
-        return _aggregate("min", INT_NULLABLE, _binary(amount, "+", tax, INT_NON_NULL))
-    if case == "max_expression_argument":
-        return _aggregate("max", INT_NULLABLE, _binary(amount, "+", tax, INT_NON_NULL))
     if case == "decimal_float_multiplication_argument":
         return _aggregate(
             "sum",

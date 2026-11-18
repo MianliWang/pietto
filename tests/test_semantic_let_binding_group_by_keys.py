@@ -351,16 +351,12 @@ def test_computed_let_keys_and_let_extrema_follow_their_mode_law(
     schema_version: int,
     mode: ProjectCompilationMode,
 ) -> None:
-    """EXPLICIT_MODULES completes the relation; the other laws keep refusing it."""
+    """A single file and EXPLICIT_MODULES accept the relation; LEGACY_FLAT
+    passes its check without a CONCRETE row schema."""
 
-    # Grouping opens; the independent single-file extrema boundary stays.
-    assert _errors(_semantic_for(COMPUTED_KEY_RELATION)) == [
-        (
-            "PIE-S2315",
-            "Aggregate function max requires a direct field argument; "
-            "expression arguments are not supported yet",
-        ),
-    ]
+    # Grouping opens, and a single file takes `max` of the numeric `let` key
+    # as a project does (PL.48 (3)).
+    assert _errors(_semantic_for(COMPUTED_KEY_RELATION)) == []
 
     root = tmp_path / "project"
     root.mkdir()

@@ -237,7 +237,10 @@ table totals:
     assert not project.model.aggregate_window_analyses
 
 
-def test_min_window_preserves_the_ordinary_single_file_let_rejection():
+def test_min_window_reads_no_let_name_in_a_single_file():
+    """A window's `min` or `max` reads no `let:` name (PIE-S2104), as in a
+    project, although an ordinary `min(alias)` does (PL.48 (3))."""
+
     parsed = parse_source(
         """shape Row:
     id: Int

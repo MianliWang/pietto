@@ -382,9 +382,9 @@ def analyze_window_expression(
     """Analyze one direct selected recognized window expression transiently.
 
     Without ``let_extrema``, as in a single file, a grouped input's `min` and
-    `max` read no `let:` name, as in its output schema. With
-    ``direct_aggregate_arguments``, as in a project, an aggregate window reads
-    only direct fields.
+    `max` read no `let:` name but a whole one of a type they take, as in its
+    output schema. With ``direct_aggregate_arguments``, as in a project, an
+    aggregate window reads only direct fields.
     """
 
     return _analyze_recognized_window_expression(
@@ -904,6 +904,7 @@ def _analyze_aggregate_window_computation(
             let_expansions=let_expressions,
             row_schema=input_schema,
             type_expansions=type_expansions,
+            window=True,
         )
         # A window counts a value of a built-in type only, not a shape's.
         if any(

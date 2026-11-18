@@ -567,6 +567,24 @@ _LEGACY_FLAT_LET_EXTREMA = _FLAT_HEAD + (
     "query extrema:\n    from src\n    let w = n\n    let e = id + t\n"
     "    where e > 1\n    select:\n        m = max(w)\n        k = min(w)\n"
 )
+# A numeric `min` or `max` of a `let:` name types its output, so a relation
+# that reads it is checked, and windows over it, in both modes (PL.48 (3)).
+_LEGACY_FLAT_LET_EXTREMA_READ = _FLAT_HEAD + (
+    "table extrema:\n    from src\n    let w = n * 2\n    select:\n"
+    "        m = max(w)\n"
+    'query reads:\n    from extrema\n    select:\n        x = m + "a"\n'
+    "        p = lag(m) window(order by m)\n"
+)
+# So does one of a `Date` or `Timestamp` `let:` name, as a single file takes
+# it too (PL.48 (3)).
+_LEGACY_FLAT_LET_TEMPORAL_EXTREMA = (
+    "shape E:\n    id: Int\n    day: Date | None\n    at: Timestamp\n"
+    'source ev: E = postgres.table("ev")\n'
+    "table extrema:\n    from ev\n    let d = day\n    let a = at\n"
+    "    select:\n        earliest = min(d)\n        latest = max(a)\n"
+    'query reads:\n    from extrema\n    select:\n        x = earliest + "a"\n'
+    "        p = lag(latest) window(order by latest)\n"
+)
 _PLUS_TEXT = ANY
 # A legacy-flat project has no JOIN in the current syntax: each JOIN `on` of
 # these sources is PIE-S2334 there, before the shared diagnostics.
@@ -639,6 +657,14 @@ _LEGACY_FLAT_JOIN_REFUSALS = {
             [("PIE-S2105", ("main.pietto", 9, 13, 9, 19), _PLUS_TEXT)],
         ),
         (
+            _LEGACY_FLAT_LET_EXTREMA_READ,
+            [("PIE-S2105", ("main.pietto", 14, 13, 14, 20), _PLUS_TEXT)],
+        ),
+        (
+            _LEGACY_FLAT_LET_TEMPORAL_EXTREMA,
+            [("PIE-S2105", ("main.pietto", 16, 13, 16, 27), _PLUS_TEXT)],
+        ),
+        (
             _LEGACY_FLAT_FRAME_OFFSETS,
             [
                 (
@@ -666,6 +692,8 @@ _LEGACY_FLAT_JOIN_REFUSALS = {
         "connectors",
         "shared_refusals",
         "let_extrema",
+        "let_extrema_read",
+        "let_extrema_temporal",
         "frame_offsets",
     ),
 )
@@ -681,15 +709,18 @@ def test_a_legacy_flat_check_refuses_what_an_explicit_module_check_refuses(
     group key and its maximum, and windows over relations that read them
     pass, and so do the forms that only single-file SQL refuses (a selected
     `let:` name, the let inline limit, window count literal ranges,
-    a constant ORDER BY key, a window over an alias of an enum, a `min` or
-    `max` of a `let:` name without GROUP BY, and connector table names that
-    are not one string `<table>` or `<schema>.<table>`), except an ORDER BY
-    key written as a constant in a relation without JOIN inputs, which an
-    explicit-module check refuses (PIE-S2380); a connector argument
-    of another type or count, a let/output conflict, a
+    a constant ORDER BY key, a window over an alias of an enum, and connector
+    table names that are not one string `<table>` or `<schema>.<table>`),
+    except an ORDER BY key written as a constant in a relation without JOIN
+    inputs, which an explicit-module check refuses (PIE-S2380); a connector
+    argument of another type or count, a let/output conflict, a
     window value of no concrete type, a default of another type and a frame
     offset that is not a nonnegative Int literal up to signed64, of a selected
-    or a QUALIFY window, are refused in both modes."""
+    or a QUALIFY window, are refused in both modes. A `min` or `max` of a
+    `let:` name of an `Int`, `Float`, `Decimal`, `Date` or `Timestamp` value
+    without GROUP BY, which a single file takes too (PL.48 (3)), passes both,
+    and a relation that reads it, and a window over its output, are typed in
+    both."""
     for schema_version in (1, 2):
         root = _project_root(
             tmp_path / f"v{schema_version}",

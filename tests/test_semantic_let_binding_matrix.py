@@ -235,7 +235,7 @@ def test_cli_json_output_and_explain_supported_matrix_is_schema_stable(
             "    from orders\n"
             "    let gross = amount + tax\n"
             "    select:\n"
-            "        smallest = min(gross)\n",
+            "        smallest = min(gross + 1)\n",
             "PIE-S2315",
             id="min-let-argument",
         ),
@@ -391,7 +391,7 @@ def test_unsupported_min_max_aggregate_let_stops_before_ir() -> None:
         "    from orders\n"
         "    let gross = amount + tax\n"
         "    select:\n"
-        "        smallest = min(gross)\n"
+        "        smallest = min(gross + 1)\n"
     )
 
     assert "PIE-S2315" in _error_codes(semantic)
@@ -418,7 +418,7 @@ def test_unsupported_matrix_emit_sql_json_and_output_fail_closed(
         "    from orders\n"
         "    let gross = amount + tax\n"
         "    select:\n"
-        "        smallest = min(gross)\n",
+        "        smallest = min(gross + 1)\n",
     )
     missing_output = tmp_path / "missing.sql"
 

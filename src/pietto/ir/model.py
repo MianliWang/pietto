@@ -1542,8 +1542,15 @@ def _aggregate_window_is_extrema_argument(
     *,
     allow_grouped_value: bool = True,
 ) -> bool:
-    return (isinstance(expression, FieldRefIR) and expression.field is not None) or (
-        allow_grouped_value and _aggregate_window_is_grouped_value(expression)
+    if isinstance(expression, FieldRefIR):
+        return expression.field is not None
+    if allow_grouped_value:
+        return _aggregate_window_is_grouped_value(expression)
+    # An ordinary call, not a window's, also reads the value of a whole `let:`
+    # name written in (PL.48 (3)): any value without a nested aggregate whose
+    # fields are resolved; a literal reads none (`let w = 3`).
+    return not _aggregate_call_contains_nested_stage(expression) and all(
+        reference.field is not None for reference in _field_refs(expression)
     )
 
 

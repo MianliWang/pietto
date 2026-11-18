@@ -184,7 +184,7 @@ def test_mysql_emit_sql_inlines_supported_let_expressions_without_sql_changes() 
             "    from orders\n"
             "    let gross = amount + tax\n"
             "    select:\n"
-            "        smallest = min(gross)\n",
+            "        smallest = min(gross + 1)\n",
             "PIE-S2315",
         ),
         (

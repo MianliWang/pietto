@@ -460,7 +460,7 @@ def test_let_inline_expansion_names_a_binding_past_the_limit_by_itself(
             "    from orders\n"
             "    let gross = amount + tax\n"
             "    select:\n"
-            "        total_amount = min(gross)\n",
+            "        total_amount = min(gross + 1)\n",
             "PIE-S2315",
         ),
         (

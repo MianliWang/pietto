@@ -325,6 +325,32 @@ def test_having_count_distinct_and_avg_emit_their_sql() -> None:
     ]
 
 
+def test_min_max_of_a_let_name_writes_a_renamed_field_and_refuses_a_value() -> None:
+    """PL.48 (3): a single file takes `max` and `min` of a numeric `let` name
+    and inlines its value; SQLite writes a `let` that renames a field as that
+    field and refuses a computed one, as any aggregate argument that is no
+    field."""
+
+    script_ir = _compile(
+        HEADER + "query r:\n    from users\n    let w = id\n"
+        "    select:\n        m = max(w)\n\n"
+        "query q:\n    from users\n    let w = id + 1\n"
+        "    select:\n        m = min(w)\n"
+    )
+
+    result = emit_sqlite_sql(script_ir)
+
+    assert [(item.name, item.sql) for item in result.artifacts] == [
+        ("r", "SELECT\n    MAX(`users`.`id`) AS `m`\nFROM `users`")
+    ]
+    assert [(item.code, item.message) for item in result.diagnostics] == [
+        (
+            "PIE-B1000",
+            REFUSED + "SQLite aggregate min reads a field of the source directly",
+        )
+    ]
+
+
 def test_refusals_keep_backend_order_and_the_other_artifacts(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

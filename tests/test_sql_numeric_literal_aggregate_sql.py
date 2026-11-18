@@ -414,8 +414,6 @@ def test_unsupported_source_shapes_stop_before_sql_with_semantic_diagnostics(
         "sum_modulo_argument",
         "sum_arbitrary_call_argument",
         "count_division_argument",
-        "min_expression_argument",
-        "max_expression_argument",
         "count_distinct_binary_argument",
         "decimal_literal_argument",
         "decimal_float_multiplication_argument",
@@ -528,7 +526,6 @@ def _order_by_clause(sql: str) -> str:
 def _malformed_aggregate(case: str) -> AggregateCallIR:
     amount = _field("amount", INT_NON_NULL)
     tax = _field("tax", INT_NON_NULL)
-    score = _field("score", FLOAT_NON_NULL)
     price = _field("price", DECIMAL_NON_NULL)
     status = _field("status", TEXT_NON_NULL)
 
@@ -564,12 +561,6 @@ def _malformed_aggregate(case: str) -> AggregateCallIR:
     if case == "count_division_argument":
         return _aggregate(
             "count", INT_NON_NULL, _binary(amount, "/", tax, INT_NON_NULL)
-        )
-    if case == "min_expression_argument":
-        return _aggregate("min", INT_NULLABLE, _binary(amount, "+", tax, INT_NON_NULL))
-    if case == "max_expression_argument":
-        return _aggregate(
-            "max", FLOAT_NULLABLE, _binary(score, "*", score, FLOAT_NON_NULL)
         )
     if case == "count_distinct_binary_argument":
         return _aggregate(

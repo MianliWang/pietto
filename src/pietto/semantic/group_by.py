@@ -42,6 +42,7 @@ from pietto.semantic.aggregates import (
     deferred_composition_diagnostic,
     effective_semantic_aggregate_argument_expression,
     extremum_reads_let,
+    extremum_refuses_let,
     is_count_distinct_tuple,
     is_semantic_aggregate_call,
     is_supported_semantic_aggregate_arity,
@@ -128,7 +129,8 @@ def project_grouped_schema(
 
     A bare read of a name in `rejected_lets` (a let binding PIE-S2329 already
     refused) is not also reported as an unknown field. Without `let_extrema`,
-    as in a single file, `min` and `max` read no `let:` name (PIE-S2315).
+    as in a single file, `min` and `max` read no `let:` name but a whole one
+    of a type they take (PIE-S2315, `extremum_refuses_let`).
 
     Over a row of unknown type, such as a source without a shape, the relation
     is checked by the names of the fields it reads (`open_input_schema`), its
@@ -683,7 +685,7 @@ def _aggregate_output_field(
             return _unknown_row_field(item.alias), diagnostics, False
         if (
             not let_extrema
-            and extremum_reads_let(
+            and extremum_refuses_let(
                 function_name, argument, let_expansions, input_schema
             )
         ) or not is_supported_semantic_aggregate_argument_expression(

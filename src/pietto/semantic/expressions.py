@@ -62,6 +62,7 @@ from pietto.semantic.aggregates import (
     contains_semantic_aggregate,
     count_distinct_tuple_diagnostic,
     extremum_reads_let,
+    extremum_refuses_let,
     generator_aggregate_result_value_type,
     has_unknown_field_reference,
     internal_order_diagnostic,
@@ -5953,8 +5954,9 @@ def _call_argument_types(
         temporary_diagnostics: list[Diagnostic] = []
         function_name = _callee_name(expression)
         # A `min` or `max` argument that reads a `let:` name is refused
-        # (PIE-S2315, `extremum_reads_let`) after the checks that its names
-        # with their binding types make, as for the value written in place.
+        # (PIE-S2315, `extremum_refuses_let`), or accepted as a whole one of
+        # a type they take, after the checks that its names with their binding
+        # types make, as for the value written in place.
         argument_bare_value_types = (
             bare_value_types
             if aggregate_reads_let_values(
@@ -6134,8 +6136,10 @@ def _aggregate_value_type(
     let_expansions: Mapping[str, Expression] | None,
     row_schema: RowSchema,
     type_expansions: Mapping[TypeExpr, ResolvedType] | None,
+    window: bool = False,
 ) -> ValueType | None:
-    """Return a precise aggregate type only for approved direct projections."""
+    """Return a precise aggregate type only for approved direct projections;
+    a ``window``'s `min` or `max` reads no `let:` name."""
 
     function_name = semantic_aggregate_call_name(expression)
     if function_name is None:
@@ -6162,8 +6166,10 @@ def _aggregate_value_type(
         return generator_aggregate_result_value_type(
             function_name, _canonical_value_type(argument_types[0], type_expansions)
         )
-    if extremum_reads_let(
-        function_name, argument, let_expansions, row_schema
+    if (
+        extremum_reads_let(function_name, argument, let_expansions, row_schema)
+        if window
+        else extremum_refuses_let(function_name, argument, let_expansions, row_schema)
     ) or not is_supported_semantic_aggregate_argument_expression(
         function_name,
         argument,

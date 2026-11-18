@@ -1113,7 +1113,9 @@ def _without_relations_only_projects_type(
     GROUP BY, or that reads such a relation with FROM or a JOIN, directly or
     through others, are dropped. So is the PIE-S2315 of a `min` or `max` whose
     argument is a `let:` name in a relation without GROUP BY, which only
-    single-file SQL refuses.
+    single-file SQL refuses: one of a `None` value or of a field of unknown
+    type, as a single file takes one of a type `min` and `max` take (PL.48
+    (3)).
     """
 
     relations = [
