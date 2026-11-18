@@ -2962,12 +2962,11 @@ def _numeric_blockers(outcome):
 )
 def test_mysql_sum_int_outside_its_cells_keeps_its_refusal(tmp_path, shape, policy):
     """Every other MySQL `sum(Int)` keeps the refusal main reports, object for
-    object: a computed argument, a
-    relation alias (`let x = rows` before `from x`), its chains and one
-    that nothing reads, a window nothing reads, an imported source, a
+    object: a computed argument, a chain of relation aliases (MC G4 takes
+    the others, windows nothing reads, imported sources and upstreams), a
     composed or conditional sum, a HAVING line on two outputs, a LIMIT
-    after an ORDER BY of keys only (MC G3 takes the others), a
-    header parameter read or not, or an upstream query; a cell sum beside
+    after an ORDER BY of keys only (MC G3 takes the others), or a
+    header parameter read or not; a cell sum beside
     another refused sum keeps its own refusal too (owner
     2026-11-13T00:20Z). PostgreSQL emits each as before."""
     body = probe.NUMERIC_REFUSALS[shape]
@@ -3038,8 +3037,8 @@ def test_mysql_sum_cells_are_derived_once_per_aggregation(tmp_path, monkeypatch)
             patch.setattr(
                 rows,
                 "mysql_sum_query",
-                lambda plan, keys, columns: (
-                    calls.append(plan) or original(plan, keys, columns)
+                lambda plan, stage, keys, columns: (
+                    calls.append(plan) or original(plan, stage, keys, columns)
                 ),
             )
             sums = "".join(f"        x{index} = sum(a)\n" for index in range(count))
@@ -3210,7 +3209,7 @@ def test_mysql_g1_neighbours_keep_main_refusal(tmp_path, shape, policy):
     parameter, a bind-safe `?`) and one outside the law (a SMALLINT
     field, a `let` chain, a `let` value other than one field read, a `let`
     read outside a sum argument, its GROUP BY key included, a value `let`
-    that nothing reads, a relation alias) keep main's blockers, object for
+    that nothing reads) keep main's blockers, object for
     object, under each policy they are refused with; PostgreSQL emits each
     but the long label as main does."""
     if policy not in probe.G1_REFUSAL_POLICIES.get(shape, (policy,)):
@@ -3358,7 +3357,7 @@ def test_mysql_g2_sql_is_main_max_sql_but_the_guard(tmp_path, name):
 def test_mysql_g2_neighbours_keep_main_refusal(tmp_path, shape, policy):
     """Rule two (D77.37): a statement the G2 law matches beside another
     blocker (a label too long, a sum outside every cell, a header
-    parameter, a bind-safe `?`, a relation alias) and one outside
+    parameter, a bind-safe `?`) and one outside
     it (`string_agg`, a conditional count, a `count_distinct` of two
     fields, `stddev`, an `avg` of an expression, a Bool key or
     `count_distinct`, a `max` of a `let`) keep main's blockers, object for
@@ -3513,7 +3512,7 @@ def test_mysql_g3_sql_is_main_max_sql_but_the_guard(tmp_path, name):
 def test_mysql_g3_neighbours_keep_main_refusal(tmp_path, shape, policy):
     """Rule two (D77.37): a statement the G3 law matches beside another
     blocker (a label too long, a sum outside every cell, a header parameter
-    in HAVING, a bind-safe `?`, a relation alias) and one outside it (a
+    in HAVING, a bind-safe `?`) and one outside it (a
     LIMIT with no ORDER BY, after an ORDER BY of keys only or of a key
     first, `limit 0`, a HAVING line on a sum beside another line, on two
     outputs, with `or`, on a Text key or on an `avg`, DISTINCT beside an
@@ -3548,6 +3547,151 @@ def test_mysql_g3_shapes_outside_semantics_reach_no_emission_law(tmp_path, shape
         lists.append(_numeric_blockers(outcome))
     assert lists[0] == lists[1]
     assert lists[0][0][:2] == ("PIE-B1003", "semantic_result_unsuccessful")
+
+
+# MC G4 (Source organization): the public nullability of each form's
+# columns, through an upstream the nullability of the field a key carries.
+G4_NON_NULL = {
+    "S1": {"k"},
+    "S2": {"m"},
+    "S3": {"tag"},
+    "S4": set(),
+    "U1": {"k"},
+    "U2": {"r"},
+    "U3": {"tag"},
+    "U4": {"k"},
+    "U5": set(),
+    "A1": {"k"},
+    "A2": {"m"},
+    "A3": set(),
+    "A4": set(),
+    "L1": {"k"},
+    "L2": {"k"},
+}
+
+
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+@pytest.mark.parametrize("form", sorted(probe.G4_FORMS))
+def test_mysql_g4_forms_emit_the_guarded_sum(tmp_path, form, target):
+    """MC G4: a MySQL project emits S02's guarded SUM in the cell of G1 to G3
+    reached through relation aliases of what FROM reads, windows that
+    nothing reads, reads qualified by a relation's name, and one upstream
+    `query` or `table` that projects field reads or aggregates by a key with
+    a sum, each of whose sums the query reads, at both levels. Both families
+    emit the pinned SQL, pairwise distinct per family and PostgreSQL's
+    unchanged; every reader accepts it, the pure boundary's re-rendering
+    included."""
+    import _pietto_sql_emission_portable as portable
+    import _pietto_sql_emission_pure_boundary as pure
+
+    checked, outcome = probe.grouping_world(tmp_path, target, probe.G4_FORMS[form])
+    assert checked.verified
+    probe.numeric_readers_accept(outcome)
+    assert outcome.artifact is not None
+    assert outcome.artifact.rendered.sql.decode() == probe.G4_FORM_SQL[form, target]
+    observed = portable.export_emission_observation(
+        outcome.artifact, outcome.artifact.request
+    ).canonical_bytes
+    assert observed is not None and pure.rendering_refusal(observed) is None
+    document = json.loads(serialize_project_sql_emission(outcome))
+    assert {
+        column["label"] for column in document["columns"] if not column["nullable"]
+    } == G4_NON_NULL[form]
+    texts = [probe.G4_FORM_SQL[name, target] for name in probe.G4_FORMS]
+    assert len(set(texts)) == len(texts)
+
+
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+@pytest.mark.parametrize(
+    "name", sorted({*probe.G4_SPELLINGS, *(f"B3_{form}" for form in probe.G4_PLAIN)})
+)
+def test_mysql_g4_spellings_emit_their_form_sql(tmp_path, name, target):
+    """B3: a form's plain body (each relation alias read as its relation,
+    each unread window dropped, each read unqualified), the form with its
+    source or upstream imported, under its own name or another or through a
+    re-export, and G2's spellings (`table`, `group by:` blocks, parentheses,
+    an identity `def`) emit the form's bytes on both targets."""
+    form, body = (
+        (name[3:], probe.G4_PLAIN[name[3:]])
+        if name.startswith("B3_")
+        else probe.G4_SPELLINGS[name]
+    )
+    _, outcome = probe.grouping_world(tmp_path, target, body)
+    probe.numeric_readers_accept(outcome)
+    assert outcome.artifact is not None
+    assert outcome.artifact.rendered.sql.decode() == probe.G4_FORM_SQL[form, target]
+
+
+@pytest.mark.parametrize(
+    "name", sorted({*probe.G4_FORMS, *probe.G4_CELLS, *probe.G4_ORDERS_CELLS})
+)
+def test_mysql_g4_sql_is_main_max_sql_but_the_guard(tmp_path, name):
+    """B2, after B3: each G4 body's MySQL SQL (a form's plain body), `let`
+    stages kept, is main's MySQL SQL of the same body with every `sum(x)`
+    written `max(x)` at both levels, each such MAX(x) S02's guarded SUM of
+    x: every key, every other aggregate, FROM, WHERE, the upstream's stages
+    and the query's reads of them are main's verified MySQL emission. The
+    bodies the law opens beyond the forms (main's refused relation aliases,
+    unread windows, imported sources and plain upstreams, S03's
+    `ctl_t_plain_first_level` among them) keep it too."""
+    import re
+
+    body = (
+        probe.G4_PLAIN.get(name)
+        or {
+            **probe.G4_FORMS,
+            **probe.G4_CELLS,
+            **probe.G4_ORDERS_CELLS,
+        }[name]
+    )
+    world = probe.s03_world if name in probe.G4_ORDERS_CELLS else probe.grouping_world
+    files = body if type(body) is dict else {"main.pietto": body}
+    _, maxima = world(
+        tmp_path / "max",
+        "mysql",
+        {path: text.replace("sum(", "max(") for path, text in files.items()},
+    )
+    _, outcome = world(tmp_path / "sum", "mysql", body)
+    probe.numeric_readers_accept(outcome)
+    assert maxima.artifact is not None and outcome.artifact is not None
+    summed = [
+        found == "sum"
+        for text in files.values()
+        for found in re.findall(r"= (sum|max)\(", text)
+    ]
+    assert outcome.artifact.rendered.sql.decode() == _guarded_maxima(
+        maxima.artifact.rendered.sql.decode(), summed
+    )
+
+
+@pytest.mark.parametrize("policy", ("preserve_literals", "bind_safe_literals"))
+@pytest.mark.parametrize("shape", sorted(probe.G4_REFUSALS))
+def test_mysql_g4_neighbours_keep_main_refusal(tmp_path, shape, policy):
+    """Rule two (D77.37): a statement the G4 law matches beside another
+    blocker (a label too long, over one level or two, an upstream item that
+    computes, a header parameter, a bind-safe `?`) and one outside it (an
+    upstream with ORDER BY, LIMIT, DISTINCT, a JOIN or a read window, a third
+    level, an alias of an alias or of a relation FROM does not read (a
+    second import name of FROM's upstream included), an upstream declared
+    as a relation `let` block, an aggregating upstream with an unread sum,
+    no key or no sum, under a
+    WHERE, HAVING or ORDER BY, an upstream sum as a key, a sum of an `avg`,
+    an upstream `min` of an INT field below its WHERE as a key or `max`
+    argument, a query with no sum or no aggregate over an aggregating
+    upstream, a plain upstream with a `let` or a computed item) keep main's
+    blockers, object for object, under each policy they are refused with;
+    PostgreSQL emits each but the long labels as main does."""
+    if policy not in probe.G4_REFUSAL_POLICIES.get(shape, (policy,)):
+        pytest.skip("refused under its own policy only")
+    body = probe.G4_REFUSALS[shape]
+    _, outcome = probe.grouping_world(tmp_path / "mysql", "mysql", body, policy)
+    assert outcome.status == "BLOCKED" and outcome.artifact is None
+    assert _numeric_blockers(outcome) == probe.G4_REFUSAL_BLOCKERS[shape]
+    _, postgres = probe.grouping_world(tmp_path / "postgres", "postgres", body, policy)
+    if shape in probe.G4_POSTGRES_BLOCKERS:
+        assert _numeric_blockers(postgres) == probe.G4_POSTGRES_BLOCKERS[shape]
+    else:
+        assert postgres.status == "VERIFIED", postgres.blockers
 
 
 _GROUP_FORMS = {
