@@ -408,6 +408,116 @@ is stop point 5. MC's PL.49 item also changes
 and P15 after it if both write `project_sql_plan_verification.py`. P02
 binds the final write set when it decides.
 
+## P07 record
+
+P07 ran on 2026-11-18 on the route's base `6fa66291` in a fresh worktree
+synced offline from `uv.lock` with every extra (CPython 3.13.13, `pietto`
+editable from that worktree), with no database and no network. Its write
+set is a new shared helper, `tests/_pietto_harness_generated_forms.py`, its
+test owner, `tests/test_harness_generated_forms.py`, and this record; it
+changes no product file, document page, CI input or lock. It applies P02's
+decisions that bound the generated range: nullability by the current rules,
+under which WHERE never narrows ([P02 record](#p02-record)); bundles only
+from `export_bundle` of a `compile_query` result; and no measurement through
+`load_bundle` until row 20's refusal lands, so that part is not done here.
+The shrinker, the two-database differential, the in-process DuckDB and
+SQLite oracles, the metamorphic relations and the compile-time benchmark
+stay with P08.
+
+- **Generator.** For an integer seed and a profile it draws, from
+  `random.Random("PROFILE:SEED")`, a shape `Row` with an `id` key and one to
+  four fields of `Int`, `Float`, `Text`, `Bool` or `Date`, each optional or
+  not, two sources `t` and `u` of it and one query in one of three forms: a
+  row form (value `let`s, WHERE, SELECT, ORDER BY, LIMIT), an aggregate form
+  (WHERE, GROUP BY, `count`, `min`, `max`, `sum`, `avg`, ORDER BY of the keys,
+  LIMIT) or a JOIN form (INNER, LEFT, RIGHT, CROSS and FULL JOINs of `u` as
+  `r`, read by qualified fields). Expressions are built by the type they
+  must have, from fields, literals, unary `-`, `+ - *`, `abs`, `coalesce`,
+  `lower`, `upper`, comparisons, `is None`, `and` and `or`. Bounds: four
+  fields besides `id`, two `let`s, four SELECT items, an expression
+  recursion budget of two (under which an expression nests at most three
+  operators and a WHERE four), two GROUP BY keys, three aggregates, two
+  JOIN conjuncts and LIMIT 5. Each case renders as a single file for
+  PostgreSQL and for MySQL and as an explicit-module project whose emission
+  contract follows the documented representation table
+  ([project and package](../../project-package.md)).
+  The broad profile uses every production, in forms opened in both
+  single-file targets and in PostgreSQL projects; the narrow profile keeps
+  to field reads, renaming `let`s, `is None` tests, comparisons of
+  non-`Float` field reads, `and` and `or` of those tests, `count`, `min`
+  and `max` of `Int` or `Date` fields, `avg` of `Int` fields and no FULL
+  JOIN, which MySQL projects also open
+  ([capabilities](../../capabilities.md)). Following the
+  [language reference](../../language.md), a WHERE after a JOIN holds no
+  built-in call, a FULL JOIN joins on `Int` equalities only, and
+  single-file `explain` is expected to refuse each JOIN relation with
+  PIE-I1000. A JOIN `on` equality compares no `Bool` or `Float` pair; the
+  broad profile compares `Float` values in an `on` only inside an `or`
+  operand, which PostgreSQL projects admit.
+- **Oracle.** It reads only the case, imports only the standard library
+  and never `pietto`, which a test checks. It restates the result types and
+  nullability of the [nullability
+  contract](../../spec/nullability-propagation-contract-v1.md), its
+  aggregate matrix included, and the JOIN rules of the language reference:
+  LEFT, RIGHT and FULL extend with None, and an INNER JOIN proves the direct
+  field leaves of its `on`'s top-level `and` operands non-null, while `or`
+  proves nothing. A spot-check test compares it with hand-derived columns.
+- **Routes.** Every case runs through single-file `check`, `explain` and
+  `emit-sql` of its rendering for each dialect; and in its project through
+  `compile_sql`, `compile_query` (the same SQL as `compile_sql`, since its
+  emission carries only the query's contract), `export_bundle` and
+  `explain --project` for PostgreSQL, and for MySQL too in the narrow
+  profile. Each route must accept the case, and each that reports result
+  columns (`explain`, `explain --project`, `compile_sql`, `compile_query`)
+  must give the oracle's names, types and nullability. A failure names its
+  seed, profile and module.
+- **Registration.** The campaign in the test owner is seeds 0 to 39 of both
+  profiles, 80 cases, run in full by every test run. The SHA-256 of their
+  cases, `d3f51a41…`, is the same on CPython 3.12.13, 3.13.13 and 3.14.4, and
+  a test keeps it; a generator change registers a new campaign. A census test
+  requires the registered seeds to reach every form and profile, JOIN kind,
+  production, aggregate, nullability state and three premises: a selected
+  optional field that WHERE tests with `is not None` stays optional, an INNER
+  JOIN proves a field, and each outer JOIN extends one. Coverage stays an
+  observation, not a proof. Each of nine mutations of the oracle changes
+  the expected columns of at least one registered case: WHERE narrowing
+  after `is not None`, no INNER JOIN proof, no outer extension, `coalesce`
+  joined as other calls are, arithmetic and comparisons joining their
+  operands, aggregates following their argument, and unary `-` and `is
+  None` giving unknown. The owner's 83 tests passed in 13 s at four
+  workers.
+- **Offline campaign.** Registered before it ran, over the committed
+  generator and test owner, as seeds 0 to 999 of both profiles, 2,000 cases
+  whose digest is `e486b5d8…`, six processes at `nice` 19 and a deadline of
+  30 minutes, and run from 05:04:38Z to 05:07:46Z at a one-minute load of 14
+  at its start and 21 at its end: all 2,000 cases ran (row, aggregate and
+  JOIN forms 360, 330 and 310 broad and 334, 338 and 328 narrow) and none
+  disagreed with the oracle on any route; a case took 0.47 s at the median
+  and 2.18 s at most. Over those cases the nine mutations each changed
+  between 40 and 447 cases' expected columns. An earlier campaign of the
+  same cases, before review widened `check` and `explain` to the MySQL
+  rendering and `explain --project` to MySQL projects, found no
+  disagreement either.
+- **Finding F1.** In an explicit-module project, an INNER JOIN whose `on`
+  holds `field is not None` as a top-level `and` operand, such as `inner
+  join r on r.f0 is not None` over an optional `Text` field, passes `check
+  --project`, but `compile_sql` returns it BLOCKED and `compile_query`
+  refuses it (`CompileRejected`), with PIE-B1002
+  `join_output_nullability_drift` on both targets, whatever it selects,
+  while single files emit it. The language reference and the known
+  limitations of an earlier release state that refusal only for an optional
+  `Bool` field as such a conjunct, and `main` at `df8817d3` behaves the
+  same. It fails closed and returns no wrong row, so it is a documentation
+  gap or an over-refusal for the lead to classify; the generator writes no
+  `is not None` conjunct in an INNER JOIN's `on` until then, and a comment
+  there says so.
+- **Not generated.** Windows, `qualify`, `def` calls, `any`, `in`,
+  conditionals, casts, `Decimal`, `Timestamp` and `UUID`, set operations,
+  relation `let`s, header parameters, nested forms, value `let`s in JOIN
+  forms, aggregates over JOIN rows, MySQL project arithmetic and calls, and
+  the SQLite and DuckDB targets. Each is an opened form that a later
+  registration may add with its own rules; none is claimed here.
+
 ## Single writers and the other lines
 
 The lead sets the order and a later arrival rebases. At the first
