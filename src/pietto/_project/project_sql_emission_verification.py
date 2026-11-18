@@ -1502,25 +1502,50 @@ def _row_realization(request, expression, operands, operand_values):
     )
 
 
-def _mysql_float_shape(values) -> bool:
-    """Independent E4 operand shape: one source field read and, beside it,
-    one literal chain of at most one sign over a Float literal."""
-    fields = [
-        value
-        for value in values
-        if type(value) is rows.SQLStageReference
-        and value.column.field is not None
-        and value.column.source_port is not None
-    ]
-    others = [value for value in values if all(value is not f for f in fields)]
-    return len(fields) == 1 and all(
-        _float_literal_value(value) is not None
-        and [
+def _mysql_float_shape(values, inner=False) -> bool:
+    """Independent E4 and E4B operand shape: a source field read, or one
+    level deep a Float `+`, `-`, `*` or `-` sign of this shape, and beside it
+    a field read or one literal chain of at most one sign over a Float
+    literal; a sign takes a field read or such an operation."""
+
+    def field(value) -> bool:
+        return (
+            type(value) is rows.SQLStageReference
+            and value.column.field is not None
+            and value.column.source_port is not None
+        )
+
+    def literal(value) -> bool:
+        return _float_literal_value(value) is not None and [
             node.original.expression.operator
             for node in parameters.value_nodes(value)[:-2]
-        ]
-        in ([], ["-"])
-        for value in others
+        ] in ([], ["-"])
+
+    nested = [
+        value
+        for value in values
+        if not inner
+        and type(value) is rows.SQLOperation
+        and value.realization.tag == "Float"
+        and (value.kind, value.original.expression.operator)
+        in {
+            ("arithmetic", "+"),
+            ("arithmetic", "-"),
+            ("arithmetic", "*"),
+            ("sign", "-"),
+        }
+        and _mysql_float_shape(value.operands, True)
+    ]
+    others = [
+        value
+        for value in values
+        if not field(value) and all(value is not item for item in nested)
+    ]
+    return (
+        len(nested) + sum(map(field, values)) > 0
+        and len(nested) <= 1
+        and all(literal(value) for value in others)
+        and not (len(values) == 1 and others)
     )
 
 

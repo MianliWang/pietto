@@ -730,10 +730,11 @@ The case `V_join_nullsafe` (Phase77 S06) joins two aggregation relations with
 `same_value` in the `on` of an INNER, a LEFT and a RIGHT JOIN, with NULL keys on
 both sides, and both targets emit and execute all three. Its oracle states the
 matched NULL pair, the null-extended rows and the public nullability, which
-`same_value` narrows under no kind. The current full denominator is 75 cases and
-283 public documents per target (277 API-generated and 6 console): PostgreSQL
-259 VERIFIED, 15 BLOCKED and 3 INPUT_REJECTED; MySQL 200 VERIFIED, 74 BLOCKED
-and 3 INPUT_REJECTED.
+`same_value` narrows under no kind. With MC E4B's two `Float` fields as a whole
+SELECT item, `V_row_blocked/float_arithmetic` (`ratio + ratio`) also emits on
+MySQL. The current full denominator is 75 cases and 283 public documents per
+target (277 API-generated and 6 console): PostgreSQL 259 VERIFIED, 15 BLOCKED
+and 3 INPUT_REJECTED; MySQL 201 VERIFIED, 73 BLOCKED and 3 INPUT_REJECTED.
 
 The execution-API native family additionally exercises all eight child types,
 source-free retained siblings, and a grouped child producer expanded and filtered

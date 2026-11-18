@@ -6316,18 +6316,9 @@ def test_the_mysql_pure_float_law_refuses_each_edited_record(tmp_path, edit):
     assert pure._mysql_cells(pure._Doc(records))[4] == frozenset()
 
 
-# Shapes outside E4's cell whose operands its laws refuse: two fields, one
-# field twice, a literal under `+` or under two signs, a nested operation, a
-# sign of a product and a sign of a sign.
-_E4_FORGED = (
-    "r02_two_fields",
-    "r03_same_field",
-    "plus_literal",
-    "double_negation",
-    "r04_nested",
-    "negated_product",
-    "negated_sign",
-)
+# Shapes outside E4's and E4B's cells whose operands their laws refuse: a
+# literal under `+` or under two signs.
+_E4_FORGED = ("plus_literal", "double_negation")
 
 
 @pytest.mark.parametrize("shape", _E4_FORGED)
@@ -6409,8 +6400,9 @@ def test_each_mysql_float_law_refuses_alone(tmp_path, monkeypatch, shape):
 def _e4b_records(tmp_path, form):
     from pietto._project.project_compiled_build import build_compiled
 
-    _, outcome = _pietto_sql_emission.e4b_world(
-        tmp_path, "mysql", _pietto_sql_emission.E4B_FORMS[form]
+    chain = "e4bc" if form in _pietto_sql_emission.E4BC_FORMS else "e4b"
+    _, outcome = getattr(_pietto_sql_emission, chain + "_world")(
+        tmp_path, "mysql", getattr(_pietto_sql_emission, chain.upper() + "_FORMS")[form]
     )
     assert outcome.artifact is not None, outcome.blockers
     description = wire.decode(build_compiled(outcome.artifact).payload)
@@ -6432,7 +6424,10 @@ def _e4b_document(artifact):
     return dict(view.records)
 
 
-@pytest.mark.parametrize("form", sorted(_pietto_sql_emission.E4B_FORMS))
+@pytest.mark.parametrize(
+    "form",
+    sorted({**_pietto_sql_emission.E4B_FORMS, **_pietto_sql_emission.E4BC_FORMS}),
+)
 def test_the_mysql_compiled_and_pure_e4b_laws_find_each_cell(tmp_path, form):
     """Compiled replay's and the pure boundary's E4B laws each find exactly
     the form's Float operations, a sign of a literal apart, from their own
@@ -6600,6 +6595,161 @@ def test_forged_mysql_e4b_cells_fail_every_later_reader(tmp_path, monkeypatch, s
     ):
         with pytest.raises(wire.CompiledError, match="^COMPILED_PHYSICAL_DOMAIN$"):
             replay()
+    assert observed.canonical_bytes is not None
+    refused = pure.parse_emission_observation(observed.canonical_bytes)
+    assert (refused.status, refused.detail) == (
+        pure.Status.INVALID_RELATION,
+        "MySQL Float arithmetic cell",
+    )
+
+
+# Each edit of the native EC5L bundle (`let t = (x * 2.0) - y`: operation 0
+# the inner product of read 8 and literal 1, operation 1 the `let` value over
+# it and read 9 of `y`) that the compiled E4B law refuses: the inner
+# product's literal the outer operation (a cycle), its operands two literals
+# (no field), `y` an INT, and the inner operation twice.
+_E4B_NESTED_EDITS = {
+    "cycle": _record_edit(
+        _A("operation", 0), operands=(_A("read", 8), _A("operation", 1))
+    ),
+    "inner_without_field": _record_edit(
+        _A("operation", 0), operands=(_A("literal", 1), _A("literal", 1))
+    ),
+    "field_storage": _physical_storage({"kind": "my_int"}, position=3),
+    "two_inner": _record_edit(
+        _A("operation", 1), operands=(_A("operation", 0), _A("operation", 0))
+    ),
+}
+
+
+@pytest.mark.parametrize("edit", sorted(_E4B_NESTED_EDITS))
+def test_the_mysql_compiled_e4b_law_refuses_each_edited_nesting(tmp_path, edit):
+    """Compiled replay's E4B law holds EC5L's nesting and none once one
+    record changes."""
+    from pietto._project import project_sql_emission_rows as rows
+
+    records, query, _ = _e4b_records(tmp_path, "EC5L")
+    assert rows.mysql_compiled_float_statement(records, records[query]) == {
+        _A("operation", 0),
+        _A("operation", 1),
+    }
+    edited = _E4B_NESTED_EDITS[edit](records)
+    assert rows.mysql_compiled_float_statement(edited, edited[query]) == frozenset()
+
+
+# Each edit of the native EC6M bundle (`count(x * 0.5)` grouped by `g`, `kn`,
+# its argument's read 2 of `x`) that the compiled E4B law refuses: the
+# function a `sum`, the argument reading the non-null `y`, and an aggregate
+# risk law.
+_E4B_COUNT_EDITS = {
+    "function": _record_edit(_A("aggregate_value", 0), function="sum"),
+    "non_null": _record_edit(_A("read", 2), port=_A("port", 3)),
+    "risk_law": _record_edit(_A("aggregate", 0), risk_law="s02"),
+}
+
+
+@pytest.mark.parametrize("edit", sorted(_E4B_COUNT_EDITS))
+def test_the_mysql_compiled_e4b_law_refuses_each_edited_count(tmp_path, edit):
+    """Compiled replay's E4B law holds EC6M's `count` argument and none once
+    one record changes."""
+    from pietto._project import project_sql_emission_rows as rows
+
+    records, query, _ = _e4b_records(tmp_path, "EC6M")
+    (argument,) = rows.mysql_compiled_float_statement(records, records[query])
+    assert records[_A("aggregate_value", 0)].get("arguments") == (argument,)
+    edited = _E4B_COUNT_EDITS[edit](records)
+    assert rows.mysql_compiled_float_statement(edited, edited[query]) == frozenset()
+
+
+@pytest.mark.parametrize(
+    "edit", ("two_inner", "inner_kind", "count_function", "count_key")
+)
+def test_the_mysql_pure_e4b_law_refuses_each_edited_wide_record(tmp_path, edit):
+    """The pure boundary's E4B law finds the nesting of EC5L and the `count`
+    argument of EC6M in their documents, and none once the nesting has two
+    inner operations or a `/` inside, the `count` is a `max` or its key
+    reads a computed column."""
+    import _pietto_sql_emission_pure_boundary as pure
+
+    form = "EC5L" if edit in {"two_inner", "inner_kind"} else "EC6M"
+    _, _, artifact = _e4b_records(tmp_path, form)
+    records = _e4b_document(artifact)
+    doc = pure._Doc(records)
+    found = pure._mysql_float_statement(doc)
+    assert found and found == {
+        ref
+        for ref in doc.all("sql_operation")
+        if doc[doc[ref]["realization"]]["tag"] == "Float"
+    }
+
+    def changed(ref, **fields):
+        records[ref] = pure.Record(ref, {**records[ref].fields, **fields})
+
+    if form == "EC5L":
+        (outer,) = [
+            ref for ref in found if any(item in found for item in doc[ref]["operands"])
+        ]
+        (inner,) = found - {outer}
+        if edit == "two_inner":
+            changed(outer, operands=(inner, inner))
+        else:
+            changed(inner, operator="/")
+    else:
+        (stage,) = doc.all("aggregate_stage")
+        (value,) = doc[stage]["values"]
+        if edit == "count_function":
+            changed(value, function="max")
+        else:
+            (key, _) = doc[stage]["keys"]
+            (other,) = [ref for ref in doc.all("aggregate_value_column")]
+            changed(key, read=doc[other]["column"])
+    assert pure._mysql_float_statement(pure._Doc(records)) == frozenset()
+
+
+# Chain C neighbours whose shape or operands the E4B laws refuse: two fields
+# in two `let`s, a nesting under a WHERE over its `let`, two levels of
+# nesting, two inner operations, `count` of a nesting, of a product of two
+# fields and of a non-null value.
+_E4BC_FORGED = (
+    "fields_let2",
+    "nested_order_where",
+    "two_levels",
+    "two_inner",
+    "count_nested",
+    "count_product_of_fields",
+    "count_non_null",
+)
+
+
+@pytest.mark.parametrize("shape", _E4BC_FORGED)
+def test_forged_mysql_e4b_chain_c_cells_fail_every_later_reader(
+    tmp_path, monkeypatch, shape
+):
+    """An artifact of a chain C neighbour, emitted while every MySQL Float
+    operation counts as a cell and plain verification takes any operands,
+    fails plain verification once the laws are back, and compiled replay and
+    the pure boundary, each from its own input."""
+    import _pietto_sql_emission_portable as portable
+    import _pietto_sql_emission_pure_boundary as pure
+    from pietto._project import project_sql_emission_rows as rows
+    from pietto._project import project_sql_emission_verification as verification
+    from pietto._project.project_compiled_lowering import emit_compiled
+
+    with monkeypatch.context() as patch:
+        patch.setattr(rows, "mysql_float_arithmetic_cell", lambda *_: True)
+        patch.setattr(verification, "_mysql_float_shape", lambda *_: True)
+        _, outcome = _pietto_sql_emission.e4bc_world(
+            tmp_path, "mysql", _pietto_sql_emission.E4BC_REFUSALS[shape]
+        )
+        artifact = outcome.artifact
+        assert artifact is not None, outcome.blockers
+        observed = portable.export_emission_observation(artifact, artifact.request)
+        loaded = _numeric_loaded(artifact)
+    assert not verification.verify_project_sql_emission(
+        artifact, artifact.request
+    ).verified
+    with pytest.raises(wire.CompiledError, match="^COMPILED_PHYSICAL_DOMAIN$"):
+        emit_compiled(loaded, ())
     assert observed.canonical_bytes is not None
     refused = pure.parse_emission_observation(observed.canonical_bytes)
     assert (refused.status, refused.detail) == (

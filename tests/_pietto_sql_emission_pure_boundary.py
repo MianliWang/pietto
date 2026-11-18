@@ -2309,7 +2309,8 @@ def _mysql_float_token(doc, ref) -> bool:
 # MC E4B (PREREG Law), restated over the document: the bodies a statement
 # of E4's wider cells may hold beside a cell's, and its shapes as (lets,
 # WHERE, operation item, ORDER BY keys), a WHERE that reads its one `let`
-# apart from one beside no `let`.
+# apart from one beside no `let` and a `count` argument an operation item,
+# with the shapes where two fields or a nesting may stand.
 _E4B_KINDS = _MYSQL_CELL_KINDS | {
     "result_column",
     "result_order",
@@ -2318,34 +2319,82 @@ _E4B_KINDS = _MYSQL_CELL_KINDS | {
     "row_result_body",
     "row_result_use",
 }
-_E4B_SHAPES = frozenset(
-    {
-        (1, None, False, 0),
-        (2, None, False, 0),
-        (0, "operation", False, 0),
-        (1, "let", False, 0),
-        (0, "operation", True, 0),
-        (1, None, False, 1),
-        (1, "let", False, 1),
-        (2, None, False, 2),
-    }
-)
+_E4B_SHAPES = {
+    (0, None, True, 0): "item",
+    (1, None, False, 0): "let",
+    (2, None, False, 0): "let2",
+    (0, "operation", False, 0): "where",
+    (1, "let", False, 0): "where-let",
+    (0, "operation", True, 0): "where-item",
+    (1, None, False, 1): "order",
+    (1, "let", False, 1): "order-where",
+    (2, None, False, 2): "order2",
+}
+_E4B_WIDE_SHAPES = frozenset({"item", "let", "where", "order"})
 _E4B_COMPARISONS = frozenset({"<", "<=", ">", ">=", "==", "!="})
+_E4B_OPERATIONS = frozenset(
+    {("arithmetic", "+"), ("arithmetic", "-"), ("arithmetic", "*"), ("sign", "-")}
+)
+
+
+def _mysql_float_kind(doc, ref, inner=False) -> str | None:
+    """E4B's operand law over the document: "narrow", "fields" or "nested"
+    for a Float `+`, `-`, `*` or `-` sign with a read of a finite DOUBLE
+    source field (_mysql_remainder_carrier, _is_float) or, one level deep,
+    such an operation as an operand, and beside it such a read or a Float
+    literal token (_mysql_float_token); a sign takes a read or an inner
+    operation."""
+
+    if type(ref) is not Ref or ref.kind != "sql_operation":
+        return None
+    op = doc[ref]
+    if (op["kind"], op["operator"]) not in _E4B_OPERATIONS or doc[op["realization"]][
+        "tag"
+    ] != "Float":
+        return None
+    operands = op["operands"]
+
+    def read(item) -> bool:
+        return _mysql_remainder_carrier(doc, item) == "Float" and _is_float(
+            doc[doc[item]["realization"]], "mysql"
+        )
+
+    nested = [
+        item
+        for item in operands
+        if not inner and _mysql_float_kind(doc, item, True) is not None
+    ]
+    others = [item for item in operands if not read(item) and item not in nested]
+    if (
+        len(operands) != (1 if op["kind"] == "sign" else 2)
+        or len(nested) > 1
+        or not nested
+        and not any(map(read, operands))
+        or any(op["kind"] == "sign" or not _mysql_float_token(doc, o) for o in others)
+    ):
+        return None
+    if nested:
+        return "nested"
+    return "fields" if sum(map(read, operands)) == 2 else "narrow"
 
 
 def _mysql_float_statement(doc) -> frozenset:
     """MC E4B's operations in their cells, from the document alone: the
     final body is a projection body, or a result body over one with an
-    ORDER BY only, over a WHERE body at most, over a body per `let`, over a
-    source scan, with no window or aggregate. Each `let` body adds one value
-    column, an E4 operation (_mysql_float_operation), and carries its input.
-    The WHERE body's predicate is a comparison, or its `not`, of a Float
-    literal token (_mysql_float_token) with an E4 operation or a read of a
-    `let` column, whatever carries it there. Each projection column reads a
-    source field or a `let` column, or is an E4 operation (beside a WHERE and
-    no `let`); each ORDER BY key reads a `let` column. Every `let` column is
-    read, every one by the WHERE when there is one; each operation is named
-    once; the clauses make one of _E4B_SHAPES."""
+    ORDER BY only, over an aggregate body at most, over a WHERE body at
+    most, over a body per `let`, over a source scan, with no window. Each
+    `let` body adds one value column, an E4B operation (_mysql_float_kind),
+    and carries its input. The WHERE body's predicate is a comparison, or
+    its `not`, of a Float literal token (_mysql_float_token) with such an
+    operation or a read of a `let` column, whatever carries it there. Each
+    projection column reads a source field or a `let` column, or is such an
+    operation (with no `let`); each ORDER BY key reads a `let` column. An
+    aggregate body has no `let` beside it, keys that read source fields and
+    `count`s of a nullable narrow operation or `+` or `-` of two fields,
+    which the projection body only reads. Every `let` column is read, every
+    one by the WHERE when there is one; each operation is named once; the
+    clauses make one of _E4B_SHAPES, and two fields or a nesting stand only
+    in _E4B_WIDE_SHAPES."""
 
     if not _E4B_KINDS.issuperset(doc.kinds) or len(doc.all("sql_row_query")) != 1:
         return frozenset()
@@ -2376,15 +2425,21 @@ def _mysql_float_statement(doc) -> frozenset:
     kinds = [doc[ref]["block_kind"] for ref in chain]
     lets = kinds.count("let")
     where = kinds.count("where")
+    grouped = kinds.count("aggregate")
     if (
         not chain
         or doc[chain[0]]["scan"].kind != "row_scan"
         or len(chain) != len(doc.all("row_body"))
-        or kinds != ["let"] * lets + ["where"] * where + ["projection"]
+        or kinds
+        != ["let"] * lets + ["where"] * where + ["aggregate"] * grouped + ["projection"]
         or where > 1
+        or grouped > 1
+        or grouped
+        and (lets or order)
+        or any(doc[ref]["window"] is not None for ref in chain)
         or any(
-            doc[ref]["window"] is not None or doc[ref]["aggregation"] is not None
-            for ref in chain
+            (doc[ref]["aggregation"] is not None) is not (kind == "aggregate")
+            for ref, kind in zip(chain, kinds)
         )
     ):
         return frozenset()
@@ -2412,34 +2467,38 @@ def _mysql_float_statement(doc) -> frozenset:
             column = doc[producer]["read"]
         return None
 
+    cells: set[Ref] = set()
+    found: set[str] = set()
+
+    def admit(ref) -> str | None:
+        kind = _mysql_float_kind(doc, ref)
+        if kind is not None:
+            inner = [
+                item
+                for item in doc[ref]["operands"]
+                if _mysql_float_kind(doc, item, True) is not None
+            ]
+            cells.update((ref, *inner))
+            found.add(kind)
+        return kind
+
     carried: dict[Ref, Ref] = {}
     for ref in chain[:lets]:
         values = [c for c in doc[ref]["columns"] if c.kind != "row_carry_column"]
         if len(values) != 1 or values[0].kind != "row_value_column":
             return frozenset()
         value = doc[values[0]]["value"]
-        if not (
-            type(value) is Ref
-            and value.kind == "sql_operation"
-            and _mysql_float_operation(doc, value)
-        ):
+        if admit(value) is None:
             return frozenset()
         carried[values[0]] = value
 
     def let_read(ref):
         if type(ref) is not Ref or ref.kind != "sql_stage_reference":
             return None
-        found = origin(doc[ref]["column"])
-        return found if found in carried else None
+        column = origin(doc[ref]["column"])
+        return column if column in carried else None
 
-    def operation(ref) -> bool:
-        return (
-            type(ref) is Ref
-            and ref.kind == "sql_operation"
-            and _mysql_float_operation(doc, ref)
-        )
-
-    cells, read, filtered, shape = set(carried.values()), set(), set(), None
+    read, filtered, shape = set(), set(), None
     for ref in chain[lets : lets + where]:
         predicate = doc[ref]["predicate"]
         value = None if predicate is None else doc[predicate]["value"]
@@ -2465,33 +2524,64 @@ def _mysql_float_statement(doc) -> frozenset:
         if let_read(others[0]) is not None:
             filtered.add(let_read(others[0]))
             shape = "let"
-        elif operation(others[0]):
-            cells.add(others[0])
+        elif admit(others[0]) is not None:
             shape = "operation"
         else:
             return frozenset()
     items = False
     for column in doc[chain[-1]]["columns"]:
-        if column.kind != "row_value_column":
+        if column.kind == "aggregate_projection_column":
+            continue
+        if grouped or column.kind != "row_value_column":
+            if column.kind != "row_carry_column":
+                return frozenset()
             continue
         value = doc[column]["value"]
         if let_read(value) is not None:
             read.add(let_read(value))
-        elif operation(value):
-            cells.add(value)
+        elif admit(value) is not None:
             items = True
         elif not _mysql_field_read(doc, value):
             return frozenset()
+    for ref in chain[lets + where : lets + where + grouped]:
+        stage = doc[doc[ref]["aggregation"]]
+        for key in stage["keys"]:
+            if not _mysql_field_column(doc, doc[key]["read"]):
+                return frozenset()
+        for column in stage["values"]:
+            fields = doc[column]
+            argument = fields["argument"]
+            kind = _mysql_float_kind(doc, argument)
+            if (
+                fields["function"] != "count"
+                or fields["distinct"] is not False
+                or fields["extra_arguments"] != ()
+                or fields["order_by"] != ()
+                or kind not in {"narrow", "fields"}
+                or kind == "fields"
+                and doc[argument]["operator"] == "*"
+                or not any(
+                    doc[doc[item]["realization"]]["nullable"] is True
+                    for item in doc[argument]["operands"]
+                    if item.kind == "sql_stage_reference"
+                )
+            ):
+                return frozenset()
+            admit(argument)
+            items = True
     for item in order:
-        found = origin(doc[item]["read"])
-        if found not in carried:
+        found_let = origin(doc[item]["read"])
+        if found_let not in carried:
             return frozenset()
-        read.add(found)
+        read.add(found_let)
+    name = _E4B_SHAPES.get((lets, shape, items, len(order)))
     if (
-        not read | filtered >= set(carried)
+        name is None
+        or not read | filtered >= set(carried)
         or where
         and filtered != set(carried)
-        or (lets, shape, items, len(order)) not in _E4B_SHAPES
+        or found - {"narrow"}
+        and name not in _E4B_WIDE_SHAPES
         or any(named.get(cell) != 1 for cell in cells)
     ):
         return frozenset()

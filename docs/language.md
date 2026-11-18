@@ -969,48 +969,65 @@ values rounds to zero, which MySQL alone would return as `0.0`; PostgreSQL
 raises 22003 in both cases. The result is a `my_double` `finite_float` of
 the nullability PostgreSQL gives it, and each `+`, `-` and `*` carries the
 binary64 evidence of PostgreSQL's (a sign carries none). Every other MySQL
-`Float` arithmetic keeps its refusal: two fields (`x + y`, `x - x`), a
+`Float` arithmetic keeps its refusal outside
+[E4B's cells](#mysql-float-wider-cells): two fields (`x + y`, `x - x`), a
 nested operation (`(x * 2.0) + 1.0`, `-(-x)`), unary `+`, an `Int` literal,
 a literal under `+` or two signs, `/`, a header parameter, the same
-operation in a `let`, a WHERE or an ORDER BY key outside
-[E4B's cells](#mysql-float-wider-cells) or in an aggregate argument, and a
-cell's operation in a query that holds any of the clauses above; a
+operation in a `let`, a WHERE, an ORDER BY key or an aggregate argument,
+and a cell's operation in a query that holds any of the clauses above; a
 statement still refused reports exactly the blockers it has without this
 cell.
 
-<a id="mysql-float-wider-cells"></a>MC E4B widens E4's cell on MySQL by the
-statement around the operation (PL.58 (4), E4B's own ledger). Each
-operation is narrow, as in E4's cell: a `Float` `+`, `-` or `*` of a
-nullable or non-null `DOUBLE` field and a `Float` literal under one `-` at
-most, in either order, or the unary `-` of such a field; a `let` name is not
-a field. The statement is a `query` or `table` that reads one source of its
-own module, with no JOIN, window, GROUP BY or aggregate, DISTINCT, LIMIT,
-header parameter (read or not), upstream query, relation alias, unread
-window or bind-safe `?`, and its clauses make one of these shapes:
+<a id="mysql-float-wider-cells"></a>MC E4B widens E4's cell on MySQL
+(PL.58 (4), E4B's own ledger). An E4B operation is a `Float` `+`, `-` or `*`
+with an operand that is a nullable or non-null `DOUBLE` field of the source,
+read by name, or one level deep an inner such operation, and beside it such
+a field or a `Float` literal under one `-` at most, in either order; a unary
+`-` takes such a field or an inner operation. It is narrow with one field
+and one literal (`x * 2.0`) or as the `-` of a field (`-x`), and wide with
+two fields (`x + w`, `x - x`) or a nesting (`(x * 2.0) + 1.0`,
+`x * (w + 1.0)`, `-(-x)`); two levels of nesting, two inner operations, an
+operation without a field and a `let` name as an operand stay refused. The
+statement is a `query` or `table` that reads one source of its own module,
+with no JOIN, window, HAVING, DISTINCT, LIMIT, header parameter (read or
+not), upstream query, relation alias, unread window or bind-safe `?`, and
+its clauses make one of these shapes:
 
-- one or two `let` values of such operations, read by the select list
-  (`let t = x * 2.0`, `r = t`);
+- an operation as a whole SELECT item with no WHERE (`r = x + w`), wide
+  ones included;
+- one `let` value of an operation, narrow or wide, or two `let` values of
+  narrow ones, read by the select list (`let t = x * 2.0`, `r = t`);
 - a WHERE that is one whole comparison (`<`, `<=`, `>`, `>=`, `==` or `!=`),
-  or its `not`, of such an operation with a `Float` literal on either side,
-  with no `let` (`where x * 2.0 > 1.0`), and E4 cell items beside it or not;
-- the same WHERE over the one `let` of such an operation instead
+  or its `not`, of an operation with a `Float` literal on either side, with
+  no `let` (`where x * 2.0 > 1.0`, `where x + w > 0.0`), and narrow E4 cell
+  items beside a narrow one or not;
+- the same WHERE over the one `let` of a narrow operation instead
   (`let t = -x`, `where t <= 0.0`);
-- ORDER BY keys that are `let` names of such operations, selected or not:
-  one key over one `let`, under such a WHERE over it or not, or two keys
-  over two `let`s (`order by t, u desc`).
+- ORDER BY keys that are `let` names, selected or not: one key over one
+  `let`, narrow or wide, one over a narrow `let` under such a WHERE over
+  it, or two keys over two narrow `let`s (`order by t, u desc`);
+- `count` of a nullable narrow operation, or of a `+` or `-` of two fields
+  of which one is nullable, beside GROUP BY keys that are fields, with no
+  WHERE (`group by g`, `n = count(x - w)`), or of a narrow one under a WHERE
+  of a narrow one (`where x * 2.0 > 1.0`, `n = count(w * 2.0)`).
 
 Every `let` is read, and every one by the WHERE when there is one; the
-select list reads fields and those `let`s. The SQL is PostgreSQL's in
-MySQL's spelling: a `let` value is computed for every source row in the
-first CTE, a WHERE filters in its own CTE, and `*` stands under E4's guard.
-Values, failures, evidence and nullability are E4's. Every other statement
-keeps the blockers it has without this paragraph, among them a `let`
-nothing reads or that a WHERE beside it does not read, a WHERE with another
-condition or comparing with a field or another operation, a `let` name as
-an operand, a `let` or ORDER BY key beside an operation item, a field key
-beside a `let` key, three `let`s, and any clause above; two fields, a
-nested operation, `count`'s argument, a parameter operand, a computed `let`
-GROUP BY key and a JOIN row stay refused in this slice.
+select list reads fields, those `let`s, or the GROUP BY keys and `count`s.
+The SQL is PostgreSQL's in MySQL's spelling: a `let` value is computed for
+every source row in the first CTE, a WHERE filters in its own CTE, `count`
+counts in the aggregate CTE over it, and each `*` stands under E4's guard,
+an inner operation written inside it as its own SQL. Values, failures,
+evidence and nullability are E4's. Every other statement keeps the blockers
+it has without this paragraph, among them a `let` nothing reads or that a
+WHERE beside it does not read, a WHERE with another condition or comparing
+with a field or another operation, a `let` name as an operand, a `let` or
+ORDER BY key beside an operation item, a field key beside a `let` key,
+three `let`s, a wide operation in any other shape, `count` of a non-null
+value, of a nesting or of a product of two fields, `count` beside an
+aggregate other than such a `count` (`count()`, `max(y)`), ordered or under
+a WHERE that compares no operation, and any clause above; a parameter
+operand, a computed `let` GROUP BY key and a JOIN row stay refused in this
+slice.
 
 ## Sources and relations
 

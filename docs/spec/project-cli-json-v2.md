@@ -508,9 +508,11 @@ place of `binary_open` and `binary_close`, with the operands read between
 them in the order `x`, `y`, `x`, `y`, `x`, `y` and each `x * y` written with
 the `arithmetic_operator` role (` * `). The same operations in MC E4B's
 cells, which the [language page](../language.md#mysql-float-wider-cells)
-states, a `let` value, a side of a WHERE comparison or an ORDER BY key,
-carry the same evidence, storage, domain and spelling, `*` under the same
-guard and roles; no other role or field is added.
+states, of two fields or one level of nesting included, as a whole item, a
+`let` value, a side of a WHERE comparison, an ORDER BY key or a `count`
+argument, carry the same evidence, storage, domain and spelling, `*` under
+the same guard and roles with an inner operation read as its own SQL in
+place of `x` or `y`; no other role or field is added.
 
 After `0.1.10`, a project `Float / Float` or `Float % Float` that is not
 emitted is BLOCKED with the additive PIE-B1003 detail
