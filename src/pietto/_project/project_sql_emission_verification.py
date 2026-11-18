@@ -1498,7 +1498,13 @@ def _row_realization(request, expression, operands, operand_values):
         and rows.mysql_float_arithmetic_cell(request.plan, expression, operand_values)
         and _mysql_float_shape(operand_values)
         # E4B P6, by this reader's own law (lead ruling R-E4B-P6).
-        and _mysql_float_count(request.plan, expression, operand_values),
+        and _mysql_float_count(request.plan, expression, operand_values)
+        # E4B P7, by this reader's own law: `*` beside a header parameter
+        # stays refused (MC.05's guard would repeat its one read).
+        and not (
+            operator == "*"
+            and any(type(value) is rows.SQLParameterRead for value in operand_values)
+        ),
         # This reader's own S17 pairing check.
         paired=tag == "Decimal" and pairing.project_form(request) is not None,
     )
@@ -1532,8 +1538,10 @@ def _mysql_float_count(plan, operation, values) -> bool:
 def _mysql_float_shape(values, inner=False) -> bool:
     """Independent E4 and E4B operand shape: a source field read, or one
     level deep a Float `+`, `-`, `*` or `-` sign of this shape, and beside it
-    a field read or one literal chain of at most one sign over a Float
-    literal; a sign takes a field read or such an operation."""
+    a field read, one literal chain of at most one sign over a Float literal
+    or, beside a field read only, a Float header parameter read, whose
+    operation nests under a sign at most; a sign takes a field read or such
+    an operation."""
 
     def field(value) -> bool:
         return (
@@ -1568,11 +1576,27 @@ def _mysql_float_shape(values, inner=False) -> bool:
         for value in values
         if not field(value) and all(value is not item for item in nested)
     ]
+    parameter = [value for value in others if type(value) is rows.SQLParameterRead]
     return (
         len(nested) + sum(map(field, values)) > 0
         and len(nested) <= 1
-        and all(literal(value) for value in others)
+        and all(
+            literal(value)
+            or type(value) is rows.SQLParameterRead
+            and value.realization.tag == "Float"
+            for value in others
+        )
         and not (len(values) == 1 and others)
+        # P7: a parameter stands beside a field, its operation under a sign.
+        and not (parameter and nested)
+        and not (
+            len(values) == 2
+            and any(
+                type(item) is rows.SQLParameterRead
+                for value in nested
+                for item in value.operands
+            )
+        )
     )
 
 

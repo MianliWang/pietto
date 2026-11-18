@@ -8557,6 +8557,9 @@ def test_the_mysql_compiled_and_pure_e4b_laws_find_each_cell(tmp_path, form):
             and record.get("operands")[0].kind == "literal"
         )
     }
+    if artifact.request.plan.parameters:
+        # The pure boundary's closed schema holds no header parameter.
+        return
     document = _e4b_document(artifact)
     doc = pure._Doc(document)
     assert pure._mysql_float_statement(doc) == {
@@ -8922,7 +8925,11 @@ _E4BC_UNFORGEABLE = {
 # the `count` of a `+`, `-` or `*` of lead ruling R-E4B-P6, and each other
 # exclusion of P6 beside a `count` of a sign, among them.
 _E4BC_FORGED = tuple(
-    sorted(set(_pietto_sql_emission.E4BC_REFUSALS) - set(_E4BC_UNFORGEABLE))
+    sorted(
+        set(_pietto_sql_emission.E4BC_REFUSALS)
+        - set(_pietto_sql_emission.E4BC_S3_REFUSALS)
+        - set(_E4BC_UNFORGEABLE)
+    )
 )
 
 
@@ -8969,14 +8976,25 @@ def test_forged_mysql_e4b_chain_c_cells_fail_every_later_reader(
     )
 
 
-@pytest.mark.parametrize("shape", ("two_levels", "two_inner", "folded_inner"))
+@pytest.mark.parametrize(
+    "shape",
+    (
+        "two_levels",
+        "two_inner",
+        "folded_inner",
+        "parameter_beside_inner",
+        "parameter_operation_nested",
+        "parameter_operation_beside_field",
+    ),
+)
 def test_each_mysql_e4b_operand_law_refuses_alone(tmp_path, monkeypatch, shape):
     """E4B's operand law stands in emission and in plain verification alone:
     with emission's cell function taking every MySQL Float operation, plain
     verification's own law still refuses two levels of nesting, two inner
-    operations and a folded inner one (PIE-B1008 plan_ast_correspondence);
-    with that law taking any operands, emission still reports main's
-    blockers."""
+    operations, a folded inner one, a parameter beside an inner operation
+    and an operation over a parameter under a binary one (PIE-B1008
+    plan_ast_correspondence); with that law taking any operands, emission
+    still reports main's blockers."""
     from pietto._project import project_sql_emission_rows as rows
     from pietto._project import project_sql_emission_verification as verification
 
@@ -9036,3 +9054,170 @@ def test_each_mysql_e4b_count_law_refuses_alone(tmp_path, monkeypatch, shape):
         (code, detail)
         for code, detail, _, _ in _pietto_sql_emission.E4BC_REFUSAL_BLOCKERS[shape]
     ]
+
+
+# P7 and P8 neighbours whose forged artifact another rule refuses first, by
+# the blocker code it reports instead: a label too long, and plain
+# verification's own operand law for an operation without a field and for a
+# `*` beside a parameter (PL.76; test_each_mysql_e4b_p7_law_refuses_alone).
+_E4BC_S3_UNFORGEABLE = {
+    "p7_long_label": "PIE-B1002",
+    "p8_long_label": "PIE-B1002",
+    "parameter_without_field": "PIE-B1008",
+    "parameter_product": "PIE-B1008",
+    "parameter_product_negated": "PIE-B1008",
+    "parameter_product_let": "PIE-B1008",
+    "parameter_product_where": "PIE-B1008",
+    "parameter_product_order": "PIE-B1008",
+    "parameter_product_with_inner": "PIE-B1008",
+    "product_of_inner_and_parameter": "PIE-B1008",
+    "product_over_parameter_operation": "PIE-B1008",
+    "product_of_parameters": "PIE-B1008",
+    "parameter_product_beside_field": "PIE-B1008",
+}
+# Every other chain C neighbour of P7 and P8, each of which each later reader
+# refuses from its own input: a value nullable only through its parameter, a
+# parameter beside an inner operation or in one nested under a `+`, a second
+# header parameter, read or not, a second read, a parameter in a WHERE beside
+# a `count`, a computed key under a WHERE, beside another `let` or a `count`
+# argument, two keys of one field, keys of two fields or of a nesting among
+# them.
+_E4BC_S3_FORGED = tuple(
+    sorted(set(_pietto_sql_emission.E4BC_S3_REFUSALS) - set(_E4BC_S3_UNFORGEABLE))
+)
+
+
+@pytest.mark.parametrize("shape", sorted((*_E4BC_S3_FORGED, *_E4BC_S3_UNFORGEABLE)))
+def test_forged_mysql_e4b_p7_and_p8_cells_fail_every_later_reader(
+    tmp_path, monkeypatch, shape
+):
+    """An artifact of a P7 or P8 neighbour, emitted while every MySQL Float
+    operation and Float GROUP BY key counts as a cell and plain verification
+    takes any operands and any `count` argument, fails plain verification
+    once the laws are back, and compiled replay and (without a header) the
+    pure boundary, each from its own input; an unforgeable neighbour reports
+    its other rule's code."""
+    import _pietto_sql_emission_portable as portable
+    import _pietto_sql_emission_pure_boundary as pure
+    from pietto._project import project_sql_emission_rows as rows
+    from pietto._project import project_sql_emission_verification as verification
+    from pietto._project.project_compiled_lowering import emit_compiled
+    from pietto._project.project_execution_template import prepare_compiled_template
+
+    with monkeypatch.context() as patch:
+        patch.setattr(rows, "mysql_float_arithmetic_cell", lambda *_: True)
+        patch.setattr(rows, "mysql_float_key_admitted", lambda *_: True)
+        patch.setattr(verification, "_mysql_float_shape", lambda *_: True)
+        patch.setattr(verification, "_mysql_float_count", lambda *_: True)
+        _, outcome = _pietto_sql_emission.e4bc_world(
+            tmp_path, "mysql", _pietto_sql_emission.E4BC_REFUSALS[shape]
+        )
+        artifact = outcome.artifact
+        if shape in _E4BC_S3_UNFORGEABLE:
+            assert artifact is None
+            assert {b.code for b in outcome.blockers} == {_E4BC_S3_UNFORGEABLE[shape]}
+            return
+        assert artifact is not None, outcome.blockers
+        observed = portable.export_emission_observation(artifact, artifact.request)
+        loaded = _numeric_loaded(artifact)
+    assert not verification.verify_project_sql_emission(
+        artifact, artifact.request
+    ).verified
+    with pytest.raises(
+        wire.CompiledError,
+        match="^(COMPILED_PHYSICAL_DOMAIN|COMPILED_GROUP_KEY)$",
+    ):
+        if artifact.request.plan.parameters:
+            prepare_compiled_template(loaded)
+        else:
+            emit_compiled(loaded, ())
+    if artifact.request.plan.parameters:
+        return
+    assert observed.canonical_bytes is not None
+    refused = pure.parse_emission_observation(observed.canonical_bytes)
+    assert refused.status is pure.Status.INVALID_RELATION
+    assert refused.detail in {"MySQL Float arithmetic cell", "MySQL Float key cell"}
+
+
+# P7's `*` beside a header parameter (PL.76) as a whole item, under a sign,
+# in a `let`, a WHERE or a key, and beside or over a nesting.
+_E4BC_PARAMETER_PRODUCTS = (
+    "parameter_product",
+    "parameter_product_negated",
+    "parameter_product_let",
+    "parameter_product_where",
+    "parameter_product_order",
+    "parameter_product_with_inner",
+    "product_of_inner_and_parameter",
+    "product_over_parameter_operation",
+)
+
+
+@pytest.mark.parametrize("shape", _E4BC_PARAMETER_PRODUCTS)
+def test_each_mysql_e4b_p7_law_refuses_alone(tmp_path, monkeypatch, shape):
+    """A `*` beside a header parameter stays refused by each reader's own
+    law: emission's statement law holds no cell of the statement, and with
+    emission's cell function taking every MySQL Float operation, plain
+    verification's own P7 law still refuses it (PIE-B1008
+    plan_ast_correspondence)."""
+    from pietto._project import project_sql_emission_rows as rows
+
+    body = _pietto_sql_emission.E4BC_REFUSALS[shape]
+    checked, _ = _pietto_sql_emission.e4bc_world(tmp_path / "e", "mysql", body)
+    assert rows.mysql_float_statement(checked.plan) == frozenset()
+    monkeypatch.setattr(rows, "mysql_float_arithmetic_cell", lambda *_: True)
+    _, outcome = _pietto_sql_emission.e4bc_world(tmp_path / "v", "mysql", body)
+    assert outcome.status == "BLOCKED" and outcome.artifact is None
+    assert [(b.code, b.detail) for b in outcome.blockers] == [
+        ("PIE-B1008", "plan_ast_correspondence")
+    ]
+
+
+def test_the_mysql_compiled_e4b_law_refuses_a_product_beside_a_parameter(
+    tmp_path,
+):
+    """Compiled replay's E4B law holds EPA1's `p + x` and none once the
+    operation is a `*` beside the parameter read."""
+    from pietto._project import project_sql_emission_rows as rows
+
+    records, query, _ = _e4b_records(tmp_path, "EPA1")
+    assert rows.mysql_compiled_float_statement(records, records[query]) == {
+        _A("operation", 0)
+    }
+    edited = _record_edit(_A("operation", 0), operator=("binary", "*"))(records)
+    assert rows.mysql_compiled_float_statement(edited, edited[query]) == frozenset()
+
+
+def test_the_mysql_compiled_e4b_law_refuses_one_parameter_read_used_twice(
+    tmp_path,
+):
+    """Compiled replay's E4B law holds `r = x + p` and `s = y - 1.0` under
+    `(p: Float)`, and none once the second operation's literal is the one
+    parameter read, which then has two uses."""
+    from pietto._project import project_sql_emission_rows as rows
+    from pietto._project.project_compiled_build import build_compiled
+
+    _, outcome = _pietto_sql_emission.e4bc_world(
+        tmp_path,
+        "mysql",
+        _pietto_sql_emission._e4b(
+            "query",
+            "csrc",
+            "select:",
+            "    id",
+            "    r = x + p",
+            "    s = y - 1.0",
+            params="(p: Float)",
+        ),
+    )
+    assert outcome.artifact is not None, outcome.blockers
+    description = wire.decode(build_compiled(outcome.artifact).payload)
+    records = {record.address: record for record in description.records}
+    query = description.query
+    (read,) = [address for address in records if address.kind == "parameter_read"]
+    cells = rows.mysql_compiled_float_statement(records, records[query])
+    assert len(cells) == 2
+    (second,) = [cell for cell in cells if read not in records[cell].get("operands")]
+    field, _ = records[second].get("operands")
+    edited = _record_edit(second, operands=(field, read))(records)
+    assert rows.mysql_compiled_float_statement(edited, edited[query]) == frozenset()

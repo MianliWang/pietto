@@ -19978,6 +19978,51 @@ G5_SEMANTIC_REFUSAL_BLOCKERS = {
 }
 
 
+def parameter_readers_accept(outcome, values):
+    """Every reader of a VERIFIED artifact whose query reads header
+    parameters accepts it: plain verification (plan), the independent public
+    decoder, compiled replay's template (records) and the live template,
+    each bound to each tuple of ``values`` in header order, with the emitted
+    SQL byte for byte. The pure boundary's closed schema holds no header
+    parameter."""
+    from pietto._project.project_compiled_build import build_compiled
+    from pietto._project.project_compiled_loading import load_compiled
+    from pietto._project.project_execution_template import (
+        bind_values,
+        prepare_compiled_template,
+        prepare_live_template,
+    )
+    from pietto._project.project_sql_emission import serialize_project_sql_emission
+    from pietto._project.project_sql_emission_verification import (
+        verify_project_sql_emission,
+    )
+
+    assert outcome.status == "VERIFIED", outcome.blockers
+    artifact = outcome.artifact
+    assert artifact.request.plan.parameters
+    assert verify_project_sql_emission(artifact, artifact.request).verified
+    assert decode_public(serialize_project_sql_emission(outcome))["status"] == (
+        "VERIFIED"
+    )
+    built = build_compiled(artifact)
+    loaded = load_compiled(
+        built.payload,
+        expected_pin=built.pin,
+        accepted_producer=built.producer,
+        accepted_compatibility=built.compatibility,
+    )
+    for template in (
+        prepare_compiled_template(loaded),
+        prepare_live_template(artifact),
+    ):
+        assert template.slots == ()
+        for bound in values:
+            named = tuple(zip(template.parameters, bound, strict=True))
+            assert bind_values(template, (), named).artifact.rendered.sql == (
+                artifact.rendered.sql
+            )
+
+
 # Phase77 S03: the two sources of the native qualification's sum forms, in its
 # own carriers: BIGINT `id`, `amount`, `nn`, `order_id`, `qty` (`amount` and
 # `qty` nullable), an INT group key `customer` and a nullable 0/1 Bool `flag`.
@@ -25424,11 +25469,14 @@ E4B_FORM_SQL = {
         "mysql",
     ): "WITH `p0` (`c0`, `c1`, `c2`, `c3`) AS (SELECT `s0`.`id` AS `c0`, `s0`.`x` AS `c1`, `s0`.`y` AS `c2`, CASE WHEN (`s0`.`x` * CAST(2.0e0 AS DOUBLE)) = 0 AND `s0`.`x` <> 0 AND CAST(2.0e0 AS DOUBLE) <> 0 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) ELSE (`s0`.`x` * CAST(2.0e0 AS DOUBLE)) END AS `c3` FROM `phase66`.`phase77 bsrc` AS `s0`), `p1` (`c0`, `c1`, `c2`, `c3`, `c4`) AS (SELECT `t1`.`c0` AS `c0`, `t1`.`c1` AS `c1`, `t1`.`c2` AS `c2`, `t1`.`c3` AS `c3`, (-`t1`.`c2`) AS `c4` FROM `p0` AS `t1`), `p2` (`c0`, `c1`, `c2`, `c3`) AS (SELECT `t2`.`c0` AS `c0`, `t2`.`c3` AS `c1`, `t2`.`c3` AS `c2`, `t2`.`c4` AS `c3` FROM `p1` AS `t2`) SELECT `t0`.`c0` AS `id`, `t0`.`c1` AS `r` FROM `p2` AS `t0` ORDER BY `t0`.`c2` ASC, `t0`.`c3` DESC",
 }
-# The emitted list `e4b-c-emitted` (PREREG Emitted forms, chain C), its forms
-# of P4 two fields, P5 one level of nesting and P6 `count` of a sign. Lead
-# ruling R-E4B-P6 keeps every `count` of a `+`, `-` or `*` refused on MySQL,
-# which may count a row without computing it, so EC6A, EC6S, EC6M and EC6W
-# stand in E4BC_REFUSALS.
+# The emitted list `e4b-c-emitted` (PREREG Emitted forms, chain C): P4 two
+# fields, P5 one level of nesting, P6 `count` of a sign, P8 computed `let`
+# GROUP BY keys and P7 a Float header parameter beside a field. Lead ruling
+# R-E4B-P6 keeps every `count` of a `+`, `-` or `*` refused on MySQL, which
+# may count a row without computing it, so EC6A, EC6S, EC6M and EC6W stand
+# in E4BC_REFUSALS; P7's five forms of `*` beside a parameter (EPM1, EPN1,
+# EPW1, EPL2, EPO2) are not here, since MC.05's guard would render the
+# parameter's one read three times and a MySQL read is one `?`.
 E4BC_FORMS = {
     "EC4A": _e4b("query", "csrc", "select:", "    id", "    r = x + w"),
     "EC4A2": _e4b("table", "csrc", "select:", "    id", "    r = y + v"),
@@ -25477,6 +25525,123 @@ E4BC_FORMS = {
         "    g",
         "    n = count(-x)",
         "    m = count(-w)",
+    ),
+    "EC8M": _e4b(
+        "query",
+        "csrc",
+        "let k = w * 2.0",
+        "group by k",
+        "select:",
+        "    k",
+        "    n = count()",
+    ),
+    "EC8N": _e4b(
+        "query",
+        "csrc",
+        "let a = -w",
+        "let b = u * 2.0",
+        "group by a, b",
+        "select:",
+        "    a",
+        "    b",
+        "    n = count()",
+    ),
+    "EC8A": _e4b(
+        "table",
+        "csrc",
+        "let a = w + 1.0",
+        "group by a, kn, u",
+        "select:",
+        "    a",
+        "    kn",
+        "    u",
+        "    n = count()",
+    ),
+    "EC8N2": _e4b(
+        "table",
+        "csrc",
+        "let k = -w",
+        "group by k",
+        "select:",
+        "    k",
+        "    n = count()",
+    ),
+    "EC8S": _e4b(
+        "query",
+        "csrc",
+        "let a = v - 1.0",
+        "group by a",
+        "select:",
+        "    a",
+        "    n = count()",
+    ),
+    "EPA1": _e4b(
+        "query",
+        "csrc",
+        "select:",
+        "    id",
+        "    r = p + x",
+        params="(p: Float | None)",
+    ),
+    "EPN2": _e4b(
+        "query",
+        "csrc",
+        "select:",
+        "    id",
+        "    r = -(x + p)",
+        params="(p: Float | None)",
+    ),
+    "EPS1": _e4b(
+        "query", "csrc", "select:", "    id", "    r = y - p", params="(p: Float)"
+    ),
+    "EPL1": _e4b(
+        "query",
+        "csrc",
+        "let t = x - p",
+        "select:",
+        "    id",
+        "    r = t",
+        params="(p: Float | None)",
+    ),
+    "EPL3": _e4b(
+        "query",
+        "csrc",
+        "let t = p + y",
+        "select:",
+        "    id",
+        "    r = t",
+        params="(p: Float)",
+    ),
+    "EPW2": _e4b(
+        "query",
+        "csrc",
+        "where -(x - p) < 0.0",
+        "select:",
+        "    id",
+        params="(p: Float | None)",
+    ),
+    "EPW3": _e4b(
+        "query", "csrc", "where y + p > 1.0", "select:", "    id", params="(p: Float)"
+    ),
+    "EPO1": _e4b(
+        "query",
+        "csrc",
+        "let t = -(y + p)",
+        "select:",
+        "    id",
+        "    r = t",
+        "order by t desc",
+        params="(p: Float)",
+    ),
+    "EPO3": _e4b(
+        "query",
+        "csrc",
+        "let t = y - p",
+        "select:",
+        "    id",
+        "    r = t",
+        "order by t",
+        params="(p: Float)",
     ),
 }
 
@@ -25657,6 +25822,118 @@ E4BC_FORM_SQL = {
         "EC6N",
         "mysql",
     ): "WITH `p0` (`c0`) AS (SELECT COUNT((-`s0`.`x`)) AS `c0` FROM `phase66`.`phase77 csrc` AS `s0`) SELECT `t1`.`c0` AS `n` FROM `p0` AS `t1`",
+    (
+        "EC8M",
+        "postgres",
+    ): 'WITH "p0" ("c0", "c1", "c2", "c3", "c4", "c5", "c6", "c7", "c8") AS (SELECT "s0"."id" AS "c0", "s0"."g" AS "c1", "s0"."x" AS "c2", "s0"."y" AS "c3", "s0"."w" AS "c4", "s0"."v" AS "c5", "s0"."u" AS "c6", "s0"."kn" AS "c7", ("s0"."w" * CAST(\'2.0\' AS pg_catalog.float8)) AS "c8" FROM "public"."phase77 csrc" AS "s0"), "p1" ("c0", "c1") AS (SELECT "t1"."c8" AS "c0", COUNT(*) AS "c1" FROM "p0" AS "t1" GROUP BY "t1"."c8") SELECT "t2"."c0" AS "k", "t2"."c1" AS "n" FROM "p1" AS "t2"',
+    (
+        "EC8M",
+        "mysql",
+    ): "WITH `p0` (`c0`, `c1`, `c2`, `c3`, `c4`, `c5`, `c6`, `c7`, `c8`) AS (SELECT `s0`.`id` AS `c0`, `s0`.`g` AS `c1`, `s0`.`x` AS `c2`, `s0`.`y` AS `c3`, `s0`.`w` AS `c4`, `s0`.`v` AS `c5`, `s0`.`u` AS `c6`, `s0`.`kn` AS `c7`, CASE WHEN (`s0`.`w` * CAST(2.0e0 AS DOUBLE)) = 0 AND `s0`.`w` <> 0 AND CAST(2.0e0 AS DOUBLE) <> 0 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) ELSE (`s0`.`w` * CAST(2.0e0 AS DOUBLE)) END AS `c8` FROM `phase66`.`phase77 csrc` AS `s0`), `p1` (`c0`, `c1`) AS (SELECT `t1`.`c8` AS `c0`, COUNT(*) AS `c1` FROM `p0` AS `t1` GROUP BY `t1`.`c8`) SELECT `t2`.`c0` AS `k`, `t2`.`c1` AS `n` FROM `p1` AS `t2`",
+    (
+        "EC8N",
+        "postgres",
+    ): 'WITH "p0" ("c0", "c1", "c2", "c3", "c4", "c5", "c6", "c7", "c8") AS (SELECT "s0"."id" AS "c0", "s0"."g" AS "c1", "s0"."x" AS "c2", "s0"."y" AS "c3", "s0"."w" AS "c4", "s0"."v" AS "c5", "s0"."u" AS "c6", "s0"."kn" AS "c7", (-"s0"."w") AS "c8" FROM "public"."phase77 csrc" AS "s0"), "p1" ("c0", "c1", "c2", "c3", "c4", "c5", "c6", "c7", "c8", "c9") AS (SELECT "t1"."c0" AS "c0", "t1"."c1" AS "c1", "t1"."c2" AS "c2", "t1"."c3" AS "c3", "t1"."c4" AS "c4", "t1"."c5" AS "c5", "t1"."c6" AS "c6", "t1"."c7" AS "c7", "t1"."c8" AS "c8", ("t1"."c6" * CAST(\'2.0\' AS pg_catalog.float8)) AS "c9" FROM "p0" AS "t1"), "p2" ("c0", "c1", "c2") AS (SELECT "t2"."c8" AS "c0", "t2"."c9" AS "c1", COUNT(*) AS "c2" FROM "p1" AS "t2" GROUP BY "t2"."c8", "t2"."c9") SELECT "t3"."c0" AS "a", "t3"."c1" AS "b", "t3"."c2" AS "n" FROM "p2" AS "t3"',
+    (
+        "EC8N",
+        "mysql",
+    ): "WITH `p0` (`c0`, `c1`, `c2`, `c3`, `c4`, `c5`, `c6`, `c7`, `c8`) AS (SELECT `s0`.`id` AS `c0`, `s0`.`g` AS `c1`, `s0`.`x` AS `c2`, `s0`.`y` AS `c3`, `s0`.`w` AS `c4`, `s0`.`v` AS `c5`, `s0`.`u` AS `c6`, `s0`.`kn` AS `c7`, (-`s0`.`w`) AS `c8` FROM `phase66`.`phase77 csrc` AS `s0`), `p1` (`c0`, `c1`, `c2`, `c3`, `c4`, `c5`, `c6`, `c7`, `c8`, `c9`) AS (SELECT `t1`.`c0` AS `c0`, `t1`.`c1` AS `c1`, `t1`.`c2` AS `c2`, `t1`.`c3` AS `c3`, `t1`.`c4` AS `c4`, `t1`.`c5` AS `c5`, `t1`.`c6` AS `c6`, `t1`.`c7` AS `c7`, `t1`.`c8` AS `c8`, CASE WHEN (`t1`.`c6` * CAST(2.0e0 AS DOUBLE)) = 0 AND `t1`.`c6` <> 0 AND CAST(2.0e0 AS DOUBLE) <> 0 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) ELSE (`t1`.`c6` * CAST(2.0e0 AS DOUBLE)) END AS `c9` FROM `p0` AS `t1`), `p2` (`c0`, `c1`, `c2`) AS (SELECT `t2`.`c8` AS `c0`, `t2`.`c9` AS `c1`, COUNT(*) AS `c2` FROM `p1` AS `t2` GROUP BY `t2`.`c8`, `t2`.`c9`) SELECT `t3`.`c0` AS `a`, `t3`.`c1` AS `b`, `t3`.`c2` AS `n` FROM `p2` AS `t3`",
+    (
+        "EC8A",
+        "postgres",
+    ): 'WITH "p0" ("c0", "c1", "c2", "c3", "c4", "c5", "c6", "c7", "c8") AS (SELECT "s0"."id" AS "c0", "s0"."g" AS "c1", "s0"."x" AS "c2", "s0"."y" AS "c3", "s0"."w" AS "c4", "s0"."v" AS "c5", "s0"."u" AS "c6", "s0"."kn" AS "c7", ("s0"."w" + CAST(\'1.0\' AS pg_catalog.float8)) AS "c8" FROM "public"."phase77 csrc" AS "s0"), "p1" ("c0", "c1", "c2", "c3") AS (SELECT "t1"."c8" AS "c0", "t1"."c7" AS "c1", "t1"."c6" AS "c2", COUNT(*) AS "c3" FROM "p0" AS "t1" GROUP BY "t1"."c8", "t1"."c7", "t1"."c6") SELECT "t2"."c0" AS "a", "t2"."c1" AS "kn", "t2"."c2" AS "u", "t2"."c3" AS "n" FROM "p1" AS "t2"',
+    (
+        "EC8A",
+        "mysql",
+    ): "WITH `p0` (`c0`, `c1`, `c2`, `c3`, `c4`, `c5`, `c6`, `c7`, `c8`) AS (SELECT `s0`.`id` AS `c0`, `s0`.`g` AS `c1`, `s0`.`x` AS `c2`, `s0`.`y` AS `c3`, `s0`.`w` AS `c4`, `s0`.`v` AS `c5`, `s0`.`u` AS `c6`, `s0`.`kn` AS `c7`, (`s0`.`w` + CAST(1.0e0 AS DOUBLE)) AS `c8` FROM `phase66`.`phase77 csrc` AS `s0`), `p1` (`c0`, `c1`, `c2`, `c3`) AS (SELECT `t1`.`c8` AS `c0`, `t1`.`c7` AS `c1`, `t1`.`c6` AS `c2`, COUNT(*) AS `c3` FROM `p0` AS `t1` GROUP BY `t1`.`c8`, `t1`.`c7`, `t1`.`c6`) SELECT `t2`.`c0` AS `a`, `t2`.`c1` AS `kn`, `t2`.`c2` AS `u`, `t2`.`c3` AS `n` FROM `p1` AS `t2`",
+    (
+        "EC8N2",
+        "postgres",
+    ): 'WITH "p0" ("c0", "c1", "c2", "c3", "c4", "c5", "c6", "c7", "c8") AS (SELECT "s0"."id" AS "c0", "s0"."g" AS "c1", "s0"."x" AS "c2", "s0"."y" AS "c3", "s0"."w" AS "c4", "s0"."v" AS "c5", "s0"."u" AS "c6", "s0"."kn" AS "c7", (-"s0"."w") AS "c8" FROM "public"."phase77 csrc" AS "s0"), "p1" ("c0", "c1") AS (SELECT "t1"."c8" AS "c0", COUNT(*) AS "c1" FROM "p0" AS "t1" GROUP BY "t1"."c8") SELECT "t2"."c0" AS "k", "t2"."c1" AS "n" FROM "p1" AS "t2"',
+    (
+        "EC8N2",
+        "mysql",
+    ): "WITH `p0` (`c0`, `c1`, `c2`, `c3`, `c4`, `c5`, `c6`, `c7`, `c8`) AS (SELECT `s0`.`id` AS `c0`, `s0`.`g` AS `c1`, `s0`.`x` AS `c2`, `s0`.`y` AS `c3`, `s0`.`w` AS `c4`, `s0`.`v` AS `c5`, `s0`.`u` AS `c6`, `s0`.`kn` AS `c7`, (-`s0`.`w`) AS `c8` FROM `phase66`.`phase77 csrc` AS `s0`), `p1` (`c0`, `c1`) AS (SELECT `t1`.`c8` AS `c0`, COUNT(*) AS `c1` FROM `p0` AS `t1` GROUP BY `t1`.`c8`) SELECT `t2`.`c0` AS `k`, `t2`.`c1` AS `n` FROM `p1` AS `t2`",
+    (
+        "EC8S",
+        "postgres",
+    ): 'WITH "p0" ("c0", "c1", "c2", "c3", "c4", "c5", "c6", "c7", "c8") AS (SELECT "s0"."id" AS "c0", "s0"."g" AS "c1", "s0"."x" AS "c2", "s0"."y" AS "c3", "s0"."w" AS "c4", "s0"."v" AS "c5", "s0"."u" AS "c6", "s0"."kn" AS "c7", ("s0"."v" - CAST(\'1.0\' AS pg_catalog.float8)) AS "c8" FROM "public"."phase77 csrc" AS "s0"), "p1" ("c0", "c1") AS (SELECT "t1"."c8" AS "c0", COUNT(*) AS "c1" FROM "p0" AS "t1" GROUP BY "t1"."c8") SELECT "t2"."c0" AS "a", "t2"."c1" AS "n" FROM "p1" AS "t2"',
+    (
+        "EC8S",
+        "mysql",
+    ): "WITH `p0` (`c0`, `c1`, `c2`, `c3`, `c4`, `c5`, `c6`, `c7`, `c8`) AS (SELECT `s0`.`id` AS `c0`, `s0`.`g` AS `c1`, `s0`.`x` AS `c2`, `s0`.`y` AS `c3`, `s0`.`w` AS `c4`, `s0`.`v` AS `c5`, `s0`.`u` AS `c6`, `s0`.`kn` AS `c7`, (`s0`.`v` - CAST(1.0e0 AS DOUBLE)) AS `c8` FROM `phase66`.`phase77 csrc` AS `s0`), `p1` (`c0`, `c1`) AS (SELECT `t1`.`c8` AS `c0`, COUNT(*) AS `c1` FROM `p0` AS `t1` GROUP BY `t1`.`c8`) SELECT `t2`.`c0` AS `a`, `t2`.`c1` AS `n` FROM `p1` AS `t2`",
+    (
+        "EPA1",
+        "postgres",
+    ): 'SELECT "s0"."id" AS "id", (CAST($1 AS pg_catalog.float8) + "s0"."x") AS "r" FROM "public"."phase77 csrc" AS "s0"',
+    (
+        "EPA1",
+        "mysql",
+    ): "SELECT `s0`.`id` AS `id`, (CAST(? AS DOUBLE) + `s0`.`x`) AS `r` FROM `phase66`.`phase77 csrc` AS `s0`",
+    (
+        "EPN2",
+        "postgres",
+    ): 'SELECT "s0"."id" AS "id", (-("s0"."x" + CAST($1 AS pg_catalog.float8))) AS "r" FROM "public"."phase77 csrc" AS "s0"',
+    (
+        "EPN2",
+        "mysql",
+    ): "SELECT `s0`.`id` AS `id`, (-(`s0`.`x` + CAST(? AS DOUBLE))) AS `r` FROM `phase66`.`phase77 csrc` AS `s0`",
+    (
+        "EPS1",
+        "postgres",
+    ): 'SELECT "s0"."id" AS "id", ("s0"."y" - CAST($1 AS pg_catalog.float8)) AS "r" FROM "public"."phase77 csrc" AS "s0"',
+    (
+        "EPS1",
+        "mysql",
+    ): "SELECT `s0`.`id` AS `id`, (`s0`.`y` - CAST(? AS DOUBLE)) AS `r` FROM `phase66`.`phase77 csrc` AS `s0`",
+    (
+        "EPL1",
+        "postgres",
+    ): 'WITH "p0" ("c0", "c1", "c2", "c3", "c4", "c5", "c6", "c7", "c8") AS (SELECT "s0"."id" AS "c0", "s0"."g" AS "c1", "s0"."x" AS "c2", "s0"."y" AS "c3", "s0"."w" AS "c4", "s0"."v" AS "c5", "s0"."u" AS "c6", "s0"."kn" AS "c7", ("s0"."x" - CAST($1 AS pg_catalog.float8)) AS "c8" FROM "public"."phase77 csrc" AS "s0") SELECT "t1"."c0" AS "id", "t1"."c8" AS "r" FROM "p0" AS "t1"',
+    (
+        "EPL1",
+        "mysql",
+    ): "WITH `p0` (`c0`, `c1`, `c2`, `c3`, `c4`, `c5`, `c6`, `c7`, `c8`) AS (SELECT `s0`.`id` AS `c0`, `s0`.`g` AS `c1`, `s0`.`x` AS `c2`, `s0`.`y` AS `c3`, `s0`.`w` AS `c4`, `s0`.`v` AS `c5`, `s0`.`u` AS `c6`, `s0`.`kn` AS `c7`, (`s0`.`x` - CAST(? AS DOUBLE)) AS `c8` FROM `phase66`.`phase77 csrc` AS `s0`) SELECT `t1`.`c0` AS `id`, `t1`.`c8` AS `r` FROM `p0` AS `t1`",
+    (
+        "EPL3",
+        "postgres",
+    ): 'WITH "p0" ("c0", "c1", "c2", "c3", "c4", "c5", "c6", "c7", "c8") AS (SELECT "s0"."id" AS "c0", "s0"."g" AS "c1", "s0"."x" AS "c2", "s0"."y" AS "c3", "s0"."w" AS "c4", "s0"."v" AS "c5", "s0"."u" AS "c6", "s0"."kn" AS "c7", (CAST($1 AS pg_catalog.float8) + "s0"."y") AS "c8" FROM "public"."phase77 csrc" AS "s0") SELECT "t1"."c0" AS "id", "t1"."c8" AS "r" FROM "p0" AS "t1"',
+    (
+        "EPL3",
+        "mysql",
+    ): "WITH `p0` (`c0`, `c1`, `c2`, `c3`, `c4`, `c5`, `c6`, `c7`, `c8`) AS (SELECT `s0`.`id` AS `c0`, `s0`.`g` AS `c1`, `s0`.`x` AS `c2`, `s0`.`y` AS `c3`, `s0`.`w` AS `c4`, `s0`.`v` AS `c5`, `s0`.`u` AS `c6`, `s0`.`kn` AS `c7`, (CAST(? AS DOUBLE) + `s0`.`y`) AS `c8` FROM `phase66`.`phase77 csrc` AS `s0`) SELECT `t1`.`c0` AS `id`, `t1`.`c8` AS `r` FROM `p0` AS `t1`",
+    (
+        "EPW2",
+        "postgres",
+    ): 'WITH "p0" ("c0", "c1", "c2", "c3", "c4", "c5", "c6", "c7") AS (SELECT "s0"."id" AS "c0", "s0"."g" AS "c1", "s0"."x" AS "c2", "s0"."y" AS "c3", "s0"."w" AS "c4", "s0"."v" AS "c5", "s0"."u" AS "c6", "s0"."kn" AS "c7" FROM "public"."phase77 csrc" AS "s0" WHERE ((-("s0"."x" - CAST($1 AS pg_catalog.float8))) < CAST(\'0.0\' AS pg_catalog.float8))) SELECT "t1"."c0" AS "id" FROM "p0" AS "t1"',
+    (
+        "EPW2",
+        "mysql",
+    ): "WITH `p0` (`c0`, `c1`, `c2`, `c3`, `c4`, `c5`, `c6`, `c7`) AS (SELECT `s0`.`id` AS `c0`, `s0`.`g` AS `c1`, `s0`.`x` AS `c2`, `s0`.`y` AS `c3`, `s0`.`w` AS `c4`, `s0`.`v` AS `c5`, `s0`.`u` AS `c6`, `s0`.`kn` AS `c7` FROM `phase66`.`phase77 csrc` AS `s0` WHERE ((-(`s0`.`x` - CAST(? AS DOUBLE))) < CAST(0.0e0 AS DOUBLE))) SELECT `t1`.`c0` AS `id` FROM `p0` AS `t1`",
+    (
+        "EPW3",
+        "postgres",
+    ): 'WITH "p0" ("c0", "c1", "c2", "c3", "c4", "c5", "c6", "c7") AS (SELECT "s0"."id" AS "c0", "s0"."g" AS "c1", "s0"."x" AS "c2", "s0"."y" AS "c3", "s0"."w" AS "c4", "s0"."v" AS "c5", "s0"."u" AS "c6", "s0"."kn" AS "c7" FROM "public"."phase77 csrc" AS "s0" WHERE (("s0"."y" + CAST($1 AS pg_catalog.float8)) > CAST(\'1.0\' AS pg_catalog.float8))) SELECT "t1"."c0" AS "id" FROM "p0" AS "t1"',
+    (
+        "EPW3",
+        "mysql",
+    ): "WITH `p0` (`c0`, `c1`, `c2`, `c3`, `c4`, `c5`, `c6`, `c7`) AS (SELECT `s0`.`id` AS `c0`, `s0`.`g` AS `c1`, `s0`.`x` AS `c2`, `s0`.`y` AS `c3`, `s0`.`w` AS `c4`, `s0`.`v` AS `c5`, `s0`.`u` AS `c6`, `s0`.`kn` AS `c7` FROM `phase66`.`phase77 csrc` AS `s0` WHERE ((`s0`.`y` + CAST(? AS DOUBLE)) > CAST(1.0e0 AS DOUBLE))) SELECT `t1`.`c0` AS `id` FROM `p0` AS `t1`",
+    (
+        "EPO1",
+        "postgres",
+    ): 'WITH "p0" ("c0", "c1", "c2", "c3", "c4", "c5", "c6", "c7", "c8") AS (SELECT "s0"."id" AS "c0", "s0"."g" AS "c1", "s0"."x" AS "c2", "s0"."y" AS "c3", "s0"."w" AS "c4", "s0"."v" AS "c5", "s0"."u" AS "c6", "s0"."kn" AS "c7", (-("s0"."y" + CAST($1 AS pg_catalog.float8))) AS "c8" FROM "public"."phase77 csrc" AS "s0"), "p1" ("c0", "c1", "c2") AS (SELECT "t1"."c0" AS "c0", "t1"."c8" AS "c1", "t1"."c8" AS "c2" FROM "p0" AS "t1") SELECT "t0"."c0" AS "id", "t0"."c1" AS "r" FROM "p1" AS "t0" ORDER BY "t0"."c2" DESC',
+    (
+        "EPO1",
+        "mysql",
+    ): "WITH `p0` (`c0`, `c1`, `c2`, `c3`, `c4`, `c5`, `c6`, `c7`, `c8`) AS (SELECT `s0`.`id` AS `c0`, `s0`.`g` AS `c1`, `s0`.`x` AS `c2`, `s0`.`y` AS `c3`, `s0`.`w` AS `c4`, `s0`.`v` AS `c5`, `s0`.`u` AS `c6`, `s0`.`kn` AS `c7`, (-(`s0`.`y` + CAST(? AS DOUBLE))) AS `c8` FROM `phase66`.`phase77 csrc` AS `s0`), `p1` (`c0`, `c1`, `c2`) AS (SELECT `t1`.`c0` AS `c0`, `t1`.`c8` AS `c1`, `t1`.`c8` AS `c2` FROM `p0` AS `t1`) SELECT `t0`.`c0` AS `id`, `t0`.`c1` AS `r` FROM `p1` AS `t0` ORDER BY `t0`.`c2` DESC",
+    (
+        "EPO3",
+        "postgres",
+    ): 'WITH "p0" ("c0", "c1", "c2", "c3", "c4", "c5", "c6", "c7", "c8") AS (SELECT "s0"."id" AS "c0", "s0"."g" AS "c1", "s0"."x" AS "c2", "s0"."y" AS "c3", "s0"."w" AS "c4", "s0"."v" AS "c5", "s0"."u" AS "c6", "s0"."kn" AS "c7", ("s0"."y" - CAST($1 AS pg_catalog.float8)) AS "c8" FROM "public"."phase77 csrc" AS "s0"), "p1" ("c0", "c1", "c2") AS (SELECT "t1"."c0" AS "c0", "t1"."c8" AS "c1", "t1"."c8" AS "c2" FROM "p0" AS "t1") SELECT "t0"."c0" AS "id", "t0"."c1" AS "r" FROM "p1" AS "t0" ORDER BY "t0"."c2" ASC',
+    (
+        "EPO3",
+        "mysql",
+    ): "WITH `p0` (`c0`, `c1`, `c2`, `c3`, `c4`, `c5`, `c6`, `c7`, `c8`) AS (SELECT `s0`.`id` AS `c0`, `s0`.`g` AS `c1`, `s0`.`x` AS `c2`, `s0`.`y` AS `c3`, `s0`.`w` AS `c4`, `s0`.`v` AS `c5`, `s0`.`u` AS `c6`, `s0`.`kn` AS `c7`, (`s0`.`y` - CAST(? AS DOUBLE)) AS `c8` FROM `phase66`.`phase77 csrc` AS `s0`), `p1` (`c0`, `c1`, `c2`) AS (SELECT `t1`.`c0` AS `c0`, `t1`.`c8` AS `c1`, `t1`.`c8` AS `c2` FROM `p0` AS `t1`) SELECT `t0`.`c0` AS `id`, `t0`.`c1` AS `r` FROM `p1` AS `t0` ORDER BY `t0`.`c2` ASC",
 }
 
 # MySQL statements outside E4B's cells beside chain B's positions (PREREG Rule
@@ -26204,6 +26481,369 @@ E4BC_REFUSALS = {
     ),
     "count_sign_composed": _e4b("query", "csrc", "select:", "    n = count(-x) + 1"),
 }
+# MySQL statements outside E4B's cells beside chain C's P7 and P8, each
+# keeping main's blockers (E4BC_REFUSAL_BLOCKERS): a refused label at each
+# position; `*` beside a parameter, also over or beside a nesting; a
+# parameter beside an inner operation, or in an operation nested under a
+# `+`; a second header parameter, read or not; a second read of the one; a
+# declared parameter nothing reads; an operation with no field, a sign or a
+# product of parameters among them; a value nullable only through its
+# parameter; a WHERE comparing an operation with a parameter; a bare
+# parameter read beside a cell; a parameter in two `let`s, a computed key or
+# a WHERE beside a `count`; and a computed key under a WHERE, beside
+# another `let`, a `count` argument, a second key of its own field or its
+# field as a key, of two fields or a nesting, after a Text key, or selected
+# after the count.
+E4BC_S3_REFUSALS = {
+    "p7_long_label": _e4b(
+        "query",
+        "csrc",
+        "select:",
+        "    id",
+        f"    {_E4B_LABEL} = y - p",
+        params="(p: Float)",
+    ),
+    "p8_long_label": _e4b(
+        "query",
+        "csrc",
+        "let k = w * 2.0",
+        "group by k",
+        "select:",
+        "    k",
+        f"    {_E4B_LABEL} = count()",
+    ),
+    "parameter_product": _e4b(
+        "query", "csrc", "select:", "    id", "    r = x * p", params="(p: Float)"
+    ),
+    "parameter_without_field": _e4b(
+        "query", "csrc", "select:", "    id", "    r = p * 2.0", params="(p: Float)"
+    ),
+    "parameter_beside_inner": _e4b(
+        "query",
+        "csrc",
+        "select:",
+        "    id",
+        "    r = (x * 2.0) + p",
+        params="(p: Float)",
+    ),
+    "parameter_operation_nested": _e4b(
+        "query",
+        "csrc",
+        "select:",
+        "    id",
+        "    r = (x + p) + 1.0",
+        params="(p: Float)",
+    ),
+    "parameter_operation_beside_field": _e4b(
+        "query", "csrc", "select:", "    id", "    r = (x + p) + w", params="(p: Float)"
+    ),
+    "parameter_twice_in_one": _e4b(
+        "query", "csrc", "select:", "    id", "    r = (x + p) + p", params="(p: Float)"
+    ),
+    "two_parameters": _e4b(
+        "query",
+        "csrc",
+        "select:",
+        "    id",
+        "    r = (x + p) - q",
+        params="(p: Float, q: Float)",
+    ),
+    "unread_second_parameter": _e4b(
+        "query",
+        "csrc",
+        "select:",
+        "    id",
+        "    r = x + p",
+        params="(p: Float, q: Float)",
+    ),
+    "product_over_parameter_operation": _e4b(
+        "query",
+        "csrc",
+        "select:",
+        "    id",
+        "    r = (x + p) * 2.0",
+        params="(p: Float)",
+    ),
+    "product_of_inner_and_parameter": _e4b(
+        "query",
+        "csrc",
+        "select:",
+        "    id",
+        "    r = (x + 1.0) * p",
+        params="(p: Float)",
+    ),
+    "parameter_product_with_inner": _e4b(
+        "query",
+        "csrc",
+        "select:",
+        "    id",
+        "    r = p * (y - 1.0)",
+        params="(p: Float)",
+    ),
+    # P7's `*` beside a parameter in the positions its positive `+` and `-`
+    # open (EPN1, EPL2, EPW1, EPO2 beside parameter_product's EPM1): each
+    # stays refused, since MC.05's guard would render the one read three times.
+    "parameter_product_negated": _e4b(
+        "query",
+        "csrc",
+        "select:",
+        "    id",
+        "    r = -(x * p)",
+        params="(p: Float | None)",
+    ),
+    "parameter_product_let": _e4b(
+        "query",
+        "csrc",
+        "let t = x * p",
+        "select:",
+        "    id",
+        "    r = t",
+        params="(p: Float | None)",
+    ),
+    "parameter_product_where": _e4b(
+        "query",
+        "csrc",
+        "where y * p > 1.0",
+        "select:",
+        "    id",
+        params="(p: Float)",
+    ),
+    "parameter_product_order": _e4b(
+        "query",
+        "csrc",
+        "let t = y * p",
+        "select:",
+        "    id",
+        "    r = t",
+        "order by t desc",
+        params="(p: Float)",
+    ),
+    "parameter_read_twice": _e4b(
+        "query",
+        "csrc",
+        "select:",
+        "    id",
+        "    r = x + p",
+        "    s = y - p",
+        params="(p: Float)",
+    ),
+    "parameter_nested_without_field": _e4b(
+        "query",
+        "csrc",
+        "select:",
+        "    id",
+        "    r = (p + 2.0) + x",
+        params="(p: Float)",
+    ),
+    "parameter_where_field": _e4b(
+        "query",
+        "csrc",
+        "where p + 2.0 > x",
+        "select:",
+        "    id",
+        params="(p: Float)",
+    ),
+    "unread_parameter_beside_fields": _e4b(
+        "query", "csrc", "select:", "    id", "    r = x + w", params="(p: Float)"
+    ),
+    "negated_parameter": _e4b(
+        "query", "csrc", "select:", "    id", "    r = -p", params="(p: Float)"
+    ),
+    "product_of_parameters": _e4b(
+        "query",
+        "csrc",
+        "select:",
+        "    id",
+        "    r = p * q",
+        params="(p: Float, q: Float)",
+    ),
+    "parameter_product_beside_field": _e4b(
+        "query",
+        "csrc",
+        "select:",
+        "    id",
+        "    r = (p * 2.0) + x",
+        params="(p: Float)",
+    ),
+    "where_operation_beside_parameter": _e4b(
+        "query", "csrc", "where x * 2.0 > p", "select:", "    id", params="(p: Float)"
+    ),
+    "parameter_in_count_where": _e4b(
+        "query",
+        "csrc",
+        "where y + p > 1.0",
+        "select:",
+        "    n = count(x * 2.0)",
+        params="(p: Float)",
+    ),
+    "nullable_only_through_parameter": _e4b(
+        "query",
+        "csrc",
+        "select:",
+        "    id",
+        "    r = p + y",
+        params="(p: Float | None)",
+    ),
+    "bare_parameter_beside": _e4b(
+        "query",
+        "csrc",
+        "select:",
+        "    id",
+        "    r = x + p",
+        "    s = p",
+        params="(p: Float)",
+    ),
+    "parameter_let2": _e4b(
+        "query",
+        "csrc",
+        "let t = x + p",
+        "let b = -y",
+        "select:",
+        "    id",
+        "    r = t",
+        "    s = b",
+        params="(p: Float)",
+    ),
+    "parameter_key": _e4b(
+        "query",
+        "csrc",
+        "let k = w + p",
+        "group by k",
+        "select:",
+        "    k",
+        "    n = count()",
+        params="(p: Float)",
+    ),
+    "key_under_where": _e4b(
+        "query",
+        "csrc",
+        "let k = w * 2.0",
+        "where k > 0.0",
+        "group by k",
+        "select:",
+        "    k",
+        "    n = count()",
+    ),
+    "key_beside_let": _e4b(
+        "query",
+        "csrc",
+        "let k = w * 2.0",
+        "let b = y * 2.0",
+        "group by k",
+        "select:",
+        "    k",
+        "    n = count()",
+    ),
+    "key_with_count_argument": _e4b(
+        "query",
+        "csrc",
+        "let k = w * 2.0",
+        "group by k",
+        "select:",
+        "    k",
+        "    n = count(x * 2.0)",
+    ),
+    "keys_of_one_field": _e4b(
+        "query",
+        "csrc",
+        "let a = w * 2.0",
+        "let b = w * 3.0",
+        "group by a, b",
+        "select:",
+        "    a",
+        "    b",
+        "    n = count()",
+    ),
+    "key_and_its_field": _e4b(
+        "query",
+        "csrc",
+        "let k = w * 2.0",
+        "group by k, w",
+        "select:",
+        "    k",
+        "    w",
+        "    n = count()",
+    ),
+    "key_of_two_fields": _e4b(
+        "query",
+        "csrc",
+        "let k = x + w",
+        "group by k",
+        "select:",
+        "    k",
+        "    n = count()",
+    ),
+    "key_nested": _e4b(
+        "query",
+        "csrc",
+        "let k = (w * 2.0) + 1.0",
+        "group by k",
+        "select:",
+        "    k",
+        "    n = count()",
+    ),
+    # Each nesting has one direct field operand. Only the narrow-key rule
+    # excludes it in the single-key and three-key S07 shapes.
+    "key_one_field_nesting": _e4b(
+        "query",
+        "csrc",
+        "let k = x * (w + 1.0)",
+        "group by k",
+        "select:",
+        "    k",
+        "    n = count()",
+    ),
+    "key_one_field_nesting_with_text": _e4b(
+        "table",
+        "csrc",
+        "let k = x - (w * 2.0)",
+        "group by k, kn, u",
+        "select:",
+        "    k",
+        "    kn",
+        "    u",
+        "    n = count()",
+    ),
+    "key_after_text": _e4b(
+        "query",
+        "csrc",
+        "let k = w * 2.0",
+        "group by kn, k",
+        "select:",
+        "    kn",
+        "    k",
+        "    n = count()",
+    ),
+    "key_after_count": _e4b(
+        "query",
+        "csrc",
+        "let k = w * 2.0",
+        "group by k",
+        "select:",
+        "    n = count()",
+        "    k",
+    ),
+    # P8 excludes the computed key beside a sign count. P7 excludes the
+    # parameter in a WHERE beside the count, and P6 also excludes the WHERE.
+    "key_with_sign_count": _e4b(
+        "query",
+        "csrc",
+        "let k = w * 2.0",
+        "group by k",
+        "select:",
+        "    k",
+        "    n = count(-x)",
+    ),
+    "parameter_in_sign_count_where": _e4b(
+        "query",
+        "csrc",
+        "where y + p > 1.0",
+        "select:",
+        "    n = count(-x)",
+        params="(p: Float)",
+    ),
+}
+E4BC_REFUSALS |= E4BC_S3_REFUSALS
 # The MySQL blockers main reports for each of E4BC_REFUSALS under both literal
 # policies, observed at this slice's base, and PostgreSQL's where it refuses
 # the body too.
@@ -26308,6 +26948,96 @@ E4BC_REFUSAL_BLOCKERS = {
     "count_sign_composed": [
         ("PIE-B1003", "aggregate_composition_not_admitted_on_target", 14, 13)
     ],
+    "p7_long_label": [
+        ("PIE-B1003", "float_literal_operands_required", 15, 9),
+        ("PIE-B1002", "output_label_unrepresentable", None, None),
+    ],
+    "p8_long_label": [
+        ("PIE-B1003", "float_literal_operands_required", 13, 5),
+        ("PIE-B1002", "output_label_unrepresentable", None, None),
+    ],
+    "parameter_product": [("PIE-B1003", "float_literal_operands_required", 15, 9)],
+    "parameter_without_field": [
+        ("PIE-B1003", "float_literal_operands_required", 15, 9)
+    ],
+    "parameter_beside_inner": [("PIE-B1003", "float_literal_operands_required", 15, 9)],
+    "parameter_operation_nested": [
+        ("PIE-B1003", "float_literal_operands_required", 15, 9)
+    ],
+    "parameter_operation_beside_field": [
+        ("PIE-B1003", "float_literal_operands_required", 15, 9)
+    ],
+    "parameter_twice_in_one": [("PIE-B1003", "float_literal_operands_required", 15, 9)],
+    "two_parameters": [("PIE-B1003", "float_literal_operands_required", 15, 9)],
+    "unread_second_parameter": [
+        ("PIE-B1003", "float_literal_operands_required", 15, 9)
+    ],
+    "product_over_parameter_operation": [
+        ("PIE-B1003", "float_literal_operands_required", 15, 9)
+    ],
+    "product_of_inner_and_parameter": [
+        ("PIE-B1003", "float_literal_operands_required", 15, 9)
+    ],
+    "parameter_product_with_inner": [
+        ("PIE-B1003", "float_literal_operands_required", 15, 9)
+    ],
+    "parameter_product_negated": [
+        ("PIE-B1003", "float_literal_operands_required", 15, 9)
+    ],
+    "parameter_product_let": [("PIE-B1003", "float_literal_operands_required", 13, 5)],
+    "parameter_product_where": [
+        ("PIE-B1003", "float_literal_operands_required", 13, 5)
+    ],
+    "parameter_product_order": [
+        ("PIE-B1003", "float_literal_operands_required", 13, 5)
+    ],
+    "parameter_read_twice": [
+        ("PIE-B1003", "float_literal_operands_required", 15, 9),
+        ("PIE-B1003", "float_literal_operands_required", 16, 9),
+    ],
+    "parameter_nested_without_field": [
+        ("PIE-B1003", "float_literal_operands_required", 15, 9)
+    ],
+    "parameter_where_field": [("PIE-B1003", "float_literal_operands_required", 13, 5)],
+    "unread_parameter_beside_fields": [
+        ("PIE-B1003", "float_literal_operands_required", 15, 9)
+    ],
+    "negated_parameter": [("PIE-B1003", "unary_sign_requires_int_operand", 15, 9)],
+    "product_of_parameters": [("PIE-B1003", "float_literal_operands_required", 15, 9)],
+    "parameter_product_beside_field": [
+        ("PIE-B1003", "float_literal_operands_required", 15, 9)
+    ],
+    "where_operation_beside_parameter": [
+        ("PIE-B1003", "float_literal_operands_required", 13, 5)
+    ],
+    "parameter_in_count_where": [
+        ("PIE-B1003", "float_literal_operands_required", 13, 5)
+    ],
+    "nullable_only_through_parameter": [
+        ("PIE-B1003", "float_literal_operands_required", 15, 9)
+    ],
+    "bare_parameter_beside": [("PIE-B1003", "float_literal_operands_required", 15, 9)],
+    "parameter_let2": [("PIE-B1003", "float_literal_operands_required", 13, 5)],
+    "parameter_key": [("PIE-B1003", "float_literal_operands_required", 13, 5)],
+    "key_under_where": [("PIE-B1003", "float_literal_operands_required", 13, 5)],
+    "key_beside_let": [("PIE-B1003", "float_literal_operands_required", 13, 5)],
+    "key_with_count_argument": [
+        ("PIE-B1003", "float_literal_operands_required", 13, 5)
+    ],
+    "keys_of_one_field": [("PIE-B1003", "float_literal_operands_required", 13, 5)],
+    "key_and_its_field": [("PIE-B1003", "float_literal_operands_required", 13, 5)],
+    "key_of_two_fields": [("PIE-B1003", "float_literal_operands_required", 13, 5)],
+    "key_nested": [("PIE-B1003", "float_literal_operands_required", 13, 5)],
+    **dict.fromkeys(
+        ("key_one_field_nesting", "key_one_field_nesting_with_text"),
+        [("PIE-B1003", "float_literal_operands_required", 13, 5)],
+    ),
+    "key_after_text": [("PIE-B1003", "float_literal_operands_required", 13, 5)],
+    "key_after_count": [("PIE-B1003", "float_literal_operands_required", 13, 5)],
+    "key_with_sign_count": [("PIE-B1003", "float_literal_operands_required", 13, 5)],
+    "parameter_in_sign_count_where": [
+        ("PIE-B1003", "float_literal_operands_required", 13, 5)
+    ],
 }
 E4BC_POSTGRES_BLOCKERS = {
     "p4_long_label": [("PIE-B1002", "output_label_unrepresentable", None, None)],
@@ -26317,6 +27047,8 @@ E4BC_POSTGRES_BLOCKERS = {
         ("PIE-B1003", "semantic_result_unsuccessful", 11, 1),
         ("PIE-B1003", "active_output_unavailable", 11, 1),
     ],
+    "p7_long_label": [("PIE-B1002", "output_label_unrepresentable", None, None)],
+    "p8_long_label": [("PIE-B1002", "output_label_unrepresentable", None, None)],
     "count_sign_distinct": [
         ("PIE-B1003", "semantic_result_unsuccessful", 11, 1),
         ("PIE-B1003", "active_output_unavailable", 11, 1),

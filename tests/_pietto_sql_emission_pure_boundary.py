@@ -1457,6 +1457,20 @@ _MYSQL_FLOAT_KEY_KINDS = frozenset(
 )
 
 
+# MC E4B's P8: the record kinds a cell with computed `let` keys also holds.
+_MYSQL_FLOAT_LET_KEY_KINDS = frozenset(
+    {
+        "row_carry_column",
+        "row_value_column",
+        "sql_anchor",
+        "sql_literal",
+        "sql_operation",
+        "sql_stage_reference",
+        "sql_unary",
+    }
+)
+
+
 def _mysql_float_key_carrier(doc, field):
     """The emitter's mysql_float_key_carrier of a bound field, restated."""
     logical = doc[field]["logical"]
@@ -1479,10 +1493,14 @@ def _mysql_float_key_cell(doc):
     argument, then a projection reading its outputs in order. Each key is a
     direct read of a different field of the bound source, and its carrier
     gives the cell; the document holds no other record kind
-    (_MYSQL_FLOAT_KEY_KINDS). None outside every cell. A relation alias
-    `let`, an unused named window or an inlined `def`, which emission
-    refuses, changes the document only in source positions and source bytes,
-    so this reader cannot tell it from the direct program."""
+    (_MYSQL_FLOAT_KEY_KINDS). MC E4B's P8 also puts a `let` body per
+    computed key before the aggregate body: each computes a narrow operation
+    of this boundary's E4B law (_mysql_float_statement), and its key reads
+    that operation's field instead (PREREG Law, item 4). None outside every
+    cell. A relation alias `let`, an unused named window or an inlined
+    `def`, which emission refuses, changes the document only in source
+    positions and source bytes, so this reader cannot tell it from the
+    direct program."""
     artifacts = doc.all("artifact")
     if len(artifacts) != 1:
         return None
@@ -1490,20 +1508,28 @@ def _mysql_float_key_cell(doc):
     if ast.kind != "sql_row_query":
         return None
     units = tuple(doc[ast]["bodies"])
+    lets = [unit for unit in units[:-2] if unit.kind == "row_body"]
     sources = doc.all("bound_source")
+    cells = _mysql_float_statement(doc) if lets else frozenset()
     if (
-        not set(doc.kinds) <= _MYSQL_FLOAT_KEY_KINDS
-        or len(units) != 2
-        or units[0].kind != "row_body"
-        or units[1].kind != "row_body"
+        not set(doc.kinds)
+        <= _MYSQL_FLOAT_KEY_KINDS | (_MYSQL_FLOAT_LET_KEY_KINDS if lets else set())
+        or len(units) != 2 + len(lets)
+        or any(unit.kind != "row_body" for unit in units)
+        or any(doc[unit]["block_kind"] != "let" for unit in lets)
+        or lets
+        and not cells
         or len(sources) != 1
     ):
         return None
-    body, unit = doc[units[0]], doc[units[1]]
+    body, unit = doc[units[-2]], doc[units[-1]]
     scan, terminals = body["scan"], tuple(body["terminals"])
     if (
-        scan.kind != "row_scan"
-        or doc[scan]["realization"] != sources[0]
+        (
+            doc[scan]["realization"] != sources[0]
+            if scan.kind == "row_scan" and not lets
+            else scan.kind != "row_stage_use" or doc[scan]["body"] != lets[-1]
+        )
         or body["predicate"] is not None
         or body["block_kind"] != "aggregate"
         or body["aggregation"] is None
@@ -1520,7 +1546,7 @@ def _mysql_float_key_cell(doc):
         or unit["predicate"] is not None
         or unit["aggregation"] is not None
         or unit["scan"].kind != "row_stage_use"
-        or doc[unit["scan"]]["body"] != units[0]
+        or doc[unit["scan"]]["body"] != units[-2]
         or tuple(doc[doc[c]["read"]]["terminal"] for c in unit["columns"]) != terminals
     ):
         return None
@@ -1533,8 +1559,31 @@ def _mysql_float_key_cell(doc):
         tuple(value["extra_arguments"]),
     ) != ("count", None, False, (), ()):
         return None
+    producers = {
+        doc[doc[column]["column"]]["terminal"]: column
+        for ref in lets
+        for column in doc[ref]["columns"]
+    }
     fields = []
     for read in (doc[column]["read"] for column in keys):
+        producer = None
+        for _ in range(len(lets) + 1):
+            producer = producers.get(doc[read]["terminal"])
+            if producer is None or producer.kind != "row_carry_column":
+                break
+            read = doc[producer]["read"]
+        if producer is not None and producer.kind == "row_value_column":
+            operation = doc[producer]["value"]
+            reads = [
+                item
+                for item in doc[operation]["operands"]
+                if item.kind == "sql_stage_reference"
+            ]
+            if operation not in cells or len(reads) != 1:
+                return None
+            read = doc[reads[0]]["column"]
+        elif producer is not None:
+            return None
         stage = doc[read]
         if (
             stage["field"] is None
@@ -3104,12 +3153,14 @@ def _mysql_float_statement(doc) -> frozenset:
     operation or a read of a `let` column, whatever carries it there. Each
     projection column reads a source field or a `let` column, or is such an
     operation (with no `let`); each ORDER BY key reads a `let` column. An
-    aggregate body has no `let` or WHERE body below it, keys that read
-    source fields and `count`s of the `-` sign of a read of a nullable source
-    field (lead ruling R-E4B-P6), which the projection body only reads.
-    Every `let` column is read, every one by the WHERE when there is one;
-    each operation is named once; the clauses make one of _E4B_SHAPES, and
-    two fields or a nesting stand only in _E4B_WIDE_SHAPES."""
+    aggregate body has no WHERE body below it and, with no `let` body below
+    it, keys that read source fields and `count`s of the `-` sign of a read
+    of a nullable source field (lead ruling R-E4B-P6), or over P8's `let`
+    bodies those columns as keys and `count()` alone; the projection body
+    only reads it. Every `let` column is read, every one by the WHERE when
+    there is one; each operation is named once; the clauses make one of
+    _E4B_SHAPES, and two fields or a nesting stand only in
+    _E4B_WIDE_SHAPES."""
 
     if not _E4B_KINDS.issuperset(doc.kinds) or len(doc.all("sql_row_query")) != 1:
         return frozenset()
@@ -3150,7 +3201,7 @@ def _mysql_float_statement(doc) -> frozenset:
         or where > 1
         or grouped > 1
         or grouped
-        and (lets or order)
+        and order
         or any(doc[ref]["window"] is not None for ref in chain)
         or any(
             (doc[ref]["aggregation"] is not None) is not (kind == "aggregate")
@@ -3260,9 +3311,28 @@ def _mysql_float_statement(doc) -> frozenset:
             return frozenset()
     for ref in chain[lets + where : lets + where + grouped]:
         stage = doc[doc[ref]["aggregation"]]
+        keyed = set()
         for key in stage["keys"]:
-            if not _mysql_field_column(doc, doc[key]["read"]):
+            column = origin(doc[key]["read"])
+            if column in carried:
+                keyed.add(column)
+            elif not _mysql_field_column(doc, doc[key]["read"]):
                 return frozenset()
+        if lets:
+            # P8: computed `let` keys of narrow operations in S07's shape.
+            if (
+                where
+                or keyed != set(carried)
+                or found - {"narrow"}
+                or any(
+                    (doc[column]["function"], doc[column]["argument"])
+                    != ("count", None)
+                    for column in stage["values"]
+                )
+            ):
+                return frozenset()
+            read |= keyed
+            continue
         for column in stage["values"]:
             fields = doc[column]
             argument = fields["argument"]
