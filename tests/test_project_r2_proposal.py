@@ -1507,7 +1507,8 @@ _FIRST = (
 # world its own tests build it in: S06 one that R2 executed refined and one
 # that failed at its first page, S06's `same_value` in a JOIN `on` (of an
 # Int and of a Float), S02 beside S01, R08's `Int /` over a literal
-# divisor, MC G1's INT and `let` carriers, and MC G2's aggregates and keys.
+# divisor, MC G1's INT and `let` carriers, MC G2's aggregates and keys, and
+# MC G6's JOIN chains and `on` literal comparisons.
 PHASE77_MYSQL_FORMS = {
     "S05": ("agg", _STATISTIC),
     "S06_join": (
@@ -1571,6 +1572,20 @@ PHASE77_MYSQL_FORMS = {
         "grouping",
         "query result:\n    from rows\n    group by note, a\n    select:\n"
         "        note\n        x = sum(n)\n",
+    ),
+    "G6_chain": (
+        "join",
+        "query result:\n    from items\n    let o = orders\n"
+        "    left join o on o.id == items.order_id\n    let c = customers\n"
+        "    right join c on c.id == o.customer\n    group by c.id\n"
+        "    select:\n        id = c.id\n        qty = sum(items.qty)\n",
+    ),
+    "G6_on": (
+        "join",
+        "query result:\n    from orders\n    let i = items\n"
+        "    left join i on i.order_id == orders.id and i.units > 0\n"
+        "    group by orders.id\n    select:\n        id = orders.id\n"
+        "        qty = sum(i.qty)\n        m = count(i.id)\n",
     ),
     "S15": (
         "remainder",
@@ -1648,6 +1663,13 @@ MYSQL_0111_FORMS = {
         "grouping",
         "query result:\n    from rows\n    group by note, a\n    select:\n"
         "        note\n        hi = max(n)\n        mean = avg(c)\n",
+        _WORKSPACE,
+    ),
+    "G6": (
+        "join",
+        "query result:\n    from orders\n    let i = items\n"
+        "    inner join i on i.order_id == orders.id\n    group by orders.id\n"
+        "    select:\n        id = orders.id\n        qty = max(i.qty)\n",
         _WORKSPACE,
     ),
     "S15": (

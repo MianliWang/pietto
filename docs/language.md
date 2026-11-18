@@ -4640,11 +4640,46 @@ plainly: a relation alias, an imported source or definition, a read
 qualified by its source's name in C1 to C4, parentheses, another test,
 `let`, JOIN kind, ON order, key or carrier, WHERE, HAVING, ORDER BY, LIMIT,
 DISTINCT, a header parameter, a third level or another aggregate keeps
-PIE-B1004 `sum_int_aggregate_range_proof_missing`. A `sum` there is S02's
+PIE-B1004 `sum_int_aggregate_range_proof_missing`, unless the MC G6
+paragraph below opens it. A `sum` there is S02's
 guarded `SUM`, a nullable `Int`; a conditional sum is `COALESCE(` that
 guard over `CASE WHEN TEST THEN x END`, `, 0)`, a non-null `Int`, 0 when no
 row's test is True. A statement still refused reports exactly the blockers
 it has without these forms.
+
+Since `0.2.2` (MC G6), the S02 cell as G1 and G2 widen it may also read its
+rows through JOINs instead of one source: the FROM reads a source of the
+module by its own name, and one or more JOINs follow, each a binding `let x =
+S` of a source `S` of the module (the FROM's included: a self-join), then
+`inner join x on P`, `left join x on P` or `right join x on P`, before the
+query's value `let`s and WHERE. The `on` `P` is a conjunction of its
+top-level `and`s (parentheses count as above, a comparison chain as its
+`and`s, and a relationship call as its body for its linking equalities
+only): of linking equalities, one at least, each an `==` of an `Int` field
+read of the joined input and one of an earlier input in either order, and,
+in an `inner` or `left` JOIN only, of comparisons of a read of a non-null
+`Int` field of the joined input, then `>` or `>=`, then an `Int` literal
+written as a number in the `on` itself (`left join i on i.order_id ==
+orders.id and i.units > 0`). A sum, the other aggregates and the keys
+follow G2 over fields of any input, qualified by the input's name or bare
+where one input has the field (S02's own key does not), and a source may
+declare fields that the query never reads. Project semantics already refuses a `sum`, `count(x)` or
+`avg` over rows that a JOIN may repeat (PIE-B1003
+`semantic_result_unsuccessful`) and a conditional sum over JOIN rows
+(PIE-S2334). A FULL JOIN (PIE-B1003 `mysql_full_join_approved_non_support`), a
+CROSS JOIN, an `on` with no linking equality (`on True`, an `or` at its top,
+a literal comparison alone) or with another conjunct (a `Text` equality, an
+`is None` test, a literal comparison by another operator, of a nullable field
+or of an earlier input, with the literal first, negative, a `def` argument or
+in a relationship's body, or in a `right` JOIN, a `def` call), a JOIN of a
+query or table or with no `let`, a JOIN in an upstream definition, and
+HAVING, ORDER BY, LIMIT, DISTINCT, a relation alias, a header parameter or a
+bind-safe `?` over JOIN rows keep the blockers they have without G6, object
+for object. Each `sum` is the cell's guarded `SUM` over the JOIN stage's
+column; the JOIN stage, the keys, the other aggregates, WHERE and GROUP BY
+are the MySQL SQL of the same query with each `sum` written `max`, the guard
+in place of the whole text emitted for that `max`, so J1 to J3 keep their
+SQL.
 
 <a id="mysql-project-sumint-forms"></a>
 **MySQL project `sum(Int)` forms at a glance.** This summary follows the
@@ -4782,15 +4817,17 @@ is one of the forms only under all of these conditions:
 - **Spelling.** Each read and test is written as its row writes it: no
   parentheses, no other `let`, test, aggregate, group key, JOIN kind or ON
   order, and no WHERE, HAVING, ORDER BY, LIMIT, DISTINCT, header parameter
-  or third level.
+  or third level, but what the MC G6 paragraph above opens for J1 to J3.
 - **Shapes.** `Order` declares `unique(id)`; without it, `check --project`
   reports PIE-S2333 at J1, J2, J3 and `per_order`, whose aggregates may read
   rows the JOIN repeats. J1 to T2 need both sources with exactly the fields
-  of the example, in its order, as their JOIN carries every field; C1 to C4
-  need only the fields they read, and admit others.
+  of the example, in its order, as their JOIN carries every field, but J1
+  to J3 admit others under the MC G6 paragraph above; C1 to C4 need only
+  the fields they read, and admit others.
 - **Carriers.** Each field's `representation` in `contract.json` is exactly
   the one below. Another `storage`, nullability or `domain`, such as an
-  `int_range` from `"0"` for `amount`, keeps the refusal.
+  `int_range` from `"0"` for `amount`, keeps the refusal, but where the MC
+  G6 paragraph above opens it for J1 to J3.
 
 | Fields | `storage` | `nullable` | `domain` |
 | --- | --- | --- | --- |

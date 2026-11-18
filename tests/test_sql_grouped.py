@@ -3506,10 +3506,10 @@ def test_mysql_sums_outside_the_s03_forms_keep_main_refusal(tmp_path, shape, pol
     policy it is refused with (rule two, D77.37): a test other than `F`,
     `not F`, `F is None` or `I > L`, a negative literal, an INT argument,
     a sum beside count() or a direct sum, WHERE, ORDER BY, a row alias, an
-    upstream query or a third level, a JOIN of another kind, key or ON
-    order, two sums over a JOIN, an extra or a missing upstream item, two
-    fields under C2's tests, a qualified C key, parentheses, an imported source, and a
-    form beside a composed aggregate. PostgreSQL emits each as main does."""
+    upstream query or a third level, an extra or a missing upstream item,
+    two fields under C2's tests, a qualified C key, parentheses, an imported
+    source, and a form beside a composed aggregate; MC G6 opens the JOIN
+    ones (G6_S03_CELLS). PostgreSQL emits each as main does."""
     if policy not in probe.S03_REFUSAL_POLICIES.get(shape, (policy,)):
         pytest.skip("refused under its own policy only")
     body = probe.S03_REFUSALS[shape]
@@ -3636,7 +3636,6 @@ def test_mysql_s03_forms_are_derived_once_per_aggregation(tmp_path, monkeypatch)
 
 
 _S03_WIDER_BLOCKERS = {
-    "j2_wider_items": [("PIE-B1004", "sum_int_aggregate_range_proof_missing", 23, 9)],
     "t1_wider_orders": [
         ("PIE-B1004", "sum_int_aggregate_range_proof_missing", 31, 9),
         ("PIE-B1004", "sum_int_aggregate_range_proof_missing", 32, 9),
@@ -3647,9 +3646,10 @@ _S03_WIDER_BLOCKERS = {
 @pytest.mark.parametrize("shape", sorted(probe.S03_WIDER))
 def test_mysql_s03_join_forms_need_the_paired_tables_whole(tmp_path, shape):
     """A JOIN form's SQL carries every field of both sources, so a source
-    with one more field is no form and keeps main's blockers, also in
-    compiled replay and the pure boundary when forged past emission; a
-    conditional form reads only its own fields and stays one."""
+    with one more field is no form and T1's keeps main's blockers, also in
+    compiled replay and the pure boundary when forged past emission (J2's
+    is MC G6's); a conditional form reads only its own fields and stays
+    one."""
     from pietto._project import project_compiled_schema as wire
     import _pietto_sql_emission_portable as portable
     import _pietto_sql_emission_pure_boundary as pure
@@ -3686,3 +3686,189 @@ def test_mysql_s03_join_forms_need_the_paired_tables_whole(tmp_path, shape):
         pure.Status.INVALID_RELATION,
         "sum result",
     )
+
+
+# MC G6 (JOIN extension): the public nullability of each form's columns: a
+# GROUP BY key of a non-null field of an input no outer JOIN NULL-extends,
+# and a count.
+G6_NON_NULL = {
+    "K1": {"id"},
+    "K2": set(),
+    "K3": {"id", "m"},
+    "K4": {"city"},
+    "K5": {"id"},
+    "K6": {"city", "region", "r"},
+    "K7": {"id"},
+    "K8": set(),
+    "O1": {"region"},
+    "O2": {"id", "m"},
+    "O3": set(),
+    "C1": {"city"},
+    "C2": {"customer"},
+    "Y1": {"order_id", "r"},
+    "Y2": {"units", "d"},
+    "M1": {"customer", "region"},
+    "M2": set(),
+}
+
+
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+@pytest.mark.parametrize("form", sorted(probe.G6_FORMS))
+def test_mysql_g6_forms_emit_the_guarded_sum(tmp_path, form, target):
+    """MC G6: a MySQL project emits S02's guarded SUM over the rows of one
+    or more INNER, LEFT or RIGHT JOINs of sources of its module, each `on` a
+    conjunction of linking Int equalities and, outside a RIGHT JOIN, `>` or
+    `>=` literal comparisons of a non-null Int field of the joined input,
+    in G2's cell otherwise. Both families emit the pinned SQL, pairwise
+    distinct per family and PostgreSQL's unchanged; every reader accepts it,
+    the pure boundary's re-rendering included."""
+    import _pietto_sql_emission_portable as portable
+    import _pietto_sql_emission_pure_boundary as pure
+
+    checked, outcome = probe.join_world(tmp_path, target, probe.G6_FORMS[form])
+    assert checked.verified
+    probe.numeric_readers_accept(outcome)
+    assert outcome.artifact is not None
+    assert outcome.artifact.rendered.sql.decode() == probe.G6_FORM_SQL[form, target]
+    observed = portable.export_emission_observation(
+        outcome.artifact, outcome.artifact.request
+    ).canonical_bytes
+    assert observed is not None and pure.rendering_refusal(observed) is None
+    document = json.loads(serialize_project_sql_emission(outcome))
+    assert {
+        column["label"] for column in document["columns"] if not column["nullable"]
+    } == G6_NON_NULL[form]
+    texts = [probe.G6_FORM_SQL[name, target] for name in probe.G6_FORMS]
+    assert len(set(texts)) == len(texts)
+
+
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+@pytest.mark.parametrize("spelling", sorted(probe.G6_SPELLINGS))
+def test_mysql_g6_spellings_emit_their_form_sql(tmp_path, spelling, target):
+    """A relationship call read as its body, parentheses around the `on` or
+    a sum, bare field reads where one input has the field, a `table`
+    declaration and a `group by:` block emit the form's bytes."""
+    form, body = probe.G6_SPELLINGS[spelling]
+    _, outcome = probe.join_world(tmp_path, target, body)
+    probe.numeric_readers_accept(outcome)
+    assert outcome.artifact is not None
+    assert outcome.artifact.rendered.sql.decode() == probe.G6_FORM_SQL[form, target]
+
+
+def _g6_guarded(sql, summed):
+    """MySQL SQL whose n-th `max` item, MAX(arg) or a whole CAST(MAX(arg) AS
+    SIGNED), is S02's guarded SUM of arg wherever ``summed``[n] holds."""
+    import re
+
+    marks = iter(summed)
+    return re.sub(
+        r"CAST\(MAX\(([^()]+)\) AS SIGNED\)|MAX\(([^()]+)\)",
+        lambda found: (
+            "".join(
+                (found.group(1) or found.group(2) if position else "") + text
+                for position, (_, text) in enumerate(grouping.MYSQL_SUM_GUARD)
+            )
+            if next(marks)
+            else found.group(0)
+        ),
+        sql,
+    )
+
+
+def _g6_bodies():
+    """Each G6 body with its world: the forms, their spellings, the cells
+    the law opens and S03's JOIN neighbours it opens, and S03's J1-J3
+    (`S03_` before its name)."""
+    bodies = {
+        **{name: (probe.join_world, {}, body) for name, body in probe.G6_FORMS.items()},
+        **{
+            name: (probe.join_world, {}, body)
+            for name, (_, body) in probe.G6_SPELLINGS.items()
+        },
+        **{name: (probe.join_world, {}, body) for name, body in probe.G6_CELLS.items()},
+        **{
+            name: (probe.s03_world, {"extra": extra}, body)
+            for name, (body, extra) in probe.G6_S03_CELLS.items()
+        },
+    }
+    for form in ("J1", "J2", "J3"):
+        bodies["S03_" + form] = (probe.s03_world, {}, probe.S03_FORMS[form])
+    return bodies
+
+
+_G6_BODIES = _g6_bodies()
+
+
+@pytest.mark.parametrize("name", sorted(_G6_BODIES))
+def test_mysql_g6_sql_is_main_max_sql_but_the_guard(tmp_path, name):
+    """B: each G6 body's MySQL SQL, `let` stages kept, is main's MySQL SQL of
+    the same body with every `sum(x)` written `max(x)`, the whole text main
+    emits for each such `max`, MAX(x) or CAST(MAX(x) AS SIGNED), S02's
+    guarded SUM of x and no guard inside a CAST: so the JOIN stage, every
+    key, every other aggregate, WHERE and GROUP BY are main's verified MySQL
+    emission, and a combination the forms do not run (a self-join, three
+    JOINs, more `on` conjuncts) rests on the forms' parts. S03's J1-J3 keep
+    S03_FORM_SQL's bytes; every reader accepts each body, and PostgreSQL
+    emits it as main does."""
+    import re
+
+    world, keywords, body = _G6_BODIES[name]
+    _, maxima = world(
+        tmp_path / "max", "mysql", body.replace("sum(", "max("), **keywords
+    )
+    _, outcome = world(tmp_path / "sum", "mysql", body, **keywords)
+    probe.numeric_readers_accept(outcome)
+    assert maxima.artifact is not None and outcome.artifact is not None
+    sql = outcome.artifact.rendered.sql.decode()
+    summed = [found == "sum" for found in re.findall(r"= \(?(sum|max)\(", body)]
+    assert sql == _g6_guarded(maxima.artifact.rendered.sql.decode(), summed)
+    assert "CAST(CASE WHEN SUM(" not in sql
+    if name.startswith("S03_"):
+        assert sql == probe.S03_FORM_SQL[name[4:], "mysql"]
+    _, postgres = world(tmp_path / "postgres", "postgres", body, **keywords)
+    assert postgres.status == "VERIFIED", postgres.blockers
+
+
+@pytest.mark.parametrize("policy", ("preserve_literals", "bind_safe_literals"))
+@pytest.mark.parametrize("shape", sorted(probe.G6_REFUSALS))
+def test_mysql_g6_neighbours_keep_main_refusal(tmp_path, shape, policy):
+    """Rule two (D77.37): a statement the G6 law matches beside another
+    blocker (a label too long, a sum outside every cell, HAVING, ORDER BY,
+    LIMIT, DISTINCT, a header parameter, a bind-safe `?`, a relation alias)
+    and one outside it (a FULL or CROSS JOIN, a JOIN of a query or `table`
+    or with no `let`, a JOIN upstream, an `on` that links nothing, holds a
+    Text equality, a NULL test or a `def` call, or a literal comparison of
+    another operator, order, field, input or JOIN kind, a negative literal,
+    a `def` argument or relationship body's literal) keep main's blockers,
+    object for object, under each policy they are refused with;
+    a sum of the "one" side of a JOIN and a CROSS JOIN sum with no key are
+    refused before emission on both targets, and PostgreSQL emits every
+    other but the long label as main does."""
+    if policy not in probe.G6_REFUSAL_POLICIES.get(shape, (policy,)):
+        pytest.skip("refused under its own policy only")
+    body = probe.G6_REFUSALS[shape]
+    _, outcome = probe.join_world(tmp_path / "mysql", "mysql", body, policy)
+    assert outcome.status == "BLOCKED" and outcome.artifact is None
+    assert _numeric_blockers(outcome) == probe.G6_REFUSAL_BLOCKERS[shape]
+    _, postgres = probe.join_world(tmp_path / "postgres", "postgres", body, policy)
+    if shape in probe.G6_POSTGRES_BLOCKERS:
+        assert _numeric_blockers(postgres) == probe.G6_POSTGRES_BLOCKERS[shape]
+    else:
+        assert postgres.status == "VERIFIED", postgres.blockers
+
+
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+def test_a_conditional_sum_over_join_rows_is_refused_at_check(tmp_path, capsys, target):
+    """G6's X3: project checking refuses a conditional sum over JOIN rows
+    on both targets before any emission law, so no family opens it."""
+    from pietto import cli
+
+    body, expected = probe.G6_CHECK_REFUSAL
+    with pytest.raises(ValueError, match="failed parsing"):
+        probe.join_world(tmp_path, target, body)
+    capsys.readouterr()
+    assert cli.main(["check", "--project", str(tmp_path), "--format", "json"]) == 1
+    assert [
+        (item["code"], item["location"]["line"], item["location"]["column"])
+        for item in json.loads(capsys.readouterr().out)["diagnostics"]
+    ] == [expected]

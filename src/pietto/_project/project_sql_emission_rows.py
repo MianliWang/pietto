@@ -235,7 +235,12 @@ def mysql_s03_operand(value) -> bool:
 
 
 def mysql_checked_query(
-    plan, *, aggregate: bool, slots: bool = False, lets: bool = False
+    plan,
+    *,
+    aggregate: bool,
+    slots: bool = False,
+    lets: bool = False,
+    joins: bool = False,
 ) -> bool:
     """A cell's query, from the plan and its authored `query` or `table`:
     its non-empty tables are among _MYSQL_CELL_PLAN_TABLES (and, with
@@ -247,8 +252,9 @@ def mysql_checked_query(
     first, and its authored names are those `let`s alone: a relation alias
     leaves no value `let`. Every check is O(1) in the program beside its
     `let`s: at most four more blocks, one source and one authored
-    declaration are read. No query is one while emission derives as main
-    (AS_MAIN)."""
+    declaration are read. With ``joins`` (MC G6) its rows may come through
+    JOINs that keep mysql_join_law instead of from one source. No query is
+    one while emission derives as main (AS_MAIN)."""
 
     from pietto._project.module_catalog import authored_definitions
     from pietto._project.project_sql_plan import (
@@ -262,6 +268,9 @@ def mysql_checked_query(
     owner = plan.scope.selected_owner
     module = plan.scope.completed.semantic_result.modules[owner.module_position]
     authored = authored_definitions(module)[owner.declaration_position]
+    joined = bool(joins and plan.joins)
+    if AS_MAIN.get() or joined and not mysql_join_law(plan, authored, module):
+        return False
     return not (
         AS_MAIN.get()
         or any(
@@ -270,6 +279,7 @@ def mysql_checked_query(
             and name not in _MYSQL_CELL_PLAN_TABLES
             and not (slots and name in _MYSQL_SLOT_PLAN_TABLES)
             and not (lets and name == "let_values")
+            and not (joined and name in _MYSQL_JOIN_PLAN_TABLES)
             for name in plan.__dataclass_fields__
         )
         or tuple(block.kind for block in plan.blocks[: len(named) + 4])
@@ -278,8 +288,12 @@ def mysql_checked_query(
             (*named, stage.WHERE, *middle, stage.PROJECTION),
         )
         or any(
-            type(block.boundary) is not ProjectSQLBoundary
-            or block.boundary.reason is not ProjectSQLBoundaryReason.SOURCE_INPUT
+            (
+                block.boundary is not plan.join_tails[0]
+                if joined
+                else type(block.boundary) is not ProjectSQLBoundary
+                or block.boundary.reason is not ProjectSQLBoundaryReason.SOURCE_INPUT
+            )
             for block in plan.blocks
         )
         # A source imported, under its own name or another, reads as the
@@ -296,10 +310,150 @@ def mysql_checked_query(
             and not (
                 lets
                 and name == "naming_declarations"
-                and len(authored.naming_declarations) == len(plan.let_values)
+                and len(authored.naming_declarations)
+                == len(plan.let_values) + len(authored.join_clauses)
             )
+            and not (joined and name == "join_clauses")
         )
     )
+
+
+# MC G6: the plan tables a query's JOINs add, and the JOIN kinds it may use.
+_MYSQL_JOIN_PLAN_TABLES = frozenset(
+    {"aggregate_risks", "join_inputs", "join_ports", "join_tails", "joins"}
+)
+MYSQL_JOIN_KINDS = frozenset({"inner", "left", "right"})
+# A read of a stage port as written: of one input, or (MC G6) of a JOIN's.
+_MYSQL_READS = (row.ProjectSQLReference, row.ProjectSQLJoinedReference)
+
+
+def mysql_join_law(plan, authored, module) -> bool:
+    """MC G6: the selected `query` or `table` reads a source of its own
+    module by name, then one or more JOINs in source order, each a binding
+    `let x = S` of such a source S joined by `inner`, `left` or `right join
+    x on P`, as the plan holds them: one chain of the selected definition
+    with one tail, each JOIN's earlier input the FROM's source or the JOIN
+    before it and its joined input a source, and every bound definition but
+    the selected one a source. `P` is a conjunction (its top-level `and`s)
+    of linking equalities, one at least, an `==` of an Int field read of
+    the joined input and one of an earlier input in either order, and, in
+    an INNER or LEFT JOIN, literal comparisons, a read of a non-null Int
+    field of the joined input, then `>` or `>=`, then an Int literal
+    written as a number token. A relationship call reads as its body for
+    its linking equalities; a literal of its body, inlined at the call's
+    text, is no number token, nor a `def` argument or a `def` body a read or
+    literal here. Compiled replay and the pure boundary see no `def` or
+    relationship call (D77.24's alias limit). Linear in the JOINs and their
+    `on` operations."""
+
+    from pietto import ast_nodes as ast
+    from pietto._project.module_catalog import authored_definitions
+    from pietto._project.project_sql_emission_joins import (
+        EXPECTED_ROWS,
+        joined_definitions,
+    )
+    from pietto.ast_nodes import inlined_arguments
+
+    if type(authored) not in (ast.QueryDef, ast.TableDef):
+        return False
+    sources = {
+        definition.name
+        for definition in authored_definitions(module)
+        if type(definition) is ast.SourceDef
+    }
+    lets = {let.name: let for let in authored.naming_declarations}
+    clauses = authored.join_clauses
+    if (
+        authored.from_clause.binding_name is not None
+        or authored.from_clause.source_name not in sources
+        or len(plan.bindings.definitions) != len(plan.sources) + 1
+        or len(plan.join_tails) != 1
+        or any(
+            clause.kind not in MYSQL_JOIN_KINDS
+            or clause.uses_named_input is not True
+            or clause.asof
+            or clause.traversal_steps
+            or clause.source_binding_name is not None
+            or clause.target_relation_name != clause.target_binding_name
+            or type(getattr(lets.get(clause.target_binding_name), "expression", None))
+            is not ast.NameExpr
+            or lets[clause.target_binding_name].expression.name not in sources
+            for clause in clauses
+        )
+    ):
+        return False
+    grouped = joined_definitions(plan)
+    joins = tuple(grouped.values())[0] if len(grouped) == 1 else ()
+    if (
+        not joins
+        or len(joins) != len(clauses)
+        or plan.join_tails[0].join is not joins[-1].ref
+    ):
+        return False
+    inputs = {item.ref: item for item in plan.join_inputs}
+    ports = {port.ref: port for port in plan.join_ports}
+    written = _mysql_number_token(plan)
+    for index, join in enumerate(joins):
+        pair = [inputs[ref] for ref in join.inputs if ref in inputs]
+        if (
+            str(join.kind) not in MYSQL_JOIN_KINDS
+            or join.rows is not EXPECTED_ROWS[join.kind]
+            or join.equalities
+            or join.on is None
+            or len(pair) != 2
+            or (pair[0].ordinal, pair[1].ordinal) != (0, 1)
+            or pair[0].predecessor is not (joins[index - 1].ref if index else None)
+            or (pair[0].producer is None) is not bool(index)
+            or pair[1].producer is None
+            or pair[1].predecessor is not None
+        ):
+            return False
+
+        def read(reference):
+            """(side, nullable) of an Int field read of one input as written,
+            side 1 the joined input; or None."""
+            expression = _planned(plan, reference)
+            port = ports.get(getattr(expression, "port", None))
+            if (
+                type(expression) is not row.ProjectSQLMatchReference
+                or port is None
+                or port.input not in join.inputs
+                or inlined_arguments(expression.expression)
+                or value_tag(expression) != "Int"
+            ):
+                return None
+            return join.inputs.index(port.input), value_nullable(expression)
+
+        linked, pending = False, [join.on]
+        while pending:
+            expression = _planned(plan, pending.pop())
+            if (
+                type(expression) is row.ProjectSQLBinary
+                and expression.expression.operator == "and"
+            ):
+                pending += (expression.left, expression.right)
+                continue
+            if type(expression) is not row.ProjectSQLComparison:
+                return False
+            operator = expression.expression.operator
+            left, right = read(expression.left), read(expression.right)
+            literal = _planned(plan, expression.right)
+            if operator == "==" and left and right and {left[0], right[0]} == {0, 1}:
+                linked = True
+            elif not (
+                operator in (">", ">=")
+                and str(join.kind) != "right"
+                and left == (1, False)
+                and type(literal) is row.ProjectSQLLiteral
+                and value_tag(literal) == "Int"
+                and type(literal.expression.value) is int
+                and not inlined_arguments(literal.expression)
+                and written(literal.expression.span)
+            ):
+                return False
+        if not linked:
+            return False
+    return True
 
 
 def mysql_field_column(column) -> bool:
@@ -350,8 +504,9 @@ def mysql_sum_query(plan, keys, columns) -> bool:
     MYSQL_SUM_KEY_KINDS storage, nullable or not, and each aggregate a sum,
     count or min or a `count_distinct`, `max` or `avg` of one source field
     read (its realized column in ``columns``) of its MYSQL_SUM_BESIDE
-    storage. The scans of the plan's aggregates and expressions run only for
-    a query with one aggregation."""
+    storage. Its rows may come through JOINs that keep mysql_join_law (MC
+    G6), under G2's law alone. The scans of the plan's aggregates and
+    expressions run only for a query with one aggregation."""
 
     from pietto._project.project_sql_emission_aggregation import function_name
 
@@ -359,8 +514,8 @@ def mysql_sum_query(plan, keys, columns) -> bool:
         arguments = value.arguments
         expression = _planned(plan, arguments[0]) if len(arguments) == 1 else None
         column = (
-            columns.get(expression.port)
-            if type(expression) is row.ProjectSQLReference
+            columns.get(getattr(expression, "port", None))
+            if type(expression) in _MYSQL_READS
             else None
         )
         return (
@@ -398,9 +553,10 @@ def mysql_sum_query(plan, keys, columns) -> bool:
         )
 
     return (
-        mysql_checked_query(plan, aggregate=True, lets=True)
+        mysql_checked_query(plan, aggregate=True, lets=True, joins=True)
         and mysql_sum_lets(plan)
-        and (s02() or g2())
+        # MC G6: over JOINs, G2's law alone.
+        and (not plan.joins and s02() or g2())
         and not any(
             getattr(getattr(item, "site", None), "role", None)
             is row.ProjectSQLExpressionRole.SELECT
@@ -417,14 +573,17 @@ def mysql_sum_lets(plan) -> bool:
     read (mysql_sum_cell) only when the `let` reads one as written. Linear
     in the plan."""
 
+    from pietto._project.project_scalar_namespaces import ProjectJoinedLetOccurrence
     from pietto._project.project_sql_emission_aggregation import function_name
     from pietto.ast_nodes import LetBinding
 
     if not plan.let_values:
         return True
     ports = {port.ref: port for port in plan.stage_ports}
+    # A `let` port's key; over JOINs (MC G6) its joined occurrence.
+    named = (LetBinding, ProjectJoinedLetOccurrence)
     if any(
-        type(getattr(ports.get(key.input), "key", None)) is LetBinding
+        type(getattr(ports.get(key.input), "key", None)) in named
         for key in plan.group_keys
     ):
         return False
@@ -437,7 +596,7 @@ def mysql_sum_lets(plan) -> bool:
     read = set()
     for expression in plan.expressions:
         key = getattr(ports.get(getattr(expression, "port", None)), "key", None)
-        if type(expression) is row.ProjectSQLReference and type(key) is LetBinding:
+        if type(expression) in _MYSQL_READS and type(key) in named:
             if id(expression.ref) not in summed:
                 return False
             read.add(id(key))
@@ -450,13 +609,20 @@ def mysql_sum_lets(plan) -> bool:
 def mysql_sum_cell(aggregate, argument) -> bool:
     """S02: a sum(Int) of a mysql_sum_query stage is in its cell when it is
     the whole value of a SELECT item (a result fact; its analysis holds the
-    item's call itself) over a source field (mysql_field)."""
+    item's call itself; over JOINs, MC G6, the item's value is the call)
+    over a source field (mysql_field)."""
 
     from pietto._project.aggregate_grouped_schema import ProjectAggregateResultFact
-
-    return type(aggregate.source.fact) is ProjectAggregateResultFact and mysql_field(
-        argument
+    from pietto._project.project_joined_aggregation import (
+        ProjectJoinedAggregateOccurrence,
     )
+
+    source = aggregate.source
+    return (
+        type(source) is ProjectJoinedAggregateOccurrence
+        and source.item.expression is source.call
+        or type(getattr(source, "fact", None)) is ProjectAggregateResultFact
+    ) and mysql_field(argument)
 
 
 # Phase77 S15 (template T15-1, D77.24): the carrier of each operand of a
@@ -892,7 +1058,10 @@ def mysql_compiled_cells(
     MYSQL_SUM_BESIDE storage.
     Below its WHERE row, an S02 aggregate may stand over one `let` row of
     its declaration per value `let`, whose ports are marked as the WHERE
-    row's are and which keeps MC G1's law (_mysql_compiled_lets).
+    row's are and which keeps MC G1's law (_mysql_compiled_lets). Below
+    those (MC G6) it may stand over a chain of JOINs of its declaration that
+    keeps _mysql_compiled_joins in place of the source, each port of a JOIN
+    marked when its value reads a marked port, under G2's law alone.
     S15 cells need a terminal straight over the source, each of whose values
     is a read of a marked port whose field's physical storage is its tag's
     MYSQL_REMAINDER_CARRIERS one, or a `%` that no other counted record
@@ -939,13 +1108,28 @@ def mysql_compiled_cells(
         chain.append(current)
         lets.append(current.address)
         current = records[current.get("input")]
-    if current.address.kind != "source" or any(
-        unit.get("owner") != owner for unit in chain
+    joins = []
+    while (
+        chain[1:2]
+        and chain[1].address.kind == "aggregate"
+        and current.address.kind == "join"
+    ):
+        uses = current.get("inputs")
+        if not uses or current in joins:
+            return empty
+        joins.append(current)
+        current = records[records[uses[0]].get("producer")]
+    if (
+        current.address.kind != "source"
+        or any(unit.get("owner") != owner for unit in (*chain, *joins))
+        or joins
+        and not _mysql_compiled_joins(records, joins)
     ):
         return empty
     from pietto._project.project_compiled_schema import Address
 
-    units = {unit.address for unit in chain}
+    units = {unit.address for unit in (*chain, *joins)}
+    joined = {unit.address for unit in joins}
     marked, named, slotted = set(), {}, set()
     for address, record in records.items():
         kind = address.kind
@@ -954,8 +1138,11 @@ def mysql_compiled_cells(
             continue
         if kind == "native_use":
             continue
-        if kind not in _MYSQL_CELL_RECORDS or (
-            kind in {"row", "aggregate"} and address not in units
+        if (
+            kind not in _MYSQL_CELL_RECORDS
+            and not (joined and kind in ("join", "join_value"))
+            or kind in {"row", "aggregate", "join"}
+            and address not in units
         ):
             return empty
         pending = [] if kind in {"requirement", "port"} else list(record.values)
@@ -972,6 +1159,11 @@ def mysql_compiled_cells(
                 and port_source is not None
                 and port_source.kind == "read"
                 and records[port_source].get("port") in marked
+                # MC G6: a JOIN's port carries its input's through its value.
+                or port_owner in joined
+                and port_source is not None
+                and port_source.kind == "join_value"
+                and records[records[port_source].get("input")].get("port") in marked
             ):
                 marked.add(address)
 
@@ -984,7 +1176,10 @@ def mysql_compiled_cells(
         after the port it carries, so the walk ends)."""
         port = records[address].get("port")
         while records[port].get("owner").kind != "source":
-            port = records[records[port].get("source")].get("port")
+            source = records[port].get("source")
+            if source.kind == "join_value":
+                source = records[source].get("input")
+            port = records[source].get("port")
         try:
             physical = records[records[port].get("source")].get("physical")
             return json.loads(physical)["storage"]["kind"]
@@ -1027,7 +1222,8 @@ def mysql_compiled_cells(
             or beside(records[value])
             for value in values
         )
-        if not (s02 or g2) or not all(
+        # MC G6: over JOINs, G2's law alone.
+        if not (s02 and not joins or g2) or not all(
             value.kind == "read"
             and records[records[value].get("port")].get("owner") == aggregate.address
             for value in terminal.get("values")
@@ -1184,6 +1380,78 @@ def mysql_compiled_cells(
         frozenset(divisions),
         frozenset(floats),
     )
+
+
+def _mysql_compiled_joins(records, joins) -> bool:
+    """MC G6, from the records: ``joins``, from the last down, each `inner`,
+    `left` or `right`, with no relationship equality, its earlier input
+    (ordinal 0) a source for the last one walked and otherwise the next JOIN,
+    as mysql_compiled_cells walks them, and its joined input (ordinal 1) a
+    source. Its predicate is a
+    conjunction (`and` operations) of linking equalities, one at least, an
+    `==` of reads of an Int port of each input, and, unless it is a `right`
+    JOIN, of `>` or `>=` comparisons of a read of a non-null Int port of the
+    joined input with a non-negative Int literal. Linear in the JOINs and
+    their predicates."""
+
+    for join in joins:
+        uses = tuple(records[use] for use in join.get("inputs"))
+        if (
+            join.get("kind") not in MYSQL_JOIN_KINDS
+            or join.get("equalities")
+            or join.get("predicate") is None
+            or [use.get("ordinal") for use in uses] != [0, 1]
+            or uses[1].get("producer").kind != "source"
+        ):
+            return False
+
+        def read(address):
+            """(side, nullability) of a read of an Int port of one input, side
+            1 the joined input; or None."""
+            if address.kind != "read":
+                return None
+            use, port = records[address].get("use"), records[address].get("port")
+            logical = records[port].get("logical")
+            if use not in join.get("inputs") or port not in records[use].get("ports"):
+                return None
+            side = join.get("inputs").index(use)
+            return (side, logical[1]) if logical[0] == "Int" else None
+
+        linked, pending = False, [join.get("predicate")]
+        while pending:
+            address = pending.pop()
+            if address.kind != "operation":
+                return False
+            operator = records[address].get("operator")
+            operands = records[address].get("operands")
+            if operator == ("binary", "and") and len(operands) == 2:
+                pending.extend(operands)
+                continue
+            if operator[0] != "comparison" or len(operands) != 2:
+                return False
+            left, right = read(operands[0]), read(operands[1])
+            if operator[1] == "==" and left and right and {left[0], right[0]} == {0, 1}:
+                linked = True
+                continue
+            literal = records[operands[1]] if operands[1].kind == "literal" else None
+            value = (
+                None
+                if literal is None
+                else getattr(literal.get("value"), "value", None)
+            )
+            if not (
+                operator[1] in (">", ">=")
+                and join.get("kind") != "right"
+                and left == (1, "non_null")
+                and literal is not None
+                and literal.get("tag") == "Int"
+                and type(value) is int
+                and value >= 0
+            ):
+                return False
+        if not linked:
+            return False
+    return True
 
 
 def _mysql_compiled_lets(records, rows, aggregate) -> bool:

@@ -38,8 +38,9 @@
   with PIE-R1004 (`detail` `PUBLIC_R2_UNQUALIFIED_FORM`), as for the other
   forms that MySQL opened after `0.1.11`.
 - Under J12 (3), the MySQL project `sum` of an `Int` outside the forms
-  that `0.1.12`, this note and the G2 note below open stays beyond the
-  MySQL cadence, with the MySQL catch-up work package as its target.
+  that `0.1.12`, this note and the G2 and G6 notes below open stays
+  beyond the MySQL cadence, with the MySQL catch-up work package as its
+  target.
 
 Changed diagnostics: a MySQL statement whose only blockers in `0.2.1` were
 PIE-B1004 `sum_int_aggregate_range_proof_missing` at sums of these forms is

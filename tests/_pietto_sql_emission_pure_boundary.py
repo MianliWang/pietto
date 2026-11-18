@@ -2111,6 +2111,97 @@ _MYSQL_CELL_KINDS = frozenset(
 # R08: the bind-safe slot kinds a division cell's document may also hold;
 # they close every other cell.
 _MYSQL_SLOT_KINDS = frozenset({"fixed_value", "native_use", "sql_parameter"})
+# MC G6: the kinds an S02 chain's JOINs add; they close every other cell.
+_MYSQL_JOIN_KINDS = frozenset(
+    {"join_body", "join_column", "join_input", "row_join_use", "sql_join_query"}
+)
+
+
+def _mysql_joins(doc, last) -> bool:
+    """MC G6, restated from the document: ``last`` and the JOIN bodies below
+    it through each earlier input are every JOIN body; each is `inner`,
+    `left` or `right`, with no relationship equality, its earlier input a
+    bound source (the first) or the JOIN body before it and its joined input
+    a bound source. Its predicate is a conjunction (`and` operations) of
+    linking equalities, one at least, an `==` of an Int column of the joined
+    input and one of the earlier input in either order, and, unless it is a
+    `right` JOIN, of `>` or `>=` comparisons of a non-null Int column of the
+    joined input with an Int literal of no sign. Linear in the JOIN bodies
+    and their predicates."""
+
+    seen = set()
+    while True:
+        if last in seen:
+            return False
+        seen.add(last)
+        join = doc[last]
+        inputs = [doc[item] for item in join["inputs"]]
+        if (
+            join["join_kind"] not in ("inner", "left", "right")
+            or join["equalities"]
+            or [item["ordinal"] for item in inputs] != [0, 1]
+            or inputs[1]["producer"].kind != "bound_source"
+            or inputs[0]["producer"].kind not in ("bound_source", "join_body")
+        ):
+            return False
+
+        def side(ref):
+            """(side, nullable) of an Int column read of one input, side 1
+            the joined input; or None."""
+            if type(ref) is not Ref or ref.kind != "sql_stage_reference":
+                return None
+            realization = doc[doc[ref]["realization"]]
+            column = doc[ref]["column"]
+            sides = [index for index in (0, 1) if column in inputs[index]["columns"]]
+            if len(sides) != 1 or realization["tag"] != "Int":
+                return None
+            return sides[0], realization["nullable"]
+
+        linked, pending = False, [join["predicate"]]
+        while pending:
+            ref = pending.pop()
+            if type(ref) is not Ref or ref.kind != "sql_operation":
+                return False
+            operation = doc[ref]
+            operands = operation["operands"]
+            kind = (operation["kind"], operation["operator"], len(operands))
+            if kind == ("logical", "and", 2):
+                pending.extend(operands)
+                continue
+            if kind[0] != "comparison" or len(operands) != 2:
+                return False
+            left, right = side(operands[0]), side(operands[1])
+            if kind[1] == "==" and left and right and {left[0], right[0]} == {0, 1}:
+                linked = True
+                continue
+            anchor = operands[1]
+            literal = (
+                doc[anchor]["operand"]
+                if type(anchor) is Ref and anchor.kind == "sql_anchor"
+                else None
+            )
+            written = (
+                doc[literal]["value"]
+                if type(literal) is Ref and literal.kind == "sql_literal"
+                else None
+            )
+            if not (
+                kind[1] in (">", ">=")
+                and join["join_kind"] != "right"
+                and left == (1, False)
+                and type(written) is Fixed
+                and doc[anchor]["tag"] == "Int"
+                and written.tag == "Int"
+                and type(written.wire) is str
+                and _NON_NEGATIVE.fullmatch(written.wire)
+            ):
+                return False
+        if not linked:
+            return False
+        earlier = inputs[0]["producer"]
+        if earlier.kind == "bound_source":
+            return seen == set(doc.all("join_body"))
+        last = earlier
 
 
 def _mysql_cells(
@@ -2136,7 +2227,10 @@ def _mysql_cells(
     or a `count_distinct`, `max` or `avg` of one source field of its
     _MYSQL_SUM_BESIDE storage), and the
     final body only projects the aggregate's columns. Below a WHERE an S02
-    chain may start with one body per value `let` (_mysql_sum_lets). S15
+    chain may start with one body per value `let` (_mysql_sum_lets), and
+    (MC G6) its first body may scan JOINs that keep _mysql_joins in place of
+    the source scan, under G2's law alone; JOIN records close every other
+    cell. S15
     cells need one projection body straight over the scan,
     each of whose columns is a read of a source field of its tag's carrier
     (_mysql_remainder_carrier) or a `%` named once over two such reads of
@@ -2158,9 +2252,12 @@ def _mysql_cells(
         frozenset(),
         frozenset(),
     )
-    if not (_MYSQL_CELL_KINDS | _MYSQL_SLOT_KINDS).issuperset(doc.kinds):
+    if not (_MYSQL_CELL_KINDS | _MYSQL_SLOT_KINDS | _MYSQL_JOIN_KINDS).issuperset(
+        doc.kinds
+    ):
         return empty
-    slotted = not _MYSQL_CELL_KINDS.issuperset(doc.kinds)
+    joined = not _MYSQL_JOIN_KINDS.isdisjoint(doc.kinds)
+    slotted = not (_MYSQL_CELL_KINDS | _MYSQL_JOIN_KINDS).issuperset(doc.kinds)
     bodies = doc.all("row_body")
     # An S02 chain's `let` bodies each hold one row value column (MC G1).
     if len(bodies) > 3 + (
@@ -2181,8 +2278,9 @@ def _mysql_cells(
     lets = next(
         (index for index, kind in enumerate(kinds) if kind != "let"), len(kinds)
     )
+    scan = doc[chain[-1]]["scan"]
     if (
-        doc[chain[-1]]["scan"].kind != "row_scan"
+        scan.kind != ("row_join_use" if joined else "row_scan")
         or len(chain) != len(bodies)
         or any(doc[ref]["window"] is not None for ref in chain)
     ):
@@ -2203,6 +2301,8 @@ def _mysql_cells(
         or len(doc.all("aggregate_stage")) != (aggregate is not None)
         or slotted
         and aggregate is not None
+        or joined
+        and (aggregate is None or not _mysql_joins(doc, doc[scan]["body"]))
     ):
         return empty
     final = doc[chain[0]]
@@ -2343,7 +2443,8 @@ def _mysql_cells(
         in _MYSQL_SUM_BESIDE.get(doc[value]["function"], ())
         for value in stage["values"]
     )
-    if not (s02 or g2) or any(
+    # MC G6: over JOINs, G2's law alone.
+    if not (s02 and not joined or g2) or any(
         column.kind != "aggregate_projection_column" for column in final["columns"]
     ):
         return empty

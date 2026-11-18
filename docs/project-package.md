@@ -872,8 +872,8 @@ same checked `sum(Int)` spelling, so a sum of a `bigint` column outside signed
 MySQL keeps project `sum(Int)` BLOCKED with `PIE-B1004`,
 as its `CAST(DECIMAL AS SIGNED)` would clamp an out-of-range sum, and Int
 arithmetic not proved to fit signed 64 bits BLOCKED with `PIE-B1002`,
-outside the `0.1.12` (Phase77 S01/S02) cells, the S02 cell as `0.2.2` (MC G1
-and G2) widens it, and S03 forms that the [language page](language.md) states.
+outside the `0.1.12` (Phase77 S01/S02) cells, the S02 cell as `0.2.2` (MC G1,
+G2 and G6) widens it, and S03 forms that the [language page](language.md) states.
 PostgreSQL admits exact Decimal/Int addition and subtraction and addition
 or subtraction of Decimals with different scales. Let `s = max(s1, s2)`;
 the result has precision `max(p1 - s1, p2 - s2) + 1 + s`. A physical Int
@@ -1022,7 +1022,9 @@ the one shape below, `stddev` of a `Float`
 `let` that reads one (MC G2: also beside any `count_distinct` of a `BIGINT`,
 `INT` or `VARCHAR` field and any `max` or `avg` of a `BIGINT` or `INT` field,
 each one direct field read, and grouped by any `BIGINT`, `INT` or `VARCHAR`
-keys, nullable or not), and outside the S03 JOIN and two-level forms that the [language page](language.md) states,
+keys, nullable or not; MC G6: also over INNER, LEFT and RIGHT JOINs of
+sources whose `on` links an `Int` field of each side as the language page
+states), and outside the S03 JOIN and two-level forms that the [language page](language.md) states,
 and an `Int` row expression not proved
 to fit signed 64 bits (`PIE-B1002`) outside its `0.1.12` (Phase77 S01)
 cell there.
