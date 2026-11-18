@@ -113,6 +113,17 @@ table totals:
     )
     with pytest.raises(ValueError, match="contract"):
         replace(total, arguments=(forged_grouped_value,))
+    # A window's min reads a field or a grouped value, never another value.
+    int_min = replace(earliest, arguments=total.arguments, value_type=total.value_type)
+    id_plus_one = BinaryIR(
+        left=total.arguments[0],
+        operator="+",
+        right=literal,
+        span=total.span,
+        value_type=total.arguments[0].value_type,
+    )
+    with pytest.raises(ValueError, match="contract"):
+        replace(int_min, arguments=(id_plus_one,))
     with pytest.raises(ValueError, match="contract"):
         replace(
             counted,

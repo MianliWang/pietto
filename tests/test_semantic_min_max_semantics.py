@@ -266,12 +266,17 @@ _TEXT_EXTREMUM = (
 @pytest.mark.parametrize(
     ("binding", "projection", "grouped", "expected"),
     (
+        pytest.param("w = amount", "o = max(w)", False, [], id="field_value"),
+        pytest.param("w = amount * 2", "o = min(w)", False, [], id="numeric_value"),
+        pytest.param("w = 3", "o = max(w)", False, [], id="literal_value"),
+        pytest.param("w = order_date", "o = max(w)", False, [], id="date_value"),
+        pytest.param("w = created_at", "o = min(w)", False, [], id="timestamp_value"),
         pytest.param(
-            "w = amount",
+            "w = None",
             "o = max(w)",
             False,
             [("PIE-S2315", 18, 13, f"Aggregate function max {_DIRECT_FIELD_ONLY}")],
-            id="field_value",
+            id="none_value",
         ),
         pytest.param(
             "w = amount",
@@ -322,12 +327,14 @@ _TEXT_EXTREMUM = (
             [("PIE-S2330", 16, 13, "Let binding cannot reference itself: w")],
             id="cyclic_binding_error_alone",
         ),
+        pytest.param("w = score", "o = max(w)", True, [], id="grouped"),
+        pytest.param("w = order_date", "o = max(w)", True, [], id="grouped_date"),
         pytest.param(
-            "w = amount",
+            "w = None",
             "o = max(w)",
             True,
             [("PIE-S2315", 21, 13, f"Aggregate function max {_DIRECT_FIELD_ONLY}")],
-            id="grouped",
+            id="grouped_none",
         ),
     ),
 )
@@ -338,11 +345,15 @@ def test_single_file_min_max_argument_reading_a_let_name_reports_its_value_writt
     expected: list[tuple[str, int, int, str]],
 ) -> None:
     """A single file keeps the direct-field surface of `min` and `max`, so a
-    `let` name in their argument is no direct field (PIE-S2315); otherwise
-    the argument is checked as the binding's value written in its place:
-    `max(w)` with `w = status` is PIE-S2314 as `max(status)` is, and a binding
-    with an error of its own reports only that error. Before: PIE-S2102
-    `Unknown field: w` at the name."""
+    `let` name in their argument is no direct field (PIE-S2315), except a
+    whole argument that is a name of an `Int`, `Float`, `Decimal`, `Date` or
+    `Timestamp` value, which it accepts as a project does (PL.48 (3)), also
+    `max(w)` with `w = 3` though `max(3)` is PIE-S2315; otherwise the
+    argument is checked as the binding's value written in its place:
+    `max(w)` with `w = status` is PIE-S2314 as `max(status)` is, and a
+    binding with an error of its own reports only that error. Before:
+    PIE-S2102 `Unknown field: w` at the name, and then PIE-S2315 for each
+    numeric, `Date` or `Timestamp` `let` name too."""
 
     result = analyze(
         _parse(
@@ -407,13 +418,16 @@ def test_single_file_min_max_reads_a_let_name_by_the_shape_of_its_input_row() ->
     ]
 
 
-def test_single_file_grouped_window_input_refuses_min_max_of_a_let_name_as_in_place() -> (
+def test_single_file_grouped_window_input_reads_min_max_of_a_let_name_as_its_schema() -> (
     None
 ):
     """A grouped single-file window reads the `min` of a `let` name as the
-    output schema does, refused, so a relation reading it reports what it
-    reports over `min(amount + 1)` written in place. Before: PIE-S2102 for the
-    name and for `w0`; then PIE-S2103 in place of the `w0` PIE-S2102."""
+    output schema does: of a numeric or `Date` one accepted, as
+    `min(amount)` is (PL.48 (3)), and of a `None` one refused, so a relation
+    reading it reports what it reports over `min(amount + 1)` written in
+    place. Before: PIE-S2102 for the name and for `w0`; then PIE-S2103 in
+    place of the `w0` PIE-S2102; then the numeric and `Date` ones refused
+    too."""
 
     def diagnostics(let_clause: str, argument: str) -> list[tuple[str, int, int, str]]:
         result = analyze(
@@ -439,7 +453,13 @@ def test_single_file_grouped_window_input_refuses_min_max_of_a_let_name_as_in_pl
         ]
 
     refused = f"Aggregate function min {_DIRECT_FIELD_ONLY}"
-    assert diagnostics("    let k2 = amount + 1\n", "k2") == [
+    assert (
+        diagnostics("    let k2 = amount + 1\n", "k2")
+        == diagnostics("    let k2 = order_date\n", "k2")
+        == diagnostics("", "amount")
+        == []
+    )
+    assert diagnostics("    let k2 = None\n", "k2") == [
         ("PIE-S2315", 21, 14, refused),
         ("PIE-S2102", 27, 49, "Unknown field: w0"),
     ]

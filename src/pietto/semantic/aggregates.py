@@ -710,6 +710,29 @@ def extremum_reads_let(
     return False
 
 
+def extremum_refuses_let(
+    function_name: str,
+    expression: Expression,
+    let_expansions: Mapping[str, Expression] | None,
+    input_schema: RowSchema,
+    value_type: ValueType,
+) -> bool:
+    """Whether a single file refuses an argument that reads a `let:` name
+    (PIE-S2315, `extremum_reads_let`): each one but the whole argument of
+    `min` or `max` that is a name of an `Int`, `Float`, `Decimal`, `Date` or
+    `Timestamp` ``value_type``, which it accepts as a project does and inlines
+    (PL.48 (3)), though it refuses that value written in place
+    (`max(qty * 2)`)."""
+
+    return extremum_reads_let(
+        function_name, expression, let_expansions, input_schema
+    ) and not (
+        function_name in {MIN_AGGREGATE_NAME, MAX_AGGREGATE_NAME}
+        and type(expression) is NameExpr
+        and is_supported_extrema_argument(value_type)
+    )
+
+
 def _expand_let_references(
     expression: Expression,
     *,

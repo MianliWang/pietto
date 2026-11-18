@@ -14,6 +14,7 @@ import pietto.cli as cli
 from pietto.errors import Severity
 from pietto.ir import (
     AggregateCallIR,
+    BinaryIR,
     ExpressionIR,
     FieldId,
     FieldRefIR,
@@ -29,7 +30,7 @@ from pietto.ir import (
     build_ir,
 )
 from pietto.ir.model import StaticValue
-from pietto.parser_api import parse_file
+from pietto.parser_api import parse_file, parse_source
 from pietto.semantic import analyze
 from pietto.sql import SqlResult, emit_postgres_sql
 from pietto.sql.mysql import emit_mysql_sql
@@ -437,6 +438,92 @@ def test_invalid_min_max_emit_sql_json_output_fails_before_sql_without_writing(
 
 
 @pytest.mark.parametrize(
+    ("connector", "emitter", "quote"),
+    [
+        ("postgres.table", emit_postgres_sql, '"'),
+        ("mysql.table", emit_mysql_sql, "`"),
+    ],
+)
+@pytest.mark.parametrize("grouped", [False, True])
+def test_min_max_of_a_let_name_is_written_as_its_value(
+    connector: str,
+    emitter: Callable[[ScriptIR], SqlResult],
+    quote: str,
+    grouped: bool,
+) -> None:
+    """PL.48 (3): a single file accepts `min` and `max` of a whole `let` name
+    of an `Int`, `Float`, `Decimal`, `Date` or `Timestamp` value, as a
+    project does, and inlines the value, although `min(amount + amount)`
+    written in place stays PIE-S2315 (above). Before: PIE-S2315 at each
+    call."""
+
+    parsed = parse_source(
+        "shape Order:\n    status: Text\n    amount: Int\n    score: Float\n"
+        "    price: Decimal(9, 2)\n    placed: Date | None\n    seen: Timestamp\n"
+        f'source orders: Order = {connector}("orders")\n'
+        "table order_extremes:\n    from orders\n"
+        "    let doubled = amount * 2\n    let rate = score\n    let cost = price\n"
+        "    let day = placed\n    let stamp = seen\n"
+        + ("    group by:\n        status\n" if grouped else "")
+        + "    select:\n"
+        + ("        status\n" if grouped else "")
+        + "        high = max(doubled)\n        low = min(rate)\n"
+        "        top = max(cost)\n        first = min(day)\n"
+        "        last = max(stamp)\n"
+    )
+    assert parsed.ast is not None
+    semantic_result = analyze(parsed.ast)
+    assert semantic_result.diagnostics == ()
+    ir_result = build_ir(semantic_result.script or parsed.ast, semantic_result.model)
+    assert ir_result.ir is not None
+    (artifact,) = emitter(ir_result.ir).artifacts
+
+    def q(name: str) -> str:
+        return f"{quote}{name}{quote}"
+
+    assert artifact.sql == (
+        "SELECT\n"
+        + (f"    {q('status')} AS {q('status')},\n" if grouped else "")
+        + f"    MAX(({q('amount')} * 2)) AS {q('high')},\n"
+        f"    MIN({q('score')}) AS {q('low')},\n"
+        f"    MAX({q('price')}) AS {q('top')},\n"
+        f"    MIN({q('placed')}) AS {q('first')},\n"
+        f"    MAX({q('seen')}) AS {q('last')}\n"
+        f"FROM {q('orders')}" + (f"\nGROUP BY\n    {q('status')}" if grouped else "")
+    )
+
+
+def test_postgresql_min_max_of_an_integer_let_value_is_bigint() -> None:
+    """PostgreSQL types `MAX(5)` as integer, whose `*` and `+` fail beyond 32
+    bits, so the argument is cast, as a widened operand is. Before the cast:
+    `MAX(5) * 1000000000`, `integer out of range`."""
+
+    parsed = parse_source(
+        "shape Order:\n    amount: Int\n    flag: Bool\n"
+        'source orders: Order = postgres.table("orders")\n'
+        "table order_extremes:\n    from orders\n"
+        "    let five = 5\n    let pick = 5 if flag else 6\n    select:\n"
+        "        high = max(five) * 1000000000\n"
+        "        low = min(pick) + 2147483647\n        top = max(amount)\n"
+    )
+    assert parsed.ast is not None
+    semantic_result = analyze(parsed.ast)
+    assert semantic_result.diagnostics == ()
+    ir_result = build_ir(semantic_result.script or parsed.ast, semantic_result.model)
+    assert ir_result.ir is not None
+    (artifact,) = emit_postgres_sql(ir_result.ir).artifacts
+
+    assert artifact.sql == (
+        "SELECT\n"
+        '    MAX(CAST(5 AS bigint)) * 1000000000 AS "high",\n'
+        '    MIN(CAST(CASE WHEN "flag" THEN 5 ELSE 6 END AS bigint)) + 2147483647'
+        ' AS "low",\n'
+        '    MAX("amount") AS "top"\n'
+        'FROM "orders"'
+    )
+
+
+@pytest.mark.parametrize(
     ("input_path", "emitter"),
     [
         (POSTGRES_INPUT, emit_postgres_sql),
@@ -448,8 +535,9 @@ def test_invalid_min_max_emit_sql_json_output_fails_before_sql_without_writing(
     [
         "unsupported_function",
         "wrong_arity",
-        "non_field_argument",
+        "nested_aggregate_argument",
         "unresolved_field_argument",
+        "unresolved_field_in_expression_argument",
         "unsupported_type",
         "malformed_result_type",
         "malformed_result_nullability",
@@ -538,13 +626,30 @@ def _malformed_aggregate(case: str) -> AggregateCallIR:
         return _aggregate("kurtosis", INT_NULLABLE, _field("amount", INT_NON_NULL))
     if case == "wrong_arity":
         return _aggregate("min", INT_NULLABLE)
-    if case == "non_field_argument":
-        return _aggregate("min", INT_NULLABLE, _literal(1, INT_NON_NULL))
+    if case == "nested_aggregate_argument":
+        # Any other value is an argument now, a `let:` name's (PL.48 (3)).
+        return _aggregate(
+            "min",
+            INT_NULLABLE,
+            _aggregate("max", INT_NULLABLE, _field("amount", INT_NON_NULL)),
+        )
     if case == "unresolved_field_argument":
         return _aggregate(
             "min",
             INT_NULLABLE,
             _field("amount", INT_NON_NULL, resolved=False),
+        )
+    if case == "unresolved_field_in_expression_argument":
+        return _aggregate(
+            "min",
+            INT_NULLABLE,
+            BinaryIR(
+                span=SPAN,
+                value_type=INT_NON_NULL,
+                left=_field("amount", INT_NON_NULL, resolved=False),
+                operator="+",
+                right=_literal(1, INT_NON_NULL),
+            ),
         )
     if case == "unsupported_type":
         return _aggregate("max", TEXT_NULLABLE, _field("status", TEXT_NON_NULL))

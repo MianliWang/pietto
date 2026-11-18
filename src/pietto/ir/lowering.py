@@ -1416,7 +1416,12 @@ def _aggregate_argument_let_expansions(
     argument: Expression,
     let_expansions: Mapping[str, Expression],
 ) -> Mapping[str, Expression]:
-    if aggregate_reads_let_values(function_name, argument, let_expansions):
+    # A whole `let:` name of `min` or `max` is inlined too (PL.48 (3)).
+    if aggregate_reads_let_values(function_name, argument, let_expansions) or (
+        function_name in {"min", "max"}
+        and type(argument) is NameExpr
+        and argument.name in let_expansions
+    ):
         return let_expansions
     return {}
 

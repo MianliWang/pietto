@@ -215,7 +215,7 @@ def test_supported_let_emit_sql_output_writes_only_inline_sql(
             "    from orders\n"
             "    let gross = amount + tax\n"
             "    select:\n"
-            "        smallest = min(gross)\n",
+            "        smallest = min(gross + 1)\n",
             "PIE-S2315",
         ),
         (
@@ -376,7 +376,7 @@ def test_unsupported_let_explain_json_fails_without_metadata(
         "    from orders\n"
         "    let gross = amount + tax\n"
         "    select:\n"
-        "        smallest = min(gross)\n",
+        "        smallest = min(gross + 1)\n",
     )
 
     assert cli.main(["explain", str(path), "--format", "json"]) == 1

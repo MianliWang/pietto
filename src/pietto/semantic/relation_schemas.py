@@ -25,7 +25,7 @@ from pietto.semantic.aggregates import (
     aggregate_alias_required_diagnostic,
     contains_semantic_aggregate,
     deferred_argument_expression_diagnostic,
-    extremum_reads_let,
+    extremum_refuses_let,
     is_count_distinct_tuple,
     is_semantic_aggregate_call,
     is_supported_semantic_aggregate_arity,
@@ -594,8 +594,8 @@ def _aggregate_projection_diagnostics(
                 )
                 invalid_items.add(item)
                 continue
-            if extremum_reads_let(
-                function_name, argument, let_expansions, input_schema
+            if extremum_refuses_let(
+                function_name, argument, let_expansions, input_schema, argument_type
             ) or not is_supported_semantic_aggregate_argument_expression(
                 function_name,
                 argument,

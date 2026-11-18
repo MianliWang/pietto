@@ -123,14 +123,24 @@ inline expansion limit (PIE-S2328), a window count literal
 above 9223372036854775807, an ungrouped ORDER BY key that is a bare constant other
 than an integer literal, such as `-1` or `"a"`, and a `min` or `max` whose
 argument is a `let` name in a relation without GROUP BY (`m = max(w)` with
-`w = amount`) all pass it (the key `1` is PIE-P1000 in every check); and a
+`w = None`; one of an `Int`, `Float`, `Decimal`, `Date` or `Timestamp` `w`
+passes a single file too) all pass it (the key `1` is PIE-P1000 in every check); and a
 source connector gets the diagnostics of an
 explicit-module check, without the single-file table-name checks, so
 `postgres.table("app.src.x")` and `postgres.table(app.src)` pass it while
-`postgres.table(1)` and `postgres.table("a", "b")` are PIE-S2306. As in a
-single file, an ungrouped ORDER BY key reads input fields, `let` bindings and
-a SELECT output named alone, so with `x = n + 1` and a window result `w`
-selected the keys `w` and `x` pass, while `w + 1`, `-w` and `x + 1` are
+`postgres.table(1)` and `postgres.table("a", "b")` are PIE-S2306. A `min` or
+`max` of a `let` name of such a type in a relation without GROUP BY is typed
+as an aggregate, as in a single file: an expression over it in that relation
+reports its errors and warnings (`max(w) + "a"` is PIE-S2105, `max(w) / 2`
+warns PIE-S2106), a projection without an aggregate beside it is PIE-S2312
+(`z = amount` beside `m = max(w)`), and a relation that reads its output `m`
+reports its errors and warnings too (`m + "a"` is PIE-S2105, `m / 2` warns
+PIE-S2106), where each passed before; a window over `m`, such as
+`lag(m) window(order by m)`, passes instead of PIE-S2103, as in an
+EXPLICIT_MODULES check, which has no PIE-S2106.
+As in a single file, an ungrouped ORDER BY key reads input fields, `let`
+bindings and a SELECT output named alone, so with `x = n + 1` and a window
+result `w` selected the keys `w` and `x` pass, while `w + 1`, `-w` and `x + 1` are
 PIE-S2102, and so is a key `n` with `n = n + 1` selected, which names both an
 input field and a SELECT output of another value. Legacy-flat retains its narrower
 row-typing boundary for JOIN binding fields, computed `let` group keys and

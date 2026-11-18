@@ -427,7 +427,8 @@ def _may_be_int4(expression: ExpressionIR) -> bool:
     """Whether PostgreSQL may type ``expression``, an Int, as integer: a
     literal that fits 32 bits, or a sign, quotient, `abs`, `coalesce`,
     `nullif` or conditional of such values. Any other Int is bigint, as
-    `+ - * %` is once its left operand is cast."""
+    `+ - * %` is once its left operand is cast and `min` or `max` once its
+    argument is."""
 
     if _builtin_type_name(expression) != "Int":
         return False
@@ -1317,11 +1318,12 @@ def _render_extrema_aggregate(
             f"PostgreSQL aggregate {expression.function} expects 1 argument(s)"
         )
     argument = expression.arguments[0]
-    if not (
+    # An ordinary call also reads the value of a whole `let:` name written in
+    # (PL.48 (3)), which its IR contract checks; a window reads a field.
+    if allow_grouped_aggregate and not (
         isinstance(argument, FieldRefIR)
         and argument.field is not None
-        or allow_grouped_aggregate
-        and isinstance(argument, AggregateCallIR)
+        or isinstance(argument, AggregateCallIR)
     ):
         raise ValueError(
             f"PostgreSQL aggregate {expression.function} expects a direct field "
@@ -1342,6 +1344,10 @@ def _render_extrema_aggregate(
             f"PostgreSQL aggregate {expression.function} result type does not "
             "match approved logical shape"
         )
+    if _may_be_int4(argument):
+        # MIN and MAX of an integer are integer; Pietto's Int is bigint.
+        argument_sql = _render_expression_sql(argument, nested=False)
+        return f"{function_name}(CAST({argument_sql} AS bigint))"
     return f"{function_name}({_render_expression_sql(argument, nested=True)})"
 
 

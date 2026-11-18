@@ -304,14 +304,14 @@ def test_emit_sql_output_writes_only_expanded_sql(
             "    from orders\n"
             "    let gross = amount + tax\n"
             "    select:\n"
-            "        smallest = min(gross)\n",
+            "        smallest = min(gross + 1)\n",
             "PIE-S2315",
         ),
         (
             "    from orders\n"
             "    let gross = amount + tax\n"
             "    select:\n"
-            "        largest = max(gross)\n",
+            "        largest = max(gross + 1)\n",
             "PIE-S2315",
         ),
         (
@@ -410,7 +410,7 @@ def test_failed_emit_sql_json_output_does_not_write_file(
         "    from orders\n"
         "    let gross = amount + tax\n"
         "    select:\n"
-        "        smallest = min(gross)\n",
+        "        smallest = min(gross + 1)\n",
     )
     missing_output = tmp_path / "missing.sql"
 

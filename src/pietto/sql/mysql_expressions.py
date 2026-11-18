@@ -974,11 +974,12 @@ def _render_extrema_aggregate(
             f"MySQL aggregate {expression.function} expects 1 argument(s)"
         )
     argument = expression.arguments[0]
-    if not (
+    # An ordinary call also reads the value of a whole `let:` name written in
+    # (PL.48 (3)), which its IR contract checks; a window reads a field.
+    if allow_grouped_aggregate and not (
         isinstance(argument, FieldRefIR)
         and argument.field is not None
-        or allow_grouped_aggregate
-        and isinstance(argument, AggregateCallIR)
+        or isinstance(argument, AggregateCallIR)
     ):
         raise MySqlRenderError(
             f"MySQL aggregate {expression.function} expects a direct field argument"

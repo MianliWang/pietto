@@ -175,7 +175,7 @@ binds its exact inputs, write set, commands, acceptance and cost.
 | P07 | A bounded deterministic generator and independent oracles (standard library) over the opened single-file and project forms | P01; P02's decisions that bound the generated range |
 | P08 | The shrinker, the two-database differential, the in-process DuckDB and SQLite oracles, metamorphic relations, the compile-time benchmark and the ten-node profile | P07; the applicable qualification profiles; the Docker Engine |
 | P09 | H3 (1): a `let` inside an aggregate's argument, read by value in both modes, inlined in single files, verified on both databases | P01; the Docker Engine |
-| P10 | H3 (3): `min` and `max` of a numeric `let` in single files, verified on both databases | As P09; after P09 if they write the same files |
+| P10 | H3 (3): `min` and `max` of a numeric `let` in single files, and of a `Date` or `Timestamp` one (D81.03), verified on both databases | As P09; after P09 if they write the same files |
 | P11 | H3 (4): a renaming `let` under GROUP BY in both modes, verified on both databases | As P09 |
 | P12 | PL.44 (a): LSP survives internal errors and drops stale diagnostics; no error that must abort is swallowed | P01 |
 | P13 | PL.44 (b): the overlap diagnostic for a root nested through a symbolic link | P01; after P12 if they write the same files |
@@ -1072,6 +1072,111 @@ project and diagnostics pages and a release-note fragment.
   the forged `sum(t)` of row 20 does; its refusal is row 20's
   ([Row 20's write set](#row-20s-write-set)), and P09's positive bundle test
   checks that the refusal keeps this form.
+
+## P10 record
+
+P10 lands H3 (3) of PL.48 in one commit on P09's candidate, after P09, as
+both write the `min` and `max` let checks. Its write set is
+`semantic/aggregates.py`, `semantic/expressions.py`,
+`semantic/relation_schemas.py`, `semantic/group_by.py`,
+`semantic/window_analysis.py`, `semantic/analyzer.py` (a docstring),
+`ir/lowering.py`, `ir/model.py`, `sql/expressions.py` and
+`sql/mysql_expressions.py`, sixteen test owners, the language, project and
+diagnostics pages, the aggregate scope lock and a release-note fragment.
+
+- **Law.** A single file accepts a `let` name of an `Int`, `Float`,
+  `Decimal`, `Date` or `Timestamp` value as the whole argument of `min` or
+  `max`, with or without GROUP BY and over JOIN rows, as an
+  EXPLICIT_MODULES project already did (`extremum_refuses_let`), and
+  inlines the value: `max(w)` after `let w = qty * 2` is `MAX(("qty" * 2))`,
+  the SQL of `max(qty * 2)`, which stays PIE-S2315, as PL.48 (3) chose;
+  `max(w)` after `let w = 3` is accepted too, although `max(3)` is not. A
+  computed value, a literal, a conditional, a chain of `let`s and a `def`
+  are each accepted, as a project takes each as a row column. The `Date`
+  and `Timestamp` values are the owner's (D81.03). The rest is unchanged: a
+  `let` name inside a larger argument (P09), the Float statistics, a
+  window's `min` or `max` (PIE-S2104 in both modes), a `let` bound to
+  `None` or to a field of unknown type (PIE-S2315) and one of a `Text` or
+  `Bool` value (PIE-S2314, H3 (2)).
+- **Routes.** The IR contract and both single-file emitters take any value
+  without a nested aggregate whose fields are resolved as the argument of an
+  ordinary `min` or `max`, which only an inlined `let` gives them; a
+  window's argument stays a field or a grouped value. PostgreSQL types
+  `MAX(5)` as `integer`, so `max(w) * 1000000000` after `let w = 5` would
+  overflow: its single-file SQL casts an argument it may type as `integer`
+  (a literal, or a sign, quotient, conditional, `abs`, `coalesce` or
+  `nullif` of such values) to `bigint`, `MAX(CAST(5 AS bigint))`, as it
+  widens such an operand of `+`, `-`, `*` and `%`; MySQL computes integers
+  in `BIGINT`. A `Date` or `Timestamp` value is written as it is
+  (`MIN((CASE WHEN "flag" THEN "day" ELSE NULL END))`). A single file's
+  `explain` reports the aggregate of the inlined value. A SQLite single
+  file emits a `let` that renames a field as that field and refuses a
+  computed or literal one at `emit-sql` (PIE-B1000), as it refuses every
+  aggregate argument that is no field, where `check` reported PIE-S2315
+  before; it reads no `Date` or `Timestamp` value, as before. A
+  `schema_version = 1` check no longer drops such a call in a relation
+  without GROUP BY, so it types it as an aggregate, as a single file does:
+  an expression over it there reports its errors and warnings
+  (`max(w) + "a"` is PIE-S2105, `max(w) / 2` warns PIE-S2106), a projection
+  without an aggregate beside it is PIE-S2312 (`z = amount` beside
+  `m = max(w)`), and a relation that reads the output reports its errors
+  and warnings (`m + "a"` is PIE-S2105, `m / 2` warns PIE-S2106), where
+  each passed before; a window over the output
+  (`lag(m) window(order by m)`) passes, where it was PIE-S2103, as in an
+  EXPLICIT_MODULES check, which reports no PIE-S2106. A grouped relation is
+  still dropped whole. On 2026-11-18 the lead ruled that the window's
+  passing is not stop point 4: PIE-S2103 held only because `m` had no
+  type, and `m` now has the type an EXPLICIT_MODULES check gives it.
+  EXPLICIT_MODULES projects, compiled bundles and execution are unchanged,
+  so row 20 is not touched.
+- **Diagnostics.** No code or detail is added or removed. A single file's
+  PIE-S2315 for such a call becomes acceptance; the PIE-S2315 of a `min` or
+  `max` of a `let` name that a `schema_version = 1` check drops remains only
+  for a `let` bound to `None` or to a field of unknown type.
+- **Two databases.** PostgreSQL 18.6 and MySQL 8.4.12, each one owned
+  container of the repository's native resource owner under the slot locks,
+  ran fourteen forms over the published aggregate relation with two added
+  rows of negative values, as single files and as projects, and three forms
+  over the labelled JOIN relations: every single file and every emitted
+  project returned the rows of a Python oracle over the relation's rows, and
+  where the field written in place is accepted (`max(value)`) that form
+  returned them too. MySQL projects refuse `Int` arithmetic over the
+  published `BIGINT` domain (PIE-B1002) and `%` (PIE-B1003
+  `binary_operator_not_admitted`); over a contract of `INT` columns every
+  form but `%` emits and matches. The `bigint` cast came after this run. A
+  second run on the same engines took `max` or `min` of a `let` of a
+  literal, a sign, a quotient, a conditional, `abs`, `coalesce`, `nullif`
+  and a field, times 1000000000 or plus 2147483647, with and without GROUP
+  BY: before the cast PostgreSQL single files failed with `integer out of
+  range` and typed a bare `MAX(5)` as `integer`; after it they returned the
+  oracle's rows as `bigint`. MySQL single files returned them as `BIGINT`
+  before and after, the cast being PostgreSQL's alone. EXPLICIT_MODULES
+  projects already write each such literal as `int8` or `SIGNED` and
+  returned them too, except that MySQL projects refuse the aggregate inside
+  `*` or `+` (PIE-B1003 `aggregate_composition_not_admitted_on_target`).
+  The resource owner names its containers `pietto-p66-<uuid4>`, without
+  the slot suffix that the engine slot rules ask for; each run removed
+  them, and no container was left. A third run, for D81.03, held one slot of
+  each engine and ran its own two containers, named with that suffix
+  (`-postgres-slot2`, `-mysql-slot2`), from the pinned images without a
+  network, on Docker Desktop's engine 29.9.3. Over four rows of a `date`
+  column with a NULL and a `timestamp(6)` (MySQL `DATETIME(6)`) column with
+  fractional seconds,
+  `min` and `max` of a `let` that renames each, of a conditional `Date`
+  `let` and of a `coalesce` of the `Timestamp`, with and without GROUP BY,
+  returned the oracle's rows as `date` and `timestamp` on PostgreSQL and as
+  `DATE` and `DATETIME(6)` on MySQL, as single files and as projects, and
+  so did the fields written in place. MySQL projects refuse the
+  conditional (PIE-B1003 `conditional_realization_not_admitted`), as
+  before; `check` on the commit before D81.03 reported PIE-S2315 for each
+  single-file call. The first two attempts of that run stopped on faults of
+  the probe before any form ran; their records are kept.
+- **Owner answers (D81.03).** On 2026-11-18 the owner chose that single
+  files also accept `min` and `max` of a `let` of a `Date` or `Timestamp`
+  value, as projects do: `extremum_refuses_let` takes the types that `min`
+  and `max` take of a field (`is_supported_extrema_argument`) in place of
+  the numeric ones. Before, a single file refused such a call with
+  PIE-S2315 while both project modes accepted it.
 
 ## P12 record
 

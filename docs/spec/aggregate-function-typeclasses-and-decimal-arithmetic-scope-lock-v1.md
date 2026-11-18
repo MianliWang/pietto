@@ -153,11 +153,14 @@ Current behavior, recorded after this scope lock: projection aliases are still
 output names only, so naming one in a later SELECT item or in an aggregate
 argument reports `PIE-S2102`. In single-file mode an aggregate argument that
 names a row `let:` binding is checked as the bound expression for `count`,
-`count_distinct`, `sum` and `avg`, while `min` and `max` accept no `let:` name:
-over an input row of known shape the argument of one that is a whole aliased
-SELECT item and reads a `let:` name is `PIE-S2315`, also where it is accepted
-with each name's value written in place (`max(w)` with `w = n`), unless it is
-`PIE-S2314` or reports only the errors of its bindings, and over a row of
+`count_distinct`, `sum` and `avg`, while `min` and `max` accept a `let:` name
+of an `Int`, `Float`, `Decimal`, `Date` or `Timestamp` value as their whole
+argument and inline it (PL.48 (3)) and no other: over an input row of known
+shape any other argument of one that is a whole aliased SELECT item and reads
+a `let:` name is `PIE-S2315`, also where it is accepted with each name's value
+written in place (`max(w)` with `w = z` for a field `z` of unknown type),
+unless it is `PIE-S2314` or
+reports only the errors of its bindings, and over a row of
 unknown shape it reads the name as a column of that row (see the
 [language reference](../language.md#aggregates-and-grouping)). Declared
 type aliases are no longer limited to direct input fields: in single-file mode

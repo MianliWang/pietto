@@ -3299,8 +3299,10 @@ bigint) * 1024) * 1024) * 4`, a signed 64-bit `Int` as everywhere else.
 PostgreSQL reads `-2147483648` as the smallest `integer`, so single-file
 PostgreSQL SQL writes that literal as `CAST(-2147483648 AS bigint)`.
 PostgreSQL still computes in `integer` over an output that is such a value
-where another relation reads it (`x = 2147483647` read as `x + 1`), over
-`min` or `max` of such a value, and over `ntile`.
+where another relation reads it (`x = 2147483647` read as `x + 1` or
+`max(x)`) and over `ntile`; the argument of `min` or `max` that may be
+`integer`, the value of a `let` name, is cast (`MAX(CAST(5 AS bigint))`
+after `let w = 5`).
 SQL types an always-null number as Pietto does. Single-file SQL writes a
 `None` operand of `+`, `-`, `*`, `/` or `%` as a NULL of the type it takes,
 `CAST(NULL AS bigint)`, `numeric` or `double precision` on PostgreSQL and
@@ -4804,15 +4806,22 @@ retain their bounded direct-field surface; in EXPLICIT_MODULES projects they
 also accept one row `let` name, and the result keeps that value's proven range
 while admitting NULL. With JOIN inputs the argument reads the exact JOIN-side
 fields of that value; `min` and `max` need no fan-out proof, over a field or a
-value that reads no joined field, such as `level = 3` or a header parameter. In a single
-file `min` and `max` accept no `let` name. Over an input row of known shape,
-the argument of a `min` or `max` that is a whole aliased SELECT item and reads
-a `let` name is never accepted, even where the argument with each name's
-value written in place is: `max(w)` is PIE-S2315 with `w = 3`, as `max(3)`
-is, and also with `w = n` for a field `n`, `w = f(n)` for a `def` that returns
-its argument, or `w = z` for a field `z` of unknown type (such as `z = None`
-in the relation it reads), although `max(n)`, `max(f(n))` and `max(z)` are
-accepted. Beside PIE-S2315 the argument reports the errors of its bindings and
+value that reads no joined field, such as `level = 3` or a header parameter. A single
+file accepts a `let` name of an `Int`, `Float`, `Decimal`, `Date` or
+`Timestamp` value as the whole argument of `min` or `max` too, as a project
+does, and inlines the value (PL.48 (3)): `max(w)` after `let w = qty * 2` is
+PostgreSQL's `MAX(("qty" * 2))`, although `max(qty * 2)` written in place
+stays PIE-S2315, `max(w)` with `w = 3` is accepted (PostgreSQL's
+`MAX(CAST(3 AS bigint))`), although `max(3)` is PIE-S2315, and `min(w)` after
+`let w = day if open else None` for a `Date` field `day` is
+`MIN((CASE WHEN "open" THEN "day" ELSE NULL END))`. A window's
+`min` or `max` reads no `let` name in either mode (PIE-S2104). Over an input
+row of known shape, any other argument of a single file's `min` or `max` that
+is a whole aliased SELECT item and reads a `let` name is never accepted, even
+where the argument with each name's value written in place is: `max(w)` is
+PIE-S2315 with `w = z` for a field `z` of unknown type (such as `z = None` in
+the relation it reads), although `max(z)` is accepted.
+Beside PIE-S2315 the argument reports the errors of its bindings and
 the other errors of the argument written in place, such as PIE-S2395 for a
 `def` argument that does not fit (`max(f(w))` with `w = status` reports both,
 although `max(f(status))` is PIE-S2395 alone). With each name's value written

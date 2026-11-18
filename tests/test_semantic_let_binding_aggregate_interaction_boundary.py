@@ -39,7 +39,7 @@ SOURCE_PREFIX = (
             "    from orders\n"
             "    let gross = amount + tax\n"
             "    select:\n"
-            "        smallest = min(gross)\n",
+            "        smallest = min(gross + 1)\n",
             "PIE-S2315",
         ),
         (
@@ -124,7 +124,7 @@ def test_unsupported_min_max_aggregate_let_never_reaches_successful_ir() -> None
         "    from orders\n"
         "    let gross = amount + tax\n"
         "    select:\n"
-        "        smallest = min(gross)\n"
+        "        smallest = min(gross + 1)\n"
     )
 
     assert "PIE-S2315" in _error_codes(semantic)
@@ -177,7 +177,7 @@ def test_unsupported_aggregate_let_emit_sql_json_and_output_fail_closed(
         "    from orders\n"
         "    let gross = amount + tax\n"
         "    select:\n"
-        "        smallest = min(gross)\n",
+        "        smallest = min(gross + 1)\n",
     )
     missing_output = tmp_path / "missing.sql"
 
@@ -288,7 +288,7 @@ def test_unsupported_aggregate_let_explain_json_fails_without_metadata(
         "    from orders\n"
         "    let gross = amount + tax\n"
         "    select:\n"
-        "        smallest = min(gross)\n",
+        "        smallest = min(gross + 1)\n",
     )
 
     assert cli.main(["explain", str(path), "--format", "json"]) == 1
