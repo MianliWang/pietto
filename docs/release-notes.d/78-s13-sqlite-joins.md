@@ -51,3 +51,14 @@ outputs change:
   source read without group by; qualify, distinct, set operations, relation
   lets and reads of another table or query are not available on SQLite` and
   `read one sqlite.table source, or join sqlite.table sources`.
+
+Known limitations:
+
+- These forms are qualified on the measured SQLite library of the first
+  tier, release `3.53.1` with its source id and compile options, under
+  CPython 3.13.13 and 3.12.13 on Linux x86-64, by native cells and a
+  PostgreSQL replay of their bytes; no other build or platform is
+  qualified.
+- An INNER or LEFT JOIN on a `Bool` key has native cells only, since
+  PostgreSQL project emission refuses every `Bool` comparison.
+- A `Float` key and a window over joined rows are not available on SQLite.

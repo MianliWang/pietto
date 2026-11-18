@@ -1246,7 +1246,37 @@ ledger, and each lane reports its commands (D, D76.17) and pytest starts
 
 ### B2 second tier record
 
-C writes this record; the midpoint's goes here too (80-5).
+The tier is implemented and qualified in two local batches and waits,
+unpublished, for the `0.2.2` release commit (PL.64 (3)). The first batch
+is SP, S14, S15 and R2's binding commit; the second is S13a, S13b, R3's
+binding commit and C. Both rest on the fix that marks SQLite result
+columns of unknown nullability nullable, a first-tier defect that S13a's
+lane found, which reaches `main` with the defect batch.
+
+- **S14** opens range-proved `Int` arithmetic in `select` and `where` and
+  as the argument of `avg` and `sum`; `check` keeps the rest of T4 b
+  refused on every target (D78.15 (1)).
+- **S15** opens the windows of D78.14 (3) T5 a, with (4)'s `sum` frames,
+  over one source read.
+- **S13a** opens INNER and LEFT JOINs of sources, with grouping and
+  aggregates on joined rows, and **S13b** their execution on the
+  `sqlite_file` route with the bounded read and the uniqueness check of
+  D78.14 (5) and (6).
+- Five forms open on native cells alone, with no PostgreSQL reference, by
+  the owner's rulings: the three of D78.15 (2) (D78.16) and the JOINs on a
+  `Bool` key (D78.17).
+- Integration wrote two rules that no slice had, each with an emission
+  test: a window over a JOIN is refused (rule 5 and the AST rule), and
+  S14's proof reads each input's `int_range` over joined rows.
+
+**Midpoint.** No separate midpoint record was written before S13a's
+shared hunks. Under the owner's instruction of 2026-11-17 to start ready
+work at once, S13 was written beside the first batch, from a head that
+carries J1, and was implemented when the first batch integrated; the owner
+was not asked to move the freeze or narrow the scope. Of the midpoint's
+items, the probe's second run and the CI health of `900e8915` are in the
+[starting point](#b2-second-tier-starting-point), R2's result is below,
+and P78T2's running figures are the lead's.
 
 **R2 record.** The campaign ran once on 2026-11-18 and ended `PASS` (exit 0)
 with its first attempt. Its preregistration delta derives from R1's delta
@@ -1300,3 +1330,54 @@ joined rows, which emission refuses. The run bound the second batch's head
 before its rebase; the result is
 `tests/fixtures/sqlite/postgres_replay_r3.json`, bound to each later tree
 by `test_each_r3_postgres_replay_binds_the_bytes_it_ran`.
+
+**Acquisition review.** Base `df8817d3`, the second batch's base, against
+the tier's head, under the
+[phase-end acquisition consolidation](../../development.md#phase-end-acquisition-consolidation);
+the first tier's review stands
+([Phase78 audit](completion-audit.md#b2-acquisition-review)). The tier
+adds no test owner and no helper module. It changes
+`tests/test_sql_sqlite_native.py` (15 test functions to 21, 1,146 lines
+added and 52 removed), `tests/test_sql_sqlite_project_emission.py` (15 to
+34; 903 and 4), `tests/test_execution_api_sqlite_file.py` (31 to 40; 539
+and 2, 21 of the lines the nullability fix's) and the adapter firewall of
+`tests/test_repo_static_checks.py` (11 to 12; 26 added), and adds the
+fixtures `postgres_replay_r2.json` and `postgres_replay_r3.json`. The shared
+helper `tests/_pietto_sql_sqlite.py` gains a second source and its contract
+and changes no earlier name, so its other consumers, `tests/conftest.py`,
+`tests/test_sql_compile_api.py` and `tests/test_harness_execution_api.py`,
+acquire nothing new.
+
+Timings are those of the SQLite owners' run on R3's binding commit
+(2026-11-18, 06:16:31Z, `-n 8`, the `arrow` extra,
+`--pietto-sqlite-class=qualified`: 667 passed, none skipped, 25.11 s),
+summed per file: the native module 390 nodes in 33.34 s, the route's file
+103 in 51.15 s, project emission 134 in 24.84 s and single-file emission 40
+in 3.84 s. The slowest nodes were R1's replay test (10.22 s), the two cells
+at the bound of 64 inputs, with 63 and 64 JOINs (9.48 s and 8.71 s), and
+the coverage law (5.88 s); R2's and R3's replay tests took 1.58 s and 1.97 s.
+
+Classified:
+
+- **Shared, kept.** S14's and S15's project cells, their coverage law and
+  R2's peer check read the native module's `project_emit` memo, as the
+  first tier's cells do.
+- **Distinct inputs, fresh.** Each JOIN cell writes and emits its own
+  project of two sources and runs on its own `:memory:` tables; each new
+  emission form writes its own project. The two cells at the input bound
+  compile the largest statement the rule admits and the smallest it
+  refuses, which is what they test.
+- **Repeated acquisition, kept.** `test_every_join_form_has_a_native_cell`
+  emits the 15 base JOIN cells again to read their SQL AST (0.83 s), which
+  the cells emitted already; low value. Owner: the next slice that edits
+  the module, if it measures more.
+- **Fresh by design.** R2's and R3's replay tests emit each cell through
+  the PostgreSQL pipeline, another backend, as R1's does; each route cell
+  builds its own file and opens its own connection per attempt.
+- **Repeated across CI shards: debt.** Lesson 78-7's debt stands, now over
+  the larger native module; its owner is unchanged.
+
+Structural improvement: none; wall-time improvement: none claimed; no-gain:
+the coverage law's second emission. The ten-slowest profile reads the
+final natural CI health of the tier's batch head after publication; it is
+NOT_OBSERVED here (PL.07), and the lead owns it.
