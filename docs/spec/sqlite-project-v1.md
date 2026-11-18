@@ -38,7 +38,8 @@ two batches are pushed after
 the `0.2.2` release commit (PL.64 (3)), and the route's
 [second tier](../phases/phase-78/route.md#b2-second-tier) holds its slices.
 
-Construction state: FIRST TIER QUALIFIED. S06 wrote this page before any B2 code.
+Construction state: FIRST TIER QUALIFIED, SECOND TIER QUALIFIED (JOINs,
+arithmetic and windows). S06 wrote this page before any B2 code.
 S07 added the shared connector entry and the three family mappings, so a
 project's `check` accepts a `sqlite.table` source and PostgreSQL, MySQL and
 DuckDB emission refuse it as [compile refusals](#compile-refusals) states.
@@ -56,6 +57,7 @@ S13a INNER and LEFT JOINs of `sqlite.table` sources ([admission](#admission)),
 each with its native cells; S13a started from a head that carries the JOIN
 facts decision PL.61 and its fence, and S13b opened their
 [execution](#execution) on the `sqlite_file` route with its native cells.
+R2 and R3 replayed the second tier's PostgreSQL bytes, and both passed.
 Each slice edits the rows it lands.
 No published release carries a form until the owner approves
 one: `0.2.1` and earlier refuse a project `sqlite.table` with `PIE-S2306`
@@ -779,7 +781,14 @@ comparison, likewise has native cells only and no R3 entry (D78.17).
 A `row_number` entry compares only
 results that do not depend on the order of peers. R2 ran once and ended
 `PASS` with 13 entries and no divergence
-(`tests/fixtures/sqlite/postgres_replay_r2.json`).
+(`tests/fixtures/sqlite/postgres_replay_r2.json`). R3 ran once and ended
+`PASS` with 13 entries and no divergence
+(`tests/fixtures/sqlite/postgres_replay_r3.json`). Beside the JOINs on a
+`Bool` key, R3 does not verify `COLLATE NOCASE` key columns, which run
+natively with their base cell's oracle; the route over a JOIN, which
+writes no SQL byte of its own and has native cells only; a JOIN with query
+arguments, which no cell binds; or arithmetic past the bounds over joined
+rows, which emission refuses.
 
 ## Usability
 

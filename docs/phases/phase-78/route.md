@@ -1274,3 +1274,29 @@ The run bound the first batch's head before its rebase; the result is
 `tests/fixtures/sqlite/postgres_replay_r2.json`, bound to each later tree
 by `test_each_r2_postgres_replay_binds_the_bytes_it_ran` and
 `test_each_r2_row_number_entry_has_no_peers`.
+
+**R3 record.** The campaign ran once on 2026-11-18 and ended `PASS` (exit 0)
+with its first attempt. Its preregistration delta derives from R2's; the
+draft was reviewed, and the prepared package (generator, manifest, judge
+with 38 forged shapes, driver and offline probe) had an independent review,
+whose findings one revision repaired, and a second review before it froze
+at 05:05:33Z (D78.10). Attempt: 05:10:11Z to 05:10:33Z, outer wall time
+21.76 s, charged 22 s of the two hours (D78.11); the pinned PostgreSQL 18.6
+image on Docker Desktop 4.99.0 (Engine 29.9.3), one owned container with
+`--pull=never --network none`, PostgreSQL slot 2 of 3 held through
+`engine-slot`, removed by its label with no container left. 13 entries
+passed with no divergence: 9 of S13a's JOIN cells and 4 of S14's
+arithmetic over joined rows, each over the two tables `t` and `u`, none
+with an argument. Not entries: R2's 13, R1's 124 and B1's 105, reused
+because their bytes, fixtures, oracles and carriers are unchanged; 5
+`-nocase` variants (a SQLite-only premise); 2 cells that the PostgreSQL
+project pipeline refuses, `PIE-B1003` `comparison_type_pair_not_admitted`
+at a `Bool` key, which hold only the forms of D78.17. R3 does not verify:
+(1) those forms, which have native cells only (D78.17); (2) `COLLATE
+NOCASE` key columns, which run natively with their base cell's oracle; (3)
+the route over a JOIN, which writes no SQL byte of its own; (4) a JOIN with
+query arguments, which no cell binds; (5) arithmetic past the bounds over
+joined rows, which emission refuses. The run bound the second batch's head
+before its rebase; the result is
+`tests/fixtures/sqlite/postgres_replay_r3.json`, bound to each later tree
+by `test_each_r3_postgres_replay_binds_the_bytes_it_ran`.
