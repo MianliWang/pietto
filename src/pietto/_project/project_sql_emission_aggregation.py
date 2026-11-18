@@ -1319,7 +1319,14 @@ def mysql_compiled_spread_cell(records, entry):
 
 
 def filtered_problem(
-    function: str, argument, test, family: str, *, paired=False, mysql_s03=False
+    function: str,
+    argument,
+    test,
+    family: str,
+    *,
+    paired=False,
+    mysql_s03=False,
+    mysql_sum=False,
 ):
     """The argument law of a conditional count, ``filtered_count`` over its
     test alone, of a test of the group, ``group_any`` or ``group_all`` over
@@ -1328,8 +1335,9 @@ def filtered_problem(
     A test that reads no field (`if True`) is the same for every row.
     PostgreSQL only, but for MySQL in a statement its reader pairs with an S10
     form (``paired``, `project_sql_emission_paired`), which holds no
-    conditional sum, and for a conditional sum in an S03 cell (``mysql_s03``),
-    the guarded SUM: elsewhere MySQL's SUM of an integer is DECIMAL, as for
+    conditional sum, and for a conditional sum in an S03 cell (``mysql_s03``)
+    or an S02 one (MC G7, ``mysql_sum``, rows.mysql_filtered_sum_cell), the
+    guarded SUM: elsewhere MySQL's SUM of an integer is DECIMAL, as for
     `sum(Int)`."""
     for value in (argument, test):
         if type(value) is not rows.SQLStageReference and not (
@@ -1349,7 +1357,7 @@ def filtered_problem(
         if type(argument) is not rows.SQLStageReference:
             return "PIE-B1003", "aggregate_argument_not_a_direct_established_field"
         problem = resolved_argument_problem(
-            "sum", True, argument.realization, family, mysql_s03=mysql_s03
+            "sum", True, argument.realization, family, mysql_sum, mysql_s03=mysql_s03
         )
         if problem is not None:
             return problem
@@ -1357,7 +1365,7 @@ def filtered_problem(
         return "PIE-B1003", _target_detail(function)
     if (
         family != "postgres"
-        and not (paired or mysql_s03 and function == "filtered_sum")
+        and not (paired or (mysql_s03 or mysql_sum) and function == "filtered_sum")
         or rows.realization_of(test, family).tag != "Bool"
     ):
         return "PIE-B1003", _domain_detail(function)
@@ -1381,7 +1389,13 @@ def _domain_detail(function: str) -> str:
 
 
 def resolved_filtered_problem(
-    function: str, inputs, family: str, *, paired=False, mysql_s03=False
+    function: str,
+    inputs,
+    family: str,
+    *,
+    paired=False,
+    mysql_s03=False,
+    mysql_sum=False,
 ):
     """`filtered_problem` over already-resolved inputs, each an (address
     kind, realization) pair, as a compiled input holds them."""
@@ -1394,7 +1408,7 @@ def resolved_filtered_problem(
         if kind != "read":
             return "PIE-B1003", "aggregate_argument_not_a_direct_established_field"
         problem = resolved_argument_problem(
-            "sum", True, realization, family, mysql_s03=mysql_s03
+            "sum", True, realization, family, mysql_sum, mysql_s03=mysql_s03
         )
         if problem is not None:
             return problem
@@ -1403,7 +1417,7 @@ def resolved_filtered_problem(
     test = inputs[-1][1]
     if (
         family != "postgres"
-        and not (paired or mysql_s03 and function == "filtered_sum")
+        and not (paired or (mysql_s03 or mysql_sum) and function == "filtered_sum")
         or test is None
         or test.tag != "Bool"
     ):
@@ -2140,6 +2154,9 @@ def build_stage(
                     request.family,
                     paired=pairing.project_form(request) is not None,
                     mysql_s03=mysql_s03,
+                    mysql_sum=mysql_sums
+                    and function == "filtered_sum"
+                    and rows.mysql_filtered_sum_cell(value, argument, test),
                 )
             else:
                 problem = argument_problem(
@@ -2670,8 +2687,9 @@ def build_compiled_stage(plan, record, arguments):
     stage = CompiledAggregateSubject(plan.references[record.address])
     # Whether it reads a stage, not the source scan (result_realization).
     staged = record.get("input").kind != "source"
-    # S02: the stage's MySQL sum cells, derived once and only beside a sum
-    # (which compiled semantics admits in a cell's one aggregate alone).
+    # S02: the stage's MySQL sum and (MC G7) conditional sum cells, derived
+    # once and only beside one (which compiled semantics admits in a cell's
+    # one aggregate alone).
     mysql_sums = (
         rows.mysql_compiled_cells(
             records, records[plan.ir.completed.root.description.query]
@@ -2679,7 +2697,8 @@ def build_compiled_stage(plan, record, arguments):
         if records[Address("target", 0)].get("family") == "mysql"
         and any(
             records[address].get("source").kind == "aggregate_value"
-            and records[records[address].get("source")].get("function") == "sum"
+            and records[records[address].get("source")].get("function")
+            in ("sum", "filtered_sum")
             for address in record.get("outputs")
         )
         else frozenset()
@@ -2789,6 +2808,7 @@ def build_compiled_stage(plan, record, arguments):
                         records[Address("target", 0)].get("family"),
                         paired=pairing.compiled_form(records) is not None,
                         mysql_s03=expression.address in mysql_s03,
+                        mysql_sum=expression.address in mysql_sums,
                     )
                     is not None
                 ):

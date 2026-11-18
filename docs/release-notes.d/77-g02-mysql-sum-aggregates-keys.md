@@ -33,7 +33,8 @@
   `sum_int_aggregate_range_proof_missing` where that is its blocker). Among
   them are another aggregate beside a `sum` (`stddev`, `variance`,
   `pvariance`, `pstdev`, `median`, `quantile`, `string_agg`, a conditional
-  `sum` or count, `any`, `all`, a `count_distinct` of two fields), a `max`,
+  count, a conditional `sum` outside the G7 note below, `any`, `all`, a
+  `count_distinct` of two fields), a `max`,
   `avg` or `count_distinct` of an expression (`avg(k * 2)`), of a `let`
   name or of a field of another storage, a GROUP BY key of another storage
   (a `Bool` included), and ORDER BY, HAVING, a header parameter, a
@@ -42,8 +43,9 @@
   `PUBLIC_R2_UNQUALIFIED_FORM`), as for the other forms that MySQL opened
   after `0.1.11`.
 - Under J12 (3), the MySQL project `sum` of an `Int` outside the forms
-  that `0.1.12`, the G1 note and this note open stays beyond the MySQL
-  cadence, with the MySQL catch-up work package as its target.
+  that `0.1.12`, the G1 note, this note and the G7 note below open stays
+  beyond the MySQL cadence, with the MySQL catch-up work package as its
+  target.
 
 Changed diagnostics: a MySQL statement whose only blockers in `0.2.1` were
 PIE-B1004 `sum_int_aggregate_range_proof_missing` at sums of these forms is

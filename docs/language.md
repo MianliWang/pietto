@@ -4600,8 +4600,9 @@ not, each selected under any names, more than once, or not at all. S02's own
 key stays as above: one non-null `Int` field of any storage, a `SMALLINT`
 one included, beside sums, counts and mins only. Another
 aggregate beside a sum (`stddev`, `variance`, `pvariance`, `pstdev`,
-`median`, `quantile`, `string_agg`, a conditional `sum` or count, `any`,
-`all`, a `count_distinct` of two fields), a `max`, `avg` or
+`median`, `quantile`, `string_agg`, a conditional count, `any`, `all`, a
+`count_distinct` of two fields; a conditional `sum` only as G7 below opens
+it), a `max`, `avg` or
 `count_distinct` of an expression, a `let` name or a field of another
 storage, a GROUP BY key of another storage (a `Bool` included) and
 everything the paragraphs above exclude keep the blockers they have
@@ -4640,15 +4641,52 @@ plainly: a relation alias, an imported source or definition, a read
 qualified by its source's name in C1 to C4, parentheses, another test,
 `let`, JOIN kind, ON order, key or carrier, WHERE, HAVING, ORDER BY, LIMIT,
 DISTINCT, a header parameter, a third level or another aggregate keeps
-PIE-B1004 `sum_int_aggregate_range_proof_missing`. A `sum` there is S02's
+PIE-B1004 `sum_int_aggregate_range_proof_missing`, outside the cell that
+G7 below opens. A `sum` there is S02's
 guarded `SUM`, a nullable `Int`; a conditional sum is `COALESCE(` that
 guard over `CASE WHEN TEST THEN x END`, `, 0)`, a non-null `Int`, 0 when no
 row's test is True. A statement still refused reports exactly the blockers
 it has without these forms.
 
+Since `0.2.2` (MC G7), a conditional sum counts as a `sum` of the S02 cell
+as G1 and G2 widen it, beside any number of sums, conditional sums and G2's
+other aggregates, under S02's own key (a non-null `SMALLINT` one included)
+or G2's keys, WHERE and `let`s: `sum(o.f for o in group if TEST)`, any
+name for `o`, the whole value of a SELECT item, whose `f` is a `BIGINT` or
+`INT` field read through `o`, nullable or not, and
+whose TEST is built with `not`, `and`, `or` and parentheses, to any depth,
+from a read `o.b` of a `Bool` field, nullable or not, its `o.b is None`,
+and `o.f > L` of a `BIGINT` or `INT` field, nullable or not, or of a GROUP
+BY key of such a field read by its own name (`customer > 2`, emitted as
+`o.customer > 2`), with `L` an `Int` literal written `N` or `-N`. A `def`
+call anywhere in TEST counts as what it inlines to, with or without
+arguments (`big(o.id)` with `def big(x: Int) -> Bool: return x > 3`, or
+`o.id > three()`), and a read qualified by its source's name counts as in
+the S02 cell, so C1 to C4 written with parentheses or a qualified key are
+in it. Under `bind_safe_literals` a literal in TEST stays in the SQL, as an
+aggregate argument's does, so such a statement with no other literal emits
+its `preserve_literals` SQL. Another comparison operator, `is None` of an
+`Int` field, `is not None`, two fields compared, a literal on the left, a
+comparison with a `Bool` literal, literal arithmetic, a literal written
+`+N` or `-(-N)`, a `SMALLINT` field compared or summed or a `SMALLINT` key
+read in TEST, an argument that is an expression or a `let` name, the
+conditional count, a conditional sum
+inside an expression, and everything the paragraphs above exclude keep the
+blockers they have without G7, object for object: `if o.id >= 3` keeps
+PIE-B1004 `sum_int_aggregate_range_proof_missing`. Each conditional sum is
+`COALESCE(` the guarded `SUM` over `CASE WHEN TEST THEN x END` `, 0)`, a
+non-null `Int`: 0 when no row's test is True, error 1690 (SQLSTATE 22003)
+outside signed 64 bits. Every other part of the statement, TEST included,
+is the PostgreSQL SQL of the same query in MySQL's spelling, so TEST is
+read with SQL's three-valued logic on both targets.
+
 <a id="mysql-project-sumint-forms"></a>
 **MySQL project `sum(Int)` forms at a glance.** This summary follows the
-paragraph above, which stays the rule. Put the module below as
+S03 paragraph above, which stays the rule, and states the conditions of
+the nine forms themselves. A statement that the G7 paragraph above opens,
+such as C1 to C4 with a qualified read, a WHERE, a `count`, a carrier of
+the S02 cell as G1 and G2 widen it, or C3 under `bind-safe`, is VERIFIED
+too, with the SQL that paragraph states. Put the module below as
 `shop.pietto` in a directory `shop`, beside the `pietto.toml` of the
 [worked example](worked-example.md) and a `contract.json` with the
 carriers and premises listed after the table. Then `pietto emit-sql
@@ -4778,7 +4816,7 @@ is one of the forms only under all of these conditions:
   emitted query and read by its own name. An imported source or query, a
   relation alias such as `let x = orders` read by `from x`, or a read
   qualified by its source's name in C1 to C4, such as `group by
-  orders.customer`, keeps the refusal.
+  orders.customer`, is not one of the forms.
 - **Spelling.** Each read and test is written as its row writes it: no
   parentheses, no other `let`, test, aggregate, group key, JOIN kind or ON
   order, and no WHERE, HAVING, ORDER BY, LIMIT, DISTINCT, header parameter
@@ -4790,7 +4828,7 @@ is one of the forms only under all of these conditions:
   need only the fields they read, and admit others.
 - **Carriers.** Each field's `representation` in `contract.json` is exactly
   the one below. Another `storage`, nullability or `domain`, such as an
-  `int_range` from `"0"` for `amount`, keeps the refusal.
+  `int_range` from `"0"` for `amount`, is not one of the forms.
 
 | Fields | `storage` | `nullable` | `domain` |
 | --- | --- | --- | --- |
@@ -4799,9 +4837,9 @@ is one of the forms only under all of these conditions:
 | `orders.customer` | `my_int` | `false` | `int_range` from `"-2147483648"` to `"2147483647"` |
 | `orders.flag` | `my_bool01` | `true` | `bool01` |
 
-- **Literal policy.** C3 needs the default `--literal-policy preserve`:
-  under `bind-safe` it is PIE-B1004 `sum_int_aggregate_range_proof_missing`.
-  The other eight hold no literal and are unchanged.
+- **Literal policy.** C3 is a form under the default `--literal-policy
+  preserve`; under `bind-safe` the G7 cell keeps its literal in the SQL and
+  emits the same SQL. The other eight hold no literal and are unchanged.
 - **Premises.** Each source's `relation` is `{"namespace": "<its MySQL
   database>", "name": "orders"}` (`"items"` for `items`): it needs a
   `namespace`, though `mysql.table("orders")` names no database. Each
@@ -4836,7 +4874,7 @@ VERIFIED, without its sum blockers. `per_order`, which holds no sum,
 reports only the premise's blocker.
 
 Any other MySQL project `sum` of an `Int`, outside these forms and S02's
-cell as G1 and G2 widen it, is BLOCKED with PIE-B1004
+cell as G1, G2 and G7 widen it, is BLOCKED with PIE-B1004
 `sum_int_aggregate_range_proof_missing`.
 This refusal is by design, not a defect: MySQL sums a `BIGINT` as a
 `DECIMAL`, which `CAST(... AS SIGNED)` would clamp, so a MySQL project emits

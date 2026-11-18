@@ -437,7 +437,10 @@ field's column or the `let`'s, and (MC G2) each such `sum` of a statement in
 the cell as G2 widens it: beside any `count_distinct` of a `BIGINT`, `INT` or
 `VARCHAR` field and any `max` or `avg` of a `BIGINT` or `INT` field, each one
 direct field read, and grouped by any `BIGINT`, `INT` or `VARCHAR` keys,
-nullable or not.
+nullable or not; (MC G7) so does a conditional sum of a `BIGINT` or `INT`
+field in that cell, written as an S03 one is, whose test is `not`, `and` and
+`or` over a `Bool` field read, its `is None` and a `BIGINT` or `INT` field
+read `>` an `Int` literal.
 Their storage is `my_signed_int`, and an operation's `int_range` is the part
 of its exact range inside signed 64 bits; MySQL's `BIGINT` operators raise
 error 1690 (SQLSTATE 22003) outside it. The operation is written uncast, as

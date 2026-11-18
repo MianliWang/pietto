@@ -11154,7 +11154,12 @@ def _decode_fixed_public(document, limits):
                 seen_expressions.intersection_update(unseen)
                 for site in set(seen_sites) - unsited:
                     del seen_sites[site]
+                # A test literal stays a literal under BIND_SAFE (MC G7), an
+                # aggregate argument's specialized position as in the product.
+                held = specialized[0]
+                specialized[0] = True
                 tests.append(row_parse(block, repeated=bool(tests)))
+                specialized[0] = held
                 take("syntax", "aggregate_filter_then", " THEN ", subject)
                 arguments.append(row_parse(block, repeated=bool(arguments)))
                 take("syntax", "aggregate_filter_close", " END", subject)
@@ -11483,7 +11488,8 @@ def _decode_fixed_public(document, limits):
             # checked bigint CAST, 0 when no row's test is True.
             counted = function == "filtered_count"
             test = argument if counted else delimiter
-            # S03: a MySQL conditional sum is a guarded SUM of a BIGINT, uncast.
+            # S03: a MySQL conditional sum is a guarded SUM of a BIGINT or
+            # (MC G7) an INT, uncast.
             guarded = family == "mysql" and not counted
             _need(
                 (family == "postgres" or guarded)
@@ -11491,7 +11497,11 @@ def _decode_fixed_public(document, limits):
                 and test is not None
                 and test["tag"] == "Bool"
                 and (counted or argument["tag"] == "Int")
-                and (not guarded or argument["storage"] == {"kind": "my_bigint"})
+                and (
+                    not guarded
+                    or argument["storage"]
+                    in ({"kind": "my_bigint"}, {"kind": "my_int"})
+                )
                 and argument_cast == (None if counted or guarded else "pg_catalog.int8")
                 and not order_by,
                 "conditional aggregate arguments",
@@ -17788,7 +17798,6 @@ NUMERIC_REFUSALS = {
     "sum_order_by": "query result:\n    from rows\n    group by k\n    select:\n        k\n        x = sum(a)\n    order by:\n        k\n",
     "sum_limit": "query result:\n    from rows\n    group by k\n    select:\n        k\n        x = sum(a)\n    limit 2\n",
     "sum_upstream": "query up:\n    from rows\n    select:\n        k\n        a\nquery result:\n    from up\n    group by k\n    select:\n        k\n        x = sum(a)\n",
-    "sum_filtered": "query result:\n    from rows\n    group by k\n    select:\n        k\n        x = sum(o.a for o in group if o.id > 0)\n",
     "sum_header_parameter": "query result(lo: Int):\n    from rows\n    where id > lo\n    group by k\n    select:\n        k\n        x = sum(a)\n",
     # D77.24: no relation alias, no unread header parameter and no let.
     "row_input_alias": "query result:\n    let x = rows\n    from x\n    select:\n        s = a + b\n",
@@ -17875,7 +17884,6 @@ NUMERIC_REFUSAL_BLOCKERS = {
     "sum_order_by": [("PIE-B1004", "sum_int_aggregate_range_proof_missing", 14, 9)],
     "sum_limit": [("PIE-B1004", "sum_int_aggregate_range_proof_missing", 14, 9)],
     "sum_upstream": [("PIE-B1004", "sum_int_aggregate_range_proof_missing", 19, 9)],
-    "sum_filtered": [("PIE-B1004", "sum_int_aggregate_range_proof_missing", 14, 9)],
     "sum_header_parameter": [
         ("PIE-B1004", "sum_int_aggregate_range_proof_missing", 15, 9)
     ],
@@ -18704,23 +18712,16 @@ S03_RENAMES = {
     "flag": "paid_flag",
 }
 # Shapes outside the forms: the pack's 19 controls (forms.json) and others,
-# each keeping main's MySQL blockers (S03_REFUSAL_BLOCKERS) under the policies
-# it lists (both when none). An imported source, a relation alias, a read
-# qualified by its source's name and parentheses also leave the compiled
-# records and pure document of a form (S03_ALIASES).
+# each keeping main's MySQL blockers (S03_REFUSAL_BLOCKERS) under both
+# policies; the eleven that MC G7 opens are its cells (G7_CELLS) or forms. An
+# imported source, a relation alias and parentheses in a JOIN form also leave
+# the compiled records and pure document of a form (S03_ALIASES).
 S03_REFUSALS = {
-    "ctl_c_beside_count": "query result:\n    from orders\n    group by customer\n    select:\n        customer\n        paid = sum(o.amount for o in group if o.flag)\n        c = count()\n",
-    "ctl_c_beside_direct_sum": "query result:\n    from orders\n    group by customer\n    select:\n        customer\n        x = sum(amount)\n        y = sum(o.amount for o in group if o.flag)\n        c = count()\n",
-    "ctl_c_bind_safe_literal": S03_FORMS["C3"],
-    "ctl_c_compound_test": "query result:\n    from orders\n    group by customer\n    select:\n        customer\n        paid = sum(o.amount for o in group if o.flag and o.id > 3)\n",
-    "ctl_c_narrow_argument": "query result:\n    from orders\n    group by customer\n    select:\n        customer\n        paid = sum(o.customer for o in group if o.flag)\n",
-    "ctl_c_negative_literal": "query result:\n    from orders\n    select:\n        z = sum(o.amount for o in group if o.id > -5)\n",
     "ctl_c_order_by": "query result:\n    from orders\n    group by customer\n    select:\n        customer\n        paid = sum(o.amount for o in group if o.flag)\n    order by customer\n",
     "ctl_c_other_operator": "query result:\n    from orders\n    select:\n        z = sum(o.amount for o in group if o.id >= 3)\n",
     "ctl_c_row_alias": "query result:\n    let x = orders\n    from x\n    group by customer\n    select:\n        customer\n        paid = sum(o.amount for o in group if o.flag)\n",
     "ctl_c_test_on_int_isnone": "query result:\n    from orders\n    select:\n        x = sum(o.amount for o in group if not o.flag)\n        y = sum(o.amount for o in group if o.amount is None)\n",
     "ctl_c_upstream": "query up:\n    from orders\n    select:\n        customer\n        amount\n        flag\nquery result:\n    from up\n    group by customer\n    select:\n        customer\n        paid = sum(o.amount for o in group if o.flag)\n",
-    "ctl_c_where": "query result:\n    from orders\n    where nn > 0\n    group by customer\n    select:\n        customer\n        paid = sum(o.amount for o in group if o.flag)\n",
     "ctl_j_from_side_key": "query result:\n    from items\n    let o = orders\n    inner join o on o.id == items.order_id\n    group by items.order_id\n    select:\n        order_id = items.order_id\n        qty = sum(items.qty)\n",
     "ctl_j_inner_joined_side": "query result:\n    from orders\n    let i = items\n    inner join i on i.order_id == orders.id\n    group by orders.id\n    select:\n        id = orders.id\n        qty = sum(i.qty)\n",
     "ctl_j_two_sums": "query result:\n    from orders\n    let i = items\n    left join i on i.order_id == orders.id\n    group by orders.id\n    select:\n        id = orders.id\n        qty = sum(i.qty)\n        ids = sum(i.id)\n",
@@ -18734,11 +18735,7 @@ S03_REFUSALS = {
     "j2_on_reversed": S03_FORMS["J2"].replace(
         "i.order_id == orders.id", "orders.id == i.order_id"
     ),
-    "c1_qualified_key": S03_FORMS["C1"].replace(
-        "group by customer", "group by orders.customer"
-    ),
     "c1_beside_composed": S03_FORMS["C1"] + "        extra = sum(amount) + 1\n",
-    "c2_two_fields": "query result:\n    from orders\n    select:\n        x = sum(o.amount for o in group if not o.flag)\n        y = sum(o.nn for o in group if o.flag is None)\n",
     "t2_extra_upstream_count": S03_FORMS["T2"].replace(
         "        qty = sum(i.qty)\nquery result",
         "        qty = sum(i.qty)\n        n = count()\nquery result",
@@ -18748,12 +18745,6 @@ S03_REFUSALS = {
     "t2_upstream_subset": S03_FORMS["T2"].replace("        id = orders.id\n", ""),
     # D77.24: parentheses are no form's spelling, though the records and
     # the document are the form's (S03_ALIASES).
-    "c1_parenthesized_argument": S03_FORMS["C1"].replace(
-        "sum(o.amount for", "sum((o.amount) for"
-    ),
-    "c2_parenthesized_test": S03_FORMS["C2"].replace(
-        "if not o.flag", "if not (o.flag)"
-    ),
     "j2_parenthesized_on": S03_FORMS["J2"].replace(
         "on i.order_id == orders.id", "on (i.order_id == orders.id)"
     ),
@@ -18766,7 +18757,6 @@ S03_REFUSALS = {
         + S03_FORMS["C1"],
     },
 }
-S03_REFUSAL_POLICIES = {"ctl_c_bind_safe_literal": ("bind_safe_literals",)}
 # A JOIN form's SQL carries every field of both sources, so a source with a
 # field beyond the qualification's tables is no form; a conditional form
 # reads only its fields and stays one. Per shape: (form, extra fields).
@@ -18779,9 +18769,6 @@ S03_WIDER = {
 S03_ALIASES = {
     "ctl_c_row_alias": "C1",
     "imported_source": "C1",
-    "c1_qualified_key": "C1",
-    "c1_parenthesized_argument": "C1",
-    "c2_parenthesized_test": "C2",
     "j2_parenthesized_on": "J2",
     "j2_parenthesized_sum": "J2",
 }
@@ -18856,43 +18843,10 @@ S03_FORM_SQL = {
     ),
 }
 # main's MySQL blockers (code, detail, line, column) of each S03_REFUSALS shape,
-# under either policy it is refused with.
+# under either policy.
 S03_REFUSAL_BLOCKERS = {
     "c1_beside_composed": [
         ("PIE-B1003", "aggregate_composition_not_admitted_on_target", 21, 17),
-    ],
-    "c1_parenthesized_argument": [
-        ("PIE-B1004", "sum_int_aggregate_range_proof_missing", 20, 9),
-    ],
-    "c1_qualified_key": [
-        ("PIE-B1004", "sum_int_aggregate_range_proof_missing", 20, 9),
-    ],
-    "c2_parenthesized_test": [
-        ("PIE-B1004", "sum_int_aggregate_range_proof_missing", 18, 9),
-        ("PIE-B1004", "sum_int_aggregate_range_proof_missing", 19, 9),
-    ],
-    "c2_two_fields": [
-        ("PIE-B1004", "sum_int_aggregate_range_proof_missing", 18, 9),
-        ("PIE-B1004", "sum_int_aggregate_range_proof_missing", 19, 9),
-    ],
-    "ctl_c_beside_count": [
-        ("PIE-B1004", "sum_int_aggregate_range_proof_missing", 20, 9),
-    ],
-    "ctl_c_beside_direct_sum": [
-        ("PIE-B1004", "sum_int_aggregate_range_proof_missing", 20, 9),
-        ("PIE-B1004", "sum_int_aggregate_range_proof_missing", 21, 9),
-    ],
-    "ctl_c_bind_safe_literal": [
-        ("PIE-B1004", "sum_int_aggregate_range_proof_missing", 18, 9),
-    ],
-    "ctl_c_compound_test": [
-        ("PIE-B1004", "sum_int_aggregate_range_proof_missing", 20, 9),
-    ],
-    "ctl_c_narrow_argument": [
-        ("PIE-B1004", "sum_int_aggregate_range_proof_missing", 20, 9),
-    ],
-    "ctl_c_negative_literal": [
-        ("PIE-B1004", "sum_int_aggregate_range_proof_missing", 18, 9),
     ],
     "ctl_c_order_by": [
         ("PIE-B1004", "sum_int_aggregate_range_proof_missing", 20, 9),
@@ -18909,9 +18863,6 @@ S03_REFUSAL_BLOCKERS = {
     ],
     "ctl_c_upstream": [
         ("PIE-B1004", "sum_int_aggregate_range_proof_missing", 26, 9),
-    ],
-    "ctl_c_where": [
-        ("PIE-B1004", "sum_int_aggregate_range_proof_missing", 21, 9),
     ],
     "ctl_j_from_side_key": [
         ("PIE-B1004", "sum_int_aggregate_range_proof_missing", 22, 9),
@@ -18961,6 +18912,470 @@ S03_REFUSAL_BLOCKERS = {
     "t2_upstream_subset": [
         ("PIE-B1004", "sum_int_aggregate_range_proof_missing", 22, 9),
     ],
+}
+
+
+# MC G7 (Conditional `sum` extension): the thirteen forms of the G7 list's
+# preregistration over S03_HEADER's `orders` (s03_world), each in G2's cell
+# with conditional sums: compound tests and negative literals (T), a
+# conditional sum beside `count()`, a direct sum and other aggregates (B), and
+# through a WHERE or a `let` (M); the SQL each emits (also the G7 campaign's
+# byte source).
+G7_FORMS = {
+    "T1": "query result:\n    from orders\n    group by customer\n    select:\n        customer\n        paid = sum(o.amount for o in group if o.flag and o.id > 3)\n",
+    "T2": "query result:\n    from orders\n    select:\n        x = sum(o.amount for o in group if o.flag or o.id > 5)\n        y = sum(o.nn for o in group if o.flag is None and not (o.id > 2))\n",
+    "T3": "query result:\n    from orders\n    select:\n        z = sum(o.amount for o in group if o.id > -5)\n",
+    "T4": "query result:\n    from orders\n    group by customer\n    select:\n        customer\n        t = sum(o.nn for o in group if not (o.flag or o.amount > -3))\n",
+    "T5": "query result:\n    from orders\n    select:\n        x = sum(o.amount for o in group if (o.flag is None or o.customer > -2) and (not o.flag or o.nn > -9223372036854775807))\n",
+    "T6": "query result:\n    from orders\n    group by customer\n    select:\n        k = customer\n        s = sum(o.customer for o in group if o.flag or o.flag is None)\n        t = sum(o.nn for o in group if not o.flag)\n",
+    "B1": "query result:\n    from orders\n    group by customer\n    select:\n        customer\n        paid = sum(o.amount for o in group if o.flag)\n        c = count()\n",
+    "B2": "query result:\n    from orders\n    group by customer\n    select:\n        customer\n        x = sum(amount)\n        y = sum(o.amount for o in group if o.flag)\n        c = count()\n",
+    "B3": "query result:\n    from orders\n    select:\n        x = sum(nn)\n        y = sum(o.nn for o in group if o.id > 3)\n        r = count()\n        hi = max(amount)\n        lo = min(customer)\n",
+    "B4": "query result:\n    from orders\n    group by customer, nn\n    select:\n        customer\n        nn\n        x = sum(o.amount for o in group if o.flag)\n        y = sum(o.customer for o in group if o.amount > 0)\n        m = count(amount)\n        d = count_distinct(amount)\n        mean = avg(amount)\n",
+    "M1": "query result:\n    from orders\n    where nn > 0\n    group by customer\n    select:\n        customer\n        paid = sum(o.amount for o in group if o.flag)\n",
+    "M2": "query result:\n    from orders\n    where id > -4\n    group by amount\n    select:\n        a = amount\n        x = sum(o.nn for o in group if o.flag and not (o.nn > 7))\n        y = sum(nn)\n",
+    "M3": "query result:\n    from orders\n    let v = nn\n    where id > 3\n    select:\n        x = sum(v)\n        y = sum(o.amount for o in group if o.flag is None or o.id > 6)\n",
+}
+G7_FORM_SQL = {
+    ("T1", "postgres"): (
+        'WITH "p0" ("c0", "c1") AS (SELECT "s0"."customer" AS "c0", COALESCE(CAST(SUM(CASE WHEN ("s0"."flag" AND ("s0"."id" > CAST(3 AS pg_catalog.int8))) THEN CAST("s0"."amount" AS pg_catalog.int8) END) AS pg_catalog.int8), 0) AS "c1" FROM "public"."s03 orders" AS "s0" GROUP BY "s0"."customer") SELECT "t1"."c0" AS "customer", "t1"."c1" AS "paid" FROM "p0" AS "t1"'
+    ),
+    ("T1", "mysql"): (
+        "WITH `p0` (`c0`, `c1`) AS (SELECT `s0`.`customer` AS `c0`, COALESCE(CASE WHEN SUM(CASE WHEN (`s0`.`flag` AND (`s0`.`id` > CAST(3 AS SIGNED))) THEN `s0`.`amount` END) > 9223372036854775807 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) WHEN SUM(CASE WHEN (`s0`.`flag` AND (`s0`.`id` > CAST(3 AS SIGNED))) THEN `s0`.`amount` END) < -9223372036854775808 THEN CAST(-9223372036854775808 AS SIGNED) - CAST(1 AS SIGNED) ELSE CAST(SUM(CASE WHEN (`s0`.`flag` AND (`s0`.`id` > CAST(3 AS SIGNED))) THEN `s0`.`amount` END) AS SIGNED) END, 0) AS `c1` FROM `phase66`.`s03 orders` AS `s0` GROUP BY `s0`.`customer`) SELECT `t1`.`c0` AS `customer`, `t1`.`c1` AS `paid` FROM `p0` AS `t1`"
+    ),
+    ("T2", "postgres"): (
+        'WITH "p0" ("c0", "c1") AS (SELECT COALESCE(CAST(SUM(CASE WHEN ("s0"."flag" OR ("s0"."id" > CAST(5 AS pg_catalog.int8))) THEN CAST("s0"."amount" AS pg_catalog.int8) END) AS pg_catalog.int8), 0) AS "c0", COALESCE(CAST(SUM(CASE WHEN (("s0"."flag" IS NULL) AND (NOT ("s0"."id" > CAST(2 AS pg_catalog.int8)))) THEN CAST("s0"."nn" AS pg_catalog.int8) END) AS pg_catalog.int8), 0) AS "c1" FROM "public"."s03 orders" AS "s0") SELECT "t1"."c0" AS "x", "t1"."c1" AS "y" FROM "p0" AS "t1"'
+    ),
+    ("T2", "mysql"): (
+        "WITH `p0` (`c0`, `c1`) AS (SELECT COALESCE(CASE WHEN SUM(CASE WHEN (`s0`.`flag` OR (`s0`.`id` > CAST(5 AS SIGNED))) THEN `s0`.`amount` END) > 9223372036854775807 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) WHEN SUM(CASE WHEN (`s0`.`flag` OR (`s0`.`id` > CAST(5 AS SIGNED))) THEN `s0`.`amount` END) < -9223372036854775808 THEN CAST(-9223372036854775808 AS SIGNED) - CAST(1 AS SIGNED) ELSE CAST(SUM(CASE WHEN (`s0`.`flag` OR (`s0`.`id` > CAST(5 AS SIGNED))) THEN `s0`.`amount` END) AS SIGNED) END, 0) AS `c0`, COALESCE(CASE WHEN SUM(CASE WHEN ((`s0`.`flag` IS NULL) AND (NOT (`s0`.`id` > CAST(2 AS SIGNED)))) THEN `s0`.`nn` END) > 9223372036854775807 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) WHEN SUM(CASE WHEN ((`s0`.`flag` IS NULL) AND (NOT (`s0`.`id` > CAST(2 AS SIGNED)))) THEN `s0`.`nn` END) < -9223372036854775808 THEN CAST(-9223372036854775808 AS SIGNED) - CAST(1 AS SIGNED) ELSE CAST(SUM(CASE WHEN ((`s0`.`flag` IS NULL) AND (NOT (`s0`.`id` > CAST(2 AS SIGNED)))) THEN `s0`.`nn` END) AS SIGNED) END, 0) AS `c1` FROM `phase66`.`s03 orders` AS `s0`) SELECT `t1`.`c0` AS `x`, `t1`.`c1` AS `y` FROM `p0` AS `t1`"
+    ),
+    ("T3", "postgres"): (
+        'WITH "p0" ("c0") AS (SELECT COALESCE(CAST(SUM(CASE WHEN ("s0"."id" > (-CAST(5 AS pg_catalog.int8))) THEN CAST("s0"."amount" AS pg_catalog.int8) END) AS pg_catalog.int8), 0) AS "c0" FROM "public"."s03 orders" AS "s0") SELECT "t1"."c0" AS "z" FROM "p0" AS "t1"'
+    ),
+    ("T3", "mysql"): (
+        "WITH `p0` (`c0`) AS (SELECT COALESCE(CASE WHEN SUM(CASE WHEN (`s0`.`id` > (-CAST(5 AS SIGNED))) THEN `s0`.`amount` END) > 9223372036854775807 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) WHEN SUM(CASE WHEN (`s0`.`id` > (-CAST(5 AS SIGNED))) THEN `s0`.`amount` END) < -9223372036854775808 THEN CAST(-9223372036854775808 AS SIGNED) - CAST(1 AS SIGNED) ELSE CAST(SUM(CASE WHEN (`s0`.`id` > (-CAST(5 AS SIGNED))) THEN `s0`.`amount` END) AS SIGNED) END, 0) AS `c0` FROM `phase66`.`s03 orders` AS `s0`) SELECT `t1`.`c0` AS `z` FROM `p0` AS `t1`"
+    ),
+    ("T4", "postgres"): (
+        'WITH "p0" ("c0", "c1") AS (SELECT "s0"."customer" AS "c0", COALESCE(CAST(SUM(CASE WHEN (NOT ("s0"."flag" OR ("s0"."amount" > (-CAST(3 AS pg_catalog.int8))))) THEN CAST("s0"."nn" AS pg_catalog.int8) END) AS pg_catalog.int8), 0) AS "c1" FROM "public"."s03 orders" AS "s0" GROUP BY "s0"."customer") SELECT "t1"."c0" AS "customer", "t1"."c1" AS "t" FROM "p0" AS "t1"'
+    ),
+    ("T4", "mysql"): (
+        "WITH `p0` (`c0`, `c1`) AS (SELECT `s0`.`customer` AS `c0`, COALESCE(CASE WHEN SUM(CASE WHEN (NOT (`s0`.`flag` OR (`s0`.`amount` > (-CAST(3 AS SIGNED))))) THEN `s0`.`nn` END) > 9223372036854775807 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) WHEN SUM(CASE WHEN (NOT (`s0`.`flag` OR (`s0`.`amount` > (-CAST(3 AS SIGNED))))) THEN `s0`.`nn` END) < -9223372036854775808 THEN CAST(-9223372036854775808 AS SIGNED) - CAST(1 AS SIGNED) ELSE CAST(SUM(CASE WHEN (NOT (`s0`.`flag` OR (`s0`.`amount` > (-CAST(3 AS SIGNED))))) THEN `s0`.`nn` END) AS SIGNED) END, 0) AS `c1` FROM `phase66`.`s03 orders` AS `s0` GROUP BY `s0`.`customer`) SELECT `t1`.`c0` AS `customer`, `t1`.`c1` AS `t` FROM `p0` AS `t1`"
+    ),
+    ("T5", "postgres"): (
+        'WITH "p0" ("c0") AS (SELECT COALESCE(CAST(SUM(CASE WHEN ((("s0"."flag" IS NULL) OR ("s0"."customer" > (-CAST(2 AS pg_catalog.int8)))) AND ((NOT "s0"."flag") OR ("s0"."nn" > (-CAST(9223372036854775807 AS pg_catalog.int8))))) THEN CAST("s0"."amount" AS pg_catalog.int8) END) AS pg_catalog.int8), 0) AS "c0" FROM "public"."s03 orders" AS "s0") SELECT "t1"."c0" AS "x" FROM "p0" AS "t1"'
+    ),
+    ("T5", "mysql"): (
+        "WITH `p0` (`c0`) AS (SELECT COALESCE(CASE WHEN SUM(CASE WHEN (((`s0`.`flag` IS NULL) OR (`s0`.`customer` > (-CAST(2 AS SIGNED)))) AND ((NOT `s0`.`flag`) OR (`s0`.`nn` > (-CAST(9223372036854775807 AS SIGNED))))) THEN `s0`.`amount` END) > 9223372036854775807 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) WHEN SUM(CASE WHEN (((`s0`.`flag` IS NULL) OR (`s0`.`customer` > (-CAST(2 AS SIGNED)))) AND ((NOT `s0`.`flag`) OR (`s0`.`nn` > (-CAST(9223372036854775807 AS SIGNED))))) THEN `s0`.`amount` END) < -9223372036854775808 THEN CAST(-9223372036854775808 AS SIGNED) - CAST(1 AS SIGNED) ELSE CAST(SUM(CASE WHEN (((`s0`.`flag` IS NULL) OR (`s0`.`customer` > (-CAST(2 AS SIGNED)))) AND ((NOT `s0`.`flag`) OR (`s0`.`nn` > (-CAST(9223372036854775807 AS SIGNED))))) THEN `s0`.`amount` END) AS SIGNED) END, 0) AS `c0` FROM `phase66`.`s03 orders` AS `s0`) SELECT `t1`.`c0` AS `x` FROM `p0` AS `t1`"
+    ),
+    ("T6", "postgres"): (
+        'WITH "p0" ("c0", "c1", "c2") AS (SELECT "s0"."customer" AS "c0", COALESCE(CAST(SUM(CASE WHEN ("s0"."flag" OR ("s0"."flag" IS NULL)) THEN CAST("s0"."customer" AS pg_catalog.int8) END) AS pg_catalog.int8), 0) AS "c1", COALESCE(CAST(SUM(CASE WHEN (NOT "s0"."flag") THEN CAST("s0"."nn" AS pg_catalog.int8) END) AS pg_catalog.int8), 0) AS "c2" FROM "public"."s03 orders" AS "s0" GROUP BY "s0"."customer") SELECT "t1"."c0" AS "k", "t1"."c1" AS "s", "t1"."c2" AS "t" FROM "p0" AS "t1"'
+    ),
+    ("T6", "mysql"): (
+        "WITH `p0` (`c0`, `c1`, `c2`) AS (SELECT `s0`.`customer` AS `c0`, COALESCE(CASE WHEN SUM(CASE WHEN (`s0`.`flag` OR (`s0`.`flag` IS NULL)) THEN `s0`.`customer` END) > 9223372036854775807 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) WHEN SUM(CASE WHEN (`s0`.`flag` OR (`s0`.`flag` IS NULL)) THEN `s0`.`customer` END) < -9223372036854775808 THEN CAST(-9223372036854775808 AS SIGNED) - CAST(1 AS SIGNED) ELSE CAST(SUM(CASE WHEN (`s0`.`flag` OR (`s0`.`flag` IS NULL)) THEN `s0`.`customer` END) AS SIGNED) END, 0) AS `c1`, COALESCE(CASE WHEN SUM(CASE WHEN (NOT `s0`.`flag`) THEN `s0`.`nn` END) > 9223372036854775807 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) WHEN SUM(CASE WHEN (NOT `s0`.`flag`) THEN `s0`.`nn` END) < -9223372036854775808 THEN CAST(-9223372036854775808 AS SIGNED) - CAST(1 AS SIGNED) ELSE CAST(SUM(CASE WHEN (NOT `s0`.`flag`) THEN `s0`.`nn` END) AS SIGNED) END, 0) AS `c2` FROM `phase66`.`s03 orders` AS `s0` GROUP BY `s0`.`customer`) SELECT `t1`.`c0` AS `k`, `t1`.`c1` AS `s`, `t1`.`c2` AS `t` FROM `p0` AS `t1`"
+    ),
+    ("B1", "postgres"): (
+        'WITH "p0" ("c0", "c1", "c2") AS (SELECT "s0"."customer" AS "c0", COALESCE(CAST(SUM(CASE WHEN "s0"."flag" THEN CAST("s0"."amount" AS pg_catalog.int8) END) AS pg_catalog.int8), 0) AS "c1", COUNT(*) AS "c2" FROM "public"."s03 orders" AS "s0" GROUP BY "s0"."customer") SELECT "t1"."c0" AS "customer", "t1"."c1" AS "paid", "t1"."c2" AS "c" FROM "p0" AS "t1"'
+    ),
+    ("B1", "mysql"): (
+        "WITH `p0` (`c0`, `c1`, `c2`) AS (SELECT `s0`.`customer` AS `c0`, COALESCE(CASE WHEN SUM(CASE WHEN `s0`.`flag` THEN `s0`.`amount` END) > 9223372036854775807 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) WHEN SUM(CASE WHEN `s0`.`flag` THEN `s0`.`amount` END) < -9223372036854775808 THEN CAST(-9223372036854775808 AS SIGNED) - CAST(1 AS SIGNED) ELSE CAST(SUM(CASE WHEN `s0`.`flag` THEN `s0`.`amount` END) AS SIGNED) END, 0) AS `c1`, COUNT(*) AS `c2` FROM `phase66`.`s03 orders` AS `s0` GROUP BY `s0`.`customer`) SELECT `t1`.`c0` AS `customer`, `t1`.`c1` AS `paid`, `t1`.`c2` AS `c` FROM `p0` AS `t1`"
+    ),
+    ("B2", "postgres"): (
+        'WITH "p0" ("c0", "c1", "c2", "c3") AS (SELECT "s0"."customer" AS "c0", CAST(SUM(CAST("s0"."amount" AS pg_catalog.int8)) AS pg_catalog.int8) AS "c1", COALESCE(CAST(SUM(CASE WHEN "s0"."flag" THEN CAST("s0"."amount" AS pg_catalog.int8) END) AS pg_catalog.int8), 0) AS "c2", COUNT(*) AS "c3" FROM "public"."s03 orders" AS "s0" GROUP BY "s0"."customer") SELECT "t1"."c0" AS "customer", "t1"."c1" AS "x", "t1"."c2" AS "y", "t1"."c3" AS "c" FROM "p0" AS "t1"'
+    ),
+    ("B2", "mysql"): (
+        "WITH `p0` (`c0`, `c1`, `c2`, `c3`) AS (SELECT `s0`.`customer` AS `c0`, CASE WHEN SUM(`s0`.`amount`) > 9223372036854775807 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) WHEN SUM(`s0`.`amount`) < -9223372036854775808 THEN CAST(-9223372036854775808 AS SIGNED) - CAST(1 AS SIGNED) ELSE CAST(SUM(`s0`.`amount`) AS SIGNED) END AS `c1`, COALESCE(CASE WHEN SUM(CASE WHEN `s0`.`flag` THEN `s0`.`amount` END) > 9223372036854775807 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) WHEN SUM(CASE WHEN `s0`.`flag` THEN `s0`.`amount` END) < -9223372036854775808 THEN CAST(-9223372036854775808 AS SIGNED) - CAST(1 AS SIGNED) ELSE CAST(SUM(CASE WHEN `s0`.`flag` THEN `s0`.`amount` END) AS SIGNED) END, 0) AS `c2`, COUNT(*) AS `c3` FROM `phase66`.`s03 orders` AS `s0` GROUP BY `s0`.`customer`) SELECT `t1`.`c0` AS `customer`, `t1`.`c1` AS `x`, `t1`.`c2` AS `y`, `t1`.`c3` AS `c` FROM `p0` AS `t1`"
+    ),
+    ("B3", "postgres"): (
+        'WITH "p0" ("c0", "c1", "c2", "c3", "c4") AS (SELECT CAST(SUM(CAST("s0"."nn" AS pg_catalog.int8)) AS pg_catalog.int8) AS "c0", COALESCE(CAST(SUM(CASE WHEN ("s0"."id" > CAST(3 AS pg_catalog.int8)) THEN CAST("s0"."nn" AS pg_catalog.int8) END) AS pg_catalog.int8), 0) AS "c1", COUNT(*) AS "c2", MAX("s0"."amount") AS "c3", MIN("s0"."customer") AS "c4" FROM "public"."s03 orders" AS "s0") SELECT "t1"."c0" AS "x", "t1"."c1" AS "y", "t1"."c2" AS "r", "t1"."c3" AS "hi", "t1"."c4" AS "lo" FROM "p0" AS "t1"'
+    ),
+    ("B3", "mysql"): (
+        "WITH `p0` (`c0`, `c1`, `c2`, `c3`, `c4`) AS (SELECT CASE WHEN SUM(`s0`.`nn`) > 9223372036854775807 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) WHEN SUM(`s0`.`nn`) < -9223372036854775808 THEN CAST(-9223372036854775808 AS SIGNED) - CAST(1 AS SIGNED) ELSE CAST(SUM(`s0`.`nn`) AS SIGNED) END AS `c0`, COALESCE(CASE WHEN SUM(CASE WHEN (`s0`.`id` > CAST(3 AS SIGNED)) THEN `s0`.`nn` END) > 9223372036854775807 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) WHEN SUM(CASE WHEN (`s0`.`id` > CAST(3 AS SIGNED)) THEN `s0`.`nn` END) < -9223372036854775808 THEN CAST(-9223372036854775808 AS SIGNED) - CAST(1 AS SIGNED) ELSE CAST(SUM(CASE WHEN (`s0`.`id` > CAST(3 AS SIGNED)) THEN `s0`.`nn` END) AS SIGNED) END, 0) AS `c1`, COUNT(*) AS `c2`, MAX(`s0`.`amount`) AS `c3`, MIN(`s0`.`customer`) AS `c4` FROM `phase66`.`s03 orders` AS `s0`) SELECT `t1`.`c0` AS `x`, `t1`.`c1` AS `y`, `t1`.`c2` AS `r`, `t1`.`c3` AS `hi`, `t1`.`c4` AS `lo` FROM `p0` AS `t1`"
+    ),
+    ("B4", "postgres"): (
+        'WITH "p0" ("c0", "c1", "c2", "c3", "c4", "c5", "c6") AS (SELECT "s0"."customer" AS "c0", "s0"."nn" AS "c1", COALESCE(CAST(SUM(CASE WHEN "s0"."flag" THEN CAST("s0"."amount" AS pg_catalog.int8) END) AS pg_catalog.int8), 0) AS "c2", COALESCE(CAST(SUM(CASE WHEN ("s0"."amount" > CAST(0 AS pg_catalog.int8)) THEN CAST("s0"."customer" AS pg_catalog.int8) END) AS pg_catalog.int8), 0) AS "c3", COUNT("s0"."amount") AS "c4", COUNT(DISTINCT "s0"."amount") AS "c5", AVG(CAST("s0"."amount" AS pg_catalog.float8)) AS "c6" FROM "public"."s03 orders" AS "s0" GROUP BY "s0"."customer", "s0"."nn") SELECT "t1"."c0" AS "customer", "t1"."c1" AS "nn", "t1"."c2" AS "x", "t1"."c3" AS "y", "t1"."c4" AS "m", "t1"."c5" AS "d", "t1"."c6" AS "mean" FROM "p0" AS "t1"'
+    ),
+    ("B4", "mysql"): (
+        "WITH `p0` (`c0`, `c1`, `c2`, `c3`, `c4`, `c5`, `c6`) AS (SELECT `s0`.`customer` AS `c0`, `s0`.`nn` AS `c1`, COALESCE(CASE WHEN SUM(CASE WHEN `s0`.`flag` THEN `s0`.`amount` END) > 9223372036854775807 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) WHEN SUM(CASE WHEN `s0`.`flag` THEN `s0`.`amount` END) < -9223372036854775808 THEN CAST(-9223372036854775808 AS SIGNED) - CAST(1 AS SIGNED) ELSE CAST(SUM(CASE WHEN `s0`.`flag` THEN `s0`.`amount` END) AS SIGNED) END, 0) AS `c2`, COALESCE(CASE WHEN SUM(CASE WHEN (`s0`.`amount` > CAST(0 AS SIGNED)) THEN `s0`.`customer` END) > 9223372036854775807 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) WHEN SUM(CASE WHEN (`s0`.`amount` > CAST(0 AS SIGNED)) THEN `s0`.`customer` END) < -9223372036854775808 THEN CAST(-9223372036854775808 AS SIGNED) - CAST(1 AS SIGNED) ELSE CAST(SUM(CASE WHEN (`s0`.`amount` > CAST(0 AS SIGNED)) THEN `s0`.`customer` END) AS SIGNED) END, 0) AS `c3`, COUNT(`s0`.`amount`) AS `c4`, COUNT(DISTINCT `s0`.`amount`) AS `c5`, AVG(CAST(`s0`.`amount` AS DOUBLE)) AS `c6` FROM `phase66`.`s03 orders` AS `s0` GROUP BY `s0`.`customer`, `s0`.`nn`) SELECT `t1`.`c0` AS `customer`, `t1`.`c1` AS `nn`, `t1`.`c2` AS `x`, `t1`.`c3` AS `y`, `t1`.`c4` AS `m`, `t1`.`c5` AS `d`, `t1`.`c6` AS `mean` FROM `p0` AS `t1`"
+    ),
+    ("M1", "postgres"): (
+        'WITH "p0" ("c0", "c1", "c2", "c3", "c4") AS (SELECT "s0"."id" AS "c0", "s0"."customer" AS "c1", "s0"."amount" AS "c2", "s0"."nn" AS "c3", "s0"."flag" AS "c4" FROM "public"."s03 orders" AS "s0" WHERE ("s0"."nn" > CAST(0 AS pg_catalog.int8))), "p1" ("c0", "c1") AS (SELECT "t1"."c1" AS "c0", COALESCE(CAST(SUM(CASE WHEN "t1"."c4" THEN CAST("t1"."c2" AS pg_catalog.int8) END) AS pg_catalog.int8), 0) AS "c1" FROM "p0" AS "t1" GROUP BY "t1"."c1") SELECT "t2"."c0" AS "customer", "t2"."c1" AS "paid" FROM "p1" AS "t2"'
+    ),
+    ("M1", "mysql"): (
+        "WITH `p0` (`c0`, `c1`, `c2`, `c3`, `c4`) AS (SELECT `s0`.`id` AS `c0`, `s0`.`customer` AS `c1`, `s0`.`amount` AS `c2`, `s0`.`nn` AS `c3`, `s0`.`flag` AS `c4` FROM `phase66`.`s03 orders` AS `s0` WHERE (`s0`.`nn` > CAST(0 AS SIGNED))), `p1` (`c0`, `c1`) AS (SELECT `t1`.`c1` AS `c0`, COALESCE(CASE WHEN SUM(CASE WHEN `t1`.`c4` THEN `t1`.`c2` END) > 9223372036854775807 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) WHEN SUM(CASE WHEN `t1`.`c4` THEN `t1`.`c2` END) < -9223372036854775808 THEN CAST(-9223372036854775808 AS SIGNED) - CAST(1 AS SIGNED) ELSE CAST(SUM(CASE WHEN `t1`.`c4` THEN `t1`.`c2` END) AS SIGNED) END, 0) AS `c1` FROM `p0` AS `t1` GROUP BY `t1`.`c1`) SELECT `t2`.`c0` AS `customer`, `t2`.`c1` AS `paid` FROM `p1` AS `t2`"
+    ),
+    ("M2", "postgres"): (
+        'WITH "p0" ("c0", "c1", "c2", "c3", "c4") AS (SELECT "s0"."id" AS "c0", "s0"."customer" AS "c1", "s0"."amount" AS "c2", "s0"."nn" AS "c3", "s0"."flag" AS "c4" FROM "public"."s03 orders" AS "s0" WHERE ("s0"."id" > (-CAST(4 AS pg_catalog.int8)))), "p1" ("c0", "c1", "c2") AS (SELECT "t1"."c2" AS "c0", COALESCE(CAST(SUM(CASE WHEN ("t1"."c4" AND (NOT ("t1"."c3" > CAST(7 AS pg_catalog.int8)))) THEN CAST("t1"."c3" AS pg_catalog.int8) END) AS pg_catalog.int8), 0) AS "c1", CAST(SUM(CAST("t1"."c3" AS pg_catalog.int8)) AS pg_catalog.int8) AS "c2" FROM "p0" AS "t1" GROUP BY "t1"."c2") SELECT "t2"."c0" AS "a", "t2"."c1" AS "x", "t2"."c2" AS "y" FROM "p1" AS "t2"'
+    ),
+    ("M2", "mysql"): (
+        "WITH `p0` (`c0`, `c1`, `c2`, `c3`, `c4`) AS (SELECT `s0`.`id` AS `c0`, `s0`.`customer` AS `c1`, `s0`.`amount` AS `c2`, `s0`.`nn` AS `c3`, `s0`.`flag` AS `c4` FROM `phase66`.`s03 orders` AS `s0` WHERE (`s0`.`id` > (-CAST(4 AS SIGNED)))), `p1` (`c0`, `c1`, `c2`) AS (SELECT `t1`.`c2` AS `c0`, COALESCE(CASE WHEN SUM(CASE WHEN (`t1`.`c4` AND (NOT (`t1`.`c3` > CAST(7 AS SIGNED)))) THEN `t1`.`c3` END) > 9223372036854775807 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) WHEN SUM(CASE WHEN (`t1`.`c4` AND (NOT (`t1`.`c3` > CAST(7 AS SIGNED)))) THEN `t1`.`c3` END) < -9223372036854775808 THEN CAST(-9223372036854775808 AS SIGNED) - CAST(1 AS SIGNED) ELSE CAST(SUM(CASE WHEN (`t1`.`c4` AND (NOT (`t1`.`c3` > CAST(7 AS SIGNED)))) THEN `t1`.`c3` END) AS SIGNED) END, 0) AS `c1`, CASE WHEN SUM(`t1`.`c3`) > 9223372036854775807 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) WHEN SUM(`t1`.`c3`) < -9223372036854775808 THEN CAST(-9223372036854775808 AS SIGNED) - CAST(1 AS SIGNED) ELSE CAST(SUM(`t1`.`c3`) AS SIGNED) END AS `c2` FROM `p0` AS `t1` GROUP BY `t1`.`c2`) SELECT `t2`.`c0` AS `a`, `t2`.`c1` AS `x`, `t2`.`c2` AS `y` FROM `p1` AS `t2`"
+    ),
+    ("M3", "postgres"): (
+        'WITH "p0" ("c0", "c1", "c2", "c3", "c4", "c5") AS (SELECT "s0"."id" AS "c0", "s0"."customer" AS "c1", "s0"."amount" AS "c2", "s0"."nn" AS "c3", "s0"."flag" AS "c4", "s0"."nn" AS "c5" FROM "public"."s03 orders" AS "s0"), "p1" ("c0", "c1", "c2", "c3", "c4", "c5") AS (SELECT "t1"."c0" AS "c0", "t1"."c1" AS "c1", "t1"."c2" AS "c2", "t1"."c3" AS "c3", "t1"."c4" AS "c4", "t1"."c5" AS "c5" FROM "p0" AS "t1" WHERE ("t1"."c0" > CAST(3 AS pg_catalog.int8))), "p2" ("c0", "c1") AS (SELECT CAST(SUM(CAST("t2"."c5" AS pg_catalog.int8)) AS pg_catalog.int8) AS "c0", COALESCE(CAST(SUM(CASE WHEN (("t2"."c4" IS NULL) OR ("t2"."c0" > CAST(6 AS pg_catalog.int8))) THEN CAST("t2"."c2" AS pg_catalog.int8) END) AS pg_catalog.int8), 0) AS "c1" FROM "p1" AS "t2") SELECT "t3"."c0" AS "x", "t3"."c1" AS "y" FROM "p2" AS "t3"'
+    ),
+    ("M3", "mysql"): (
+        "WITH `p0` (`c0`, `c1`, `c2`, `c3`, `c4`, `c5`) AS (SELECT `s0`.`id` AS `c0`, `s0`.`customer` AS `c1`, `s0`.`amount` AS `c2`, `s0`.`nn` AS `c3`, `s0`.`flag` AS `c4`, `s0`.`nn` AS `c5` FROM `phase66`.`s03 orders` AS `s0`), `p1` (`c0`, `c1`, `c2`, `c3`, `c4`, `c5`) AS (SELECT `t1`.`c0` AS `c0`, `t1`.`c1` AS `c1`, `t1`.`c2` AS `c2`, `t1`.`c3` AS `c3`, `t1`.`c4` AS `c4`, `t1`.`c5` AS `c5` FROM `p0` AS `t1` WHERE (`t1`.`c0` > CAST(3 AS SIGNED))), `p2` (`c0`, `c1`) AS (SELECT CASE WHEN SUM(`t2`.`c5`) > 9223372036854775807 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) WHEN SUM(`t2`.`c5`) < -9223372036854775808 THEN CAST(-9223372036854775808 AS SIGNED) - CAST(1 AS SIGNED) ELSE CAST(SUM(`t2`.`c5`) AS SIGNED) END AS `c0`, COALESCE(CASE WHEN SUM(CASE WHEN ((`t2`.`c4` IS NULL) OR (`t2`.`c0` > CAST(6 AS SIGNED))) THEN `t2`.`c2` END) > 9223372036854775807 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) WHEN SUM(CASE WHEN ((`t2`.`c4` IS NULL) OR (`t2`.`c0` > CAST(6 AS SIGNED))) THEN `t2`.`c2` END) < -9223372036854775808 THEN CAST(-9223372036854775808 AS SIGNED) - CAST(1 AS SIGNED) ELSE CAST(SUM(CASE WHEN ((`t2`.`c4` IS NULL) OR (`t2`.`c0` > CAST(6 AS SIGNED))) THEN `t2`.`c2` END) AS SIGNED) END, 0) AS `c1` FROM `p1` AS `t2`) SELECT `t3`.`c0` AS `x`, `t3`.`c1` AS `y` FROM `p2` AS `t3`"
+    ),
+}
+_G7_BIG = "def big(x: Int) -> Bool: return x > 3\n"
+_G7_IDB = "def idb(x: Bool | None) -> Bool | None: return x\n"
+_G7_GT = "def gt(x: Int, n: Int) -> Bool: return x > n\n"
+_G7_IDF = "def idf(x: Int | None) -> Int | None: return x\n"
+_G7_THREE = "def three() -> Int: return 3\n"
+_G7_SCALAR = "query result:\n    from orders\n    select:\n        z = sum(o.amount for o in group if %s)\n"
+
+
+def _g7_t1(test):
+    """T1 with another test."""
+    return G7_FORMS["T1"].replace("o.flag and o.id > 3", test)
+
+
+# The list's sixteen other spellings of a form (BS), with the form each is: a
+# `table`, parentheses around a test, its atoms, the argument, a negative
+# literal or its digits and a SELECT item, another generator name, a `def` in
+# the test, and a read qualified by its source's name.
+G7_SPELLINGS = {
+    "table": ("T1", G7_FORMS["T1"].replace("query result:", "table result:")),
+    "parenthesized_test": ("T1", _g7_t1("(o.flag and o.id > 3)")),
+    "parenthesized_atoms": ("T1", _g7_t1("(o.flag) and (o.id > 3)")),
+    "parenthesized_argument": (
+        "T1",
+        G7_FORMS["T1"].replace("sum(o.amount for", "sum((o.amount) for"),
+    ),
+    "generator_name": (
+        "T1",
+        G7_FORMS["T1"].replace(
+            "o.amount for o in group if o.flag and o.id",
+            "r.amount for r in group if r.flag and r.id",
+        ),
+    ),
+    "def_atom": ("T1", _G7_BIG + _g7_t1("o.flag and big(o.id)")),
+    "def_test": (
+        "T1",
+        "def t(f: Bool | None, i: Int) -> Bool | None: return f and i > 3\n"
+        + _g7_t1("t(o.flag, o.id)"),
+    ),
+    "qualified_key": (
+        "T1",
+        G7_FORMS["T1"].replace("group by customer", "group by orders.customer"),
+    ),
+    "parenthesized_literal": ("T3", G7_FORMS["T3"].replace("> -5", "> (-5)")),
+    "parenthesized_digits": ("T3", G7_FORMS["T3"].replace("> -5", "> -(5)")),
+    "parenthesized_sign": ("T3", G7_FORMS["T3"].replace("> -5", "> (-(5))")),
+    "parenthesized_item": (
+        "B2",
+        G7_FORMS["B2"].replace("x = sum(amount)", "x = (sum(amount))"),
+    ),
+    "qualified_sum": (
+        "B2",
+        G7_FORMS["B2"].replace("sum(amount)", "sum(orders.amount)"),
+    ),
+    "qualified_max": (
+        "B3",
+        G7_FORMS["B3"].replace("max(amount)", "max(orders.amount)"),
+    ),
+    "qualified_where": (
+        "M1",
+        G7_FORMS["M1"].replace("where nn > 0", "where orders.nn > 0"),
+    ),
+    "qualified_let": ("M3", G7_FORMS["M3"].replace("let v = nn", "let v = orders.nn")),
+}
+_G7_BOTH = ("preserve_literals", "bind_safe_literals")
+# The neighbours the law opens (the list's P2-P15, MC.14; P1 is C1's own S03
+# case), five of S03's eleven refusals it opens among them under their S03
+# names (Phase74 lesson 4; T1, T3, B1, B2 and M1 are five more, and C3 under
+# bind_safe_literals is its own S03 case), S02's sum_filtered and a
+# conditional sum by S02's own non-null SMALLINT key (over G7_WORLDS' world),
+# each with the S03 form (S03_FORM_SQL) or the body whose SQL it emits on
+# both targets, under preserve_literals (None: its own, BM's), and the
+# policies it is in the cell under: a `def` at each position of a test counts
+# by what it inlines to, and a bare GROUP BY key read in a test as the same
+# read through the generator's variable.
+G7_CELLS = {
+    "c1_qualified_key": (
+        S03_FORMS["C1"].replace("group by customer", "group by orders.customer"),
+        "C1",
+        _G7_BOTH,
+    ),
+    "c1_parenthesized_argument": (
+        S03_FORMS["C1"].replace("sum(o.amount for", "sum((o.amount) for"),
+        "C1",
+        _G7_BOTH,
+    ),
+    "c2_parenthesized_test": (
+        S03_FORMS["C2"].replace("if not o.flag", "if not (o.flag)"),
+        "C2",
+        _G7_BOTH,
+    ),
+    "c2_two_fields": (
+        "query result:\n    from orders\n    select:\n        x = sum(o.amount for o in group if not o.flag)\n        y = sum(o.nn for o in group if o.flag is None)\n",
+        None,
+        _G7_BOTH,
+    ),
+    "ctl_c_narrow_argument": (
+        S03_FORMS["C1"].replace("sum(o.amount for", "sum(o.customer for"),
+        None,
+        _G7_BOTH,
+    ),
+    "P8": (
+        S03_FORMS["C1"].replace(
+            "        customer\n        paid",
+            "        customer = orders.customer\n        paid",
+        ),
+        "C1",
+        _G7_BOTH,
+    ),
+    "P9": (
+        S03_FORMS["C1"].replace(
+            "paid = sum(o.amount for o in group if o.flag)",
+            "paid = (sum(o.amount for o in group if o.flag))",
+        ),
+        "C1",
+        _G7_BOTH,
+    ),
+    "P10_idb": (
+        _G7_IDB + S03_FORMS["C1"].replace("if o.flag", "if idb(o.flag)"),
+        "C1",
+        _G7_BOTH,
+    ),
+    "P10_parentheses": (
+        S03_FORMS["C1"].replace("if o.flag", "if ((o.flag))"),
+        "C1",
+        _G7_BOTH,
+    ),
+    "P11_nul": (
+        "def nul(x: Bool | None) -> Bool: return x is None\n"
+        + S03_FORMS["C2"].replace("if o.flag is None", "if nul(o.flag)"),
+        "C2",
+        _G7_BOTH,
+    ),
+    "P11_neg": (
+        "def neg(x: Bool | None) -> Bool | None: return not x\n"
+        + S03_FORMS["C2"].replace("if not o.flag", "if neg(o.flag)"),
+        "C2",
+        _G7_BOTH,
+    ),
+    "P11_not_idb": (
+        _G7_IDB + S03_FORMS["C2"].replace("if not o.flag", "if not idb(o.flag)"),
+        "C2",
+        _G7_BOTH,
+    ),
+    **{
+        "P12_" + name: (
+            head + S03_FORMS["C3"].replace("o.id > 3", test),
+            "C3",
+            _G7_BOTH,
+        )
+        for name, head, test in (
+            ("parenthesized_read", "", "(o.id) > 3"),
+            ("parenthesized_literal", "", "o.id > (3)"),
+            ("big", _G7_BIG, "big(o.id)"),
+            ("gt", _G7_GT, "gt(o.id, 3)"),
+            ("idf", _G7_IDF, "idf(o.id) > 3"),
+            ("idn", "def idn(x: Int) -> Int: return x\n", "o.id > idn(3)"),
+            ("big_idf", _G7_BIG + _G7_IDF, "big(idf(o.id))"),
+            (
+                "big2",
+                _G7_BIG + "def big2(x: Int) -> Bool: return big(x)\n",
+                "big2(o.id)",
+            ),
+            ("parenthesized_call", _G7_BIG, "(big(o.id))"),
+            ("parenthesized_argument", _G7_BIG, "big((o.id))"),
+        )
+    },
+    "P13_key": (
+        _g7_t1("o.flag and customer > 2"),
+        _g7_t1("o.flag and o.customer > 2"),
+        _G7_BOTH,
+    ),
+    "P13_parenthesized_key": (
+        _g7_t1("o.flag and (customer) > 2"),
+        _g7_t1("o.flag and o.customer > 2"),
+        _G7_BOTH,
+    ),
+    "P13_idf_key": (
+        _G7_IDF + _g7_t1("o.flag and idf(customer) > 2"),
+        _g7_t1("o.flag and o.customer > 2"),
+        _G7_BOTH,
+    ),
+    "P13_big_key": (
+        _G7_BIG + _g7_t1("o.flag and big(customer)"),
+        _g7_t1("o.flag and o.customer > 3"),
+        _G7_BOTH,
+    ),
+    "P13_m2": (
+        G7_FORMS["M2"].replace("not (o.nn > 7)", "not (amount > 7)"),
+        G7_FORMS["M2"].replace("not (o.nn > 7)", "not (o.amount > 7)"),
+        ("preserve_literals",),
+    ),
+    "P13_b4": (
+        G7_FORMS["B4"].replace("if o.amount > 0", "if nn > 0"),
+        G7_FORMS["B4"].replace("if o.amount > 0", "if o.nn > 0"),
+        _G7_BOTH,
+    ),
+    **{
+        "P14_" + name: (_G7_SCALAR % test, None, _G7_BOTH)
+        for name, test in (
+            ("not_and", "not (o.flag and o.id > 3)"),
+            ("not_none", "not (o.flag is None)"),
+            ("not_not", "not not o.flag"),
+            ("not_parenthesized_not", "not (not o.flag)"),
+        )
+    },
+    "P15_three": (
+        _G7_THREE + S03_FORMS["C3"].replace("o.id > 3", "o.id > three()"),
+        "C3",
+        _G7_BOTH,
+    ),
+    "P15_parenthesized_three": (
+        _G7_THREE + S03_FORMS["C3"].replace("o.id > 3", "o.id > (three())"),
+        "C3",
+        _G7_BOTH,
+    ),
+    "P15_gt_three": (
+        _G7_GT + _G7_THREE + S03_FORMS["C3"].replace("o.id > 3", "gt(o.id, three())"),
+        "C3",
+        _G7_BOTH,
+    ),
+    "P15_m3": (
+        "def m3() -> Int: return -3\n"
+        + S03_FORMS["C3"].replace("o.id > 3", "o.id > m3()"),
+        S03_FORMS["C3"].replace("o.id > 3", "o.id > -3"),
+        _G7_BOTH,
+    ),
+    "sum_filtered": (
+        "query result:\n    from rows\n    group by k\n    select:\n        k\n        x = sum(o.a for o in group if o.id > 0)\n",
+        None,
+        _G7_BOTH,
+    ),
+    "smallint_key": (
+        "query result:\n    from nums\n    group by t\n    select:\n        t\n        x = sum(o.b for o in group if o.i > 3)\n",
+        None,
+        _G7_BOTH,
+    ),
+}
+# Bodies refused beside the law (R: a long label, a sum outside every cell,
+# ORDER BY, a header parameter, a bind-safe `?`, a relation alias, an upstream
+# query, an imported source) or outside it (X: another comparison, `is None`
+# of an Int, the conditional count, a sum in an expression, `is not None`, two
+# fields compared, a literal on the left, an Int literal outside the range, a
+# Bool literal, literal arithmetic, a literal written `+N` or `-(-N)`; and a
+# SMALLINT field compared or summed or a SMALLINT key read in a test, over
+# division_world), with the MySQL blockers main reports for them under each
+# policy that refuses them.
+G7_REFUSALS = {
+    "R1": G7_FORMS["T1"].replace("paid =", "%s =" % ("p" * 257)),
+    "R2": G7_FORMS["B2"] + "        z = sum(amount + nn)\n",
+    "R3": G7_FORMS["T1"] + "    order by:\n        customer\n",
+    "R4": "query result(lo: Int):\n    from orders\n    where id > lo\n    group by customer\n    select:\n        customer\n        paid = sum(o.amount for o in group if o.flag and o.id > 3)\n",
+    "R5": G7_FORMS["M1"],
+    "R6": "query result:\n    let x = orders\n    from x\n    group by customer\n    select:\n        customer\n        paid = sum(o.amount for o in group if o.flag or o.id > 3)\n",
+    "R7": "query up:\n    from orders\n    select:\n        customer\n        amount\n        flag\nquery result:\n    from up\n    group by customer\n    select:\n        customer\n        paid = sum(o.amount for o in group if not o.flag)\n",
+    "R8": {
+        "main.pietto": "export source orders\n",
+        "other.pietto": 'from "main.pietto" import (\n    source orders,\n)\n'
+        + G7_FORMS["T1"],
+    },
+    "X1": _G7_SCALAR % "o.id >= 3",
+    "X2": "query result:\n    from orders\n    select:\n        x = sum(o.amount for o in group if not o.flag)\n        y = sum(o.amount for o in group if o.amount is None)\n",
+    "X3": S03_FORMS["C1"] + "        n = sum(1 for o in group if o.flag)\n",
+    "X4": S03_FORMS["C1"] + "        extra = sum(amount) + 1\n",
+    "X5": _G7_SCALAR % "o.flag is not None",
+    "X6": _G7_SCALAR % "o.id > o.nn",
+    "X7": _G7_SCALAR % "3 < o.id",
+    "X9": _G7_SCALAR % "o.id > -9223372036854775808",
+    "X10": _G7_SCALAR % "o.flag == True",
+    "X11": _G7_SCALAR % "o.id > 3 + 1",
+    # Neither `N` nor `-N`.
+    "unary_plus": _G7_SCALAR % "o.id > +5",
+    "double_negation": _G7_SCALAR % "o.id > -(-5)",
+    "smallint_test": "query result:\n    from nums\n    select:\n        x = sum(o.b for o in group if o.t > 3)\n",
+    "smallint_argument": "query result:\n    from nums\n    select:\n        x = sum(o.t for o in group if o.i > 3)\n",
+    "smallint_key_test": "query result:\n    from nums\n    group by t\n    select:\n        t\n        x = sum(o.b for o in group if t > 3)\n",
+}
+# The world of each G7 body that s03_world does not build.
+G7_WORLDS = {
+    "sum_filtered": "numeric_world",
+    "smallint_key": "division_world",
+    "smallint_test": "division_world",
+    "smallint_argument": "division_world",
+    "smallint_key_test": "division_world",
+}
+G7_REFUSAL_POLICIES = {"R5": ("bind_safe_literals",)}
+G7_REFUSAL_BLOCKERS = {
+    "R1": [
+        ("PIE-B1004", "sum_int_aggregate_range_proof_missing", 20, 9),
+        ("PIE-B1002", "output_label_unrepresentable", None, None),
+    ],
+    "R2": [
+        ("PIE-B1004", "sum_int_aggregate_range_proof_missing", 20, 9),
+        ("PIE-B1004", "sum_int_aggregate_range_proof_missing", 21, 9),
+        ("PIE-B1002", "arithmetic_outside_physical_range", 23, 9),
+    ],
+    "R3": [
+        ("PIE-B1004", "sum_int_aggregate_range_proof_missing", 20, 9),
+    ],
+    "R4": [
+        ("PIE-B1004", "sum_int_aggregate_range_proof_missing", 21, 9),
+    ],
+    "R5": [
+        ("PIE-B1004", "sum_int_aggregate_range_proof_missing", 21, 9),
+    ],
+    "R6": [
+        ("PIE-B1004", "sum_int_aggregate_range_proof_missing", 21, 9),
+    ],
+    "R7": [
+        ("PIE-B1004", "sum_int_aggregate_range_proof_missing", 26, 9),
+    ],
+    "R8": [
+        ("PIE-B1004", "sum_int_aggregate_range_proof_missing", 9, 9),
+    ],
+    "X1": [
+        ("PIE-B1004", "sum_int_aggregate_range_proof_missing", 18, 9),
+    ],
+    "X2": [
+        ("PIE-B1004", "sum_int_aggregate_range_proof_missing", 18, 9),
+        ("PIE-B1004", "sum_int_aggregate_range_proof_missing", 19, 9),
+    ],
+    "X3": [
+        ("PIE-B1004", "sum_int_aggregate_range_proof_missing", 20, 9),
+        ("PIE-B1003", "conditional_count_not_admitted_on_target", 21, 9),
+    ],
+    "X4": [
+        ("PIE-B1003", "aggregate_composition_not_admitted_on_target", 21, 17),
+    ],
+    "X5": [
+        ("PIE-B1004", "sum_int_aggregate_range_proof_missing", 18, 9),
+    ],
+    "X6": [
+        ("PIE-B1004", "sum_int_aggregate_range_proof_missing", 18, 9),
+    ],
+    "X7": [
+        ("PIE-B1004", "sum_int_aggregate_range_proof_missing", 18, 9),
+    ],
+    "X9": [
+        ("PIE-B1002", "literal_leaf_representation", 18, 9),
+    ],
+    "X10": [
+        ("PIE-B1003", "comparison_type_pair_not_admitted", 18, 9),
+    ],
+    "X11": [
+        ("PIE-B1004", "sum_int_aggregate_range_proof_missing", 18, 9),
+    ],
+    "unary_plus": [("PIE-B1004", "sum_int_aggregate_range_proof_missing", 18, 9)],
+    "double_negation": [("PIE-B1004", "sum_int_aggregate_range_proof_missing", 18, 9)],
+    "smallint_test": [("PIE-B1004", "sum_int_aggregate_range_proof_missing", 13, 9)],
+    "smallint_argument": [
+        ("PIE-B1004", "sum_int_aggregate_range_proof_missing", 13, 9)
+    ],
+    "smallint_key_test": [
+        ("PIE-B1004", "sum_int_aggregate_range_proof_missing", 15, 9)
+    ],
+}
+# PostgreSQL emits each but these, which keep main's own blockers.
+G7_POSTGRES_BLOCKERS = {
+    "R1": [("PIE-B1002", "output_label_unrepresentable", None, None)],
+    "X9": [("PIE-B1002", "literal_leaf_representation", 18, 9)],
+    "X10": [("PIE-B1003", "comparison_type_pair_not_admitted", 18, 9)],
 }
 
 

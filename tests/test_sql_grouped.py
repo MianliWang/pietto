@@ -3502,16 +3502,13 @@ def _s03_blockers(outcome):
 @pytest.mark.parametrize("shape", sorted(probe.S03_REFUSALS))
 def test_mysql_sums_outside_the_s03_forms_keep_main_refusal(tmp_path, shape, policy):
     """D77.24: every MySQL statement that is not, names aside, one of the
-    nine paired forms keeps main's blockers, object for object, under each
-    policy it is refused with (rule two, D77.37): a test other than `F`,
-    `not F`, `F is None` or `I > L`, a negative literal, an INT argument,
-    a sum beside count() or a direct sum, WHERE, ORDER BY, a row alias, an
-    upstream query or a third level, a JOIN of another kind, key or ON
-    order, two sums over a JOIN, an extra or a missing upstream item, two
-    fields under C2's tests, a qualified C key, parentheses, an imported source, and a
-    form beside a composed aggregate. PostgreSQL emits each as main does."""
-    if policy not in probe.S03_REFUSAL_POLICIES.get(shape, (policy,)):
-        pytest.skip("refused under its own policy only")
+    nine paired forms, nor in the cells that MC G7 opens (G7_CELLS), keeps
+    main's blockers, object for object, under both policies (rule two,
+    D77.37): a test outside G7's atoms, ORDER BY, a row alias, an upstream
+    query or a third level, a JOIN of another kind, key or ON order, two
+    sums over a JOIN, an extra or a missing upstream item, parentheses in a
+    JOIN form, an imported source, and a form beside a composed aggregate.
+    PostgreSQL emits each as main does."""
     body = probe.S03_REFUSALS[shape]
     _, outcome = probe.s03_world(tmp_path / "mysql", "mysql", body, policy)
     assert outcome.status == "BLOCKED" and outcome.artifact is None

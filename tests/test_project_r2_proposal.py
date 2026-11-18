@@ -1572,6 +1572,17 @@ PHASE77_MYSQL_FORMS = {
         "query result:\n    from rows\n    group by note, a\n    select:\n"
         "        note\n        x = sum(n)\n",
     ),
+    "G7_tests": (
+        "s03",
+        "query result:\n    from orders\n    select:\n        x = sum(o.amount"
+        " for o in group if (o.flag is None or o.customer > -2) and not o.flag)\n",
+    ),
+    "G7_beside": (
+        "s03",
+        "query result:\n    from orders\n    where nn > 0\n    group by customer\n"
+        "    select:\n        customer\n        x = sum(amount)\n"
+        "        y = sum(o.customer for o in group if o.flag)\n        c = count()\n",
+    ),
     "S15": (
         "remainder",
         "table result:\n    from nums\n    select:\n        id\n        r = a % b\n",

@@ -461,23 +461,12 @@ def test_mysql_conditional_sums_emit_the_guarded_sum(tmp_path, form, target, pol
     literal L (C3, also over 0 and the largest Int), as COALESCE of S02's
     guarded SUM of CASE WHEN test THEN x END, 0: a non-null Int, 0 when no
     row matches, 1690 (SQLSTATE 22003) outside signed 64 bits. Under
-    bind_safe_literals C3 stays refused on MySQL with main's blocker, as the
-    qualification paired it preserved only; PostgreSQL's SQL is main's under
-    either policy. Every reader accepts each emitted form."""
+    bind_safe_literals C3's literal stays in the SQL, so C3 emits its
+    preserve_literals SQL on both families (on MySQL since MC G7). Every
+    reader accepts each emitted form."""
     body = probe.S03_FORMS.get(form) or probe.S03_SPELLINGS[form][1]
     checked, outcome = probe.s03_world(tmp_path, target, body, policy)
     assert checked.verified
-    if (
-        target == "mysql"
-        and policy == "bind_safe_literals"
-        and form.lower().startswith("c3")
-    ):
-        document = json.loads(serialize_project_sql_emission(outcome))
-        assert [
-            (item["code"], item["subject"]["detail"], item["location"]["line"])
-            for item in document["blockers"]
-        ] == [("PIE-B1004", "sum_int_aggregate_range_proof_missing", 18)]
-        return
     if target == "mysql" or policy == "preserve_literals":
         # The public decoder reads no bind-safe aggregate test literal (main).
         probe.numeric_readers_accept(outcome)
@@ -485,3 +474,246 @@ def test_mysql_conditional_sums_emit_the_guarded_sum(tmp_path, form, target, pol
     assert outcome.artifact.rendered.sql.decode() == probe.S03_FORM_SQL[form, target]
     document = json.loads(serialize_project_sql_emission(outcome))
     assert all(column["nullable"] is False for column in document["columns"])
+
+
+# MC G7 (Conditional `sum` extension): the public nullability of each form's
+# columns: a non-null GROUP BY key, each count and each conditional sum are
+# non-null; a direct sum, `min`, `max` and `avg` are nullable.
+G7_NON_NULL = {
+    "T1": {"customer", "paid"},
+    "T2": {"x", "y"},
+    "T3": {"z"},
+    "T4": {"customer", "t"},
+    "T5": {"x"},
+    "T6": {"k", "s", "t"},
+    "B1": {"customer", "paid", "c"},
+    "B2": {"customer", "y", "c"},
+    "B3": {"y", "r"},
+    "B4": {"customer", "nn", "x", "y", "m", "d"},
+    "M1": {"customer", "paid"},
+    "M2": {"x"},
+    "M3": {"y"},
+}
+
+
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+@pytest.mark.parametrize("form", sorted(probe.G7_FORMS))
+def test_mysql_g7_forms_emit_the_guarded_conditional_sum(tmp_path, form, target):
+    """MC G7: in G2's cell a MySQL project emits a conditional sum of a
+    BIGINT or INT field whose test is `not`, `and` and `or` over a Bool
+    read, its `is None` and a BIGINT or INT read `>` an Int literal `N` or
+    `-N`, beside other conditional sums, direct sums and G2's other
+    aggregates, under G2's keys, WHERE and `let`s, as S03's COALESCE of the
+    guarded SUM: a non-null Int, 0 when no row's test is True. Both families
+    emit the pinned SQL, pairwise distinct per family and PostgreSQL's
+    unchanged; every reader accepts it, the pure re-rendering included."""
+    import _pietto_sql_emission_portable as portable
+    import _pietto_sql_emission_pure_boundary as pure
+
+    checked, outcome = probe.s03_world(tmp_path, target, probe.G7_FORMS[form])
+    assert checked.verified
+    probe.numeric_readers_accept(outcome)
+    assert outcome.artifact is not None
+    assert outcome.artifact.rendered.sql.decode() == probe.G7_FORM_SQL[form, target]
+    observed = portable.export_emission_observation(
+        outcome.artifact, outcome.artifact.request
+    ).canonical_bytes
+    assert observed is not None and pure.rendering_refusal(observed) is None
+    document = json.loads(serialize_project_sql_emission(outcome))
+    assert {
+        column["label"] for column in document["columns"] if not column["nullable"]
+    } == G7_NON_NULL[form]
+    texts = [probe.G7_FORM_SQL[name, target] for name in probe.G7_FORMS]
+    assert len(set(texts)) == len(texts)
+
+
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+@pytest.mark.parametrize("spelling", sorted(probe.G7_SPELLINGS))
+def test_mysql_g7_spellings_emit_their_form_sql(tmp_path, spelling, target):
+    """The list's sixteen other spellings (a `table`, parentheses around a
+    test, its atoms, the argument, a negative literal, its digits or a
+    SELECT item, another generator name, a `def` in the test, a read
+    qualified by the source's name) emit the form's bytes on both families,
+    and every reader accepts them."""
+    form, body = probe.G7_SPELLINGS[spelling]
+    _, outcome = probe.s03_world(tmp_path, target, body)
+    probe.numeric_readers_accept(outcome)
+    assert outcome.artifact is not None
+    assert outcome.artifact.rendered.sql.decode() == probe.G7_FORM_SQL[form, target]
+
+
+@pytest.mark.parametrize(
+    ("name", "policy"),
+    [
+        (name, policy)
+        for name, (_, _, policies) in sorted(probe.G7_CELLS.items())
+        for policy in policies
+    ],
+)
+def test_mysql_g7_cells_emit_the_sql_they_spell(tmp_path, name, policy):
+    """The neighbours the law opens (MC.14), five of S03's eleven refusals
+    among them (T1, T3, B1, B2 and M1 are five more, C3 under
+    bind_safe_literals its S03 case): a qualified key or key read,
+    parentheses, a `def` at any position of a test, with or without
+    arguments, a bare GROUP BY key in a test, `not` over `and`, `is None` or
+    `not`, S02's conditional sum and one by S02's own non-null SMALLINT key.
+    Every reader accepts each (on PostgreSQL under preserve_literals: the
+    public decoder reads no bind-safe aggregate test literal there), and
+    each emits on both families the SQL of the S03 form or statement it
+    spells under preserve_literals, so no reader takes a spelling another
+    refuses."""
+    body, equal, _ = probe.G7_CELLS[name]
+    world = getattr(probe, probe.G7_WORLDS.get(name, "s03_world"))
+    for target in ("postgres", "mysql"):
+        _, outcome = world(tmp_path / target, target, body, policy)
+        if target == "mysql" or policy == "preserve_literals":
+            probe.numeric_readers_accept(outcome)
+        assert outcome.artifact is not None
+        if equal in probe.S03_FORMS:
+            expected = probe.S03_FORM_SQL[equal, target]
+        elif equal is not None:
+            _, spelled = probe.s03_world(tmp_path / f"{target}-equal", target, equal)
+            assert spelled.artifact is not None
+            expected = spelled.artifact.rendered.sql.decode()
+        else:
+            continue
+        assert outcome.artifact.rendered.sql.decode() == expected
+
+
+def _g7_spelling(sql):
+    """BM: main's PostgreSQL SQL in MySQL's spelling, each conditional sum
+    COALESCE of S02's guarded SUM of CASE WHEN test THEN x END, 0, each
+    direct sum the guarded SUM of x, each bigint cast of a literal SIGNED
+    and each float8 cast of an `avg` argument DOUBLE."""
+    import re
+
+    from pietto._project.project_sql_emission_aggregation import MYSQL_SUM_GUARD
+
+    guard = [text for _, text in MYSQL_SUM_GUARD]
+
+    def guarded(argument):
+        return argument.join(guard)
+
+    sql = re.sub(
+        r"COALESCE\(CAST\(SUM\(CASE WHEN (.*?) THEN CAST\((\S+) AS pg_catalog\.int8\)"
+        r" END\) AS pg_catalog\.int8\), 0\)",
+        lambda found: (
+            "COALESCE(%s, 0)"
+            % guarded("CASE WHEN %s THEN %s END" % (found.group(1), found.group(2)))
+        ),
+        sql,
+    )
+    sql = re.sub(
+        r"CAST\(SUM\(CAST\((\S+) AS pg_catalog\.int8\)\) AS pg_catalog\.int8\)",
+        lambda found: guarded(found.group(1)),
+        sql,
+    )
+    return (
+        sql.replace("AS pg_catalog.int8)", "AS SIGNED)")
+        .replace("AS pg_catalog.float8)", "AS DOUBLE)")
+        .replace('"', "`")
+        .replace("`public`.", "`phase66`.")
+    )
+
+
+@pytest.mark.parametrize(
+    "name",
+    sorted(
+        {
+            *probe.G7_FORMS,
+            *probe.G7_SPELLINGS,
+            *probe.G7_CELLS,
+        }
+    ),
+)
+def test_mysql_g7_sql_is_main_postgresql_sql_in_mysql_spelling(tmp_path, name):
+    """BM: each G7 body's MySQL SQL is main's PostgreSQL SQL of it in
+    MySQL's spelling, each sum the guarded SUM (_g7_spelling): so every
+    test, key, other aggregate, FROM, WHERE and `let` stage is the SQL that
+    main spells on both families, and a combination the forms do not run
+    rests on the forms' parts. S02's conditional sum over numeric_world and
+    one by S02's own SMALLINT key over division_world, which main refused,
+    are in the cell, every reader accepting them."""
+    world = getattr(probe, probe.G7_WORLDS.get(name, "s03_world"))
+    body = (
+        probe.G7_FORMS.get(name)
+        or probe.G7_SPELLINGS.get(name, (None, None))[1]
+        or probe.G7_CELLS[name][0]
+    )
+    _, postgres = world(tmp_path / "postgres", "postgres", body)
+    _, mysql = world(tmp_path / "mysql", "mysql", body)
+    probe.numeric_readers_accept(mysql)
+    assert postgres.artifact is not None and mysql.artifact is not None
+    assert mysql.artifact.rendered.sql.decode() == _g7_spelling(
+        postgres.artifact.rendered.sql.decode()
+    )
+
+
+@pytest.mark.parametrize("form", sorted(probe.G7_FORMS))
+def test_mysql_g7_test_literals_stay_under_bind_safe_literals(tmp_path, form):
+    """BB: a test literal is an aggregate argument's, which
+    bind_safe_literals keeps in the SQL, so a form without a WHERE literal
+    emits its preserve_literals SQL on both families, every reader
+    accepting it; M1 to M3 bind their WHERE literal, a bind-safe `?`, and
+    keep main's blockers on MySQL, PIE-B1004 at each sum."""
+    body = probe.G7_FORMS[form]
+    _, postgres = probe.s03_world(
+        tmp_path / "postgres", "postgres", body, "bind_safe_literals"
+    )
+    _, mysql = probe.s03_world(tmp_path / "mysql", "mysql", body, "bind_safe_literals")
+    assert postgres.artifact is not None
+    if form.startswith("M"):
+        assert "$1" in postgres.artifact.rendered.sql.decode()
+        assert mysql.status == "BLOCKED" and mysql.artifact is None
+        assert [(blocker.code, blocker.detail) for blocker in mysql.blockers] == [
+            ("PIE-B1004", "sum_int_aggregate_range_proof_missing")
+        ] * body.count("= sum(")
+        return
+    probe.numeric_readers_accept(mysql)
+    assert mysql.artifact is not None
+    for target, outcome in (("postgres", postgres), ("mysql", mysql)):
+        assert outcome.artifact is not None
+        assert outcome.artifact.rendered.sql.decode() == probe.G7_FORM_SQL[form, target]
+
+
+def _g7_blockers(outcome):
+    return [
+        (
+            blocker["code"],
+            blocker["subject"]["detail"],
+            *(
+                (None, None)
+                if blocker["location"] is None
+                else (blocker["location"]["line"], blocker["location"]["column"])
+            ),
+        )
+        for blocker in json.loads(serialize_project_sql_emission(outcome))["blockers"]
+    ]
+
+
+@pytest.mark.parametrize("policy", ("preserve_literals", "bind_safe_literals"))
+@pytest.mark.parametrize("shape", sorted(probe.G7_REFUSALS))
+def test_mysql_g7_neighbours_keep_main_refusal(tmp_path, shape, policy):
+    """Rule two (D77.37): a statement the G7 law matches beside another
+    blocker (a label too long, a sum outside every cell, ORDER BY, a header
+    parameter, a bind-safe `?`, a relation alias, an upstream query, an
+    imported source) and one outside it (`>=`, `is None` of an Int, the
+    conditional count, a sum in an expression, `is not None`, two fields
+    compared, a literal on the left, an Int literal outside the range, a
+    Bool literal, literal arithmetic, `+N`, `-(-N)`, a SMALLINT field
+    compared or summed, a SMALLINT key read in a test) keep main's
+    blockers, object for object, under each policy they are refused with;
+    PostgreSQL emits each but the long label and the two literals as main
+    does."""
+    if policy not in probe.G7_REFUSAL_POLICIES.get(shape, (policy,)):
+        pytest.skip("refused under its own policy only")
+    body = probe.G7_REFUSALS[shape]
+    world = getattr(probe, probe.G7_WORLDS.get(shape, "s03_world"))
+    _, outcome = world(tmp_path / "mysql", "mysql", body, policy)
+    assert outcome.status == "BLOCKED" and outcome.artifact is None
+    assert _g7_blockers(outcome) == probe.G7_REFUSAL_BLOCKERS[shape]
+    _, postgres = world(tmp_path / "postgres", "postgres", body, policy)
+    if shape in probe.G7_POSTGRES_BLOCKERS:
+        assert _g7_blockers(postgres) == probe.G7_POSTGRES_BLOCKERS[shape]
+    else:
+        assert postgres.status == "VERIFIED", postgres.blockers

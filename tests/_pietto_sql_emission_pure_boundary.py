@@ -2135,7 +2135,9 @@ def _mysql_cells(
     INT or VARCHAR source field keys, and values that are sums, counts, mins
     or a `count_distinct`, `max` or `avg` of one source field of its
     _MYSQL_SUM_BESIDE storage), and the
-    final body only projects the aggregate's columns. Below a WHERE an S02
+    final body only projects the aggregate's columns. MC G7 counts a
+    conditional sum as a sum: its column is one when it reads such a field
+    and its test is _mysql_sum_test's. Below a WHERE an S02
     chain may start with one body per value `let` (_mysql_sum_lets). S15
     cells need one projection body straight over the scan,
     each of whose columns is a read of a source field of its tag's carrier
@@ -2328,7 +2330,7 @@ def _mysql_cells(
             for read in reads
         )
         and all(
-            doc[value]["function"] in ("sum", "count", "min")
+            doc[value]["function"] in ("sum", "filtered_sum", "count", "min")
             for value in stage["values"]
         )
     )
@@ -2337,7 +2339,7 @@ def _mysql_cells(
         and _mysql_storage_kind(doc, read) in _MYSQL_SUM_KEY_KINDS
         for read in reads
     ) and all(
-        doc[value]["function"] in ("sum", "count", "min")
+        doc[value]["function"] in ("sum", "filtered_sum", "count", "min")
         or _mysql_field_read(doc, doc[value]["argument"])
         and _mysql_storage_kind(doc, doc[value]["argument"])
         in _MYSQL_SUM_BESIDE.get(doc[value]["function"], ())
@@ -2347,12 +2349,17 @@ def _mysql_cells(
         column.kind != "aggregate_projection_column" for column in final["columns"]
     ):
         return empty
+    tested: dict = {}
     return (
         frozenset(),
         frozenset(
             value
             for value in stage["values"]
-            if doc[value]["function"] == "sum"
+            if (
+                doc[value]["function"] == "sum"
+                or doc[value]["function"] == "filtered_sum"
+                and _mysql_sum_test(doc, doc[value]["delimiter"], tested)
+            )
             and _mysql_field_read(doc, doc[value]["argument"])
             and _mysql_sum_carrier(doc, doc[value]["argument"])
         ),
@@ -2360,6 +2367,49 @@ def _mysql_cells(
         frozenset(),
         frozenset(),
     )
+
+
+def _mysql_sum_test(doc, ref, tested) -> bool:
+    """MC G7, from the document: a conditional sum's test as emission's
+    mysql_sum_test reads it, `not`, `and` and `or` over a source field of
+    MySQL Bool storage, its `is None`, and a BIGINT or INT source field `>`
+    an Int literal written `N` or `-N`. ``tested`` remembers each
+    operation's verdict, False while it is being read."""
+
+    if type(ref) is not Ref:
+        return False
+    if ref.kind != "sql_operation":
+        return _mysql_field_read(doc, ref) and dict(
+            doc[doc[ref]["realization"]]["storage"]
+        ) == {"kind": "my_bool01"}
+    if ref in tested:
+        return tested[ref]
+    tested[ref] = False
+    operation = doc[ref]
+    shape = (operation["kind"], operation["operator"], len(operation["operands"]))
+    operands = operation["operands"]
+    if shape in (("logical", "and", 2), ("logical", "or", 2)):
+        verdict = all(_mysql_sum_test(doc, item, tested) for item in operands)
+    elif shape in (("not", "not", 1), ("null_test", "is null", 1)):
+        verdict = (
+            shape[0] == "not" or operands[0].kind == "sql_stage_reference"
+        ) and _mysql_sum_test(doc, operands[0], tested)
+    elif shape == ("comparison", ">", 2):
+        left, right = operands
+        if right.kind == "sql_unary" and doc[right]["operator"] == "-":
+            right = doc[right]["operand"]
+        verdict = (
+            _mysql_field_read(doc, left)
+            and _mysql_storage_kind(doc, left) in ("my_bigint", "my_int")
+            and right.kind == "sql_anchor"
+            and doc[right]["tag"] == "Int"
+            and doc[right]["operand"].kind == "sql_literal"
+            and doc[doc[right]["operand"]]["value"].tag == "Int"
+        )
+    else:
+        verdict = False
+    tested[ref] = verdict
+    return verdict
 
 
 def _mysql_sum_lets(doc, bodies, stage) -> bool:
@@ -4559,7 +4609,11 @@ class _Check:
                 low = 0 if counted else -(1 << 63)
                 result = doc[doc[column["column"]]["realization"]]
                 _require(
-                    (family == "postgres" or family == "mysql" and ref in mysql_s03)
+                    (
+                        family == "postgres"
+                        or family == "mysql"
+                        and (ref in mysql_s03 or ref in mysql_sums)
+                    )
                     and test is not None
                     and (_value_realization(doc, test) or {}).get("tag") == "Bool"
                     and (counted or column["delimiter"] is not None)
