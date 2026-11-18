@@ -630,19 +630,40 @@ def effective_semantic_aggregate_argument_expression(
     *,
     let_expansions: Mapping[str, Expression] | None,
 ) -> Expression:
-    """Return the expression shape used for approved aggregate argument checks."""
+    """Return the expression shape used for approved aggregate argument checks:
+    the argument with each `let:` name it reads by value written in place."""
 
-    if function_name not in LET_EXPANDABLE_AGGREGATE_ARGUMENT_NAMES:
-        return expression
-    if not isinstance(expression, NameExpr):
-        return expression
-    if let_expansions is None or expression.name not in let_expansions:
+    if not aggregate_reads_let_values(function_name, expression, let_expansions):
         return expression
     return _expand_let_references(
-        let_expansions[expression.name],
-        let_expansions=let_expansions,
-        let_stack=frozenset((expression.name,)),
+        expression,
+        let_expansions=cast(Mapping[str, Expression], let_expansions),
+        let_stack=frozenset(),
     )
+
+
+def aggregate_reads_let_values(
+    function_name: str,
+    expression: Expression,
+    let_expansions: Mapping[str, Expression] | None,
+) -> bool:
+    """Whether the aggregate ``function_name`` reads a `let:` name in its
+    argument as the name's value (PL.48 (1)): `count`, `count_distinct`,
+    `sum`, `avg`, `string_agg`, `first` and `last` do, as the whole argument
+    or inside it (`sum(d + 1)`), but not inside a generator."""
+
+    if function_name not in LET_EXPANDABLE_AGGREGATE_ARGUMENT_NAMES:
+        return False
+    if not let_expansions:
+        return False
+    pending = [expression]
+    while pending:
+        node = pending.pop()
+        if type(node) is NameExpr and node.name in let_expansions:
+            return True
+        if type(node) is not ast.GeneratorExpr:
+            pending.extend(child_expressions(node))
+    return False
 
 
 def aggregate_argument_can_use_let_scope(
@@ -821,7 +842,33 @@ def _expand_let_references(
             negated=expression.negated,
             span=expression.span,
         )
+    if type(expression) in _EXPANDED_CHILDREN:
+
+        def expand(child: Expression) -> Expression:
+            return _expand_let_references(
+                child, let_expansions=let_expansions, let_stack=let_stack, memo=memo
+            )
+
+        return replace(
+            expression,
+            **{
+                name: tuple(map(expand, value))
+                if type(value) is tuple
+                else expand(value)
+                for name in _EXPANDED_CHILDREN[type(expression)]
+                for value in (getattr(expression, name),)
+            },
+        )
     return expression
+
+
+# The other nodes whose children `child_expressions` reads, but a generator's.
+_EXPANDED_CHILDREN: Mapping[type[Expression], tuple[str, ...]] = {
+    ConditionalExpr: ("when_true", "condition", "when_false"),
+    MembershipExpr: ("value", "options"),
+    ast.RelationMembershipExpr: ("value",),
+    CastExpr: ("value",),
+}
 
 
 def has_unknown_field_reference(

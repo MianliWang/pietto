@@ -398,11 +398,11 @@ field; and
 relation with GROUP BY, as `k` or `x = k` after `let k = qty` and
 `group by k`. Item (3) is also a semantic extension: single files accept
 `min` and `max` of a numeric `let`, which projects already accept. Each
-extension takes a slice of its own with a
-two-database verification, and none lands before the `0.2.2` release
-commit (PL.57); until each lands,
-`0.2.2`'s behavior and the [diagnostics reference](spec/diagnostics.md)
-stand.
+extension takes a slice of its own with a two-database verification, and
+none reaches `main` before the `0.2.2` release commit (PL.57). Item (1)
+landed with [P09](phases/phase-81/route.md#p09-record), and the
+[diagnostics reference](spec/diagnostics.md) states it; until items (3)
+and (4) land, `0.2.2`'s behavior for them stands.
 
 ### Tests and maintenance
 
@@ -489,7 +489,7 @@ the lead's plan for Phase81–90, which Phase82's Gate 1 records (PL.99
 | The CPython matrix and the Windows claim | frozen as Phase81 decides them | owner, 2026-11-07 |
 | The release notes' history before the freeze, which keeps its file layout until then | archived by the Phase82 freeze | PL.40 (D10), PL.51 |
 | Compiled replay and live analysis give different JOIN key and grain facts for equal SQL bytes | decided (PL.61): live semantic analysis is the only authority, and adapters read the facts only from the verified plan; JF's J2 aligns the compiled replay with the same law before Phase82's Gate 1, and Phase82 audits the closed decision | Phase74 handoff, Phase76 reminder 8, PL.61, PL.62 |
-| A forged compiled aggregate whose argument reads a `let:` name in a form that `compile_query` refuses for that aggregate, such as `sum(t)` with `let t = value % 2`, loads with consistent SQL | fixed: `load_bundle` refuses such a bundle (`PIE-R1004`): the compiled replay and its semantic verifier judge a `let:` name that is a whole aggregate argument by the value it holds, except under `min` and `max`, which read it as a field, refuse a computed `let:` value inside an argument's own operation, as an aggregate `order by` key, or in the test or the summed field of a conditional count or sum and the test of `any` or `all` over a group, and read a window's value only from a field; a `let:` name that only renames a field reads as that field, so an edited bundle that reads one where `compile_query` refuses the name, such as `sum(d + 1)` with `let d = value`, loads as a known equivalence of the field form, such as `sum(value + 1)`, with equivalent SQL; Phase82 audits the closed row | Phase74 handoff, Phase76 reminder 8, PL.70 |
+| A forged compiled aggregate whose argument reads a `let:` name in a form that `compile_query` refuses for that aggregate, such as `sum(t)` with `let t = value % 2`, loads with consistent SQL | fixed: `load_bundle` refuses such a bundle (`PIE-R1004`): the compiled replay and its semantic verifier judge a `let:` name that is a whole aggregate argument by the value it holds, except under `min` and `max`, which read it as a field, judge one inside an aggregate argument by the value written in place (PL.48 (1); the bundle of `sum(d + 1)` after `let d = id * 2` loads, and the one edited to `id % 2` is refused), refuse a computed `let:` value as an aggregate `order by` key, or in the test or the summed field of a conditional count or sum and the test of `any` or `all` over a group, and read a window's value only from a field; a `let:` name that only renames a field reads as that field, so an edited bundle that reads one where `compile_query` refuses the name, such as `median(d)` with `let d = value`, loads as a known equivalence of the field form, `median(value)`, with equivalent SQL; Phase82 audits the closed row | Phase74 handoff, Phase76 reminder 8, PL.70 |
 | The VS Code extension's sync script imports the generated lexer and parser from `pietto.generated` and two functions from `pietto.indentation`, modules that no public contract names | decided (PL.99 (4)): a limited tool contract names only what the script reads, and the other modules are internal | PL.38, PL.44, PL.99 |
 | The fixed civil `Timestamp` meaning of a `now()` output; the statement time that R2 records and `recover` binds | each freezes with the result contract and the R2 workspace, or changes before the freeze | D77.42, D77.49; [Phase77 audit](phases/phase-77/completion-audit.md) |
 | MySQL R2 refuses every form that `0.1.11` refused (`PUBLIC_R2_UNQUALIFIED_FORM`, by rule two) and every paired form (`PUBLIC_R2_PAIRED_FORM`) | a support-matrix row for R2 by target, or narrowed by forms that a native R2 qualification covers | D77.46, D77.67, D77.68 |

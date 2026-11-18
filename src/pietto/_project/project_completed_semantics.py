@@ -3429,10 +3429,11 @@ def _let_value(records, address):
 
 def _reads_a_let_value(records, address):
     """Whether ``address`` reads a computed `let:` value of its own statement,
-    itself or below its operations. compile_query refuses a `let:` name
-    inside an aggregate argument's own operation (PIE-S2333) and as an
-    aggregate order key (PIE-S2104, PIE-S2333); an alias `let:` name reads
-    as the field it renames, a known equivalence of that field's form."""
+    itself or below its operations. compile_query refuses a `let:` name as
+    an aggregate order key (PIE-S2104, PIE-S2333), in a generator, which
+    reads only fields of its member (PIE-S2102, PIE-S2334), and in a window's
+    value (PIE-S2103, PIE-S2104); an alias `let:` name reads as the field it
+    renames, a known equivalence of that field's form."""
     if address.kind == "operation":
         return any(
             _reads_a_let_value(records, o) for o in records[address].get("operands")
@@ -3445,16 +3446,11 @@ def _field_operands(function, operands):
     fields alone, so that none reads a computed `let:` value
     (`_reads_a_let_value`): each input of a conditional count or sum and of a
     test of the group, whose generator reads only fields of its member
-    (PIE-S2102, PIE-S2334), and a `string_agg` delimiter that is an
-    operation (PIE-S2333); a `let:` name that is the whole delimiter is its
-    value, as for the first argument (`_source_argument`)."""
+    (PIE-S2102, PIE-S2334). A `string_agg` delimiter reads a `let:` name
+    anywhere in it as its value, as the first argument does (PL.48 (1))."""
     from pietto._project import project_sql_emission_aggregation as grouping
 
-    if function in grouping.FILTERED_FUNCTIONS:
-        return operands
-    if function == "string_agg":
-        return tuple(o for o in operands[1:] if o.kind == "operation")
-    return ()
+    return operands if function in grouping.FILTERED_FUNCTIONS else ()
 
 
 def _source_argument(records, function, argument):
@@ -3465,9 +3461,14 @@ def _source_argument(records, function, argument):
     `_reads_a_parameter`'s), and a row operation an operator or call over
     them; any other record is no admitted form. A `let:` name that is the
     whole argument is its value, as the semantic layer expands it, except
-    under `min` and `max`, which read the name as a field; a computed
-    `let:` value inside the argument's own operation is no admitted form
-    (`_reads_a_let_value`)."""
+    under `min` and `max`, which read the name as a field. Inside the
+    argument a `let:` name is its value too under `count`, `count_distinct`,
+    `sum`, `avg`, `string_agg`, `first` and `last` (PL.48 (1)). Of these,
+    `sum`, `avg`, `count` and `count_distinct` admit an operation, whose
+    `leaves` follow each operand's value, so the law judges the value written
+    in place, `sum(d + 1)` with `let d = value * 2` as `sum(value * 2 + 1)`;
+    `string_agg` admits any `Text` argument; `first`, `last` and every other
+    aggregate admit no operation."""
     from pietto.semantic.aggregates import (
         is_supported_count_argument,
         is_supported_numeric_argument,
@@ -3506,8 +3507,6 @@ def _source_argument(records, function, argument):
         return resolved.kind is TypeKind.BUILTIN and resolved.name in names
 
     address = argument.address
-    if address.kind == "operation" and _reads_a_let_value(records, address):
-        return False
     if function not in ("min", "max"):
         address = _let_value(records, address)
     if address.kind == "read":

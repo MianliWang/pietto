@@ -4668,6 +4668,22 @@ still an aggregate projection: beside another projection, a window included,
 without GROUP BY it is PIE-S2312, as `max` is, and `emit-sql` refuses it with
 PIE-B1000 there, as it refuses every aggregate over such a source (see below).
 
+An aggregate reads a `let` name inside its argument as the name's value,
+as it reads a `let` name that is its whole argument (PL.48 (1)). After
+`let d = qty * 2`, a single file and an EXPLICIT_MODULES project accept
+`sum(d + 1)`, as they accept `sum(qty * 2 + 1)`, and the single file's SQL
+on PostgreSQL and on MySQL is that of `sum(qty * 2 + 1)`. After
+`let d = qty`, `min(d + 1)` and `first(d + 1, order by id)` are PIE-S2315
+in both, as for a field, and so is `sum(d + 1)` after `let d = qty % 2`.
+A project reads the `let` column of its row stage, also over JOIN rows,
+and a `schema_version = 1` project reads the name as its value in a
+relation without GROUP BY.
+A `let` name passed to a `def` inside the argument must fit its parameter
+as the value written in place must. Over a source without a shape the name
+is read as its value too: after `let d = x`, `sum(d + 1)` is accepted,
+while `min(d)`, `max(d)`, `median(d)`, `quantile(d, 0.5)` and `stddev(d)`
+keep PIE-S2102 (see below).
+
 `count()` lowers to `COUNT(*)`; supported `count(field)` forms count non-null
 field values. `count` of a `Bool` field counts its False values too; to count
 the True ones write `sum(1 for o in group if o.paid)` (PIE-S2388 warns). The selected project numeric boundary admits Int unary `+`/`-`,
@@ -5575,8 +5591,9 @@ In project SQL an admitted expression argument (`sum(qty * 2)`,
 admission and blockers as `let t = qty * 2` with `sum(t)`. On MySQL,
 [E4B's count cell](#mysql-float-wider-cells) emits `count(-x)` over a
 nullable `Float` field when the sign is written inside the count.
-`let t = -x` with `count(t)` keeps `unary_sign_requires_int_operand`.
-Over JOIN rows PostgreSQL also
+`let t = -x` with `count(t)` keeps `unary_sign_requires_int_operand`, and
+so does `let t = x` with `count(-t)`, whose `let` a project keeps as a
+column of its row stage. Over JOIN rows PostgreSQL also
 emits an aggregate argument that holds a scalar call such as `lower`
 (`count(lower(r.label))`), while a joined `let t = lower(r.label)` with
 `count(t)` stays BLOCKED: a joined `let` admits such a call only directly

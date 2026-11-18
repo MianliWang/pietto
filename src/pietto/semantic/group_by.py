@@ -34,6 +34,7 @@ from pietto.semantic.aggregates import (
     aggregate_alias_required_diagnostic,
     aggregate_composition_leaves,
     aggregate_argument_can_use_let_scope,
+    aggregate_reads_let_values,
     child_expressions,
     contains_semantic_aggregate,
     count_distinct_tuple_diagnostic,
@@ -1038,8 +1039,9 @@ def unknown_to_aggregate(
     or in the value of a `let:` name it reads, is unknown because of its own
     PIE-S2395 and the aggregate accepts the argument's form for some argument
     type. A part that is unknown only because of such a ``def`` argument is no
-    field of unknown type. The aggregate reads a `let:` name only as its whole
-    argument, and then the names that name's value reads; over an input row of
+    field of unknown type. The aggregate reads a `let:` name where it reads
+    one by value (`aggregate_reads_let_values`), and then the names that
+    name's value reads; over an input row of
     known shape a `min` or `max` argument reads any `let:` name in it as its
     value, its form is accepted for no argument type, and a field of unknown
     type there does not make it unknown (`extremum_reads_let`).
@@ -1072,9 +1074,7 @@ def unknown_to_aggregate(
         if let_expansions is not None
         and (
             extremum
-            or aggregate_argument_can_use_let_scope(
-                function_name, argument, let_expansions
-            )
+            or aggregate_reads_let_values(function_name, argument, let_expansions)
         )
         else {}
     )
@@ -1611,22 +1611,19 @@ def unread_let_diagnostics(
 ) -> list[Diagnostic]:
     """PIE-S2102 for each `let:` name that the aggregate ``function_name``
     reads in ``argument`` of a relation over a row of unknown type where it
-    reads no `let:` name: inside a call or an operator, or as the argument of
-    `min` or `max`. Such a name is no field of the row, as over a known row."""
+    reads none by value (`aggregate_reads_let_values`): as the whole argument
+    of `min`, `max`, `median`, `quantile` or a variance or standard
+    deviation. Such a name is no field of the row, as over a known row."""
 
     lets = let_expansions or {}
-    if aggregate_argument_can_use_let_scope(function_name, argument, lets):
+    # Inside an expression argument a name is read as its value (PL.48 (1)).
+    if (
+        type(argument) is not NameExpr
+        or argument.name not in lets
+        or aggregate_reads_let_values(function_name, argument, lets)
+    ):
         return []
-    diagnostics: list[Diagnostic] = []
-    pending = [argument]
-    while pending:
-        node = pending.pop()
-        if isinstance(node, NameExpr):
-            if node.name in lets:
-                diagnostics.append(_unknown_field_diagnostic(node))
-        else:
-            pending.extend(reversed(child_expressions(node)))
-    return diagnostics
+    return [_unknown_field_diagnostic(argument)]
 
 
 def open_input_schema(definition: DerivedRelation) -> RowSchema:

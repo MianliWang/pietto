@@ -1046,10 +1046,11 @@ def test_a_project_def_argument_reports_what_its_written_form_reports(
 def test_a_project_def_checks_a_let_that_an_aggregate_reads(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """A `let:` name passed to a def and read directly by an aggregate, also
-    in `satisfying`, must fit the parameter as the value written out must:
-    PIE-S2333 at the relation, as for `count(idi(n))`, grouped or not, and
-    PIE-S2395 at the call in a JOIN relation, which reports its own errors."""
+    """A `let:` name passed to a def and read by an aggregate, also in
+    `satisfying` or inside an expression argument (PL.48 (1)), must fit the
+    parameter as the value written out must: PIE-S2333 at the relation, as
+    for `count(idi(n))`, grouped or not, and PIE-S2395 at the call in a JOIN
+    relation, which reports its own errors. One that fits is accepted."""
     source = DEF_HEAD + (
         "query g:\n    from rows\n    let f = n\n    group by id\n"
         "    select:\n        id\n        c = count(idi(f))\n"
@@ -1064,17 +1065,33 @@ def test_a_project_def_checks_a_let_that_an_aggregate_reads(
         "    inner join o on o.row_id == rows.id\n    let f = o.label\n"
         "    group by rows.id\n    select:\n        k = rows.id\n        c = count(f)\n"
         "    having count(idt(f)) > 0\n"
+        "query e:\n    from rows\n    let f = n\n    select:\n"
+        "        s = sum(idi(f) + 1)\n"
+        "query i:\n    from rows\n    let f = id\n    select:\n"
+        "        s = sum(idi(n + f) * 2)\n"
+        "query t:\n    from others\n    let f = label\n    select:\n"
+        "        c = count(lower(idt(f)))\n"
+        "query fits:\n    from rows\n    let g = id\n    select:\n"
+        "        s = sum(idi(g) + 1)\n"
     )
+
+    def unavailable(*relations: tuple[str, int]):
+        return [
+            (
+                "PIE-S2333",
+                "a.pietto",
+                DEF_LINE + line,
+                1,
+                f"Project relation semantic completion is unavailable: {name}",
+            )
+            for name, line in relations
+        ]
+
     assert _def_check(tmp_path, capsys, {"a.pietto": source}) == [
-        (
-            "PIE-S2333",
-            "a.pietto",
-            DEF_LINE + line,
-            1,
-            f"Project relation semantic completion is unavailable: {name}",
-        )
-        for name, line in (("g", 0), ("a", 7), ("m", 12), ("s", 19))
-    ] + [_mismatch("idt", DEF_LINE + 36, 18, "Text", "Text | None")]
+        *unavailable(("g", 0), ("a", 7), ("m", 12), ("s", 19)),
+        _mismatch("idt", DEF_LINE + 36, 18, "Text", "Text | None"),
+        *unavailable(("e", 37), ("i", 42), ("t", 47)),
+    ]
 
 
 def test_a_project_def_checks_an_aggregate_or_group_key_passed_to_it(

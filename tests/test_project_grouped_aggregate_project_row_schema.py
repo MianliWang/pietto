@@ -2079,6 +2079,20 @@ _FAILING_TEST = "        n = sum(1 for o in group if o.label > 1)\n"
             ["PIE-S2310"],
         ),
         ("    where round(avg(qty), 2) > 1\n    select:\n        id\n", ["PIE-S2308"]),
+        # A `let` name in an aggregate's expression argument is read as its
+        # value, as in a single file (before: the bare PIE-S2333).
+        (
+            "    let k = label\n"
+            + _REFUSED_W.replace("w = count()", "m = count(k + 1)"),
+            ["PIE-S2315"],
+        ),
+        (
+            _LET_Q2
+            + _REFUSED_W.replace("w = count()", "m = sum(q2 + 1)")
+            + "        c = sum(nope)\n",
+            ["PIE-S2102"],
+        ),
+        (_LET_Q2 + _REFUSED_W.replace("w = count()", "m = min(q2 + 1)"), ["PIE-S2315"]),
     ),
     ids=(
         "count_unknown_field",
@@ -2106,6 +2120,9 @@ _FAILING_TEST = "        n = sum(1 for o in group if o.label > 1)\n"
         "round_of_a_refused_argument",
         "round_of_a_refused_composition",
         "round_in_where",
+        "expression_argument",
+        "expression_argument_beside_an_error",
+        "min_expression_argument",
     ),
 )
 def test_a_relation_with_aggregates_reports_what_a_file_does(
@@ -2125,10 +2142,6 @@ _NOPE = "        c = sum(nope)\n"
 @pytest.mark.parametrize(
     "body",
     (
-        # A `let` name in an aggregate's expression argument, which a single
-        # file reads as no `let` name (PIE-S2102).
-        "    let k = label\n" + _BY_LABEL + "        m = count(k + 1)\n",
-        _LET_Q2 + _BY_LABEL + "        m = sum(q2 + 1)\n" + _NOPE,
         # A `let` name in `max`, which a project admits and a file refuses.
         _LET_Q2 + _BY_LABEL + "        m = max(q2)\n" + _NOPE,
         # A query parameter read through a `let` GROUP BY key.
@@ -2143,8 +2156,6 @@ _NOPE = "        c = sum(nope)\n"
         "        m = count()\n" + _NOPE,
     ),
     ids=(
-        "expression_argument",
-        "expression_argument_beside_an_error",
         "max_beside_an_error",
         "parameter_through_a_let_key",
         "selected_let_key",

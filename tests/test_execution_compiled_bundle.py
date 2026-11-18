@@ -1395,6 +1395,155 @@ def test_an_aggregate_parity_template_binds_and_renders_the_same_sql(
         assert call in sql
 
 
+@pytest.mark.parametrize(
+    "target,lets,select",
+    (
+        (
+            "postgres",
+            "    let d = value * 2\n    let l = label\n",
+            "        s = sum(d + 1)\n        c = count(lower(l))\n"
+            "        u = count_distinct(lower(l))\n",
+        ),
+        # Computed values under every aggregate that reads them, a
+        # `string_agg` delimiter included.
+        (
+            "postgres",
+            "    let d = value + 1\n    let t = trim(label)\n",
+            "        a = avg(d * 2)\n        c = count(d % 2)\n"
+            "        u = count_distinct(lower(t))\n"
+            "        g = string_agg(lower(t), upper(t), order by rid)\n",
+        ),
+        # A MySQL `Int` let here is outside BIGINT's proved range (PIE-B1002),
+        # and MySQL emits no `Float` `sum` or `avg` and no `string_agg`
+        # (PIE-B1003).
+        (
+            "mysql",
+            "    let l = label\n",
+            "        c = count(lower(l))\n        u = count_distinct(lower(l))\n",
+        ),
+        (
+            "mysql",
+            "    let t = trim(label)\n    let b = flag and flag\n",
+            "        c = count(lower(t))\n        u = count_distinct(lower(t))\n"
+            "        n = count(b or flag)\n",
+        ),
+        # A name read below the argument's top operation, through a chain of
+        # names, and as both operands of one operation.
+        (
+            "postgres",
+            "    let d = value * 2\n    let a = value * 2\n    let e = a + 1\n"
+            "    let t = trim(label)\n",
+            "        s = sum((d + 1) * 2)\n        v = sum(value * (d + 1))\n"
+            "        w = sum(e + 1)\n        x = sum(d + d)\n"
+            "        c = count(d - d)\n        n = count(len(lower(t)))\n",
+        ),
+        (
+            "mysql",
+            "    let a = trim(label)\n    let t = lower(a)\n"
+            "    let b = flag and flag\n",
+            "        c = count(len(lower(t)))\n"
+            "        u = count_distinct(lower(trim(t)))\n        n = count(b or b)\n",
+        ),
+        # A name read inside a conditional, in a `string_agg` argument and in
+        # its delimiter.
+        (
+            "postgres",
+            "    let t = lower(label)\n",
+            "        g = string_agg(t if flag else label,"
+            ' upper(t) if flag else ",", order by rid)\n',
+        ),
+        # In a conditional's condition: a membership test, a comparison and a
+        # chained comparison, in the argument and in the delimiter.
+        (
+            "postgres",
+            "    let d = value * 2\n",
+            '        g = string_agg(label if d in (1, 2) else "-",'
+            ' "," if 3 in (d, 4) else ";", order by rid)\n',
+        ),
+        (
+            "postgres",
+            "    let d = value * 2\n",
+            '        g = string_agg(label if d > 2 else "-",'
+            ' "," if 3 <= d <= 4 else ";", order by rid)\n',
+        ),
+        # A constructor call, which is a cast, as the argument, the delimiter
+        # and inside a condition.
+        (
+            "postgres",
+            "    let d = value * 2\n",
+            '        g = string_agg(Text(d), "," if Float(d) > 1.5 else ";",'
+            " order by rid)\n"
+            '        h = string_agg(label if Float(d) > 1.5 else "-", Text(d),'
+            " order by rid)\n",
+        ),
+    ),
+)
+def test_a_let_read_inside_an_aggregate_argument_loads_and_renders(
+    tmp_path, target, lets, select
+):
+    """PL.48 (1): an aggregate argument that reads a `let` name anywhere in
+    an expression, below its top operation, through a chain of names, as
+    both operands of one operation, inside a conditional, in its condition's
+    membership test or comparison, or in a cast, compiles to a bundle whose
+    aggregate operates on the `let` column of its row stage, not on the
+    value written in; the compiled replay, its template and `load_bundle`
+    accept it under its own pin and render the emitted SQL."""
+    import _pietto_sql_emission as probe
+    from pietto._project.project_compiled_build import build_compiled
+    from pietto._project.project_compiled_loading import load_compiled
+    from pietto._project.project_compiled_lowering import emit_compiled
+
+    item = probe.fixture(target, "V_aggregate_blocked", "inline_arguments")
+    source = (
+        item["source"].split("query result:")[0]
+        + "query result:\n    from agg\n"
+        + lets
+        + "    select:\n"
+        + select
+    )
+    _, outcome = probe.build_case(tmp_path, source, item["contract"])
+    assert outcome.status == "VERIFIED", outcome.blockers
+    assert outcome.artifact is not None
+    built = build_compiled(outcome.artifact)
+    _assert_bundle_loads_or_refused(built, built.payload, False)
+    loaded = load_compiled(
+        built.payload,
+        expected_pin=built.pin,
+        accepted_producer=built.producer,
+        accepted_compatibility=built.compatibility,
+    )
+    assert emit_compiled(loaded, ()).rendered.sql == outcome.artifact.rendered.sql
+    records = {r.address: r for r in built.root.description.records}
+    operands = [
+        records[argument]
+        for record in records.values()
+        if record.address.kind == "aggregate_value"
+        for argument in record.get("arguments")
+    ]
+    assert {r.address.kind for r in operands} == {"operation"}
+
+    def let_column(port) -> bool:
+        # A `let` column follows the copies of its row stage's input ports,
+        # and a later stage copies it in turn.
+        row = records[port.get("owner")]
+        while row.address.kind == "row" and row.get("stage") == "let":
+            if port.get("ordinal") >= len(records[row.get("use")].get("ports")):
+                return True
+            port = records[records[port.get("source")].get("port")]
+            row = records[port.get("owner")]
+        return False
+
+    for operand in operands:
+        pending, ports = [operand], []
+        while pending:
+            record = pending.pop()
+            if record.address.kind == "read":
+                ports.append(records[record.get("port")])
+            elif record.address.kind == "operation":
+                pending.extend(records[item] for item in record.get("operands"))
+        assert any(map(let_column, ports))
+
+
 def test_a_conditional_count_and_sum_template_binds_its_header_read(tmp_path):
     """The conditional count and sum of a group under a WHERE header
     parameter bind through a loaded compiled bundle and a live PostgreSQL

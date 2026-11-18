@@ -454,6 +454,17 @@ def test_contract_refusals(
                 ("PIE-B1003", "sqlite_aggregate_not_admitted", 13),
             ],
         ),
+        # A `let` read inside an aggregate's argument passes `check --project`,
+        # and SQLite emission admits no `let` stage.
+        (
+            "query result:\n    from orders\n    let d = amount\n"
+            "    select:\n        c = count(d + 1)\n",
+            [
+                ("PIE-B1003", "sqlite_relation_shape_not_admitted", 12),
+                ("PIE-B1003", "sqlite_expression_not_admitted", 14),
+                ("PIE-B1003", "sqlite_aggregate_not_admitted", 14),
+            ],
+        ),
         (
             "query result:\n    from orders\n    group by:\n        note\n"
             "    select:\n        note\n        c = count() + 1\n"
@@ -1551,6 +1562,16 @@ def _join(on: str, kind: str = "inner", extra: str = "") -> str:
                 "orders.id\n", "w = row_number() window(order by orders.id)\n"
             ),
             [(5, 24), (5.2, 24)],
+        ),
+        # PL.48 (1): a `let` read inside an aggregate's argument over JOIN
+        # rows passes `check --project`, where it was PIE-S2315, and SQLite
+        # emission admits no `let` stage: rule 5 at the `let`, beside the
+        # argument's own refusals.
+        (
+            "query result:\n    from orders\n    let c = customers\n"
+            "    inner join c on c.id == orders.amount\n    let d = orders.amount\n"
+            "    select:\n        n = count(d + 1)\n",
+            [(5, 28), (9, 30), (10, 30)],
         ),
     ],
 )

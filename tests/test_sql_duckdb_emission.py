@@ -549,6 +549,17 @@ SHAPES = {
         _grouped("n = count(amount + 1)"),
         [("PIE-B1003", "duckdb_aggregate_not_admitted")],
     ),
+    # A `let` read inside an aggregate's argument passes `check --project`,
+    # and DuckDB emission admits no `let` stage, beside the argument's own
+    # refusal.
+    "let_inside_an_argument": (
+        "query result:\n    from orders\n    let d = amount\n"
+        "    select:\n        a = count(d + 1)\n",
+        [
+            ("PIE-B1003", "duckdb_relation_shape_not_admitted"),
+            ("PIE-B1003", "duckdb_aggregate_not_admitted"),
+        ],
+    ),
     "count_distinct": (
         _grouped("n = count_distinct(id)"),
         [("PIE-B1003", "duckdb_aggregate_not_admitted")],
@@ -1255,6 +1266,28 @@ def test_other_joins_are_rule_5_at_the_join(tmp_path: Path, join: str) -> None:
     assert (status, blockers(emitted)) == ("BLOCKED", [SHAPE_REFUSED]), emitted
     assert emitted["blockers"][0]["location"]["line"] == 21
     assert emitted["blockers"][0]["suggestion"] == B2_SUGGESTIONS[SHAPE_REFUSED[1]]
+
+
+@pytest.mark.parametrize("kind", ("inner", "left"))
+def test_a_let_read_inside_an_aggregate_argument_over_join_rows_is_rule_5(
+    tmp_path: Path, kind: str
+) -> None:
+    """PL.48 (1): over JOIN rows a `let` read inside an aggregate's argument
+    passes `check --project`, where it was PIE-S2315, and DuckDB emission
+    admits no `let` stage: rule 5 at the `let`, beside the argument's own
+    refusal."""
+    body = (
+        "query result:\n    from orders\n"
+        f"    {kind} join customers on customers.id == orders.amount\n"
+        "    let d = orders.amount\n    select:\n        n = count(d + 1)\n"
+    )
+    status, emitted = _joined(tmp_path, body)
+    assert not emitted["diagnostics"]
+    assert (status, blockers(emitted)) == (
+        "BLOCKED",
+        [SHAPE_REFUSED, ("PIE-B1003", "duckdb_aggregate_not_admitted")],
+    )
+    assert [b["location"]["line"] for b in emitted["blockers"]] == [22, 24]
 
 
 @pytest.mark.parametrize("kind", ("right", "inner"))

@@ -992,9 +992,6 @@ def test_a_compiled_let_name_is_a_field_only_for_min_and_max(
     "let,item,function,index",
     (
         ("value % 2", "s = sum(value + 1)", "sum", 0),
-        ("value * 2", "s = sum(value + 1)", "sum", 0),
-        ("value * 2", "s = avg(value * 2)", "avg", 0),
-        ("trim(label)", "s = count_distinct(lower(label))", "count_distinct", 0),
         ("value % 2", "f = first(value, order by rid)", "first", 0),
         ("value % 2", "n = count_distinct(key, rid)", "count_distinct_tuple", 0),
         ("value % 2", "n = count_distinct(key, rid)", "count_distinct_tuple", 1),
@@ -1020,12 +1017,6 @@ def test_a_compiled_let_name_is_a_field_only_for_min_and_max(
             ("value % 2", f"n = {f}(o.rid > 0 for o in group)", "group_" + f, 0)
             for f in ("any", "all")
         ),
-        (
-            "trim(label)",
-            "s = string_agg(label, lower(label), order by rid)",
-            "string_agg",
-            1,
-        ),
     ),
 )
 def test_a_compiled_read_of_a_computed_let_port_is_refused(
@@ -1034,16 +1025,14 @@ def test_a_compiled_read_of_a_computed_let_port_is_refused(
     """A field read edited to read the port of a computed `let d = ...` is
     refused by the replay, load_bundle and the independent semantic verifier,
     as compile_query refuses each source form: inside the argument's own
-    operation whatever `d` holds (`sum(d + 1)` and `avg(d * 2)` with
-    `let d = value * 2`, `count_distinct(lower(d))` with
-    `let d = trim(label)`; PIE-S2333), as the whole argument by the law for
+    operation by the law for the value written in place (`sum(d + 1)` with
+    `let d = value % 2`; PIE-S2315), as the whole argument by the law for
     `d`'s value (`first(d, ...)`, either column of `count_distinct(key, d)`
     with `let d = value % 2`), as the `order by` key of `first`, `last` or
-    `string_agg` (PIE-S2104, PIE-S2333), in the test or the summed field of
-    a conditional count or sum and in the test of `any` or `all` over a
+    `string_agg` (PIE-S2104, PIE-S2333), and in the test or the summed field
+    of a conditional count or sum and in the test of `any` or `all` over a
     group, whose generator reads only fields of its member (PIE-S2102,
-    PIE-S2334), and inside a `string_agg` delimiter's operation
-    (`lower(d)`; PIE-S2333)."""
+    PIE-S2334)."""
     body = _AGG_QUERY + (
         f"    let d = {let}\n    select:\n        c = count(d)\n        {item}\n"
     )
@@ -1053,6 +1042,319 @@ def test_a_compiled_read_of_a_computed_let_port_is_refused(
     )
     _argument_refused(built, forged)
     _verifier_refuses(built, forged, "AGGREGATE_ARGUMENT")
+
+
+@pytest.mark.parametrize(
+    "let,item,written,function,index",
+    (
+        ("value * 2", "s = sum(value + 1)", "s = sum(d + 1)", "sum", 0),
+        ("value * 2", "s = avg(value * 2)", "s = avg(d * 2)", "avg", 0),
+        (
+            "trim(label)",
+            "s = count_distinct(lower(label))",
+            "s = count_distinct(lower(d))",
+            "count_distinct",
+            0,
+        ),
+        (
+            "trim(label)",
+            "s = string_agg(label, lower(label), order by rid)",
+            "s = string_agg(label, lower(d), order by rid)",
+            "string_agg",
+            1,
+        ),
+    ),
+)
+def test_a_compiled_read_of_a_computed_let_port_inside_an_argument_loads(
+    tmp_path, let, item, written, function, index
+):
+    """PL.48 (1): `sum`, `avg`, `count_distinct` and `string_agg` read a
+    `let:` name inside their argument, a delimiter's operation included, as
+    its value. A field read there edited to read the port of a computed
+    `let d = ...` whose value their law admits written in place is the bundle
+    compile_query writes for the source that reads `d` there: it loads
+    through load_bundle and renders that source's SQL."""
+    from pietto.execution import load_bundle
+
+    head = _AGG_QUERY + f"    let d = {let}\n    select:\n        c = count(d)\n"
+    built = build_compiled(
+        _agg_build(tmp_path / "field", "postgres", head + f"        {item}\n").artifact
+    )
+    forged = _forged_field(
+        built, _field_read(built, function, index), "port", _let_port(built)
+    )
+    source = _agg_build(tmp_path / "let", "postgres", head + f"        {written}\n")
+    assert source.artifact is not None
+    rendered = emit_compiled(_loaded(built, forged), ()).rendered.sql
+    assert rendered == source.artifact.rendered.sql
+    payload = compiled_schema.encode(forged)
+    load_bundle(
+        payload,
+        expected_pin=compiled_schema.content_pin(payload),
+        accepted_producer=built.producer,
+        accepted_compatibility=built.compatibility[-1],
+    )
+
+
+def test_a_compiled_let_read_inside_a_mysql_avg_argument_replays(tmp_path):
+    """PL.48 (1) on MySQL: over an `INT` column, `avg(d + 1)` with
+    `let d = value * 2` aggregates the `let:` column of its row stage, and its
+    bundle replays as it was emitted. MySQL emits no `sum` of these `Int`
+    values (PIE-B1004) and no `string_agg` (PIE-B1003)."""
+    item = emission.fixture("mysql", "V_aggregate_blocked", "inline_arguments")
+    contract = json.loads(item["contract"])
+    (field,) = (f for f in contract["sources"][0]["fields"] if f["name"] == "value")
+    field["representation"]["storage"] = {"kind": "my_int"}
+    field["representation"]["domain"] = {
+        "kind": "int_range",
+        "min": "-2147483648",
+        "max": "2147483647",
+    }
+    source = item["source"].split("query result:")[0] + (
+        _AGG_QUERY + "    let d = value * 2\n    group by flag\n    select:\n"
+        "        flag\n        a = avg(d + 1)\n"
+    )
+    _, original = emission.build_case(
+        tmp_path, source, emission.encoded(contract).decode()
+    )
+    assert original.status == "VERIFIED", original.blockers
+    _compare(original.artifact, refinement=False)
+
+
+@pytest.mark.parametrize("let", ("lhs.id * 2", "lhs.id + r.id"))
+def test_a_compiled_let_read_inside_an_argument_over_join_rows_replays(tmp_path, let):
+    """PL.48 (1) over JOIN rows: a PostgreSQL project aggregates the `let:`
+    column of its row stage for `sum(d + 1)` and `count(d + 1)`, with a
+    value of one input or of both, and its bundle replays as it was emitted.
+    MySQL emits neither over these `Int` rows (PIE-B1002)."""
+    body = (
+        "query result:\n    from lhs\n    let r = rhs\n"
+        "    inner join r on lhs.id == r.id\n"
+        f"    let d = {let}\n    group by lhs.key\n    select:\n"
+        "        k = lhs.key\n        s = sum(d + 1)\n        c = count(d + 1)\n"
+    )
+    item = emission.labelled_join_witness("postgres", body)
+    _, outcome = emission.build_case(tmp_path, item["source"], item["contract"])
+    assert outcome.status == "VERIFIED", outcome.blockers
+    _compare(outcome.artifact, refinement=False)
+
+
+@pytest.mark.parametrize(
+    "target,lets,item,old,new",
+    (
+        ("postgres", "d = value * 2", "s = sum(d + 1)", "*", "%"),
+        ("postgres", "d = value * 2", "s = sum(d + 1)", "*", "/"),
+        ("postgres", "d = value + 1", "s = avg(d * 2)", "+", "%"),
+        ("postgres", "a = value * 2\n    let d = a + 1", "s = sum(d + 1)", "*", "%"),
+        ("postgres", "d = value * 2", "c = count(d + 1)", "*", "/"),
+        *(
+            (target, "d = trim(label)", f"c = {f}(lower(d))", "trim", "upper")
+            for target in ("postgres", "mysql")
+            for f in ("count", "count_distinct")
+        ),
+    ),
+)
+def test_a_compiled_let_value_inside_an_aggregate_argument_keeps_its_law(
+    tmp_path, target, lets, item, old, new
+):
+    """PL.48 (1): an aggregate that reads a `let:` name inside its argument
+    judges the value written in place by its law. With the value edited into
+    a form compile_query refuses there (PIE-S2315), such as `sum(d + 1)` with
+    `let d = value % 2` or `count(lower(d))` with `let d = upper(label)`,
+    through a chain of names and on MySQL, the replay, load_bundle and the
+    independent semantic verifier refuse the bundle."""
+    body = _AGG_QUERY + f"    let {lets}\n    select:\n        {item}\n"
+    built = build_compiled(_agg_build(tmp_path, target, body).artifact)
+    (operation,) = (
+        r
+        for r in built.root.description.records
+        if r.address.kind == "operation" and r.get("operator")[1] == old
+    )
+    role = operation.get("operator")[0]
+    forged = _forged_field(built, operation, "operator", (role, new))
+    _argument_refused(built, forged)
+    _verifier_refuses(built, forged, "AGGREGATE_ARGUMENT")
+
+
+@pytest.fixture(scope="module")
+def let_inside_sum_bundle(tmp_path_factory):
+    """`sum(d + 1)` with `let d = value * 2` (PL.48 (1))."""
+    body = _AGG_QUERY + "    let d = value * 2\n    select:\n        s = sum(d + 1)\n"
+    original = _agg_build(tmp_path_factory.mktemp("let-inside"), "postgres", body)
+    return build_compiled(original.artifact)
+
+
+@pytest.mark.parametrize(
+    "function",
+    ("min", "max", "median", "stddev", "variance", "pstdev", "count_distinct"),
+)
+def test_a_compiled_let_read_inside_an_argument_keeps_the_other_laws(
+    let_inside_sum_bundle, monkeypatch, function
+):
+    """`min`, `max`, `median` and the variances and standard deviations read
+    no `let:` name inside an argument and admit no operation, and
+    `count_distinct` only a Text field's `lower` and `trim` chain
+    (PIE-S2315): renamed from `sum`, `sum(d + 1)` with `let d = value * 2` is
+    refused by the replay and load_bundle, and as `min` or `max`, whose result
+    keeps its type, by the independent semantic verifier after a derivation
+    made to admit any argument."""
+    from pietto._project import project_completed_semantics as semantics
+
+    built = let_inside_sum_bundle
+    forged = _forged_field(built, _aggregate(built, "sum"), "function", function)
+    _argument_refused(built, forged)
+    if function not in ("min", "max"):
+        return
+    with monkeypatch.context() as patch:
+        patch.setattr(semantics, "_source_argument", lambda *args: True)
+        completed = semantics.derive_compiled_semantics(_loaded(built, forged), ())
+    with pytest.raises(
+        compiled_schema.CompiledError,
+        match="^COMPILED_SEMANTIC_AGGREGATE_ARGUMENT$",
+    ):
+        semantics.verify_compiled_semantics(completed)
+
+
+# `count` and `avg` may read a parameter through a `let:` name that is their
+# whole argument, but not through one inside an operation, which in a bundle
+# only the parameter guard refuses.
+@pytest.mark.parametrize(
+    "item",
+    (
+        "s = sum(d + id)",
+        "c = count(d + 1)",
+        "a = avg(d + 1)",
+        "c = count(d * d)",
+        "a = avg(3 * d)",
+    ),
+)
+def test_a_compiled_let_read_inside_an_argument_never_reads_a_query_parameter(
+    tmp_path, monkeypatch, item
+):
+    """compile_query refuses a query parameter inside an aggregate argument
+    also through a `let:` name it reads there (PIE-S2355; `sum(d + id)`,
+    `count(d + 1)`, `avg(d + 1)`, `count(d * d)` or `avg(3 * d)` with
+    `let d = id * low`). With the WHERE's parameter read and the `let:`
+    value's Int literal swapped, the replay and load_bundle refuse the
+    bundle, and so does the independent semantic verifier after a
+    derivation made to admit it."""
+    from _pietto_sql_query_parameters import parameterized_case
+    from pietto._project import project_completed_semantics as semantics
+
+    body = (
+        "query result(low: Int):\n    from rows\n    let d = id * 2\n"
+        "    where id > low\n    group by flag\n    select:\n        flag\n"
+        f"        {item}\n"
+    )
+    _, outcome = parameterized_case(tmp_path, "postgres", body)
+    assert outcome.status == "VERIFIED", outcome.blockers
+    built = build_compiled(outcome.artifact)
+    records = built.root.description.records
+    (parameter,) = (r.address for r in records if r.address.kind == "parameter_read")
+    (where,) = (
+        r
+        for r in records
+        if r.address.kind == "operation" and parameter in r.get("operands")
+    )
+    # The `let:` value is the operation that a row port carries, not one
+    # inside the argument such as `3 * d`.
+    carried = {r.get("source") for r in records if r.address.kind == "port"}
+    (value,) = (
+        r
+        for r in records
+        if r.address.kind == "operation"
+        and r.address in carried
+        and r.get("operator") == ("binary", "*")
+        and any(o.kind == "literal" for o in r.get("operands"))
+    )
+    (literal,) = (o for o in value.get("operands") if o.kind == "literal")
+
+    def swapped(record, old, new):
+        values = list(record.values)
+        values[compiled_schema.FIELDS["operation"].index("operands")] = tuple(
+            new if o == old else o for o in record.get("operands")
+        )
+        return tuple(values)
+
+    forged = _replaced(
+        built.root.description,
+        {
+            where.address: swapped(where, parameter, literal),
+            value.address: swapped(value, literal, parameter),
+        },
+    )
+    _argument_refused(built, forged)
+    with monkeypatch.context() as patch:
+        patch.setattr(semantics, "_reads_a_parameter", lambda *args: False)
+        completed = semantics.derive_compiled_semantics(_loaded(built, forged), ())
+    with pytest.raises(
+        compiled_schema.CompiledError,
+        match="^COMPILED_SEMANTIC_AGGREGATE_ARGUMENT$",
+    ):
+        semantics.verify_compiled_semantics(completed)
+
+
+@pytest.mark.parametrize(
+    "let,delimiter",
+    (('trim("x")', "upper(d)"), ('trim("x")', "d"), (None, 'upper("x")')),
+)
+def test_a_compiled_string_agg_delimiter_never_reads_a_query_parameter(
+    tmp_path, monkeypatch, let, delimiter
+):
+    """compile_query refuses a query parameter in a `string_agg` delimiter,
+    written in it or read through a `let:` name that is the whole delimiter
+    or inside its operation (PIE-S2355). With the WHERE's Text parameter read
+    and the delimiter's Text literal swapped, as `upper(d)` or `d` with
+    `let d = trim(sep)` or `upper(sep)`, the replay and load_bundle refuse
+    the bundle, and so does the independent semantic verifier after a
+    derivation made to admit it."""
+    from _pietto_sql_query_parameters import parameterized_case
+    from pietto._project import project_completed_semantics as semantics
+
+    body = (
+        "query result(sep: Text):\n    from rows\n"
+        + (f"    let d = {let}\n" if let else "")
+        + "    where text != sep\n    group by flag\n    select:\n        flag\n"
+        + f"        g = string_agg(text, {delimiter}, order by id)\n"
+    )
+    _, outcome = parameterized_case(tmp_path, "postgres", body)
+    assert outcome.status == "VERIFIED", outcome.blockers
+    built = build_compiled(outcome.artifact)
+    records = built.root.description.records
+    operations = tuple(r for r in records if r.address.kind == "operation")
+    (parameter,) = (r.address for r in records if r.address.kind == "parameter_read")
+    (where,) = (r for r in operations if parameter in r.get("operands"))
+    ((holder, literal),) = (
+        (r, o)
+        for r in operations
+        for o in r.get("operands")
+        if o.kind == "literal" and built.root.records[o].get("tag") == "Text"
+    )
+
+    def swapped(record, old, new):
+        values = list(record.values)
+        values[compiled_schema.FIELDS["operation"].index("operands")] = tuple(
+            new if o == old else o for o in record.get("operands")
+        )
+        return tuple(values)
+
+    forged = _replaced(
+        built.root.description,
+        {
+            where.address: swapped(where, parameter, literal),
+            holder.address: swapped(holder, literal, parameter),
+        },
+    )
+    _argument_refused(built, forged)
+    with monkeypatch.context() as patch:
+        patch.setattr(semantics, "_reads_a_parameter", lambda *args: False)
+        patch.setattr(semantics, "_source_argument", lambda *args: True)
+        completed = semantics.derive_compiled_semantics(_loaded(built, forged), ())
+    with pytest.raises(
+        compiled_schema.CompiledError,
+        match="^COMPILED_SEMANTIC_AGGREGATE_ARGUMENT$",
+    ):
+        semantics.verify_compiled_semantics(completed)
 
 
 def _field_read(built, function, index):
@@ -1085,6 +1387,7 @@ def _field_read(built, function, index):
             for i in (0, 1)
         ),
         ("rid", "n = all(o.rid > 0 for o in group)", "group_all", 0),
+        ("value", "m = median(value)", "median", 0),
         ("label", "s = string_agg(label, lower(label), order by rid)", "string_agg", 1),
     ),
 )
@@ -1092,10 +1395,13 @@ def test_a_compiled_read_of_an_alias_let_port_loads(
     tmp_path, let, item, function, index
 ):
     """compile_query reads no `let:` name in a generator (PIE-S2102,
-    PIE-S2334) or inside a `string_agg` delimiter's operation (PIE-S2333),
-    but the port of an alias `let d = <field>` carries that field's value as
-    the stage's own port of the field does: a read of the field edited to
-    read it still loads through load_bundle and emits."""
+    PIE-S2334) or as the whole argument of `median`, which reads no name by
+    value (PIE-S2315), but the port of an alias `let d = <field>` carries
+    that field's value as the stage's own port of the field does: a read of
+    the field edited to read it still loads through load_bundle and emits,
+    as a known equivalence (`median(d)` with `let d = value` as
+    `median(value)`). Inside a `string_agg` delimiter's operation the name
+    is its value (PL.48 (1)), so there the edit is an admitted read."""
     from pietto.execution import load_bundle
 
     body = _AGG_QUERY + (
@@ -1244,8 +1550,13 @@ def test_the_compiled_argument_law_is_the_semantic_one():
     `not`, arithmetic, `and`, `or`, a comparison and calls, the two laws
     agree on the form written as the argument and, under the aggregates that
     read a `let:` name's value and `min` and `max`, which read the name as a
-    field, on the form as the value of a `let:` name. Where a parameter may
-    be read at all is PIE-S2355's law (`_reads_a_parameter`), not this one."""
+    field, on the form as the value of a `let:` name, and with a `let:` name
+    in place of any one operand of the form at any depth, or of both operands
+    of a binary form, whose value that operand is:
+    `count`, `count_distinct`, `sum`, `avg`, `string_agg`, `first` and
+    `last` read it as that value (PL.48 (1)), `min` and `max` read no name
+    inside an argument. Where a parameter may be read at all is PIE-S2355's
+    law (`_reads_a_parameter`), not this one."""
     from types import SimpleNamespace
 
     from pietto import ast_nodes as ast
@@ -1332,7 +1643,8 @@ def test_the_compiled_argument_law_is_the_semantic_one():
     def records_of(expression, records):
         """The address of ``expression`` in ``records``, which it extends."""
         if isinstance(expression, ast.NameExpr):
-            kind, values = "read", (port, use, "value")
+            read = let_port if expression.name == "t" else port
+            kind, values = "read", (read, use, "value")
         elif isinstance(expression, ast.ParameterRefExpr):
             parameter = Address("parameter", len(records))
             records[parameter] = Record(
@@ -1368,13 +1680,16 @@ def test_the_compiled_argument_law_is_the_semantic_one():
         records[address] = Record(address, values)
         return address
 
-    def argument(function, form, value_type, *, let):
+    def argument(function, form, value_type, *, let, inner=None):
         records = {
             aggregate: Record(aggregate, (declaration, *(None,) * 8)),
             use: Record(use, (aggregate, row, 0, ())),
             port: Record(port, (Address("source", 0), 0, "x", None, None)),
             row: Record(row, (declaration, None, None, "let", (), None, (), None)),
         }
+        if inner is not None:
+            value = records_of(inner, records)
+            records[let_port] = Record(let_port, (row, 0, "t", value, None))
         address = records_of(form, records)
         if let:
             records[let_port] = Record(let_port, (row, 0, "t", address, None))
@@ -1391,6 +1706,39 @@ def test_the_compiled_argument_law_is_the_semantic_one():
         for name in ("Int", "Float", "Decimal", "Text", "Bool", "Date")
     )
     let_name = ast.NameExpr(name="t", span=span)
+
+    def children(form):
+        """Each (child, form with that child replaced by a given one)."""
+        if isinstance(form, ast.UnaryExpr):
+            yield form.operand, lambda child: replace(form, operand=child)
+        elif isinstance(form, ast.CallExpr):
+            for i, argument in enumerate(form.arguments):
+                yield (
+                    argument,
+                    lambda child, i=i: replace(
+                        form,
+                        arguments=(
+                            *form.arguments[:i],
+                            child,
+                            *form.arguments[i + 1 :],
+                        ),
+                    ),
+                )
+        elif isinstance(form, (ast.BinaryExpr, ast.ComparisonExpr)):
+            yield form.left, lambda child: replace(form, left=child)
+            yield form.right, lambda child: replace(form, right=child)
+
+    def operands_named(form):
+        """Each (form with an operand at any depth written as `t`, that
+        operand), and each binary form with both operands written as `t`,
+        the left one's value."""
+        for child, rebuilt in children(form):
+            yield rebuilt(let_name), child
+            for named, operand in operands_named(child):
+                yield rebuilt(named), operand
+        if isinstance(form, (ast.BinaryExpr, ast.ComparisonExpr)):
+            yield replace(form, left=let_name, right=let_name), form.left
+
     differences = []
     for function in functions:
         for value_type in value_types:
@@ -1421,6 +1769,21 @@ def test_the_compiled_argument_law_is_the_semantic_one():
                     if argument(function, form, value_type, let=let) != expected:
                         name = value_type.resolved_type.name
                         differences.append((function, name, let, form))
+                if function not in LET_EXPANDABLE_AGGREGATE_ARGUMENT_NAMES | {
+                    "min",
+                    "max",
+                }:
+                    continue
+                for named, operand in operands_named(form):
+                    expected = is_supported_semantic_aggregate_argument_expression(
+                        function, named, value_type, let_expansions={"t": operand}
+                    )
+                    observed = argument(
+                        function, named, value_type, let=False, inner=operand
+                    )
+                    if observed != expected:
+                        name = value_type.resolved_type.name
+                        differences.append((function, name, "inner", named))
     assert not differences, differences[:5]
     assert len(forms) > 3000
 

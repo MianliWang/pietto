@@ -1437,6 +1437,99 @@ its review (PL.87 (1)).
   pair before a batch's seal it waits for the next batch rather than
   sealing a campaign that did not run.
 
+## P09 record
+
+P09 lands H3 (1) of PL.48 in one commit, written on `6fa66291`. Its write set is
+`semantic/aggregates.py`, `semantic/expressions.py`, `semantic/group_by.py`,
+`ir/lowering.py`, `_project/aggregate_grouped_schema.py`,
+`_project/aggregate_grouped_clause_facts.py`,
+`_project/project_joined_aggregation.py` and
+`_project/project_completed_semantics.py`, nine test owners, the language,
+project and diagnostics pages, the roadmap's freeze row 20 and a
+release-note fragment.
+
+- **Law.** `aggregate_reads_let_values` (`semantic/aggregates.py`) holds
+  for `count`, `count_distinct`, `sum`, `avg`, `string_agg`, `first` and
+  `last` when their argument reads a `let` name outside a generator, and
+  their argument check then reads the argument with the name's value
+  written in place. The [release-note
+  fragment](../../release-notes.d/81-p09-let-names-in-aggregate-arguments.md)
+  gives the forms whose outcome changes; `min` and `max` of a `let` name
+  that is their whole argument are P03's and P10's (H3 (2) and (3)).
+- **Routes.** A single file inlines the value: after `let d = qty * 2`,
+  `sum(d + 1)` emits the SQL of `sum(qty * 2 + 1)` on PostgreSQL and on
+  MySQL. An EXPLICIT_MODULES project emits an aggregate over the `let`
+  column of its row stage, as for `sum(t)`, and the bundle of `sum(d + 1)`
+  after `let d = id * 2` loads through `load_bundle` under its own pin;
+  `explain` and `explain --project` report the form. Execution, `save` and
+  R2 reach the form through that compiled artifact and were not run apart.
+  The SQLite and DuckDB project owners pin the SQLite and DuckDB cases of
+  the fragment.
+- **Diagnostics.** No code or detail is added or removed. `sum(nn(d) + 1)`
+  after `let d = amount` is the bare PIE-S2333 in an EXPLICIT_MODULES
+  project without JOIN inputs and PIE-S2395 in one with JOIN inputs and in
+  a single file, which says `got null` after `let d = None`.
+  `string_agg(lower(d), ",", order by id)` after `let d = None` keeps the
+  bare PIE-S2333 in an EXPLICIT_MODULES project, where a single file
+  accepts it, as before.
+- **Two databases.** PostgreSQL 18.6 and MySQL 8.4.12, each one owned
+  container of the repository's native resource owner under the slot locks,
+  ran fourteen forms with their values written in place over the published
+  aggregate relation, as single files and as projects, and four forms over
+  the labelled JOIN relations: each `let` form returned the rows of its
+  written form, and each emitted project the rows of its single file. MySQL
+  projects of `Int` arithmetic were run over a contract that declares `INT`
+  columns, as the published `BIGINT` domain is PIE-B1002 for the written
+  form too; MySQL `sum` of `Int` arithmetic stays PIE-B1004 for both.
+- **MySQL's cells.** A project keeps such a `let` as a column of its row
+  stage, so on MySQL E4B's `count` of the
+  sign of a nullable `Float` field, `count(-t)` after `let t = x`, where
+  `check --project` reported the bare PIE-S2333, is BLOCKED with PIE-B1003
+  `unary_sign_requires_int_operand`, as `let t = -x` with `count(t)` is,
+  while `count(-x)` emits; PostgreSQL emits the `let` form.
+  `E4BC_REFUSALS` in `tests/_pietto_sql_emission.py` pins it beside the
+  cell's other neighbours under both literal policies, and its forged
+  artifact fails every later reader.
+- **Row 20.** Row 20's compiled replay and its semantic verifier, which
+  shipped in `0.2.2` as `e15846fb` ([Row 20's write
+  set](#row-20s-write-set)), restate the
+  source argument law and refused a computed `let` value inside an
+  argument's operation and inside a `string_agg` delimiter's operation. As
+  the [P02 record](#p02-record) requires, P09 widens that restatement with
+  the law that `_source_argument` restates: the bundle of `sum(d + 1)`
+  after `let d = id * 2` loads, and the one edited to `id % 2` is refused
+  (PIE-R1004 `COMPILED_AGGREGATE_ARGUMENT`), as the replay, `load_bundle`
+  and the verifier refuse `sum(d + 1)` with its `let d = value * 2` forged
+  to `value % 2` in their
+  tests. Four of row 20's negative cases were forms that P09 admits;
+  they became positive cases, as the lead ruled. Compiled pins cover a name
+  read below the argument's top operation, through a chain of names and as
+  both operands of one operation on both targets, and inside a conditional
+  of a `string_agg` argument and delimiter, also in the condition's
+  membership test, comparison or chained comparison and in a constructor
+  call, which is a cast (`Text(d)`, `Float(d) > 1.5`); and a parameter
+  read in a `string_agg` delimiter, written in it, as the whole
+  delimiter's name or inside its operation, or through a `let` name inside
+  a `count` or `avg` operation (`count(d + 1)`, `avg(d + 1)`,
+  `count(d * d)`, `avg(3 * d)`), which the replay, `load_bundle` and the
+  verifier refuse. The `count` and `avg` cases rest on
+  `_reads_a_parameter` alone, since P09 drops the earlier refusal of any
+  operation that reads a computed `let`: a copy that passes the aggregate
+  on to the operands, as though each were its whole argument, fails those
+  four cases and passes `sum(d + id)`. Each of these nodes decides what a
+  project admits: a copy whose expansion skips conditionals, membership
+  tests or casts, or no longer reaches below a comparison or a chained
+  comparison, fails a `string_agg` case. A unit case pins the expansion
+  below each node that `child_expressions` reads, a relation membership
+  test included, which PIE-S2350 refuses in the SELECT of an aggregate
+  query, and none inside a generator.
+- **Left to Phase82's row-20 audit.** Two matters of row 20 that are on
+  `main` and that P09 does not change: count's replay law accepts a `None`
+  operand under `and` or `or`, which only the physical law stops; and the
+  verifier calls the replay's `_source_argument`, `_reads_a_parameter` and
+  `_field_operands`, so one defect in them is shared by the replay,
+  `load_bundle` and the verifier.
+
 ## P12 record
 
 P12 takes PL.44 (a) on the route's base `6fa66291`, with the scope that

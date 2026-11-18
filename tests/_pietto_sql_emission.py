@@ -26522,8 +26522,9 @@ E4B_POSTGRES_BLOCKERS = {
 # key; a literal or scalar call item beside a wide item or `let` read; two
 # levels of nesting, two inner operations or a folded inner one;
 # `count` of a nesting, of two fields under `*` or a WHERE, of a non-null
-# value, beside another aggregate, of a `let` name, under a non-E4 WHERE,
-# ordered, composed or under HAVING, and `count_distinct` of an operation;
+# value, beside another aggregate, of a `let` name or of a sign of one
+# (PL.48 (1)), under a non-E4 WHERE, ordered, composed or under HAVING,
+# and `count_distinct` of an operation;
 # and two fields under a WHERE that compares no operation.
 E4BC_REFUSALS = {
     "p4_long_label": _e4b(
@@ -26736,6 +26737,9 @@ E4BC_REFUSALS = {
     ),
     "count_sign_of_let": _e4b(
         "query", "csrc", "let t = -x", "select:", "    n = count(t)"
+    ),
+    "count_sign_reads_let": _e4b(
+        "query", "csrc", "let t = x", "select:", "    n = count(-t)"
     ),
     "count_sign_distinct": _e4b(
         "query", "csrc", "select:", "    n = count_distinct(-x)"
@@ -27202,6 +27206,7 @@ E4BC_REFUSAL_BLOCKERS = {
     "count_sign_ordered": [("PIE-B1003", "unary_sign_requires_int_operand", 16, 9)],
     "count_sign_having": [("PIE-B1003", "unary_sign_requires_int_operand", 16, 9)],
     "count_sign_of_let": [("PIE-B1003", "unary_sign_requires_int_operand", 13, 5)],
+    "count_sign_reads_let": [("PIE-B1003", "unary_sign_requires_int_operand", 15, 9)],
     "count_sign_distinct": [
         ("PIE-B1003", "semantic_result_unsuccessful", 11, 1),
         ("PIE-B1003", "active_output_unavailable", 11, 1),
