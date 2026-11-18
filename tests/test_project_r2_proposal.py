@@ -1591,6 +1591,9 @@ PHASE77_MYSQL_FORMS = {
     # A Float header parameter beside a field, in a `let` and in a WHERE.
     "E4B_parameter_let": ("e4bc", _pietto_sql_emission.E4BC_FORMS["EPL1"]),
     "E4B_parameter_where": ("e4bc", _pietto_sql_emission.E4BC_FORMS["EPW3"]),
+    # A guarded `*` over an S06 Float-keyed JOIN row and over an Int-keyed one.
+    "E4B_join_float_key": ("e4bj", _pietto_sql_emission.E4BJ_FORMS["EJ1"]),
+    "E4B_join_int_key": ("e4bj", _pietto_sql_emission.E4BJ_FORMS["EJ5"]),
 }
 # A neighbour of each that 0.1.11 already compiled, R2's cross JOIN of the
 # public journey, and an R01 class U form, with the R2 refusal each keeps.

@@ -1045,7 +1045,23 @@ aggregate other than such a `count` (`count()`, `max(y)`), ordered or under
 a WHERE that compares no operation, a computed key under a WHERE, beside
 another `let`, of a wide operation or standing for a field another key
 reads, a parameter beside a computed key or a `count`, and any clause
-above; a JOIN row stays refused in this slice.
+above.
+
+On a JOIN row an E4B operation stands only as a whole SELECT item: a narrow
+one, or with no WHERE a `+` or `*` of two fields, over the row of one INNER
+or LEFT JOIN of two sources of the query's own module, with no `let`, header
+parameter, GROUP BY, ORDER BY, DISTINCT or LIMIT, and no `Float` arithmetic
+in the `on` or the WHERE (`inner join f6i on f6i.id == f6o.id`, `r = f6o.v *
+f6i.v`). The JOIN is computed first and the item above it, so a row the
+JOIN or the WHERE drops is never computed. With each item replaced by its
+first field of the item's nullability the statement must be one MySQL
+emits: a JOIN on an `Int` or `Text` key, under a WHERE that compares no
+`Float` operation or none, or one of the S06 `Float`-keyed JOIN forms of
+[Float values](#float-values) with no WHERE. Every other JOIN keeps its
+blockers: a nesting or a `-` of two fields on its row, two fields under a
+WHERE, a `Float` operation in the `on` (owner, O1 (a)) or the WHERE, a
+WHERE beside a `Float`-keyed JOIN, a `let`, a header parameter, a RIGHT
+JOIN and any clause above.
 
 ## Sources and relations
 

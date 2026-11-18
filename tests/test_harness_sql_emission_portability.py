@@ -2998,6 +2998,7 @@ def test_the_rendering_tables_restate_the_emitter():
         ("e4b", "EB2M"),
         ("e4bc", "EC4M"),
         ("e4bc", "EC6M"),
+        ("e4bj", "EJ1"),
     ),
 )
 def test_a_mysql_float_product_renders_its_guard_from_its_records(
@@ -3011,9 +3012,11 @@ def test_a_mysql_float_product_renders_its_guard_from_its_records(
     alone; the operands swapped under unchanged SQL, a guard token's text
     changed, its role relabelled and the guard dropped for a bare `(x * y)`
     also by the re-rendering alone."""
-    forms = {"float": emission.E4_FORMS, "e4b": emission.E4B_FORMS}.get(
-        world, emission.E4BC_FORMS
-    )
+    forms = {
+        "float": emission.E4_FORMS,
+        "e4b": emission.E4B_FORMS,
+        "e4bj": emission.E4BJ_FORMS,
+    }.get(world, emission.E4BC_FORMS)
     _, outcome = getattr(emission, world + "_world")(tmp_path, "mysql", forms[form])
     artifact = outcome.artifact
     assert outcome.status == "VERIFIED" and artifact is not None

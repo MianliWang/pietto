@@ -6400,7 +6400,13 @@ def test_each_mysql_float_law_refuses_alone(tmp_path, monkeypatch, shape):
 def _e4b_records(tmp_path, form):
     from pietto._project.project_compiled_build import build_compiled
 
-    chain = "e4bc" if form in _pietto_sql_emission.E4BC_FORMS else "e4b"
+    chain = (
+        "e4bc"
+        if form in _pietto_sql_emission.E4BC_FORMS
+        else "e4bj"
+        if form in _pietto_sql_emission.E4BJ_FORMS
+        else "e4b"
+    )
     _, outcome = getattr(_pietto_sql_emission, chain + "_world")(
         tmp_path, "mysql", getattr(_pietto_sql_emission, chain.upper() + "_FORMS")[form]
     )
@@ -6851,3 +6857,84 @@ def test_each_mysql_e4b_p7_law_refuses_alone(tmp_path, monkeypatch, shape):
     assert [(b.code, b.detail) for b in outcome.blockers] == [
         ("PIE-B1008", "plan_ast_correspondence")
     ]
+
+
+@pytest.mark.parametrize("form", sorted(_pietto_sql_emission.E4BJ_FORMS))
+def test_the_mysql_compiled_and_pure_e4b_join_laws_find_each_cell(tmp_path, form):
+    """Compiled replay's and the pure boundary's P9 laws each find exactly
+    the form's operation items over the JOIN row, from their own input."""
+    import _pietto_sql_emission_pure_boundary as pure
+    from pietto._project import project_sql_emission_rows as rows
+
+    records, query, artifact = _e4b_records(tmp_path, form)
+    assert rows.mysql_compiled_float_join_statement(records, records[query]) == {
+        address
+        for address, record in records.items()
+        if address.kind == "operation"
+        and record.get("logical")[0] == "Float"
+        and not (
+            record.get("operator") == ("unary", "-")
+            and record.get("operands")[0].kind == "literal"
+        )
+    }
+    doc = pure._Doc(_e4b_document(artifact))
+    assert pure._mysql_float_join_statement(doc) == {
+        ref
+        for ref in doc.all("sql_operation")
+        if doc[doc[ref]["realization"]]["tag"] == "Float"
+    }
+
+
+# Chain J neighbours that each later reader refuses from its own input: a
+# nesting, a `-` of two fields, two fields under a WHERE on an Int or a Text
+# JOIN, an operation in the `on` and in the WHERE, and a WHERE beside a
+# Float-keyed JOIN.
+_E4BJ_FORGED = (
+    "nested",
+    "difference_of_fields",
+    "fields_where_int",
+    "fields_where_text",
+    "operation_in_on",
+    "operation_in_where",
+    "where_beside_float_key",
+)
+
+
+@pytest.mark.parametrize("shape", _E4BJ_FORGED)
+def test_forged_mysql_e4b_join_cells_fail_every_later_reader(
+    tmp_path, monkeypatch, shape
+):
+    """An artifact of a chain J neighbour, emitted while every MySQL Float
+    operation and Float row comparison counts as a cell and plain
+    verification takes any operands, fails plain verification once the laws
+    are back, and compiled replay and the pure boundary, each from its own
+    input."""
+    import _pietto_sql_emission_portable as portable
+    import _pietto_sql_emission_pure_boundary as pure
+    from pietto._project import project_sql_emission_rows as rows
+    from pietto._project import project_sql_emission_verification as verification
+    from pietto._project.project_compiled_lowering import emit_compiled
+
+    with monkeypatch.context() as patch:
+        patch.setattr(rows, "mysql_float_arithmetic_cell", lambda *_: True)
+        patch.setattr(rows, "mysql_float_cell", lambda *_: ("inner", "none", "=="))
+        patch.setattr(verification, "_mysql_float_shape", lambda *_: True)
+        _, outcome = _pietto_sql_emission.e4bj_world(
+            tmp_path, "mysql", _pietto_sql_emission.E4BJ_REFUSALS[shape]
+        )
+        artifact = outcome.artifact
+        assert artifact is not None, outcome.blockers
+        observed = portable.export_emission_observation(artifact, artifact.request)
+        loaded = _numeric_loaded(artifact)
+    assert not verification.verify_project_sql_emission(
+        artifact, artifact.request
+    ).verified
+    with pytest.raises(wire.CompiledError, match="^COMPILED_PHYSICAL_DOMAIN$"):
+        emit_compiled(loaded, ())
+    assert observed.canonical_bytes is not None
+    refused = pure.parse_emission_observation(observed.canonical_bytes)
+    assert refused.status is pure.Status.INVALID_RELATION
+    assert refused.detail in {
+        "MySQL Float arithmetic cell",
+        "MySQL Float row comparison cell",
+    }

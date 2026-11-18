@@ -2720,6 +2720,31 @@ _FLOAT_CELL_KINDS = frozenset(
 )
 
 
+def _compiled_declared_null(records, address):
+    """MC E4B: whether the source field a read carries through JOIN values is
+    declared nullable (its contract representation), or None."""
+    import json
+
+    for _ in range(3):
+        read = records.get(address)
+        if read is None or read.address.kind != "read":
+            return None
+        port = records[read.get("port")]
+        holder, source = records[port.get("owner")], records[port.get("source")]
+        if holder.address.kind == "source":
+            try:
+                return json.loads(source.get("physical"))["nullable"] is True
+            except (KeyError, TypeError, ValueError):
+                return None
+        if holder.address.kind == "join" and source.address.kind == "join_value":
+            address = source.get("input")
+        elif holder.address.kind == "row" and source.address.kind == "read":
+            address = source.address
+        else:
+            return None
+    return None
+
+
 def _compiled_float_cell(records, address):
     """The cell (rows.MYSQL_FLOAT_ROW_CELLS) of the MySQL Float comparison or
     `same_value` call at ``address``, re-derived from the bundle's own records
@@ -2754,15 +2779,30 @@ def _compiled_float_cell(records, address):
         by_kind.setdefault(record.address.kind, []).append(record)
     sources, joins, rows = (by_kind.get(kind, []) for kind in ("source", "join", "row"))
     uses = by_kind.get("expression_block_use", [])
+    # MC E4B's P9: SELECT items that are E4B operations over the JOIN row,
+    # each read as one of its fields (E4B's law, item 4), with their own
+    # signs and literals.
+    computed = (
+        physical.mysql_compiled_float_join_statement(
+            records, records[by_kind["entry"][0].address]
+        )
+        if joins and len(by_kind.get("entry", ())) == 1
+        else frozenset()
+    )
+    extra = sum(
+        1 + sum(item.kind == "operation" for item in records[cell].get("operands"))
+        for cell in computed
+    )
     if (
         not set(by_kind)
         <= _FLOAT_CELL_KINDS
         | ({"expression_block_use", "any_value"} if uses else set())
-        or len(by_kind.get("operation", ())) > 5
+        or len(by_kind.get("operation", ())) > 5 + extra
         or len(by_kind.get("entry", ())) != 1
         or any(
             record.get("site") not in records
-            or records[record.get("site")].get("role") != "connector"
+            or records[record.get("site")].get("role")
+            not in ("connector", *(("select",) if computed else ()))
             for record in by_kind.get("literal", ())
         )
     ):
@@ -2798,6 +2838,24 @@ def _compiled_float_cell(records, address):
         ):
             return None
         selected, kind, inner = projection.get("values"), join.get("kind"), None
+        if computed:
+            substituted = []
+            for item in selected:
+                if item in computed:
+                    reads = [
+                        operand
+                        for operand in records[item].get("operands")
+                        if operand.kind == "read"
+                    ]
+                    nulls = [_compiled_declared_null(records, read) for read in reads]
+                    chosen = [
+                        read for read, null in zip(reads, nulls) if null == any(nulls)
+                    ]
+                    if not chosen or None in nulls:
+                        return None
+                    item = chosen[0]
+                substituted.append(item)
+            selected = tuple(substituted)
     else:
         inner = uses[0].get("producer") if uses else None
         outer = tuple(s.address for s in sources if s.address != inner)
@@ -2869,7 +2927,7 @@ def _compiled_float_cell(records, address):
         ("scalar_call", "same_value"): "same_value",
     }.get(node.get("operator"))
     if form is None or len(by_kind["operation"]) != (
-        1 + negated + 2 * bool(keys) + 2 * bool(uses)
+        1 + negated + 2 * bool(keys) + 2 * bool(uses) + extra
     ):
         return None
 
@@ -3403,6 +3461,8 @@ def derive_compiled_semantics(root, values, parameters=None):
     )
     if family == "mysql":
         mysql_floats |= physical.mysql_compiled_float_statement(
+            records, records[root.description.query]
+        ) | physical.mysql_compiled_float_join_statement(
             records, records[root.description.query]
         )
     mysql_s03 = (
@@ -4859,6 +4919,8 @@ def verify_compiled_semantics(value):
     )
     if family == "mysql":
         mysql_floats |= physical.mysql_compiled_float_statement(
+            records, records[value.root.description.query]
+        ) | physical.mysql_compiled_float_join_statement(
             records, records[value.root.description.query]
         )
     mysql_s03 = (

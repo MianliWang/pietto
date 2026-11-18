@@ -3175,3 +3175,132 @@ def test_mysql_e4b_computed_keys_are_s07_cells_of_their_fields(tmp_path, form):
     view = pure.parse_emission_observation(exported.canonical_bytes).view
     assert view is not None
     assert pure._mysql_float_key_cell(pure._Doc(dict(view.records))) == expected
+
+
+# --------------------------------------------------------------------------
+# MC E4B: chain J, an operation as a whole item on a JOIN row (P9)
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+@pytest.mark.parametrize("form", sorted(probe.E4BJ_FORMS))
+def test_mysql_e4b_chain_j_forms_emit_and_every_reader_accepts(tmp_path, form, target):
+    """E4B's P9: a narrow operation, or with no WHERE a `+` or `*` of two
+    fields, as a whole SELECT item over the row of an S06 Float-keyed JOIN or
+    of a plain JOIN on an Int or Text key, under a WHERE beside the latter,
+    emits on MySQL, computed above the JOIN. Both families emit the pinned
+    SQL, every reader accepts it, and each operation's evidence and
+    nullability are PostgreSQL's."""
+    checked, outcome = probe.e4bj_world(tmp_path, target, probe.E4BJ_FORMS[form])
+    assert checked.verified
+    probe.numeric_readers_accept(outcome)
+    assert outcome.artifact is not None
+    assert outcome.artifact.rendered.sql.decode() == probe.E4BJ_FORM_SQL[form, target]
+    document = json.loads(serialize_project_sql_emission(outcome))
+    _, postgres = probe.e4bj_world(
+        tmp_path / "postgres", "postgres", probe.E4BJ_FORMS[form]
+    )
+    other = json.loads(serialize_project_sql_emission(postgres))
+    assert [c["nullable"] for c in document["columns"]] == [
+        c["nullable"] for c in other["columns"]
+    ]
+    assert sorted(
+        json.dumps(r["evidence"])
+        for r in document["requirements"]
+        if r["kind"] == "arithmetic"
+    ) == sorted(
+        json.dumps(r["evidence"])
+        for r in other["requirements"]
+        if r["kind"] == "arithmetic"
+    )
+
+
+@pytest.mark.parametrize("policy", ("preserve_literals", "bind_safe_literals"))
+@pytest.mark.parametrize("shape", sorted(probe.E4BJ_REFUSALS))
+def test_mysql_e4b_chain_j_neighbours_keep_their_refusal(tmp_path, shape, policy):
+    """A nesting or a `-` of two fields on a JOIN row, two fields under a
+    WHERE, an operation in the `on` (P10) or the WHERE, a WHERE beside a
+    Float-keyed JOIN, a `let`, a header parameter, a RIGHT JOIN and the
+    clauses beside an operation item keep main's blockers, object for
+    object, under both literal policies (rule two); PostgreSQL emits each,
+    or keeps main's blockers where it refuses it too."""
+    body = probe.E4BJ_REFUSALS[shape]
+    _, outcome = probe.e4bj_world(tmp_path / "mysql", "mysql", body, policy)
+    assert outcome.status == "BLOCKED" and outcome.artifact is None
+    assert _e4_blockers(outcome) == probe.E4BJ_REFUSAL_BLOCKERS[shape]
+    _, postgres = probe.e4bj_world(tmp_path / "postgres", "postgres", body, policy)
+    expected = probe.E4BJ_POSTGRES_BLOCKERS.get(shape)
+    assert postgres.status == ("VERIFIED" if expected is None else "BLOCKED")
+    assert expected is None or _e4_blockers(postgres) == expected
+
+
+def test_a_bind_safe_literal_leaves_the_mysql_e4b_chain_j_cells(tmp_path):
+    """The control: under bind_safe_literals EJ6's literal is a bind-safe `?`,
+    which no E4B cell holds, so it keeps main's blocker."""
+    body = probe.E4BJ_FORMS["EJ6"]
+    _, outcome = probe.e4bj_world(tmp_path, "mysql", body, "bind_safe_literals")
+    assert outcome.artifact is None
+    assert _e4_blockers(outcome) == [
+        ("PIE-B1003", "float_literal_operands_required", 13, 9)
+    ]
+
+
+@pytest.mark.parametrize("form", ("EJ1", "EJ2", "EJ3", "EJ4"))
+def test_mysql_e4b_items_stand_for_their_fields_in_s06_join_cells(tmp_path, form):
+    """P9 over an S06 Float-keyed JOIN: each operation item stands for its
+    field (PREREG Law, item 4), so emission, compiled replay and the pure
+    boundary each derive the S06 cell of the JOIN as with that field read."""
+    import _pietto_sql_emission_portable as portable
+    from pietto._project.project_compiled_build import build_compiled
+    from pietto._project.project_completed_semantics import _compiled_float_cell
+    from pietto._project import project_compiled_schema as wire
+
+    body = probe.E4BJ_FORMS[form]
+    _, outcome = probe.e4bj_world(tmp_path / "e4b", "mysql", body)
+    artifact = outcome.artifact
+    assert artifact is not None
+    item = body.split("    r = ", 1)[1].split("\n", 1)[0]
+    field = next(token for token in ("f6o.v", "f6i.v") if token in item)
+    _, plain = probe.e4bj_world(
+        tmp_path / "plain", "mysql", body.replace(f"r = {item}", f"r = {field}")
+    )
+    assert plain.artifact is not None
+    from pietto._project.project_sql_plan_expressions import ProjectSQLComparison
+
+    plan = artifact.request.plan
+    (on,) = [
+        e
+        for e in plan.expressions
+        if type(e) is ProjectSQLComparison
+        and e.expression.operator in ("==", "!=")
+        and rows.value_tag(rows._planned(plan, e.left)) == "Float"
+    ]
+    cell = rows.mysql_float_cell(artifact.request, on)
+    assert cell is not None and cell[0] in ("inner", "left")
+    records = {
+        record.address: record
+        for record in wire.decode(build_compiled(artifact).payload).records
+    }
+    (comparison,) = [
+        address
+        for address, record in records.items()
+        if address.kind == "operation"
+        and record.get("operator") in (("comparison", "=="), ("comparison", "!="))
+        and record.get("logical")[0] == "Bool"
+        and all(o.kind == "read" for o in record.get("operands"))
+        and records[records[record.get("operands")[0]].get("port")].get("logical")[0]
+        == "Float"
+    ]
+    assert _compiled_float_cell(records, comparison) == cell
+    exported = portable.export_emission_observation(artifact, artifact.request)
+    assert exported.canonical_bytes is not None
+    view = pure.parse_emission_observation(exported.canonical_bytes).view
+    assert view is not None
+    doc = pure._Doc(dict(view.records))
+    (node,) = [
+        ref
+        for ref in doc.all("sql_operation")
+        if doc[ref]["kind"] == "comparison"
+        and doc[doc[doc[ref]["operands"][0]]["realization"]]["tag"] == "Float"
+    ]
+    assert pure._mysql_float_cell(doc, node) == cell

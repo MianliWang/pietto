@@ -763,6 +763,8 @@ def _mysql_float_statement(plan) -> frozenset:
     owner = plan.scope.selected_owner
     module = plan.scope.completed.semantic_result.modules[owner.module_position]
     authored = authored_definitions(module)[owner.declaration_position]
+    if plan.joins:
+        return _mysql_float_join_statement(plan, authored, module)
     stage = row.ProjectSQLStageKind
     lets = plan.let_values
     if (
@@ -1392,6 +1394,122 @@ def mysql_compiled_cells(
     )
 
 
+# MC E4B's P9 (E4B's law, item 2): the plan tables and authored fields
+# of a JOIN statement whose whole SELECT items are E4B operations.
+E4B_JOIN_PLAN_TABLES = _MYSQL_CELL_PLAN_TABLES | {
+    "joins",
+    "join_inputs",
+    "join_ports",
+    "join_tails",
+}
+E4B_JOIN_AUTHORED = frozenset(
+    {"span", "name", "from_clause", "where_clause", "select_items", "join_clauses"}
+)
+
+
+def _mysql_float_join_statement(plan, authored, module) -> frozenset:
+    """P9: one INNER or LEFT JOIN of two sources of the statement's own module
+    under one WHERE at most and a projection, with no `let`, header
+    parameter or other clause, whose SELECT items are joined field reads or
+    E4B operations over them: narrow ones, or with no WHERE a `+` or `*` of
+    two fields; no Float `+`, `-` or `*` or sign stands in the `on` or the
+    WHERE. The JOIN itself is main's or S06's to judge, with each operation
+    replaced by its field (E4B's law, item 4: mysql_float_cell)."""
+
+    from pietto._project.project_sql_plan_joins import ProjectSQLJoinTail
+
+    if (
+        len(plan.joins) != 1
+        or plan.joins[0].kind not in ("inner", "left")
+        or len(plan.sources) != 2
+        or any(binding.module is not module for binding in plan.sources)
+        or any(
+            type(value := getattr(plan, name)) is tuple
+            and value
+            and name not in E4B_JOIN_PLAN_TABLES
+            for name in plan.__dataclass_fields__
+        )
+        or any(
+            getattr(authored, name) not in (None, ())
+            for name in authored.__dataclass_fields__
+            if name not in E4B_JOIN_AUTHORED
+        )
+        or tuple(block.kind for block in plan.blocks)
+        != (
+            *(row.ProjectSQLStageKind.WHERE,) * len(plan.filters),
+            row.ProjectSQLStageKind.PROJECTION,
+        )
+        or any(type(block.boundary) is not ProjectSQLJoinTail for block in plan.blocks)
+    ):
+        return frozenset()
+
+    def node(reference):
+        return _planned(plan, reference)
+
+    def field(expression) -> bool:
+        return (
+            type(expression) is row.ProjectSQLJoinedReference
+            and value_tag(expression) == "Float"
+        )
+
+    def literal(expression) -> bool:
+        if (
+            type(expression) is row.ProjectSQLUnary
+            and expression.expression.operator == "-"
+        ):
+            expression = node(expression.operand)
+        return (
+            type(expression) is row.ProjectSQLLiteral
+            and value_tag(expression) == "Float"
+        )
+
+    def arithmetic(expression) -> bool:
+        kind = {row.ProjectSQLBinary: "binary", row.ProjectSQLUnary: "unary"}.get(
+            type(expression)
+        )
+        return (
+            kind is not None
+            and expression.expression.operator in E4_OPERATORS[kind]
+            and value_tag(expression) == "Float"
+            and not literal(expression)
+        )
+
+    cells = set()
+    for projection in plan.projections:
+        expression = node(projection.expression)
+        if expression is None:
+            return frozenset()
+        if type(expression) is row.ProjectSQLJoinedReference:
+            continue
+        operands = [
+            node(item)
+            for item in (
+                (expression.left, expression.right)
+                if type(expression) is row.ProjectSQLBinary
+                else (getattr(expression, "operand", None),)
+            )
+        ]
+        fields = sum(map(field, operands))
+        if not (
+            arithmetic(expression)
+            and all(field(item) or literal(item) for item in operands)
+            and (
+                fields == 1
+                and (len(operands) == 2 or not literal(operands[0]))
+                or fields == 2
+                and expression.expression.operator in ("+", "*")
+                and not plan.filters
+            )
+        ):
+            return frozenset()
+        cells.add(expression)
+    if not cells or any(
+        arithmetic(item) and item not in cells for item in plan.expressions
+    ):
+        return frozenset()
+    return frozenset(cells)
+
+
 # MC E4B: the record kinds a header parameter read beside an E4B operation
 # adds; a bind-safe slot stays outside (its native use must be a read's).
 _E4B_COMPILED_RECORDS = frozenset(
@@ -1747,6 +1865,121 @@ def mysql_compiled_float_statement(records, entry) -> frozenset:
         and filtered != carried
         or kinds - {"narrow"}
         and name not in E4B_WIDE_SHAPES
+    ):
+        return frozenset()
+    return frozenset(cells)
+
+
+def mysql_compiled_float_join_statement(records, entry) -> frozenset:
+    """Compiled replay's MC E4B P9 operations, from the records alone, as
+    emission derives them (_mysql_float_join_statement): the entry's
+    terminal is a projection row of its declaration over a WHERE row at most
+    over one INNER or LEFT JOIN of two sources; every record is of a kind in
+    _MYSQL_CELL_RECORDS or the JOIN's. A read traces through the WHERE
+    row's and the JOIN's ports to a source field. Each operation the
+    projection computes is named by it alone: a Float `+`, `-` or `*` of one
+    read of a `my_double` Float field and one Float literal record (or a `-`
+    operation over one), a `-` of such a read, or with no WHERE row a `+` or
+    `*` of two such reads; no other Float `+`, `-`, `*` or sign of a read
+    stands in the bundle (none in the ON or the WHERE)."""
+
+    from pietto._project.project_compiled_schema import Address
+
+    owner = entry.get("declaration")
+    terminal = records[entry.get("terminal")]
+    chain = [terminal]
+    if terminal.address.kind != "row" or terminal.get("stage") != "projection":
+        return frozenset()
+    current = records[terminal.get("input")]
+    if current.address.kind == "row" and current.get("stage") == "where":
+        chain.append(current)
+        current = records[current.get("input")]
+    if (
+        current.address.kind != "join"
+        or current.get("kind") not in ("inner", "left")
+        or any(unit.get("owner") != owner for unit in chain)
+    ):
+        return frozenset()
+    units = {unit.address for unit in chain} | {current.address}
+    named: dict[Any, list] = {}
+    for address, record in records.items():
+        kind = address.kind
+        if kind not in _MYSQL_CELL_RECORDS | {"join", "join_value"} or (
+            kind in {"row", "aggregate", "join"} and address not in units
+        ):
+            return frozenset()
+        pending = [] if kind in {"requirement", "port"} else list(record.values)
+        while pending:
+            item = pending.pop()
+            if type(item) is tuple:
+                pending.extend(item)
+            elif type(item) is Address and item.kind == "operation":
+                named.setdefault(item, []).append(address)
+
+    def double(address) -> bool:
+        for _ in range(3):
+            if address.kind != "read":
+                return False
+            port = records[records[address].get("port")]
+            holder, source = port.get("owner"), port.get("source")
+            if holder.kind == "source":
+                try:
+                    storage = json.loads(records[source].get("physical"))["storage"]
+                except (KeyError, TypeError, ValueError):
+                    return False
+                return (records[source].get("logical")[0], storage) == (
+                    "Float",
+                    {"kind": "my_double"},
+                )
+            if holder not in units or source is None:
+                return False
+            address = (
+                records[source].get("input") if source.kind == "join_value" else source
+            )
+        return False
+
+    def float_literal(address) -> bool:
+        record = records[address]
+        if (
+            address.kind == "operation"
+            and record.get("operator") == ("unary", "-")
+            and len(record.get("operands")) == 1
+        ):
+            address = record.get("operands")[0]
+        return address.kind == "literal" and records[address].get("tag") == "Float"
+
+    def arithmetic(address) -> bool:
+        record = records[address]
+        return (
+            record.get("logical")[0] == "Float"
+            and record.get("operator") in _E4_COMPILED
+            and not float_literal(address)
+        )
+
+    cells = set()
+    for item in terminal.get("values"):
+        if item.kind != "operation":
+            continue
+        record = records[item]
+        operands = record.get("operands")
+        reads = sum(map(double, operands))
+        if not (
+            named.get(item) == [terminal.address]
+            and arithmetic(item)
+            and _E4_COMPILED.get(record.get("operator")) == len(operands)
+            and all(double(o) or float_literal(o) for o in operands)
+            and (
+                reads == 1
+                or reads == 2
+                and record.get("operator") in (("binary", "+"), ("binary", "*"))
+                and len(chain) == 1
+            )
+        ):
+            return frozenset()
+        cells.add(item)
+    if not cells or any(
+        address.kind == "operation" and arithmetic(address) and address not in cells
+        for address in records
     ):
         return frozenset()
     return frozenset(cells)
@@ -5346,14 +5579,31 @@ def _mysql_float_shape(plan, expression):
         return None
     operands = tuple(at(item) for item in operands)
     selected = tuple(value for value in roots if type(value) is items)
+    # MC E4B's P9: a JOIN cell's SELECT item may be an E4B operation over its
+    # joined fields (mysql_float_statement), which mysql_float_cell replaces
+    # by one of them (E4B's law, item 4).
+    computed = tuple(
+        value
+        for value in roots
+        if joins and type(value) is not items and value in mysql_float_statement(plan)
+    )
+
+    def size(value) -> int:
+        return 1 + sum(
+            size(at(getattr(value, name)))
+            for name in ("left", "right", "operand")
+            if at(getattr(value, name, None)) is not None
+        )
+
     if (
         any(type(item) is not reference for item in operands)
-        or len(expressions) != len(selected) + 3 + negated + parts
+        or len(expressions)
+        != len(selected) + sum(map(size, computed)) + 3 + negated + parts
         or not _unit_written(plan, anti=bool(uses))
     ):
         return None
     cell = (*shape, "not " + form if negated else form)
-    return cell, operands, keys, selected
+    return cell, operands, keys, selected, computed
 
 
 def _mysql_float_field(request, ref):
@@ -5404,8 +5654,31 @@ def mysql_float_cell(request, expression):
     shape = None if AS_MAIN.get() else _mysql_float_shape(request.plan, expression)
     if shape is None:
         return None
-    cell, operands, keys, selected = shape
+    cell, operands, keys, selected, computed = shape
     plan = request.plan
+    for value in computed:
+        # P9: the first joined field operand, in written order, whose declared
+        # nullability is the operation's (any operand's); none refuses.
+        fields = [
+            item
+            for item in (
+                _planned(plan, getattr(value, name, None))
+                for name in ("left", "right", "operand")
+            )
+            if type(item) is row.ProjectSQLJoinedReference
+        ]
+        found = [_mysql_float_field(request, item.port) for item in fields]
+        if not fields or any(item is None for item in found):
+            return None
+        nulls = [
+            json.loads(item[1].representation).get("nullable") is True
+            for item in found
+            if item is not None
+        ]
+        chosen = [item for item, null in zip(fields, nulls) if null == any(nulls)]
+        if not chosen:
+            return None
+        selected = (*selected, chosen[0])
     binder = plan.expression_block_uses[0] if cell[0] == "anti" else None
     exports = tuple(
         item.exports
