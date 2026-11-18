@@ -45,12 +45,14 @@
   `limit 0`, an ORDER BY key that is an `avg` or S02's own `SMALLINT` key,
   DISTINCT beside an `avg`, any of these clauses with no GROUP BY key, a
   relation alias other than the G4 note below opens, and a header
-  parameter and a bind-safe `?` as before. R2 `save_recoverable` and
+  parameter and a bind-safe `?` other than the G5 note below opens. R2
+  `save_recoverable` and
   `recover` refuse a MySQL query of these forms with PIE-R1004 (`detail`
   `PUBLIC_R2_UNQUALIFIED_FORM`), as for the other forms that MySQL opened
   after `0.1.11`.
 - Under J12 (3), the MySQL project `sum` of an `Int` outside the forms
-  that `0.1.12`, the G1 and G2 notes, this note and the G4 note below open
+  that `0.1.12`, the G1 and G2 notes, this note and the G4 and G5 notes
+  below open
   stays beyond the MySQL cadence, with the MySQL catch-up work package as
   its target.
 

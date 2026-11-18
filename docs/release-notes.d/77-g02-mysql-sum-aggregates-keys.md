@@ -38,13 +38,14 @@
   name or of a field of another storage, a GROUP BY key of another storage
   (a `Bool` included), HAVING, ORDER BY, LIMIT and DISTINCT other than
   the G3 note below opens, a relation alias other than the G4 note below
-  opens, and a header parameter and a bind-safe `?` as before. R2
+  opens, and a header parameter and a bind-safe `?` other than the G5
+  note below opens. R2
   `save_recoverable` and
   `recover` refuse a MySQL query of these forms with PIE-R1004 (`detail`
   `PUBLIC_R2_UNQUALIFIED_FORM`), as for the other forms that MySQL opened
   after `0.1.11`.
 - Under J12 (3), the MySQL project `sum` of an `Int` outside the forms
-  that `0.1.12`, the G1 note, this note and the G3 and G4 notes below open
+  that `0.1.12`, the G1 note, this note and the G3 to G5 notes below open
   stays beyond the MySQL cadence, with the MySQL catch-up work package as
   its target.
 
