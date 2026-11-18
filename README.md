@@ -6,7 +6,7 @@
 # Pietto
 
 [![CI](https://github.com/MianliWang/pietto/actions/workflows/ci.yml/badge.svg)](https://github.com/MianliWang/pietto/actions/workflows/ci.yml)
-![Python 3.12 and 3.13](https://img.shields.io/badge/Python-3.12%20%7C%203.13-3776AB?logo=python&logoColor=white)
+![Python 3.12, 3.13 and 3.14](https://img.shields.io/badge/Python-3.12%20%7C%203.13%20%7C%203.14-3776AB?logo=python&logoColor=white)
 ![Package version 0.2.1](https://img.shields.io/badge/package-0.2.1-6f42c1)
 
 Readable, typed SQL authoring with deterministic compilation and fail-closed
@@ -52,11 +52,11 @@ On Windows, activate the environment with `.venv\Scripts\activate`. With
 [uv](https://docs.astral.sh/uv/), `uv pip install pietto` installs into the
 active virtual environment, and `uv tool install --python 3.13 pietto` installs
 the `pietto` command in an environment of its own. The compiler and CLI are
-verified with CPython 3.12 and 3.13 on Linux x86-64. On Windows x86-64 the CLI
-(`check`, `emit-sql`, `fmt`, `explain` and `lsp`) and `pietto.compiler` are
-supported with CPython 3.12 and 3.13, where CI runs their tests and
-smoke-tests the installed wheel; execution is not run on Windows and no extra
-is claimed there. The version's
+verified with CPython 3.12, 3.13 and 3.14 on Linux x86-64. On Windows x86-64
+the CLI (`check`, `emit-sql`, `fmt`, `explain` and `lsp`) and `pietto.compiler`
+are supported with CPython 3.12 and 3.13, where CI runs their tests and
+smoke-tests the installed wheel, as it also does on 3.14; execution is not run
+on Windows and no extra is claimed there. The version's
 [GitHub release](https://github.com/MianliWang/pietto/releases) attaches the
 same wheel and sdist with `SHA256SUMS`
 ([checking them](https://github.com/MianliWang/pietto/blob/main/docs/project-package.md#installing-a-release)).

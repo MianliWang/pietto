@@ -579,6 +579,146 @@ follow their `projectRoots` order: P12 or P13. The
 [roadmap](../../roadmap.md) drops the five items; the
 [status](../../status.md) names none of them.
 
+## P04 record
+
+P04 started on 2026-11-17 at 21:50Z in a fresh worktree on the route
+candidate `6fa66291` and stopped that evening at stop point 2 (r17 §11
+item 3), when its CI change met the differential harness: what remained
+exceeded the position's mapping and held a choice for the lead and the
+owner. The owner answered on 2026-11-18, in the dialogs that the lead's
+record of about 01:30Z–01:45Z gives: CPython 3.14 is a full member of the
+differential harness, and the change this makes to the Gate 2 topology of
+the integration host is accepted. The lead added about `C10/F8/D150` to
+P04 under PL.15, and P04 resumed at 02:00Z in the same worktree. It is one
+commit. This record is also the midpoint's platform sample.
+
+- **Interpreters.** The first sample ran on the CPython 3.14.4 that
+  `uv python list` found at `/usr/bin/python3.14` (Ubuntu's `python3.14`
+  3.14.4-1ubuntu0.2, GCC 15.2.0). On resuming, as the lead authorized, uv
+  0.11.19 installed the newest managed CPython 3.14 it offers, 3.14.5 (a
+  python-build-standalone build), into a host directory outside the
+  repository, without adding it to `~/.local/bin`.
+- **Environments.** On each interpreter a core environment with the `dev`
+  group and one with every extra were synced from `uv.lock` with
+  `--locked`, with `pietto` editable from the worktree. uv downloaded the
+  13 cp314 wheels the offline cache lacked for the first sample, three for
+  the core and ten for the extras, each checked against the lock's hash,
+  and synced the 3.14.5 environments offline from that cache; `uv.lock`
+  and `pyproject.toml`'s dependencies did not change. Every wheel that the
+  lock selects for CPython 3.14 on Linux x86-64 is in the CI hash
+  allowlists, except `pyarrow`'s cp314 wheel, which the Arrow allowlist
+  lacked and now lists.
+- **SQLite build.** CPython 3.14.4 links the system SQLite 3.46.1 (source
+  id `2024-08-13 09:16:08
+  c9c2ab54ba1f5f46360f1b4f35d849cd3f080e6fc2b6c60e91b16c63f69aalt1`, 59
+  compile options, `COMPILER=gcc-15.2.0`), not the qualified build:
+  `qualified_build()` is false and `storage_profile` refuses with
+  `WORKSPACE_PROFILE_SQLITE`. CPython 3.14.5 links the qualified build of
+  D78.03: release 3.53.1, source id `2026-05-05 10:34:17
+  c88b22011a54b4f6fbd149e9f8e4de77658ce58143a1af0e3785e4e6475127e9` and
+  the same 46 compile options, `COMPILER=clang-22.1.3` among them;
+  `qualified_build()` is true, and `storage_profile` returns a profile on
+  3.53.1 and ext4 for the same directory where CPython 3.13.13 gets one.
+  The SQLite of setup-python's 3.14 stays unknown until natural CI
+  observes it.
+- **`save` and R2.** On CPython 3.14.4, `save`, the other saved-result calls
+  and R2 are refused before a job store opens, and the `sqlite_file` route
+  refuses: measured as refused. On CPython 3.14.5 the job store opens: in
+  the runs below the storage-positive cells, `save` and the other
+  saved-result calls, R2's cells and the native SQLite cells ran, and the
+  `sqlite_file` route's 80 cells passed. R2's runs against live engines
+  belong to the native campaigns, which P04 did not run.
+- **First core run.** One run of the whole repository on CPython 3.14.4
+  with 8 workers, from 21:51:19Z to 22:12:17Z, on a tree that the CI edits
+  changed during the run: 30,444 passed, 902 skipped, 31 failed and 48
+  errors. Two failures came from those edits; 73 came from the
+  differential harness, which admitted only a 3.12 or 3.13 primary and
+  whose tests fixed the request counts of that pair, and four from
+  `scripts/ci_validation.py --python` and the Arrow readiness probe, which
+  admitted 3.12 and 3.13 only. The skips were 479 storage-positive cells
+  (`WORKSPACE_PROFILE_SQLITE`), 391 native SQLite cells
+  (`SQLITE_BUILD_RELEASE`), 31 cells that need PyArrow and one refused
+  under its own policy.
+- **First extras run.** On CPython 3.14.4 with PyArrow 26.0.1, DuckDB
+  2.0.0, pandas 3.1.1, Polars 2.1.0, NumPy 2.5.4, SciPy 1.18.1 and
+  Matplotlib 3.11.2, from 22:41:41Z to 22:42:59Z: 242 passed, 108 skipped
+  and 1 failed. `tests/test_execution_api_duckdb_arrow.py` passed all 34,
+  its in-process `duckdb_arrow` queries included, and
+  `tests/test_results_interop.py` all 17. The failure was
+  `test_core_developer_environment_and_public_import_remain_arrow_free`,
+  which fails wherever PyArrow is installed; selecting it was the run's
+  error. The skips were 70 native SQLite cells and 38 storage-positive
+  cells.
+- **Differential harness.** `SUPPORTED_INTERPRETERS` gains `(3, 14)` in
+  the acquisition owner and in each family helper and test that keeps a
+  copy; two copies that nothing read are deleted. 3.14's combined
+  relocated cell takes seed `4294967295`, as the family tests already
+  expect of every interpreter but 3.12: the phase59–61 fixtures read the
+  acquisition's `COMBINED_RELOCATED_CELLS` instead of copies, and the
+  extension-catalog witness gains
+  `combined:python3.14:seed4294967295:relocated-two`. The independent
+  request manifest follows the given interpreter order, so a set of all
+  three in either order is checked exactly, and the acquisition owner's
+  test reads it from the shared helper instead of a copy. With three
+  interpreters the registry has 135 logical requests in 23 cells, 98 in 16
+  before: phase58 has 9, phase59–61 12 each and each matrix family 18. One
+  interpreter alone keeps 61 requests in 9 cells.
+- **Gate 2 topology.** A run spawns child cells for every other supported
+  interpreter on `PATH`, so the 3.13 Gate 2 of the integration host now
+  also runs 3.14's seven child cells, and its reports carry the domain
+  `[[3,12],[3,13],[3,14]]`; row 2 of the
+  [validation runner acceptance](../../spec/validation-runner-acceptance-v1.md)
+  states that premise. On that host `python3.14` resolves to Ubuntu's
+  3.14.4 today; the lead's Gate 2 launcher, outside the repository, is to
+  put the fixed uv-managed 3.14.5 on `PATH` ahead of it and check its
+  version in the preflight. A runner that executes part of a Gate 2 needs
+  a CPython 3.14 on `PATH` as well, since coverage with another domain is
+  refused; P04 also changes six of VR2's acceptance rule paths, so a
+  Teach split waits for a new bootstrap after P04's natural CI.
+- **CI and packaging.** `.github/workflows/ci.yml` gains `checks_fourteen`,
+  `runtime_fourteen` (six partitions), `python_fourteen` and
+  `windows_fourteen`, copies of the 3.13 jobs with setup-python pinned to
+  3.14.10, the newest 3.14 with Ubuntu 24.04 and Windows x64 builds in its
+  version manifest at 21:53:31Z on 2026-11-17, and the target aggregate
+  needs `python_fourteen`: 30 jobs. `scripts/ci_workloads.py` names the
+  runtimes once (`PYTHONS`), which `scripts/ci_validation.py` and
+  `scripts/validation_runner_receiver.py` read for the health summaries,
+  the cost, the job inventory and the interpreter domain; the Arrow
+  readiness probe and the interop check accept 3.14. `pyproject.toml`
+  gains the 3.14 classifier, the README badge names 3.14, and the
+  compiler and CLI's verified profile in the README, the project page and
+  the capability page adds CPython 3.14, whose extras, SQLite build,
+  `save` and R2 stay measured only. As the owner's answer implies, the
+  development page and the validation runner acceptance name 3.14 among
+  natural CI's final coverage; `AGENTS.md`, outside P04's write set, is
+  left to the lead. `tests/_pietto_ci_coverage.py` loses `EXPECTED_JOBS`
+  and `_setup_pins`, which nothing read and which still listed the old
+  jobs. `ci/workloads.toml` needs no change, since no
+  requirement or placement depends on the runtime. A release-note fragment
+  states the change.
+- **Checks.** Ruff format and check and both Pyright gates passed on the
+  final code. On CPython 3.13.13, with CPython 3.12.13 and 3.14.5 on `PATH`,
+  the touched CI, results, release and harness owners passed 612 of 612
+  cases from 02:07:26Z to 02:13:27Z. On CPython 3.14.5, with CPython 3.12.13
+  and 3.13.13 on `PATH`, the whole repository ran once with 8 workers from
+  02:17:08Z to 02:43:26Z: 31,284 passed, 140 skipped and 1 failed. The
+  failure, `test_two_processes_submitting_one_key_insert_it_once[duplicate]`
+  in `tests/test_jobs_delivery_histories.py`, was the second writer's
+  `STORE_BUSY` when its 5-second busy wait ran out; that owner's 11 cases
+  then passed in one rerun on 3.14.5 from 03:06:58Z to 03:08:16Z, and the
+  cause is not established. On CPython 3.13.13, with CPython 3.12.13 and
+  3.14.5 on `PATH`, the whole repository ran once from 02:43:27Z to
+  03:05:39Z: 31,285 passed and 140 skipped. Both runs skipped the same 140
+  cells, 139 that need PyArrow and one refused under its own policy. In the
+  3.14.5 environment with every extra, from 03:05:39Z to 03:06:50Z, the
+  extras' owners, the interop owner and the optional-Arrow owner without its
+  Arrow-free case passed 350 of 350, with none skipped. These runs bound the
+  final tree except this record's result sentences. The CI topology is
+  checked here only statically; natural CI checks it after the push.
+- **Use.** About `C20/F18/D294` and S0: `C7/F8/D148` before the stop and
+  about `C13/F10/D146` after it, against the mapped `C8/F25/D300` and the
+  added `C10/F8/D150`. C is about two over; F and D stay within.
+
 ## P05 record
 
 P05 ran on 2026-11-17 on the route's candidate `6fa66291`, in a fresh

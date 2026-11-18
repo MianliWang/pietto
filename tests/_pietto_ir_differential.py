@@ -16,7 +16,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 PROBE = REPO_ROOT / "tests/_pietto_ir_project_differential.py"
 SPEC = REPO_ROOT / "docs/spec/phase61-slice11-differential-compatibility-v1.md"
 SEEDS = ("0", "1", "7", "4294967295")
-SUPPORTED_INTERPRETERS = ((3, 12), (3, 13))
+SUPPORTED_INTERPRETERS = ((3, 12), (3, 13), (3, 14))
 
 
 # Filled once from one reviewed source observation. Every matrix member is
@@ -698,7 +698,7 @@ def differential_matrix(
 
     observations["project-relocated"] = documents["project-relocated"]
     observations["source-relocated"] = documents["source-relocated"]
-    for interpreter_version, seed in (((3, 12), "1"), ((3, 13), "4294967295")):
+    for interpreter_version, seed in acquisition.COMBINED_RELOCATED_CELLS:
         if interpreter_version not in interpreters:
             continue
         key = (

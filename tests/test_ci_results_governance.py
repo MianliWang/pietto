@@ -497,7 +497,7 @@ def test_marker_registration_and_workflow_policy_are_connected():
     from _pietto_ci_workflow import job as _job
 
     workflow = (ROOT / ".github/workflows/ci.yml").read_text()
-    for py, word in (("3.12", "twelve"), ("3.13", "thirteen")):
+    for py, word in (("3.12", "twelve"), ("3.13", "thirteen"), ("3.14", "fourteen")):
         runtime = _job(workflow, "runtime_" + word)
         assert [
             line.strip()[2:]
@@ -653,7 +653,7 @@ def complete_history_fixture(run="37"):
     from _pietto_ci_coverage import _reports
 
     runtimes = {}
-    for py in ("3.12", "3.13"):
+    for py in w.PYTHONS:
         collection, reports = _reports()
         context = {
             **collection["context"],
@@ -855,16 +855,14 @@ def test_history_adapter_checks_raw_provenance_and_is_bounded(monkeypatch):
             return w.canonical({"artifacts": [artifact]})
         if "/jobs?" in path:
             names = [
-                *(f"Compiler / Package {py}" for py in ("3.12", "3.13")),
+                *(f"Compiler / Package {py}" for py in w.PYTHONS),
                 *(
                     f"Runtime {py} / {part}"
-                    for py in ("3.12", "3.13")
+                    for py in w.PYTHONS
                     for part in ci.PARTITIONS
                 ),
-                "Python 3.12",
-                "Python 3.13",
-                "Windows 3.12",
-                "Windows 3.13",
+                *(f"Python {py}" for py in w.PYTHONS),
+                *(f"Windows {py}" for py in w.PYTHONS),
                 "Target postgres",
                 "Target mysql",
                 "Target conformance aggregate",
@@ -916,7 +914,7 @@ def test_mandatory_current_raw_transport_fails_on_digest_or_context_drift(
     value = complete_history_fixture()
     rows = []
     payloads = {}
-    for index, py in enumerate(("3.12", "3.13"), 1):
+    for index, py in enumerate(w.PYTHONS, 1):
         data = w.canonical(value["runtimes"][py])
         payloads[index] = data
         rows.append(
@@ -952,7 +950,7 @@ def test_mandatory_current_raw_transport_fails_on_digest_or_context_drift(
     provider_head = context["checkout"]
     monkeypatch.setattr(w, "github_bytes", get)
     facts = w.fetch_current_summaries(context, "test-token", tmp_path / "valid")
-    assert len(facts) == 2 and {p.name for p in (tmp_path / "valid").iterdir()} == {
+    assert len(facts) == 3 and {p.name for p in (tmp_path / "valid").iterdir()} == {
         r["name"] for r in rows
     }
     context = {**context, "event": "pull_request", "branch": "12/merge"}
@@ -961,7 +959,7 @@ def test_mandatory_current_raw_transport_fails_on_digest_or_context_drift(
         row["workflow_run"]["head_sha"] = provider_head
     assert (
         len(w.fetch_current_summaries(context, "test-token", tmp_path / "pr-merge"))
-        == 2
+        == 3
     )
     rows[0]["digest"] = "sha256:" + "0" * 64
     with pytest.raises(ValueError, match="identity mismatch"):

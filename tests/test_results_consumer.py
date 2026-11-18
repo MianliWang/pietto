@@ -354,9 +354,13 @@ def test_aggregate_replay_is_required_after_original_strict_and_keeps_topology()
     assert "--artifact-id" in aggregate and "--artifact-digest" in aggregate
     assert "--extra-env" in _job(workflow, "checks_twelve")
     assert "--extra-env" in _job(workflow, "checks_thirteen")
+    assert "--extra-env" in _job(workflow, "checks_fourteen")
     assert "_pietto_results_product.py" not in aggregate
     assert "_pietto_results_arrow_compatibility.py" not in aggregate
-    assert "needs: [python_twelve, python_thirteen, target_conformance]" in aggregate
+    assert (
+        "needs: [python_twelve, python_thirteen, python_fourteen, target_conformance]"
+        in aggregate
+    )
 
 
 @pytest.mark.parametrize(

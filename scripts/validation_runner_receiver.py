@@ -1045,19 +1045,19 @@ def observe_bootstrap(repo: Path, run_id: int, token: str) -> dict[str, Any]:
         set(names)
     ) != len(names):
         raise ValueError("natural CI job identity is malformed")
+    pythons = ci_validation.workloads.PYTHONS
     expected_jobs = {
-        "Compiler / Package 3.12",
-        "Compiler / Package 3.13",
-        "Python 3.12",
-        "Python 3.13",
-        "Windows 3.12",
-        "Windows 3.13",
+        *(
+            f"{job} {python}"
+            for job in ("Compiler / Package", "Python", "Windows")
+            for python in pythons
+        ),
         "Target postgres",
         "Target mysql",
         "Target conformance aggregate",
         *{
             f"Runtime {python} / {partition}"
-            for python in ("3.12", "3.13")
+            for python in pythons
             for partition in ci_validation.PARTITIONS
         },
     }

@@ -781,7 +781,7 @@ def test_gate_d_all_interpreters_seeds_relocation_and_wheel_match_exactly(
     observations = cast(dict[str, bytes], differential_matrix["observations"])
     interpreters = cast(dict[tuple[int, int], str], differential_matrix["interpreters"])
     assert SEEDS == ("0", "1", "7", "4294967295")
-    assert SUPPORTED_INTERPRETERS == ((3, 12), (3, 13))
+    assert SUPPORTED_INTERPRETERS == ((3, 12), (3, 13), (3, 14))
     assert sys.version_info[:2] in SUPPORTED_INTERPRETERS
     assert sys.version_info[:2] in interpreters
     baseline = observations[_baseline_key()]

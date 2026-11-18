@@ -116,7 +116,6 @@ def test_pure_boundary_is_total_for_non_documents(value) -> None:
 
 
 SEEDS = ("0", "1", "7", "4294967295")
-SUPPORTED_INTERPRETERS = ((3, 12), (3, 13))
 
 
 def test_real_flat_ir_records_bytes_and_rejections_match_every_process_cell(

@@ -23,6 +23,8 @@ ROOT = Path(__file__).resolve().parents[1]
 HEALTH_FORMAT = "pietto.ci-workload-health.v1"
 READINESS_FORMAT = "pietto.arrow-readiness.v1"
 MAX_HEALTH_BYTES = 1024 * 1024
+# The CPython runtimes of natural CI, each with its own completion context.
+PYTHONS = ("3.12", "3.13", "3.14")
 KINDS = ("shared-acquisition", "process-portability", "general-runtime")
 FIELDS = ("kind", "family", "acquisition_group", "dependency_profile")
 CASES = (
@@ -692,7 +694,7 @@ def health_shape(value):
     )
     require(
         re.fullmatch(r"[0-9a-f]{40}", context["checkout"])
-        and context["python"] in ("3.12", "3.13")
+        and context["python"] in PYTHONS
         and re.fullmatch(
             re.escape(context["python"]) + r"\.[0-9]+", context["python_version"]
         ),
@@ -721,7 +723,7 @@ def health_shape(value):
             type(v) is list
             and len(v) == 2
             and all(type(n) is int for n in v)
-            and v in ([3, 12], [3, 13])
+            and f"{v[0]}.{v[1]}" in PYTHONS
             for v in domain
         )
         and domain == sorted(domain)
@@ -1450,16 +1452,10 @@ def run_cost(run: dict[str, Any], jobs: list[dict[str, Any]], policy):
         and j.get("status") == "completed"
     }
     expected = {
-        *(f"Compiler / Package {p}" for p in ("3.12", "3.13")),
-        *(
-            f"Runtime {p} / {s['id']}"
-            for p in ("3.12", "3.13")
-            for s in policy["shards"]
-        ),
-        "Python 3.12",
-        "Python 3.13",
-        "Windows 3.12",
-        "Windows 3.13",
+        *(f"Compiler / Package {p}" for p in PYTHONS),
+        *(f"Runtime {p} / {s['id']}" for p in PYTHONS for s in policy["shards"]),
+        *(f"Python {p}" for p in PYTHONS),
+        *(f"Windows {p}" for p in PYTHONS),
         "Target postgres",
         "Target mysql",
         "Target conformance aggregate",
@@ -1477,14 +1473,13 @@ def run_cost(run: dict[str, Any], jobs: list[dict[str, Any]], policy):
                 *(durations[f"Runtime {p} / {s['id']}"] for s in policy["shards"]),
             )
             + durations["Python " + p]
-            for p in ("3.12", "3.13")
+            for p in PYTHONS
         ]
         # The Windows jobs need nothing and nothing needs them: paths of their own.
         critical = max(
             max(*branches, durations["Target postgres"], durations["Target mysql"])
             + durations["Target conformance aggregate"],
-            durations["Windows 3.12"],
-            durations["Windows 3.13"],
+            *(durations["Windows " + p] for p in PYTHONS),
         )
     return {
         "complete": complete,
@@ -1563,7 +1558,7 @@ def verify_workflow_health(value, expected_context=None):
         "invalid policy digest",
     )
     require(
-        type(value["runtimes"]) is dict and set(value["runtimes"]) == {"3.12", "3.13"},
+        type(value["runtimes"]) is dict and set(value["runtimes"]) == set(PYTHONS),
         "missing runtime health",
     )
     partition_ids = None
@@ -2117,7 +2112,7 @@ def fetch_current_summaries(context, token, directory: Path):
     )
     names = {
         f"ci-health-{context['run_id']}-{context['run_attempt']}-{py}-summary.json"
-        for py in ("3.12", "3.13")
+        for py in PYTHONS
     }
     directory.mkdir(parents=True, exist_ok=True)
     require(not list(directory.iterdir()), "current health download root must be fresh")

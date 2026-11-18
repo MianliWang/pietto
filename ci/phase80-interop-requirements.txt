@@ -1,10 +1,11 @@
-# Selected interop closure allowlist (D80.05): CPython 3.12/3.13, Linux glibc >=2.28, x86-64.
+# Selected interop closure allowlist (D80.05): CPython 3.12/3.13/3.14, Linux glibc >=2.28, x86-64.
 # Every PyPI file hash of each pinned version, as `uv pip compile --generate-hashes` listed
 # them from pypi.org/simple in the authorized 2026-11-10 probe (PL.05; Phase80 route,
 # "Dependencies and pins"), whose cp312 and cp313 outputs agree. Except packaging and tzdata:
 # uv.lock keeps their baseline versions, not the probe's 26.3 and 2026.6, and their hashes
 # are the lock's, which the owner-approved 2026-11-11 uv lock took from PyPI. uv.lock lists
 # fewer files than this for five pins, so the other blocks are not taken from it.
+# Each wheel that uv.lock selects for CPython 3.14 is among these hashes (checked 2026-11-17).
 # package_smoke takes only the blocks of one cell's locked closure; not runtime qualification.
 contourpy==1.4.0 \
     --hash=sha256:018227e134b73090b06f911e773a526c77c9af426be29065500ce096a5accd4c \

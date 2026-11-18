@@ -310,9 +310,9 @@ def test_a_cell_closure_outside_the_allowlists_fails_closed(
 
 
 def _qualified_wheel(url: str) -> bool:
-    """Whether CPython 3.12/3.13 on Linux glibc x86-64 may install this wheel."""
+    """Whether CPython 3.12-3.14 on Linux glibc x86-64 may install this wheel."""
     *_, abi, platforms = url.rsplit("/", 1)[1].removesuffix(".whl").split("-")
-    return abi in {"cp312", "cp313", "abi3", "none"} and any(
+    return abi in {"cp312", "cp313", "cp314", "abi3", "none"} and any(
         tag == "any" or re.fullmatch(r"manylinux\w*_x86_64", tag)
         for tag in platforms.split(".")
     )

@@ -27,6 +27,17 @@ import _pietto_plan_differential as phase65_probe
 import _pietto_sql_emission_differential as phase66_probe
 import _pietto_project_explain_differential_probe as phase58_probe
 import _pietto_project_explain_scenarios as scenarios
+from _pietto_plan_process_acquisition import (
+    CURRENT_FAMILIES,
+    EXPECTED_CELL_COUNT,
+    EXPECTED_FAMILY_REQUEST_COUNTS,
+    EXPECTED_LOGICAL_REQUESTS,
+    EXPECTED_REQUESTS,
+    HISTORICAL_FAMILIES,
+    INTERPRETERS,
+    PHASE65_FAMILIES,
+    PREVIOUS_FAMILIES,
+)
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -54,11 +65,6 @@ PROBES = {
     "phase65": phase65_probe,
     "phase66": phase66_probe,
 }
-TWO_INTERPRETERS = {(3, 13): "python3.13", (3, 12): "python3.12"}
-HISTORICAL_FAMILIES = ("phase58", "phase59", "phase60", "phase61", "phase62", "phase63")
-PREVIOUS_FAMILIES = (*HISTORICAL_FAMILIES, "phase64")
-PHASE65_FAMILIES = (*PREVIOUS_FAMILIES, "phase65")
-CURRENT_FAMILIES = (*PHASE65_FAMILIES, "phase66")
 EXPECTED_SUPPORT_MANIFEST = (
     "_pietto_differential_probe_batch.py",
     "_pietto_project_explain_scenarios.py",
@@ -99,77 +105,6 @@ SUPPORT_ONLY = (
 )
 
 
-def expected_request_manifest():
-    """Independent keys, environments and ordering; no live registry reads."""
-    current = tuple(sys.version_info[:2])
-    versions = ((3, 13), (3, 12))
-    seeds = ("0", "1", "7", "4294967295")
-    rows = []
-    for family in CURRENT_FAMILIES:
-        if family in ("phase58", "phase59", "phase60", "phase61"):
-            for seed in seeds:
-                rows.append(
-                    (family, f"seed:{seed}", current, seed, "checkout", f"seed-{seed}")
-                )
-            for version in versions:
-                if version != current:
-                    key = f"python{version[0]}.{version[1]}"
-                    rows.append((family, key, version, "0", "checkout", key))
-            rows.append(
-                (
-                    family,
-                    "project-relocated",
-                    current,
-                    "0",
-                    "checkout",
-                    "project-relocated",
-                )
-            )
-            rows.append(
-                (
-                    family,
-                    "source-relocated",
-                    current,
-                    "0",
-                    "relocated",
-                    "source-relocated",
-                )
-            )
-            if family != "phase58":
-                for version, seed in (((3, 12), "1"), ((3, 13), "4294967295")):
-                    key = (
-                        f"combined:python{version[0]}.{version[1]}:seed{seed}:relocated"
-                    )
-                    rows.append((family, key, version, seed, "relocated", key))
-            rows.append(
-                (
-                    family,
-                    "installed-wheel",
-                    current,
-                    "0",
-                    "installed",
-                    "installed-wheel",
-                )
-            )
-        else:
-            for version in versions:
-                for seed in seeds:
-                    key = f"source:python{version[0]}.{version[1]}:seed:{seed}"
-                    rows.append((family, key, version, seed, "checkout", key))
-            for mode in ("relocated", "installed"):
-                for version in versions:
-                    key = f"{mode}:python{version[0]}.{version[1]}:seed:7"
-                    rows.append((family, key, version, "7", mode, key))
-    return tuple(rows)
-
-
-EXPECTED_REQUESTS = expected_request_manifest()
-EXPECTED_FAMILY_REQUEST_COUNTS = {
-    family: sum(row[0] == family for row in EXPECTED_REQUESTS)
-    for family in CURRENT_FAMILIES
-}
-EXPECTED_CELL_COUNT = len({row[2:5] for row in EXPECTED_REQUESTS})
-EXPECTED_LOGICAL_REQUESTS = len(EXPECTED_REQUESTS)
 EXPECTED_GATES = (
     ("lockfile", ("uv", "lock", "--check")),
     ("format", ("uv", "run", "ruff", "format", "--check", ".")),
@@ -211,7 +146,7 @@ def _load_validate_module() -> ModuleType:
 
 
 def _plan() -> dict[acquisition.Cell, tuple[acquisition.Request, ...]]:
-    return acquisition.cell_plan(TWO_INTERPRETERS)
+    return acquisition.cell_plan(INTERPRETERS)
 
 
 def _run_batch(
@@ -298,7 +233,7 @@ def test_process_cells_never_merge_incompatible_environment_facts() -> None:
     versions = {cell.version for cell in plan}
     seeds = {cell.seed for cell in plan}
     modes = {cell.mode for cell in plan}
-    assert versions == {(3, 12), (3, 13)}
+    assert versions == {(3, 12), (3, 13), (3, 14)}
     assert seeds == set(acquisition.SEEDS)
     assert modes == set(acquisition.MODES)
 
@@ -327,16 +262,16 @@ def test_process_cells_never_merge_incompatible_environment_facts() -> None:
 
 def test_logical_request_matrices_and_witness_cells_are_unchanged() -> None:
     assert acquisition.SEEDS == ("0", "1", "7", "4294967295")
-    assert acquisition.SUPPORTED_INTERPRETERS == ((3, 12), (3, 13))
+    assert acquisition.SUPPORTED_INTERPRETERS == ((3, 12), (3, 13), (3, 14))
     assert acquisition.FAMILY_ORDER == tuple(PROBES) == CURRENT_FAMILIES
     actual = tuple(
         (r.family, r.key, r.cell.version, r.cell.seed, r.cell.mode, r.ambient)
-        for r in acquisition.all_requests(TWO_INTERPRETERS)
+        for r in acquisition.all_requests(INTERPRETERS)
     )
     assert actual == EXPECTED_REQUESTS
-    assert sum(row[0] in HISTORICAL_FAMILIES for row in actual) == 62
-    assert sum(row[0] in PREVIOUS_FAMILIES for row in actual) == 74
-    assert sum(row[0] in PHASE65_FAMILIES for row in actual) == 86
+    assert sum(row[0] in HISTORICAL_FAMILIES for row in actual) == 81
+    assert sum(row[0] in PREVIOUS_FAMILIES for row in actual) == 99
+    assert sum(row[0] in PHASE65_FAMILIES for row in actual) == 117
     assert acquisition.RELOCATION_SUPPORT_MANIFEST == EXPECTED_SUPPORT_MANIFEST
     assert tuple(batch.FAMILY_MODULES.values()) == tuple(
         name.removesuffix(".py")
@@ -347,7 +282,7 @@ def test_logical_request_matrices_and_witness_cells_are_unchanged() -> None:
     assert batch.CLI_SESSION_FAMILIES == frozenset({"phase58", "phase59", "phase60"})
 
     for family, expected in EXPECTED_FAMILY_REQUEST_COUNTS.items():
-        requests = acquisition.family_requests(family, TWO_INTERPRETERS)
+        requests = acquisition.family_requests(family, INTERPRETERS)
         assert len(requests) == expected
         assert len({item.key for item in requests}) == expected
 
@@ -362,18 +297,21 @@ def test_logical_request_matrices_and_witness_cells_are_unchanged() -> None:
     assert {(cell.version, cell.seed) for cell in relocated} == {
         (current, "0"),
         *acquisition.COMBINED_RELOCATED_CELLS,
+        ((3, 14), "7"),
         ((3, 13), "7"),
         ((3, 12), "7"),
     }
     assert {(cell.version, cell.seed) for cell in installed} == {
         (current, "0"),
+        ((3, 14), "7"),
         ((3, 13), "7"),
         ((3, 12), "7"),
     }
-    assert {cell.version for cell in installed} == {(3, 12), (3, 13)}
+    assert {cell.version for cell in installed} == {(3, 12), (3, 13), (3, 14)}
     assert acquisition.COMBINED_RELOCATED_CELLS == (
         ((3, 12), "1"),
         ((3, 13), "4294967295"),
+        ((3, 14), "4294967295"),
     )
 
     # Deliberate independent constructions are untouched.
@@ -543,7 +481,7 @@ def test_static_boundaries_and_witness_matrices_are_zero_delta() -> None:
     assert validate.PYTEST_MAX_RESOURCE_WORKERS == 20
 
     workflow = WORKFLOW.read_text(encoding="utf-8")
-    assert workflow.count("uv run python scripts/ci_validation.py run") == 2
+    assert workflow.count("uv run python scripts/ci_validation.py run") == 3
     for override in ("--pytest-workers", "--pytest-dist", "--pytest-maxprocesses"):
         assert override not in workflow
 

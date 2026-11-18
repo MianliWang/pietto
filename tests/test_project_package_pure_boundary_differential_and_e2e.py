@@ -35,7 +35,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 VECTOR_REL = "tests/_pietto_harness_package_vectors.py"
 SOURCE_REL = "src/pietto/_project/package_pure_boundary.py"
 
-_SUPPORTED_INTERPRETERS = ((3, 12), (3, 13))
+_SUPPORTED_INTERPRETERS = ((3, 12), (3, 13), (3, 14))
 _IDENTIFIER_CHARACTERS = frozenset("abcdefghijklmnopqrstuvwxyz0123456789_")
 
 

@@ -390,7 +390,11 @@ def test_each_python_job_runs_every_interop_cell_at_its_extra_pin() -> None:
         assert extras[consumer.EXTRA[target]] == [f"{target}=={consumer.PINS[target]}"]
     workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
     run = '/bin/python" -I tests/_pietto_results_interop.py --cell '
-    for python, word in (("3.12", "twelve"), ("3.13", "thirteen")):
+    for python, word in (
+        ("3.12", "twelve"),
+        ("3.13", "thirteen"),
+        ("3.14", "fourteen"),
+    ):
         checks = job(workflow, "checks_" + word)
         for target in targets:
             extra = consumer.EXTRA[target]

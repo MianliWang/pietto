@@ -278,6 +278,6 @@ def test_ci_requires_separate_installed_product_evidence():
     workflow = (
         Path(__file__).resolve().parents[1] / ".github/workflows/ci.yml"
     ).read_text()
-    assert workflow.count("Run installed result product consumer") == 2
-    assert workflow.count("Download required installed result product evidence") == 2
-    assert workflow.count('--product "$RUNNER_TEMP/product-reports/') == 2
+    assert workflow.count("Run installed result product consumer") == 3
+    assert workflow.count("Download required installed result product evidence") == 3
+    assert workflow.count('--product "$RUNNER_TEMP/product-reports/') == 3

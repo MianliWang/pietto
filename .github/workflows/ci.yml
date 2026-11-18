@@ -778,6 +778,390 @@ jobs:
             --report "$RUNNER_TEMP/completion/ci-health-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-3.13-summary.json" \
             --artifact-id "$ARTIFACT_ID" --artifact-digest "$ARTIFACT_DIGEST"
 
+  checks_fourteen:
+    name: Compiler / Package 3.14
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.14.10"
+      - name: Set up Java
+        uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78 # v6.2.0
+        with:
+          distribution: temurin
+          java-version: "21"
+          overwrite-settings: false
+          verify-signature: true
+      - name: Set up uv
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: "0.11.19"
+          enable-cache: false
+          prune-cache: true
+      - name: Configure isolated interpreter environment
+        run: |
+          echo "UV_PROJECT_ENVIRONMENT=$RUNNER_TEMP/pietto-venv" >> "$GITHUB_ENV"
+          echo "UV_CACHE_DIR=$RUNNER_TEMP/uv-cache" >> "$GITHUB_ENV"
+          echo "UV_PYTHON=$pythonLocation/bin/python" >> "$GITHUB_ENV"
+      - name: Install locked environment
+        run: uv sync --locked
+      - name: Run explicit static gates
+        run: uv run python scripts/ci_validation.py gates --python 3.14
+      - name: Verify generated files
+        run: uv run python scripts/check_generated.py
+      - name: Audit golden fixtures
+        run: uv run python scripts/check_goldens.py
+      - name: Smoke test installed package
+        run: |
+          uv run python scripts/package_smoke.py --dist-dir "$RUNNER_TEMP/result-dist" \
+            --extra-env "$RUNNER_TEMP/arrow-ready" \
+            --extra-env "interop-pandas=$RUNNER_TEMP/interop-pandas" \
+            --extra-env "interop-polars=$RUNNER_TEMP/interop-polars" \
+            --extra-env "interop-numpy=$RUNNER_TEMP/interop-numpy" \
+            --extra-env "interop-scipy=$RUNNER_TEMP/interop-scipy" \
+            --extra-env "interop-matplotlib=$RUNNER_TEMP/interop-matplotlib"
+      - name: Run real isolated interop consumers
+        run: |
+          "$RUNNER_TEMP/arrow-ready/bin/python" -I tests/_pietto_results_interop.py --cell arrow --report "$RUNNER_TEMP/interop-reports/interop-arrow-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-3.14.json"
+          for cell in pandas polars numpy scipy matplotlib; do
+            "$RUNNER_TEMP/interop-$cell/bin/python" -I tests/_pietto_results_interop.py --cell "$cell" --report "$RUNNER_TEMP/interop-reports/interop-$cell-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-3.14.json"
+          done
+      - name: Run real isolated Arrow readiness consumer
+        run: |
+          "$RUNNER_TEMP/arrow-ready/bin/python" -I tests/_pietto_results_arrow_compatibility.py --report "$RUNNER_TEMP/arrow-reports/arrow-readiness-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-3.14.json"
+          uv run python scripts/ci_validation.py check-arrow --python 3.14 --report "$RUNNER_TEMP/arrow-reports/arrow-readiness-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-3.14.json"
+      - name: Upload exact Arrow readiness
+        if: always()
+        id: readiness
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: arrow-readiness-${{ github.run_id }}-${{ github.run_attempt }}-3.14.json
+          path: ${{ runner.temp }}/arrow-reports/arrow-readiness-${{ github.run_id }}-${{ github.run_attempt }}-3.14.json
+          archive: false
+          if-no-files-found: error
+          overwrite: false
+          include-hidden-files: false
+          retention-days: 1
+      - name: Verify raw Arrow readiness identity
+        if: always()
+        env:
+          ARTIFACT_ID: ${{ steps.readiness.outputs.artifact-id }}
+          ARTIFACT_DIGEST: ${{ steps.readiness.outputs.artifact-digest }}
+        run: |
+          uv run python scripts/ci_validation.py artifact --python 3.14 \
+            --report "$RUNNER_TEMP/arrow-reports/arrow-readiness-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-3.14.json" \
+            --artifact-id "$ARTIFACT_ID" --artifact-digest "$ARTIFACT_DIGEST"
+      - name: Run installed result product consumer
+        run: |
+          "$RUNNER_TEMP/arrow-ready/bin/python" -I tests/_pietto_results_product.py --repository "$GITHUB_WORKSPACE" --report "$RUNNER_TEMP/product-reports/result-product-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-3.14.json"
+          uv run python scripts/ci_validation.py check-product --python 3.14 --report "$RUNNER_TEMP/product-reports/result-product-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-3.14.json"
+      - name: Upload exact installed result product evidence
+        if: always()
+        id: product
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: result-product-${{ github.run_id }}-${{ github.run_attempt }}-3.14.json
+          path: ${{ runner.temp }}/product-reports/result-product-${{ github.run_id }}-${{ github.run_attempt }}-3.14.json
+          archive: false
+          if-no-files-found: error
+          overwrite: false
+          include-hidden-files: false
+          retention-days: 1
+      - name: Verify raw installed result product identity
+        if: always()
+        env:
+          ARTIFACT_ID: ${{ steps.product.outputs.artifact-id }}
+          ARTIFACT_DIGEST: ${{ steps.product.outputs.artifact-digest }}
+        run: |
+          uv run python scripts/ci_validation.py artifact --python 3.14 \
+            --report "$RUNNER_TEMP/product-reports/result-product-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-3.14.json" \
+            --artifact-id "$ARTIFACT_ID" --artifact-digest "$ARTIFACT_DIGEST"
+      - name: Collect independent full node inventory
+        run: |
+          uv run python scripts/ci_validation.py collect --python 3.14 \
+            --report "$RUNNER_TEMP/coverage-reports/ci-coverage-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-3.14-collection.json"
+      - name: Upload exact coverage report
+        if: always()
+        id: coverage
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ci-coverage-${{ github.run_id }}-${{ github.run_attempt }}-3.14-collection.json
+          path: ${{ runner.temp }}/coverage-reports/ci-coverage-${{ github.run_id }}-${{ github.run_attempt }}-3.14-collection.json
+          archive: false
+          if-no-files-found: error
+          overwrite: false
+          include-hidden-files: false
+          retention-days: 1
+      - name: Verify raw coverage artifact identity
+        if: always()
+        env:
+          ARTIFACT_ID: ${{ steps.coverage.outputs.artifact-id }}
+          ARTIFACT_DIGEST: ${{ steps.coverage.outputs.artifact-digest }}
+        run: |
+          uv run python scripts/ci_validation.py artifact --python 3.14 \
+            --report "$RUNNER_TEMP/coverage-reports/ci-coverage-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-3.14-collection.json" \
+            --artifact-id "$ARTIFACT_ID" --artifact-digest "$ARTIFACT_DIGEST"
+
+  runtime_fourteen:
+    name: Runtime 3.14 / ${{ matrix.partition }}
+    strategy:
+      fail-fast: false
+      matrix:
+        partition:
+          - shared-acquisition
+          - plan-portability
+          - emission-portability
+          - general-runtime-1
+          - general-runtime-2
+          - general-runtime-3
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.14.10"
+      - name: Set up Java
+        uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78 # v6.2.0
+        with:
+          distribution: temurin
+          java-version: "21"
+          overwrite-settings: false
+          verify-signature: true
+      - name: Set up uv
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: "0.11.19"
+          enable-cache: false
+          prune-cache: true
+      - name: Configure isolated interpreter environment
+        run: |
+          echo "UV_PROJECT_ENVIRONMENT=$RUNNER_TEMP/pietto-venv" >> "$GITHUB_ENV"
+          echo "UV_CACHE_DIR=$RUNNER_TEMP/uv-cache" >> "$GITHUB_ENV"
+          echo "UV_PYTHON=$pythonLocation/bin/python" >> "$GITHUB_ENV"
+      - name: Install locked environment
+        run: uv sync --locked
+      - name: Run complete selected runtime partition
+        run: |
+          uv run python scripts/ci_validation.py run --python 3.14 --partition ${{ matrix.partition }} \
+            --report "$RUNNER_TEMP/coverage-reports/ci-coverage-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-3.14-${{ matrix.partition }}.json" \
+            --health "$RUNNER_TEMP/health-reports/ci-health-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-3.14-${{ matrix.partition }}.json"
+      - name: Upload exact coverage report
+        if: always()
+        id: coverage
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ci-coverage-${{ github.run_id }}-${{ github.run_attempt }}-3.14-${{ matrix.partition }}.json
+          path: ${{ runner.temp }}/coverage-reports/ci-coverage-${{ github.run_id }}-${{ github.run_attempt }}-3.14-${{ matrix.partition }}.json
+          archive: false
+          if-no-files-found: error
+          overwrite: false
+          include-hidden-files: false
+          retention-days: 1
+      - name: Verify raw coverage artifact identity
+        if: always()
+        env:
+          ARTIFACT_ID: ${{ steps.coverage.outputs.artifact-id }}
+          ARTIFACT_DIGEST: ${{ steps.coverage.outputs.artifact-digest }}
+        run: |
+          uv run python scripts/ci_validation.py artifact --python 3.14 \
+            --report "$RUNNER_TEMP/coverage-reports/ci-coverage-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-3.14-${{ matrix.partition }}.json" \
+            --artifact-id "$ARTIFACT_ID" --artifact-digest "$ARTIFACT_DIGEST"
+      - name: Upload exact partition health
+        if: always()
+        id: health
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ci-health-${{ github.run_id }}-${{ github.run_attempt }}-3.14-${{ matrix.partition }}.json
+          path: ${{ runner.temp }}/health-reports/ci-health-${{ github.run_id }}-${{ github.run_attempt }}-3.14-${{ matrix.partition }}.json
+          archive: false
+          if-no-files-found: error
+          overwrite: false
+          include-hidden-files: false
+          retention-days: 30
+      - name: Verify raw partition health identity
+        if: always()
+        env:
+          ARTIFACT_ID: ${{ steps.health.outputs.artifact-id }}
+          ARTIFACT_DIGEST: ${{ steps.health.outputs.artifact-digest }}
+        run: |
+          uv run python scripts/ci_validation.py artifact --python 3.14 \
+            --report "$RUNNER_TEMP/health-reports/ci-health-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-3.14-${{ matrix.partition }}.json" --evidence-dir "$RUNNER_TEMP/coverage-reports" \
+            --artifact-id "$ARTIFACT_ID" --artifact-digest "$ARTIFACT_DIGEST"
+
+  python_fourteen:
+    name: Python 3.14
+    needs: [checks_fourteen, runtime_fourteen]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.14.10"
+      - name: Set up uv
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: "0.11.19"
+          enable-cache: false
+          prune-cache: true
+      - name: Configure isolated interpreter environment
+        run: |
+          echo "UV_PROJECT_ENVIRONMENT=$RUNNER_TEMP/pietto-venv" >> "$GITHUB_ENV"
+          echo "UV_CACHE_DIR=$RUNNER_TEMP/uv-cache" >> "$GITHUB_ENV"
+          echo "UV_PYTHON=$pythonLocation/bin/python" >> "$GITHUB_ENV"
+      - name: Install locked environment
+        run: uv sync --locked
+      - name: Download collection coverage report
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ci-coverage-${{ github.run_id }}-${{ github.run_attempt }}-3.14-collection.json
+          path: ${{ runner.temp }}/coverage-reports
+          skip-decompress: true
+          digest-mismatch: error
+      - name: Download shared-acquisition coverage report
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ci-coverage-${{ github.run_id }}-${{ github.run_attempt }}-3.14-shared-acquisition.json
+          path: ${{ runner.temp }}/coverage-reports
+          skip-decompress: true
+          digest-mismatch: error
+      - name: Download plan-portability coverage report
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ci-coverage-${{ github.run_id }}-${{ github.run_attempt }}-3.14-plan-portability.json
+          path: ${{ runner.temp }}/coverage-reports
+          skip-decompress: true
+          digest-mismatch: error
+      - name: Download emission-portability coverage report
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ci-coverage-${{ github.run_id }}-${{ github.run_attempt }}-3.14-emission-portability.json
+          path: ${{ runner.temp }}/coverage-reports
+          skip-decompress: true
+          digest-mismatch: error
+      - name: Download general-runtime-1 coverage report
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ci-coverage-${{ github.run_id }}-${{ github.run_attempt }}-3.14-general-runtime-1.json
+          path: ${{ runner.temp }}/coverage-reports
+          skip-decompress: true
+          digest-mismatch: error
+      - name: Download general-runtime-2 coverage report
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ci-coverage-${{ github.run_id }}-${{ github.run_attempt }}-3.14-general-runtime-2.json
+          path: ${{ runner.temp }}/coverage-reports
+          skip-decompress: true
+          digest-mismatch: error
+      - name: Download general-runtime-3 coverage report
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ci-coverage-${{ github.run_id }}-${{ github.run_attempt }}-3.14-general-runtime-3.json
+          path: ${{ runner.temp }}/coverage-reports
+          skip-decompress: true
+          digest-mismatch: error
+      - name: Download shared-acquisition health report
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ci-health-${{ github.run_id }}-${{ github.run_attempt }}-3.14-shared-acquisition.json
+          path: ${{ runner.temp }}/health-reports
+          skip-decompress: true
+          digest-mismatch: error
+      - name: Download plan-portability health report
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ci-health-${{ github.run_id }}-${{ github.run_attempt }}-3.14-plan-portability.json
+          path: ${{ runner.temp }}/health-reports
+          skip-decompress: true
+          digest-mismatch: error
+      - name: Download emission-portability health report
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ci-health-${{ github.run_id }}-${{ github.run_attempt }}-3.14-emission-portability.json
+          path: ${{ runner.temp }}/health-reports
+          skip-decompress: true
+          digest-mismatch: error
+      - name: Download general-runtime-1 health report
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ci-health-${{ github.run_id }}-${{ github.run_attempt }}-3.14-general-runtime-1.json
+          path: ${{ runner.temp }}/health-reports
+          skip-decompress: true
+          digest-mismatch: error
+      - name: Download general-runtime-2 health report
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ci-health-${{ github.run_id }}-${{ github.run_attempt }}-3.14-general-runtime-2.json
+          path: ${{ runner.temp }}/health-reports
+          skip-decompress: true
+          digest-mismatch: error
+      - name: Download general-runtime-3 health report
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ci-health-${{ github.run_id }}-${{ github.run_attempt }}-3.14-general-runtime-3.json
+          path: ${{ runner.temp }}/health-reports
+          skip-decompress: true
+          digest-mismatch: error
+      - name: Download required Arrow readiness
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: arrow-readiness-${{ github.run_id }}-${{ github.run_attempt }}-3.14.json
+          path: ${{ runner.temp }}/arrow-reports
+          skip-decompress: true
+          digest-mismatch: error
+      - name: Download required installed result product evidence
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: result-product-${{ github.run_id }}-${{ github.run_attempt }}-3.14.json
+          path: ${{ runner.temp }}/product-reports
+          skip-decompress: true
+          digest-mismatch: error
+      - name: Require successful jobs and reconcile complete coverage
+        env:
+          CHECKS_STATUS: ${{ needs.checks_fourteen.result }}
+          RUNTIME_STATUS: ${{ needs.runtime_fourteen.result }}
+        run: |
+          uv run python scripts/ci_validation.py verify --python 3.14 \
+            --evidence-dir "$RUNNER_TEMP/coverage-reports" \
+            --health-dir "$RUNNER_TEMP/health-reports" --readiness "$RUNNER_TEMP/arrow-reports/arrow-readiness-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-3.14.json" \
+            --product "$RUNNER_TEMP/product-reports/result-product-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-3.14.json" \
+            --summary "$RUNNER_TEMP/completion/ci-health-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-3.14-summary.json" \
+            --checks-status "$CHECKS_STATUS" --runtime-status "$RUNTIME_STATUS"
+      - name: Upload complete runtime health
+        if: always()
+        id: completion
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ci-health-${{ github.run_id }}-${{ github.run_attempt }}-3.14-summary.json
+          path: ${{ runner.temp }}/completion/ci-health-${{ github.run_id }}-${{ github.run_attempt }}-3.14-summary.json
+          archive: false
+          if-no-files-found: error
+          overwrite: false
+          include-hidden-files: false
+          retention-days: 30
+      - name: Verify raw runtime health identity
+        if: always()
+        env:
+          ARTIFACT_ID: ${{ steps.completion.outputs.artifact-id }}
+          ARTIFACT_DIGEST: ${{ steps.completion.outputs.artifact-digest }}
+        run: |
+          uv run python scripts/ci_validation.py artifact --python 3.14 \
+            --report "$RUNNER_TEMP/completion/ci-health-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-3.14-summary.json" \
+            --artifact-id "$ARTIFACT_ID" --artifact-digest "$ARTIFACT_DIGEST"
+
   windows_twelve:
     name: Windows 3.12
     runs-on: windows-latest
@@ -832,6 +1216,43 @@ jobs:
         uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.13.15"
+      - name: Set up uv
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: "0.11.19"
+          enable-cache: false
+          prune-cache: true
+      - name: Configure isolated interpreter environment
+        run: |
+          echo "UV_PROJECT_ENVIRONMENT=$RUNNER_TEMP/pietto-venv" >> "$GITHUB_ENV"
+          echo "UV_CACHE_DIR=$RUNNER_TEMP/uv-cache" >> "$GITHUB_ENV"
+          echo "UV_PYTHON=$pythonLocation/python.exe" >> "$GITHUB_ENV"
+      - name: Install locked environment
+        run: uv sync --locked
+      - name: Run platform-neutral test areas
+        run: |
+          uv run pytest -n 4 --dist=loadfile -rfEs --durations=20 --basetemp "$RUNNER_TEMP/pytest" \
+            tests/test_{parser,semantic,ir,plan,sql,project,cli,results}_*.py \
+            tests/test_execution_api_sqlite_file.py
+      - name: Smoke test installed package
+        run: uv run python scripts/package_smoke.py
+
+  windows_fourteen:
+    name: Windows 3.14
+    runs-on: windows-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.14.10"
       - name: Set up uv
         uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
@@ -920,7 +1341,7 @@ jobs:
 
   target_conformance_aggregate:
     name: Target conformance aggregate
-    needs: [python_twelve, python_thirteen, target_conformance]
+    needs: [python_twelve, python_thirteen, python_fourteen, target_conformance]
     if: always()
     permissions:
       contents: read
@@ -965,7 +1386,7 @@ jobs:
           digest-mismatch: error
       - name: Verify all required conformance outcomes
         env:
-          COMPILER_STATUS: ${{ needs.python_twelve.result == 'success' && needs.python_thirteen.result == 'success' && 'success' || 'failure' }}
+          COMPILER_STATUS: ${{ needs.python_twelve.result == 'success' && needs.python_thirteen.result == 'success' && needs.python_fourteen.result == 'success' && 'success' || 'failure' }}
           TARGET_STATUS: ${{ needs.target_conformance.result }}
         run: |
           uv run python tests/_pietto_target_conformance.py verify-receipts \
@@ -1007,7 +1428,7 @@ jobs:
       - name: Report workload health and bounded trusted history
         env:
           CI_HEALTH_TOKEN: ${{ github.token }}
-          COMPILER_STATUS: ${{ needs.python_twelve.result == 'success' && needs.python_thirteen.result == 'success' && 'success' || 'failure' }}
+          COMPILER_STATUS: ${{ needs.python_twelve.result == 'success' && needs.python_thirteen.result == 'success' && needs.python_fourteen.result == 'success' && 'success' || 'failure' }}
           TARGET_STATUS: ${{ needs.target_conformance.result }}
         run: |
           uv run python scripts/ci_validation.py health --python 3.13 \

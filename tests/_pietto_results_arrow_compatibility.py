@@ -363,7 +363,7 @@ def main(argv=None):
     )
     args = parser.parse_args(argv)
     assert platform.system() == "Linux" and platform.machine() == "x86_64"
-    assert sys.version_info[:2] in ((3, 12), (3, 13))
+    assert sys.version_info[:2] in ((3, 12), (3, 13), (3, 14))
     assert not args.report.exists()
     pa = importlib.import_module("pyarrow")
     context = {

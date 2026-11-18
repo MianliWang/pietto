@@ -1217,11 +1217,11 @@ each installed beside `arrow`, as in `pip install "pietto[arrow,interop-pandas]"
 and `execute-duckdb` for the [DuckDB Arrow route](execution.md#duckdb-arrow-route),
 which includes the Arrow pin.
 The compiler and CLI were
-verified with CPython 3.12 and 3.13 on Linux x86-64. On Windows x86-64 the
-CLI and `pietto.compiler` are supported with CPython 3.12 and 3.13, where CI
-runs their tests and smoke-tests the installed wheel; execution is not run on
-Windows and no extra is claimed there. Other platforms and Python versions are
-not covered by this evidence
+verified with CPython 3.12, 3.13 and 3.14 on Linux x86-64. On Windows x86-64
+the CLI and `pietto.compiler` are supported with CPython 3.12 and 3.13, where
+CI runs their tests and smoke-tests the installed wheel, as it also does on
+3.14; execution is not run on Windows and no extra is claimed there. Other
+platforms and Python versions are not covered by this evidence
 ([platforms and qualification](capabilities.md#platforms-and-qualification)).
 
 The published `0.2.1` wheel and sdist on PyPI are byte-identical to the files

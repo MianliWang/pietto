@@ -21,7 +21,6 @@ from pietto._project import project_sql_emission_portable_schema as schema
 import _pietto_sql_emission_pure_boundary as pure
 
 SEEDS = ("0", "1", "7", "4294967295")
-SUPPORTED_INTERPRETERS = ((3, 12), (3, 13))
 OK = pure.Status.OK
 _BUILT: dict[tuple[str, str, str], Any] = {}
 
@@ -2206,8 +2205,8 @@ def test_process_registry_and_independent_manifests():
     current = (sys.version_info.major, sys.version_info.minor)
     for interpreters, total, cells in (
         ({current: sys.executable}, 61, 9),
-        ({(3, 13): "3.13", (3, 12): "3.12"}, 98, 16),
-        ({(3, 12): "3.12", (3, 13): "3.13"}, 98, 16),
+        ({(3, 14): "3.14", (3, 13): "3.13", (3, 12): "3.12"}, 135, 23),
+        ({(3, 12): "3.12", (3, 13): "3.13", (3, 14): "3.14"}, 135, 23),
     ):
         actual = tuple(
             (r.family, r.key, r.cell.version, r.cell.seed, r.cell.mode, r.ambient)

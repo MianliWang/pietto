@@ -89,7 +89,7 @@ has no GitHub write credential, model token or private key. The integration
 host retains independent collection, every local complement, storage positives,
 Docker/native work, generated and golden audits, package/installed-consumer
 checks, and the final acceptance decision. Natural CI remains the final
-Python 3.12/3.13 owner.
+Python 3.12/3.13/3.14 owner.
 
 `validation_runner_receiver.py bootstrap-observe` is the bootstrap producer:
 it checks the live published main ref against local `origin/main`, the expected
@@ -188,7 +188,7 @@ because rows 0 and 0b are not satisfied.
 | 0 | Gate 2 candidate reach | Runs the exact candidate tree before the seal, without publishing it or triggering external CI, and returns every result with its digest to the integration host | Satisfied | Not established: no acceptance tool exists; development-loop candidate runs are non-authoritative | Not satisfied: runs only on pushed commits |
 | 0b | Same interpreter patch | Runs the same interpreter patch as the integration host's report checker; report contexts are compared by strict equality, full `python_version` included | Satisfied: CPython 3.13.13 | Satisfied: CPython 3.13.13 in the preflight and the report contexts | Not satisfied: CPython 3.12.14 and 3.13.15 |
 | 1 | Static gates | Locked environment, CPython 3.13.13, Node availability recorded (Pyright needs it), the same candidate tree | Satisfied | Not verified; not planned | — |
-| 2 | General pytest | CPython 3.13.13 with CPython 3.12.13 on `PATH` (domain `[[3,12],[3,13]]`), Java 21, complete Git history, basetemp and acquisition roots on runner-local storage, a worker plan within the runner's resource limit (a job's allocation, or the validator worker count approved for the integration host) | Satisfied | Not qualified: no acceptance tool or qualified environment record; the preflight found CPython 3.12.13 on `PATH`, Java 21 and complete Git history | — |
+| 2 | General pytest | CPython 3.13.13 with CPython 3.12.13 and a CPython 3.14 on `PATH` (domain `[[3,12],[3,13],[3,14]]` since Phase81 P04; the receiver's environment assertion checks only the 3.12.13, and a runner without a 3.14 is refused when its reports are reconciled, since their domain differs), Java 21, complete Git history, basetemp and acquisition roots on runner-local storage, a worker plan within the runner's resource limit (a job's allocation, or the validator worker count approved for the integration host) | Satisfied; the CPython 3.14 on `PATH` observed on 2026-11-18 by Phase81 P04's runs | Not qualified: no acceptance tool or qualified environment record; the preflight found CPython 3.12.13 on `PATH`, Java 21 and complete Git history | — |
 | 3 | Storage positives | Linux, the exact qualified SQLite build, ext4 mounted read-write without `nobarrier` or `barrier=0` | Satisfied | Not satisfied: the jobs' temporary root is tmpfs, so their storage positives were counted as `PIETTO_NOT_RUN` skips | — |
 | 4 | Docker and native campaigns | `/var/run/docker.sock`, linux/amd64, pinned images, qualified storage | Satisfied | Not satisfied: needs row 3 | — |
 | 5 | Generated audit | Java 21, `tools/antlr-4.13.2-complete.jar` matching its recorded SHA-256, the generator input closure | Satisfied | Not verified; not planned | — |
@@ -293,4 +293,4 @@ runners executing natural CI keep the permissions their workflow declares.
   no validation rule. The authoritative validation still runs exactly once per
   candidate, and independent full collection, complete coverage, auxiliary
   audits selected by their input closure, protection of the accepted core and
-  natural CI as the final Python 3.12 and 3.13 owner are unchanged.
+  natural CI as the final Python 3.12, 3.13 and 3.14 owner are unchanged.
