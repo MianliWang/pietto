@@ -66,6 +66,7 @@ SQL_GOLDEN = REPO_ROOT / "tests/fixtures/golden/emit_sqlite_single_file.sql"
 POSTGRES_REPLAY = REPO_ROOT / "tests/fixtures/sqlite/postgres_replay_v1.json"
 POSTGRES_REPLAY_R1 = REPO_ROOT / "tests/fixtures/sqlite/postgres_replay_r1.json"
 POSTGRES_REPLAY_R2 = REPO_ROOT / "tests/fixtures/sqlite/postgres_replay_r2.json"
+POSTGRES_REPLAY_R3 = REPO_ROOT / "tests/fixtures/sqlite/postgres_replay_r3.json"
 INT_MIN = -9_223_372_036_854_775_808
 INT_MAX = 9_223_372_036_854_775_807
 _RecordProperty = Callable[[str, object], None]
@@ -1821,7 +1822,8 @@ _PROJECT_CELLS = (
 # `join-arith`). Each that compares `Text` runs again on the `join-nocase`
 # fixture, whose key columns are `COLLATE NOCASE` with indexes of another
 # collation, with the same oracle. They stay out of `_PROJECT_CELLS`, whose
-# R1 replay binds; R3 is to replay them.
+# R1 replay binds; R3's `postgres_replay_r3.json` binds each that PostgreSQL
+# project emission writes, all but the JOINs on a `Bool` key (D78.17).
 _U_SCHEMA = (
     "CREATE TABLE `u` (`k` INTEGER NOT NULL, `w` TEXT, `c` INTEGER, `v` INTEGER) STRICT"
 )
@@ -2763,16 +2765,27 @@ def _pg_contract(fixture: str) -> dict[str, Any]:
     with each storage and text domain restated for PostgreSQL, in schema
     `public`; selector, names, nullability, ranges and premises unchanged."""
 
-    entry = _project_source(fixture)
-    entry["relation"]["namespace"] = "public"
-    for field in entry["fields"]:
-        representation = field["representation"]
-        storage = representation["storage"]["kind"]
-        representation["storage"] = {"kind": _PG_STORAGE[storage]}
-        domain = representation["domain"]
-        if domain["kind"] == "text":
-            assert (domain["encoding"], domain["collation"]) == ("UTF-8", "BINARY")
-            domain.update(encoding="UTF8", collation="C")
+    return _pg_document(_project_source(fixture))
+
+
+def _pg_join_contract(fixture: str) -> dict[str, Any]:
+    """A JOIN fixture's PostgreSQL 18.6 contract (R3): R1's rule on each of
+    its two sources."""
+
+    return _pg_document(*_join_sources(fixture))
+
+
+def _pg_document(*entries: dict[str, Any]) -> dict[str, Any]:
+    for entry in entries:
+        entry["relation"]["namespace"] = "public"
+        for field in entry["fields"]:
+            representation = field["representation"]
+            storage = representation["storage"]["kind"]
+            representation["storage"] = {"kind": _PG_STORAGE[storage]}
+            domain = representation["domain"]
+            if domain["kind"] == "text":
+                assert (domain["encoding"], domain["collation"]) == ("UTF-8", "BINARY")
+                domain.update(encoding="UTF8", collation="C")
     settings = (
         ("client_encoding", "UTF8"),
         ("operator_environment", "builtin_only"),
@@ -2782,7 +2795,7 @@ def _pg_contract(fixture: str) -> dict[str, Any]:
     return {
         "format": "pietto.emission-contract.v1",
         "target": {"family": "postgres", "release": "18.6"},
-        "sources": [entry],
+        "sources": list(entries),
         "environment": [project_files.statement(*item) for item in settings],
     }
 
@@ -2810,10 +2823,11 @@ def _pg_bind(
     subjects: list[_PgSubject],
     cells: Sequence[_Cell],
     tmp_path: Path,
+    contract_of: Callable[[str], dict[str, Any]] = _pg_contract,
 ) -> list[list[Any]]:
-    """Binds a saved replay (R1, R2) to the tree: the fixture rows it loaded;
-    then, after `subjects`, each of `cells` that the PostgreSQL project
-    pipeline emits over the PostgreSQL contract of its fixture, with the
+    """Binds a saved replay (R1, R2, R3) to the tree: the fixture rows it
+    loaded, table by table; then, after `subjects`, each of `cells` that the
+    PostgreSQL project pipeline emits over `contract_of` its fixture, with the
     arguments it binds; one saved run per subject, in that order, holding its
     bytes, arguments and sent forms, its rows judged against the prewritten
     oracle. Premise controls (a name holding `-premise-`) and `-nocase`
@@ -2822,12 +2836,18 @@ def _pg_bind(
 
     assert set(replay["fixtures"]) == {entry["fixture"] for entry in replay["entries"]}
     for name, saved in replay["fixtures"].items():
-        table, _schema, rows = _FIXTURES[name]
-        assert saved["table"] == table, name
-        assert len(saved["rows"]) == len(rows), name
-        for row, saved_row in zip(rows, saved["rows"]):
-            pairs = zip(row, saved_row, strict=True)
-            assert all(_loaded(value, item) for value, item in pairs), (name, row)
+        if "tables" in saved:
+            tables, saved_tables = _JOIN_FIXTURES[name][0], saved["tables"]
+        else:
+            tables, saved_tables = (_FIXTURES[name],), (saved,)
+        for (table, _schema, rows), saved_table in zip(
+            tables, saved_tables, strict=True
+        ):
+            assert saved_table["table"] == table, name
+            assert len(saved_table["rows"]) == len(rows), name
+            for row, saved_row in zip(rows, saved_table["rows"]):
+                pairs = zip(row, saved_row, strict=True)
+                assert all(_loaded(value, item) for value, item in pairs), (name, row)
     refused: list[list[Any]] = []
     for index, cell in enumerate(cells):
         if "-premise-" in cell.name:
@@ -2837,9 +2857,9 @@ def _pg_bind(
             base_name = cell.name.removesuffix("-nocase")
             base = next(c for c in cells if c.name == base_name)
             assert cell.program == base.program, cell.name
-            assert _pg_contract(cell.fixture) == _pg_contract(base.fixture)
+            assert contract_of(cell.fixture) == contract_of(base.fixture)
             continue
-        contract = _pg_contract(cell.fixture)
+        contract = contract_of(cell.fixture)
         if cell.fixture in replay["fixtures"]:
             assert replay["fixtures"][cell.fixture]["postgres_contract"] == contract
         program = cell.program.replace('sqlite.table("', 'postgres.table("')
@@ -2968,6 +2988,21 @@ def test_each_r2_row_number_entry_has_no_peers(
     assert checked
     if native.qualified:
         native.observe("r2_no_peers", checked)
+
+
+def test_each_r3_postgres_replay_binds_the_bytes_it_ran(tmp_path: Path) -> None:
+    """R3's saved PostgreSQL result counts for a JOIN cell, S14's arithmetic
+    over joined rows among them, only under R1's rule: the bytes that ran,
+    over the two tables and the two-source PostgreSQL contract the run
+    loaded, meeting the cell's prewritten oracle under the replay judge, with
+    no declared divergence (no `AVG_ORDER`); a cell that PostgreSQL refuses
+    stays listed with the blockers it had (a `Bool` key, its native cells
+    only, D78.17). No database opens."""
+
+    replay = json.loads(POSTGRES_REPLAY_R3.read_text(encoding="utf-8"))
+    assert replay["format"] == "pietto.phase78.b2-r3.postgres-replay.v1"
+    refused = _pg_bind(replay, [], _JOIN_CELLS, tmp_path, _pg_join_contract)
+    assert replay["postgres_refused"] == refused
 
 
 _WIDE = """shape Wide:

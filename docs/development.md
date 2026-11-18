@@ -463,6 +463,16 @@ entry's SQLite statement again on the measured build with `RANK()` in its
 place and requires the same rows, so a saved number does not depend on how
 peers are ordered.
 
+`tests/fixtures/sqlite/postgres_replay_r3.json` keeps the replay of the
+JOINs of SQLite B2's second tier (R3) by the same rules: each JOIN cell
+that the PostgreSQL project pipeline emits, S14's arithmetic over joined
+rows among them, over the two tables of its fixture and a contract of two
+sources, none with an argument; the cells that pipeline refuses at a
+`Bool` key, with each blocker's code and detail; and what R3 does not
+verify. `test_each_r3_postgres_replay_binds_the_bytes_it_ran` binds it as
+R2's test binds its cells, each fixture table by table, and requires each
+refused cell to keep its blockers.
+
 ## DuckDB native qualification
 
 The [DuckDB Arrow route](spec/duckdb-arrow-route-v1.md) is qualified in

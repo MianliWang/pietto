@@ -38,7 +38,8 @@ two batches are pushed after
 the `0.2.2` release commit (PL.64 (3)), and the route's
 [second tier](../phases/phase-78/route.md#b2-second-tier) holds its slices.
 
-Construction state: FIRST TIER PUBLISHED. S06 wrote this page before any B2 code.
+Construction state: FIRST TIER PUBLISHED, SECOND TIER QUALIFIED (JOINs,
+arithmetic and windows). S06 wrote this page before any B2 code.
 S07 added the shared connector entry and the three family mappings, so a
 project's `check` accepts a `sqlite.table` source and PostgreSQL, MySQL and
 DuckDB emission refuse it as [compile refusals](#compile-refusals) states.
@@ -56,6 +57,17 @@ S13a INNER and LEFT JOINs of `sqlite.table` sources ([admission](#admission)),
 each with its native cells; S13a started from a head that carries the JOIN
 facts decision PL.61 and its fence, and S13b opened their
 [execution](#execution) on the `sqlite_file` route with its native cells.
+R2 and R3 replayed the second tier's PostgreSQL bytes, and both passed.
+Each ran once, on its batch's head before that batch was rebased; on a
+later tree its result counts only while that tree emits the bytes, over the
+fixture rows, that the run judged, which
+`test_each_r2_postgres_replay_binds_the_bytes_it_ran` and
+`test_each_r3_postgres_replay_binds_the_bytes_it_ran` assert, and an R2
+`row_number` entry only while no two rows of its window tie in the
+window's order, which `test_each_r2_row_number_entry_has_no_peers` checks
+by running the statement on SQLite under the qualified class; the native
+cells are qualification evidence only where they run on that tree under
+the qualified class ([qualification](#qualification)).
 Each slice edits the rows it lands.
 `0.2.2` carries the first tier's forms (PL.55, PL.56);
 `0.2.1` and earlier refuse a project `sqlite.table` with `PIE-S2306`
@@ -777,9 +789,21 @@ cells alone open them (D78.15, D78.16). An INNER or LEFT JOIN on a `Bool`
 key, which PostgreSQL project mode refuses as it refuses every `Bool`
 comparison, likewise has native cells only and no R3 entry (D78.17).
 A `row_number` entry compares only
-results that do not depend on the order of peers. R2 ran once and ended
-`PASS` with 13 entries and no divergence
-(`tests/fixtures/sqlite/postgres_replay_r2.json`).
+results that do not depend on the order of peers. R2 ran once, on the
+first batch's head before its rebase, and ended `PASS` with 13 entries and
+no divergence (`tests/fixtures/sqlite/postgres_replay_r2.json`). R3 ran
+once, on the second batch's head before its rebase, and ended `PASS` with
+13 entries and no divergence
+(`tests/fixtures/sqlite/postgres_replay_r3.json`). Neither ran on a
+rebased tree: each saved result carries to a later tree only while its
+binding tests (see the construction state above) pass there, and a tree on
+which one fails has no PostgreSQL reference for that entry until a new
+campaign, which needs the owner. Beside the JOINs on a
+`Bool` key, R3 does not verify `COLLATE NOCASE` key columns, which run
+natively with their base cell's oracle; the route over a JOIN, which
+writes no SQL byte of its own and has native cells only; a JOIN with query
+arguments, which no cell binds; or arithmetic past the bounds over joined
+rows, which emission refuses.
 
 ## Usability
 
