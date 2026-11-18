@@ -540,7 +540,7 @@ statement may fail while PostgreSQL plans or executes it and never returns an
 infinity or a wrong value. A sign on a `Float` (`-price`, requirement kind
 `arithmetic` with the operator `-`) and arithmetic of two `Float` literals,
 which the compiler folds, carry none, and no MySQL document carries it
-outside the MC E4 cell below. A consumer that requires a statically proved
+outside the MC E4 and E4B cells below. A consumer that requires a statically proved
 finite result refuses a document with this evidence. The emission
 observation lists the token in that requirement's `evidence`.
 
@@ -562,7 +562,11 @@ CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) ELSE (`) and
 `product_guard_close` (`) END`), which open and close its `binary` range in
 place of `binary_open` and `binary_close`, with the operands read between
 them in the order `x`, `y`, `x`, `y`, `x`, `y` and each `x * y` written with
-the `arithmetic_operator` role (` * `).
+the `arithmetic_operator` role (` * `). The same operations in MC E4B's
+cells, which the [language page](../language.md#mysql-float-wider-cells)
+states, a `let` value, a side of a WHERE comparison or an ORDER BY key,
+carry the same evidence, storage, domain and spelling, `*` under the same
+guard and roles; no other role or field is added.
 
 After `0.1.10`, a project `Float / Float` or `Float % Float` that is not
 emitted is BLOCKED with the additive PIE-B1003 detail

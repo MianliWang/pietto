@@ -841,7 +841,8 @@ value.
   statement with SQLSTATE 22003 instead, and also fails it where a product of
   two non-zero values rounds to zero, which Python gives as `0.0`. Project
   SQL on MySQL fails the same statements in
-  [E4's cell](#mysql-float-arithmetic-cell), with error 1690 (SQLSTATE
+  [E4's cell](#mysql-float-arithmetic-cell) and
+  [E4B's cells](#mysql-float-wider-cells), with error 1690 (SQLSTATE
   22003). It never returns an infinity or a wrong value. Project SQL folds
   `+`, `-` or `*` of two Float literals when it is emitted, on both targets
   and under both literal policies, and a folded result outside binary64, or
@@ -980,12 +981,47 @@ binary64 evidence of PostgreSQL's (a sign carries none). Every other MySQL
 `Float` arithmetic keeps its refusal: two fields (`x + y`, `x - x`), a
 nested operation (`(x * 2.0) + 1.0`, `-(-x)`), unary `+`, an `Int` literal,
 a literal under `+` or two signs, `/`, `%`, `abs` of the operation, a header
-parameter, the same operation in a `let`, a WHERE, an ORDER BY key or an
-aggregate argument, and a cell's operation in a query that holds any of the
-clauses above or beside any other SELECT item, such as an `lpad`, `now()` or
-`date_of(now())` call, an S01 `Int` operation, a comparison, a literal or
-another expression; a statement still refused reports exactly the blockers
-it has without this cell.
+parameter, the same operation in a `let`, a WHERE or an ORDER BY key outside
+[E4B's cells](#mysql-float-wider-cells) or in an aggregate argument, and a
+cell's operation in a query that holds any of the clauses above or beside
+any other SELECT item, such as an `lpad`, `now()` or `date_of(now())`
+call, an S01 `Int` operation, a comparison, a literal or another
+expression; a statement still refused reports exactly the blockers it has
+without this cell.
+
+<a id="mysql-float-wider-cells"></a>MC E4B widens E4's cell on MySQL by the
+statement around the operation (PL.58 (4), E4B's own ledger). Each
+operation is narrow, as in E4's cell: a `Float` `+`, `-` or `*` of a
+nullable or non-null `DOUBLE` field and a `Float` literal under one `-` at
+most, in either order, or the unary `-` of such a field; a `let` name is not
+a field. The statement is a `query` or `table` that reads one source of its
+own module, with no JOIN, window, GROUP BY or aggregate, DISTINCT, LIMIT,
+header parameter (read or not), upstream query, relation alias, unread
+window or bind-safe `?`, and its clauses make one of these shapes:
+
+- one or two `let` values of such operations, read by the select list
+  (`let t = x * 2.0`, `r = t`);
+- a WHERE that is one whole comparison (`<`, `<=`, `>`, `>=`, `==` or `!=`),
+  or its `not`, of such an operation with a `Float` literal on either side,
+  with no `let` (`where x * 2.0 > 1.0`), and E4 cell items beside it or not;
+- the same WHERE over the one `let` of such an operation instead
+  (`let t = -x`, `where t <= 0.0`);
+- ORDER BY keys that are `let` names of such operations, selected or not:
+  one key over one `let`, under such a WHERE over it or not, or two keys
+  over two `let`s (`order by t, u desc`).
+
+Every `let` is read, and every one by the WHERE when there is one; the
+select list reads fields and those `let`s. The SQL is PostgreSQL's in
+MySQL's spelling: a `let` value is computed for every source row in the
+first CTE, a WHERE filters in its own CTE, and `*` stands under E4's guard.
+Values, failures, evidence and nullability are E4's. Every other statement
+keeps the blockers it has without this paragraph, among them a `let`
+nothing reads or that a WHERE beside it does not read, a WHERE with another
+condition or comparing with a field or another operation, a `let` name as
+an operand, a `let` or ORDER BY key beside an operation item, a field key
+beside a `let` key, three `let`s, and any clause above; two fields, a
+nested operation, `count`'s argument, a parameter operand, a computed `let`
+GROUP BY key and a JOIN row stay refused in this slice.
 
 ## Sources and relations
 

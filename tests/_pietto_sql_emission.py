@@ -24160,10 +24160,6 @@ E4_REFUSALS = {
     "r02_two_fields": _e4_body("query", ["r = x + y"]),
     "r03_same_field": _e4_body("query", ["r = x - x"]),
     "r04_nested": _e4_body("query", ["r = (x * 2.0) + 1.0"]),
-    "r05_let": "query result:\n    from rows\n    let t = x * 2.0\n    select:\n"
-    "        id\n        r = t\n",
-    "r06_where": "query result:\n    from rows\n    where x * 2.0 > 1.0\n    select:\n"
-    "        id\n",
     "r07_order_by": _e4_body("query", ["r = x * 2.0"]) + "    order by:\n        r\n",
     "r07_order_by_id": _e4_body("query", ["r = x * 2.0"])
     + "    order by:\n        id\n",
@@ -24213,6 +24209,14 @@ E4_REFUSALS = {
     "unread_parameter": "query result(p: Float):\n    from rows\n    select:\n"
     "        id\n        r = x * 2.0\n",
 }
+# E4's R5 and R6, a `let` carry and a WHERE comparison of a cell's operation,
+# which E4B's first slice opens (its P1 and P2), with their SQL.
+E4_OPENED = {
+    "r05_let": "query result:\n    from rows\n    let t = x * 2.0\n    select:\n"
+    "        id\n        r = t\n",
+    "r06_where": "query result:\n    from rows\n    where x * 2.0 > 1.0\n    select:\n"
+    "        id\n",
+}
 # The one policy that refuses a body otherwise emitted.
 E4_REFUSAL_POLICIES = {"r13_bind_safe": ("bind_safe_literals",)}
 # The MySQL blockers main reports for each of E4_REFUSALS, as (code, detail,
@@ -24226,8 +24230,6 @@ E4_REFUSAL_BLOCKERS = {
     "r02_two_fields": [("PIE-B1003", "float_literal_operands_required", 10, 9)],
     "r03_same_field": [("PIE-B1003", "float_literal_operands_required", 10, 9)],
     "r04_nested": [("PIE-B1003", "float_literal_operands_required", 10, 9)],
-    "r05_let": [("PIE-B1003", "float_literal_operands_required", 8, 5)],
-    "r06_where": [("PIE-B1003", "float_literal_operands_required", 8, 5)],
     "r07_order_by": [("PIE-B1003", "order", 11, 5)],
     "r07_order_by_id": [("PIE-B1003", "float_literal_operands_required", 10, 9)],
     "r08_limit": [("PIE-B1003", "float_literal_operands_required", 10, 9)],
@@ -24842,4 +24844,881 @@ D19P_FORM_SQL = {
     ("Q06", "mysql"): (
         "SELECT `s0`.`order.id` AS `id` FROM `phase66`.`phase66 source é` AS `s0`"
     ),
+}
+
+
+# MC E4B: each chain's tables (its PREREG World), as (source, shape, relation,
+# fields as (name, kind, nullable, Text width)); a column is its field's name.
+E4B_TABLES = {
+    "b": (
+        (
+            "bsrc",
+            "BRow",
+            "phase77 bsrc",
+            (
+                ("id", "int8", False, None),
+                ("x", "double", True, None),
+                ("y", "double", False, None),
+            ),
+        ),
+    ),
+}
+
+
+def _e4b_world(chain, directory, target, body, policy):
+    """``body`` after the chain's shapes and sources (E4B_TABLES), with exact
+    identifier case and the native parameter protocol, as float_world's."""
+    contract = json.loads(parameterized_fixture(target, "", protocol=True)["contract"])
+    base = contract["sources"][0]
+    text = next(field for field in base["fields"] if field["name"] == "text")
+    wide, double = (
+        ("pg_int8", "pg_float8") if target == "postgres" else ("my_bigint", "my_double")
+    )
+    kinds = {
+        "int8": {
+            "storage": {"kind": wide},
+            "domain": {
+                "kind": "int_range",
+                "min": str(-(1 << 63)),
+                "max": str((1 << 63) - 1),
+            },
+        },
+        "double": {
+            "storage": {"kind": double},
+            "domain": {"kind": "finite_float", "format": "binary64"},
+        },
+    }
+    header, sources = "", []
+    for name, shape, relation, fields in E4B_TABLES[chain]:
+        if f"shape {shape}:\n" not in header:
+            header += f"shape {shape}:\n" + "".join(
+                f"    {field}: "
+                f"{dict(int8='Int', double='Float', text='Text')[kind]}"
+                f"{' | None' if nullable else ''}\n"
+                for field, kind, nullable, _ in fields
+            )
+        header += f'source {name}: {shape} = {target}.table("{name}.locator")\n'
+        source = deepcopy(base)
+        source["selector"]["name"] = name
+        source["relation"] = {**source["relation"], "name": relation}
+        source["fields"] = []
+        for ordinal, (field, kind, nullable, width) in enumerate(fields):
+            representation: dict[str, Any] = deepcopy(text["representation"])
+            if kind == "text":
+                representation["domain"]["max_characters"] = width
+                if "length" in representation["storage"]:
+                    representation["storage"]["length"] = width
+            else:
+                representation = dict(kinds[kind])
+            representation["nullable"] = nullable
+            source["fields"].append(
+                {
+                    "ordinal": ordinal,
+                    "name": field,
+                    "column": field,
+                    "representation": representation,
+                }
+            )
+        sources.append(source)
+    contract["sources"] = sources
+    return build_case(directory, header + body, encoded(contract).decode(), policy)
+
+
+def e4b_world(directory, target, body, policy="preserve_literals"):
+    """``body`` over chain B's source `bsrc` (E4B_TABLES)."""
+    return _e4b_world("b", directory, target, body, policy)
+
+
+def _e4b(kind, source, *lines, params=""):
+    """A form's statement: its `query` or `table` ``result`` reading
+    ``source``, then ``lines``; `{B}` stands for `1e308`."""
+    return (
+        f"{kind} result{params}:\n    from {source}\n"
+        + "".join(f"    {line}\n" for line in lines)
+    ).replace("{B}", _E4_BIG)
+
+
+# The emitted list `e4b-emitted` (PREREG Emitted forms, chain B): P1 a `let`
+# carry read by the select list, P2 a WHERE that compares an operation, or a
+# `let` name of one, with a Float literal, P3 ORDER BY keys of `let` names.
+E4B_FORMS = {
+    "EB1A": _e4b("query", "bsrc", "let t = x + {B}", "select:", "    id", "    r = t"),
+    "EB1A2": _e4b(
+        "table", "bsrc", "let t = -{B} + y", "select:", "    id", "    r = t"
+    ),
+    "EB1S": _e4b("table", "bsrc", "let t = y - 0.1", "select:", "    id", "    r = t"),
+    "EB1S2": _e4b("query", "bsrc", "let t = {B} - x", "select:", "    id", "    r = t"),
+    "EB1N": _e4b("query", "bsrc", "let t = -x", "select:", "    id", "    r = t"),
+    "EB1N2": _e4b("table", "bsrc", "let t = -y", "select:", "    id", "    r = t"),
+    "EB1M": _e4b("query", "bsrc", "let t = 0.5 * y", "select:", "    id", "    r = t"),
+    "EB1M2": _e4b(
+        "table", "bsrc", "let t = x * -2.0", "select:", "    id", "    r = t"
+    ),
+    "EB1WA": _e4b(
+        "query",
+        "bsrc",
+        "let t = x + 0.1",
+        "where t > 0.25",
+        "select:",
+        "    id",
+        "    r = t",
+    ),
+    "EB1WS": _e4b(
+        "table",
+        "bsrc",
+        "let t = y - {B}",
+        "where t < 0.0",
+        "select:",
+        "    id",
+        "    r = t",
+    ),
+    "EB1WN": _e4b(
+        "query",
+        "bsrc",
+        "let t = -x",
+        "where t <= 0.0",
+        "select:",
+        "    id",
+        "    r = t",
+    ),
+    "EB1WM": _e4b(
+        "query",
+        "bsrc",
+        "let t = y * 0.5",
+        "where t != 0.0",
+        "select:",
+        "    id",
+        "    r = t",
+    ),
+    "EB1Ladd": _e4b(
+        "query",
+        "bsrc",
+        "let t = x + {B}",
+        "let u = y + 0.1",
+        "select:",
+        "    id",
+        "    r = t",
+        "    s = u",
+    ),
+    "EB1Lsub": _e4b(
+        "table",
+        "bsrc",
+        "let t = x - 0.1",
+        "let u = {B} - y",
+        "select:",
+        "    id",
+        "    r = t",
+        "    s = u",
+    ),
+    "EB1Lneg": _e4b(
+        "query",
+        "bsrc",
+        "let t = -x",
+        "let u = -y",
+        "select:",
+        "    id",
+        "    r = t",
+        "    s = u",
+    ),
+    "EB1Lmul": _e4b(
+        "query",
+        "bsrc",
+        "let t = x * 0.5",
+        "let u = 2.0 * y",
+        "select:",
+        "    id",
+        "    r = t",
+        "    s = u",
+    ),
+    "EB2A": _e4b("query", "bsrc", "where x + {B} > 0.0", "select:", "    id", "    x"),
+    "EB2A2": _e4b("table", "bsrc", "where 0.0 == y + -0.0", "select:", "    id"),
+    "EB2S": _e4b(
+        "query", "bsrc", "where not (x - 0.0 != 0.0)", "select:", "    id", "    y"
+    ),
+    "EB2S2": _e4b("table", "bsrc", "where y - {B} <= 0.0", "select:", "    id"),
+    "EB2N": _e4b("query", "bsrc", "where -x < 0.0", "select:", "    id"),
+    "EB2N2": _e4b("query", "bsrc", "where 0.0 >= -y", "select:", "    id"),
+    "EB2M": _e4b("query", "bsrc", "where x * 2.0 >= 1.0", "select:", "    id"),
+    "EB2M2": _e4b("table", "bsrc", "where 1.0 > 0.5 * y", "select:", "    id"),
+    "EB2M3": _e4b("query", "bsrc", "where not (y * -2.0 == 0.0)", "select:", "    id"),
+    "EB2LA": _e4b(
+        "query", "bsrc", "let t = x + -{B}", "where t < 0.0", "select:", "    id"
+    ),
+    "EB2LS": _e4b(
+        "table", "bsrc", "let t = {B} - y", "where t >= 1.0", "select:", "    id"
+    ),
+    "EB2LN": _e4b("query", "bsrc", "let t = -x", "where t == 0.0", "select:", "    id"),
+    "EB2LM": _e4b(
+        "query", "bsrc", "let t = y * 2.0", "where t <= 0.0", "select:", "    id"
+    ),
+    "EB3A": _e4b("query", "bsrc", "let t = x + {B}", "select:", "    id", "order by t"),
+    "EB3S": _e4b(
+        "table",
+        "bsrc",
+        "let t = {B} - y",
+        "select:",
+        "    id",
+        "    r = t",
+        "order by t desc",
+    ),
+    "EB3N": _e4b("query", "bsrc", "let t = -x", "select:", "    id", "order by t desc"),
+    "EB3M": _e4b(
+        "query",
+        "bsrc",
+        "let t = y * 0.5",
+        "select:",
+        "    id",
+        "    r = t",
+        "order by t",
+    ),
+    "EB3WA": _e4b(
+        "table",
+        "bsrc",
+        "let t = x + {B}",
+        "where t > 0.0",
+        "select:",
+        "    id",
+        "order by t",
+    ),
+    "EB3WM": _e4b(
+        "query",
+        "bsrc",
+        "let t = y * 2.0",
+        "where t > 0.0",
+        "select:",
+        "    id",
+        "    r = t",
+        "order by t desc",
+    ),
+    "EB2I": _e4b(
+        "query", "bsrc", "where x * 0.5 > 0.0", "select:", "    id", "    r = x * 2.0"
+    ),
+    "EB3K2": _e4b(
+        "table",
+        "bsrc",
+        "let t = x * 2.0",
+        "let u = -y",
+        "select:",
+        "    id",
+        "    r = t",
+        "order by t, u desc",
+    ),
+}
+# The SQL each form emits (the qualification's byte source): PostgreSQL's is
+# main's, byte for byte, and MySQL's is it in MySQL's spelling, with each `*`
+# under MYSQL_PRODUCT_GUARD and its operands in written order.
+E4B_FORM_SQL = {
+    (
+        "EB1A",
+        "postgres",
+    ): 'WITH "p0" ("c0", "c1", "c2", "c3") AS (SELECT "s0"."id" AS "c0", "s0"."x" AS "c1", "s0"."y" AS "c2", ("s0"."x" + CAST(\'1e+308\' AS pg_catalog.float8)) AS "c3" FROM "public"."phase77 bsrc" AS "s0") SELECT "t1"."c0" AS "id", "t1"."c3" AS "r" FROM "p0" AS "t1"',
+    (
+        "EB1A",
+        "mysql",
+    ): "WITH `p0` (`c0`, `c1`, `c2`, `c3`) AS (SELECT `s0`.`id` AS `c0`, `s0`.`x` AS `c1`, `s0`.`y` AS `c2`, (`s0`.`x` + CAST(1e+308 AS DOUBLE)) AS `c3` FROM `phase66`.`phase77 bsrc` AS `s0`) SELECT `t1`.`c0` AS `id`, `t1`.`c3` AS `r` FROM `p0` AS `t1`",
+    (
+        "EB1A2",
+        "postgres",
+    ): 'WITH "p0" ("c0", "c1", "c2", "c3") AS (SELECT "s0"."id" AS "c0", "s0"."x" AS "c1", "s0"."y" AS "c2", ((-CAST(\'1e+308\' AS pg_catalog.float8)) + "s0"."y") AS "c3" FROM "public"."phase77 bsrc" AS "s0") SELECT "t1"."c0" AS "id", "t1"."c3" AS "r" FROM "p0" AS "t1"',
+    (
+        "EB1A2",
+        "mysql",
+    ): "WITH `p0` (`c0`, `c1`, `c2`, `c3`) AS (SELECT `s0`.`id` AS `c0`, `s0`.`x` AS `c1`, `s0`.`y` AS `c2`, ((-CAST(1e+308 AS DOUBLE)) + `s0`.`y`) AS `c3` FROM `phase66`.`phase77 bsrc` AS `s0`) SELECT `t1`.`c0` AS `id`, `t1`.`c3` AS `r` FROM `p0` AS `t1`",
+    (
+        "EB1S",
+        "postgres",
+    ): 'WITH "p0" ("c0", "c1", "c2", "c3") AS (SELECT "s0"."id" AS "c0", "s0"."x" AS "c1", "s0"."y" AS "c2", ("s0"."y" - CAST(\'0.1\' AS pg_catalog.float8)) AS "c3" FROM "public"."phase77 bsrc" AS "s0") SELECT "t1"."c0" AS "id", "t1"."c3" AS "r" FROM "p0" AS "t1"',
+    (
+        "EB1S",
+        "mysql",
+    ): "WITH `p0` (`c0`, `c1`, `c2`, `c3`) AS (SELECT `s0`.`id` AS `c0`, `s0`.`x` AS `c1`, `s0`.`y` AS `c2`, (`s0`.`y` - CAST(0.1e0 AS DOUBLE)) AS `c3` FROM `phase66`.`phase77 bsrc` AS `s0`) SELECT `t1`.`c0` AS `id`, `t1`.`c3` AS `r` FROM `p0` AS `t1`",
+    (
+        "EB1S2",
+        "postgres",
+    ): 'WITH "p0" ("c0", "c1", "c2", "c3") AS (SELECT "s0"."id" AS "c0", "s0"."x" AS "c1", "s0"."y" AS "c2", (CAST(\'1e+308\' AS pg_catalog.float8) - "s0"."x") AS "c3" FROM "public"."phase77 bsrc" AS "s0") SELECT "t1"."c0" AS "id", "t1"."c3" AS "r" FROM "p0" AS "t1"',
+    (
+        "EB1S2",
+        "mysql",
+    ): "WITH `p0` (`c0`, `c1`, `c2`, `c3`) AS (SELECT `s0`.`id` AS `c0`, `s0`.`x` AS `c1`, `s0`.`y` AS `c2`, (CAST(1e+308 AS DOUBLE) - `s0`.`x`) AS `c3` FROM `phase66`.`phase77 bsrc` AS `s0`) SELECT `t1`.`c0` AS `id`, `t1`.`c3` AS `r` FROM `p0` AS `t1`",
+    (
+        "EB1N",
+        "postgres",
+    ): 'WITH "p0" ("c0", "c1", "c2", "c3") AS (SELECT "s0"."id" AS "c0", "s0"."x" AS "c1", "s0"."y" AS "c2", (-"s0"."x") AS "c3" FROM "public"."phase77 bsrc" AS "s0") SELECT "t1"."c0" AS "id", "t1"."c3" AS "r" FROM "p0" AS "t1"',
+    (
+        "EB1N",
+        "mysql",
+    ): "WITH `p0` (`c0`, `c1`, `c2`, `c3`) AS (SELECT `s0`.`id` AS `c0`, `s0`.`x` AS `c1`, `s0`.`y` AS `c2`, (-`s0`.`x`) AS `c3` FROM `phase66`.`phase77 bsrc` AS `s0`) SELECT `t1`.`c0` AS `id`, `t1`.`c3` AS `r` FROM `p0` AS `t1`",
+    (
+        "EB1N2",
+        "postgres",
+    ): 'WITH "p0" ("c0", "c1", "c2", "c3") AS (SELECT "s0"."id" AS "c0", "s0"."x" AS "c1", "s0"."y" AS "c2", (-"s0"."y") AS "c3" FROM "public"."phase77 bsrc" AS "s0") SELECT "t1"."c0" AS "id", "t1"."c3" AS "r" FROM "p0" AS "t1"',
+    (
+        "EB1N2",
+        "mysql",
+    ): "WITH `p0` (`c0`, `c1`, `c2`, `c3`) AS (SELECT `s0`.`id` AS `c0`, `s0`.`x` AS `c1`, `s0`.`y` AS `c2`, (-`s0`.`y`) AS `c3` FROM `phase66`.`phase77 bsrc` AS `s0`) SELECT `t1`.`c0` AS `id`, `t1`.`c3` AS `r` FROM `p0` AS `t1`",
+    (
+        "EB1M",
+        "postgres",
+    ): 'WITH "p0" ("c0", "c1", "c2", "c3") AS (SELECT "s0"."id" AS "c0", "s0"."x" AS "c1", "s0"."y" AS "c2", (CAST(\'0.5\' AS pg_catalog.float8) * "s0"."y") AS "c3" FROM "public"."phase77 bsrc" AS "s0") SELECT "t1"."c0" AS "id", "t1"."c3" AS "r" FROM "p0" AS "t1"',
+    (
+        "EB1M",
+        "mysql",
+    ): "WITH `p0` (`c0`, `c1`, `c2`, `c3`) AS (SELECT `s0`.`id` AS `c0`, `s0`.`x` AS `c1`, `s0`.`y` AS `c2`, CASE WHEN (CAST(0.5e0 AS DOUBLE) * `s0`.`y`) = 0 AND CAST(0.5e0 AS DOUBLE) <> 0 AND `s0`.`y` <> 0 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) ELSE (CAST(0.5e0 AS DOUBLE) * `s0`.`y`) END AS `c3` FROM `phase66`.`phase77 bsrc` AS `s0`) SELECT `t1`.`c0` AS `id`, `t1`.`c3` AS `r` FROM `p0` AS `t1`",
+    (
+        "EB1M2",
+        "postgres",
+    ): 'WITH "p0" ("c0", "c1", "c2", "c3") AS (SELECT "s0"."id" AS "c0", "s0"."x" AS "c1", "s0"."y" AS "c2", ("s0"."x" * (-CAST(\'2.0\' AS pg_catalog.float8))) AS "c3" FROM "public"."phase77 bsrc" AS "s0") SELECT "t1"."c0" AS "id", "t1"."c3" AS "r" FROM "p0" AS "t1"',
+    (
+        "EB1M2",
+        "mysql",
+    ): "WITH `p0` (`c0`, `c1`, `c2`, `c3`) AS (SELECT `s0`.`id` AS `c0`, `s0`.`x` AS `c1`, `s0`.`y` AS `c2`, CASE WHEN (`s0`.`x` * (-CAST(2.0e0 AS DOUBLE))) = 0 AND `s0`.`x` <> 0 AND (-CAST(2.0e0 AS DOUBLE)) <> 0 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) ELSE (`s0`.`x` * (-CAST(2.0e0 AS DOUBLE))) END AS `c3` FROM `phase66`.`phase77 bsrc` AS `s0`) SELECT `t1`.`c0` AS `id`, `t1`.`c3` AS `r` FROM `p0` AS `t1`",
+    (
+        "EB1WA",
+        "postgres",
+    ): 'WITH "p0" ("c0", "c1", "c2", "c3") AS (SELECT "s0"."id" AS "c0", "s0"."x" AS "c1", "s0"."y" AS "c2", ("s0"."x" + CAST(\'0.1\' AS pg_catalog.float8)) AS "c3" FROM "public"."phase77 bsrc" AS "s0"), "p1" ("c0", "c1", "c2", "c3") AS (SELECT "t1"."c0" AS "c0", "t1"."c1" AS "c1", "t1"."c2" AS "c2", "t1"."c3" AS "c3" FROM "p0" AS "t1" WHERE ("t1"."c3" > CAST(\'0.25\' AS pg_catalog.float8))) SELECT "t2"."c0" AS "id", "t2"."c3" AS "r" FROM "p1" AS "t2"',
+    (
+        "EB1WA",
+        "mysql",
+    ): "WITH `p0` (`c0`, `c1`, `c2`, `c3`) AS (SELECT `s0`.`id` AS `c0`, `s0`.`x` AS `c1`, `s0`.`y` AS `c2`, (`s0`.`x` + CAST(0.1e0 AS DOUBLE)) AS `c3` FROM `phase66`.`phase77 bsrc` AS `s0`), `p1` (`c0`, `c1`, `c2`, `c3`) AS (SELECT `t1`.`c0` AS `c0`, `t1`.`c1` AS `c1`, `t1`.`c2` AS `c2`, `t1`.`c3` AS `c3` FROM `p0` AS `t1` WHERE (`t1`.`c3` > CAST(0.25e0 AS DOUBLE))) SELECT `t2`.`c0` AS `id`, `t2`.`c3` AS `r` FROM `p1` AS `t2`",
+    (
+        "EB1WS",
+        "postgres",
+    ): 'WITH "p0" ("c0", "c1", "c2", "c3") AS (SELECT "s0"."id" AS "c0", "s0"."x" AS "c1", "s0"."y" AS "c2", ("s0"."y" - CAST(\'1e+308\' AS pg_catalog.float8)) AS "c3" FROM "public"."phase77 bsrc" AS "s0"), "p1" ("c0", "c1", "c2", "c3") AS (SELECT "t1"."c0" AS "c0", "t1"."c1" AS "c1", "t1"."c2" AS "c2", "t1"."c3" AS "c3" FROM "p0" AS "t1" WHERE ("t1"."c3" < CAST(\'0.0\' AS pg_catalog.float8))) SELECT "t2"."c0" AS "id", "t2"."c3" AS "r" FROM "p1" AS "t2"',
+    (
+        "EB1WS",
+        "mysql",
+    ): "WITH `p0` (`c0`, `c1`, `c2`, `c3`) AS (SELECT `s0`.`id` AS `c0`, `s0`.`x` AS `c1`, `s0`.`y` AS `c2`, (`s0`.`y` - CAST(1e+308 AS DOUBLE)) AS `c3` FROM `phase66`.`phase77 bsrc` AS `s0`), `p1` (`c0`, `c1`, `c2`, `c3`) AS (SELECT `t1`.`c0` AS `c0`, `t1`.`c1` AS `c1`, `t1`.`c2` AS `c2`, `t1`.`c3` AS `c3` FROM `p0` AS `t1` WHERE (`t1`.`c3` < CAST(0.0e0 AS DOUBLE))) SELECT `t2`.`c0` AS `id`, `t2`.`c3` AS `r` FROM `p1` AS `t2`",
+    (
+        "EB1WN",
+        "postgres",
+    ): 'WITH "p0" ("c0", "c1", "c2", "c3") AS (SELECT "s0"."id" AS "c0", "s0"."x" AS "c1", "s0"."y" AS "c2", (-"s0"."x") AS "c3" FROM "public"."phase77 bsrc" AS "s0"), "p1" ("c0", "c1", "c2", "c3") AS (SELECT "t1"."c0" AS "c0", "t1"."c1" AS "c1", "t1"."c2" AS "c2", "t1"."c3" AS "c3" FROM "p0" AS "t1" WHERE ("t1"."c3" <= CAST(\'0.0\' AS pg_catalog.float8))) SELECT "t2"."c0" AS "id", "t2"."c3" AS "r" FROM "p1" AS "t2"',
+    (
+        "EB1WN",
+        "mysql",
+    ): "WITH `p0` (`c0`, `c1`, `c2`, `c3`) AS (SELECT `s0`.`id` AS `c0`, `s0`.`x` AS `c1`, `s0`.`y` AS `c2`, (-`s0`.`x`) AS `c3` FROM `phase66`.`phase77 bsrc` AS `s0`), `p1` (`c0`, `c1`, `c2`, `c3`) AS (SELECT `t1`.`c0` AS `c0`, `t1`.`c1` AS `c1`, `t1`.`c2` AS `c2`, `t1`.`c3` AS `c3` FROM `p0` AS `t1` WHERE (`t1`.`c3` <= CAST(0.0e0 AS DOUBLE))) SELECT `t2`.`c0` AS `id`, `t2`.`c3` AS `r` FROM `p1` AS `t2`",
+    (
+        "EB1WM",
+        "postgres",
+    ): 'WITH "p0" ("c0", "c1", "c2", "c3") AS (SELECT "s0"."id" AS "c0", "s0"."x" AS "c1", "s0"."y" AS "c2", ("s0"."y" * CAST(\'0.5\' AS pg_catalog.float8)) AS "c3" FROM "public"."phase77 bsrc" AS "s0"), "p1" ("c0", "c1", "c2", "c3") AS (SELECT "t1"."c0" AS "c0", "t1"."c1" AS "c1", "t1"."c2" AS "c2", "t1"."c3" AS "c3" FROM "p0" AS "t1" WHERE ("t1"."c3" <> CAST(\'0.0\' AS pg_catalog.float8))) SELECT "t2"."c0" AS "id", "t2"."c3" AS "r" FROM "p1" AS "t2"',
+    (
+        "EB1WM",
+        "mysql",
+    ): "WITH `p0` (`c0`, `c1`, `c2`, `c3`) AS (SELECT `s0`.`id` AS `c0`, `s0`.`x` AS `c1`, `s0`.`y` AS `c2`, CASE WHEN (`s0`.`y` * CAST(0.5e0 AS DOUBLE)) = 0 AND `s0`.`y` <> 0 AND CAST(0.5e0 AS DOUBLE) <> 0 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) ELSE (`s0`.`y` * CAST(0.5e0 AS DOUBLE)) END AS `c3` FROM `phase66`.`phase77 bsrc` AS `s0`), `p1` (`c0`, `c1`, `c2`, `c3`) AS (SELECT `t1`.`c0` AS `c0`, `t1`.`c1` AS `c1`, `t1`.`c2` AS `c2`, `t1`.`c3` AS `c3` FROM `p0` AS `t1` WHERE (`t1`.`c3` <> CAST(0.0e0 AS DOUBLE))) SELECT `t2`.`c0` AS `id`, `t2`.`c3` AS `r` FROM `p1` AS `t2`",
+    (
+        "EB1Ladd",
+        "postgres",
+    ): 'WITH "p0" ("c0", "c1", "c2", "c3") AS (SELECT "s0"."id" AS "c0", "s0"."x" AS "c1", "s0"."y" AS "c2", ("s0"."x" + CAST(\'1e+308\' AS pg_catalog.float8)) AS "c3" FROM "public"."phase77 bsrc" AS "s0"), "p1" ("c0", "c1", "c2", "c3", "c4") AS (SELECT "t1"."c0" AS "c0", "t1"."c1" AS "c1", "t1"."c2" AS "c2", "t1"."c3" AS "c3", ("t1"."c2" + CAST(\'0.1\' AS pg_catalog.float8)) AS "c4" FROM "p0" AS "t1") SELECT "t2"."c0" AS "id", "t2"."c3" AS "r", "t2"."c4" AS "s" FROM "p1" AS "t2"',
+    (
+        "EB1Ladd",
+        "mysql",
+    ): "WITH `p0` (`c0`, `c1`, `c2`, `c3`) AS (SELECT `s0`.`id` AS `c0`, `s0`.`x` AS `c1`, `s0`.`y` AS `c2`, (`s0`.`x` + CAST(1e+308 AS DOUBLE)) AS `c3` FROM `phase66`.`phase77 bsrc` AS `s0`), `p1` (`c0`, `c1`, `c2`, `c3`, `c4`) AS (SELECT `t1`.`c0` AS `c0`, `t1`.`c1` AS `c1`, `t1`.`c2` AS `c2`, `t1`.`c3` AS `c3`, (`t1`.`c2` + CAST(0.1e0 AS DOUBLE)) AS `c4` FROM `p0` AS `t1`) SELECT `t2`.`c0` AS `id`, `t2`.`c3` AS `r`, `t2`.`c4` AS `s` FROM `p1` AS `t2`",
+    (
+        "EB1Lsub",
+        "postgres",
+    ): 'WITH "p0" ("c0", "c1", "c2", "c3") AS (SELECT "s0"."id" AS "c0", "s0"."x" AS "c1", "s0"."y" AS "c2", ("s0"."x" - CAST(\'0.1\' AS pg_catalog.float8)) AS "c3" FROM "public"."phase77 bsrc" AS "s0"), "p1" ("c0", "c1", "c2", "c3", "c4") AS (SELECT "t1"."c0" AS "c0", "t1"."c1" AS "c1", "t1"."c2" AS "c2", "t1"."c3" AS "c3", (CAST(\'1e+308\' AS pg_catalog.float8) - "t1"."c2") AS "c4" FROM "p0" AS "t1") SELECT "t2"."c0" AS "id", "t2"."c3" AS "r", "t2"."c4" AS "s" FROM "p1" AS "t2"',
+    (
+        "EB1Lsub",
+        "mysql",
+    ): "WITH `p0` (`c0`, `c1`, `c2`, `c3`) AS (SELECT `s0`.`id` AS `c0`, `s0`.`x` AS `c1`, `s0`.`y` AS `c2`, (`s0`.`x` - CAST(0.1e0 AS DOUBLE)) AS `c3` FROM `phase66`.`phase77 bsrc` AS `s0`), `p1` (`c0`, `c1`, `c2`, `c3`, `c4`) AS (SELECT `t1`.`c0` AS `c0`, `t1`.`c1` AS `c1`, `t1`.`c2` AS `c2`, `t1`.`c3` AS `c3`, (CAST(1e+308 AS DOUBLE) - `t1`.`c2`) AS `c4` FROM `p0` AS `t1`) SELECT `t2`.`c0` AS `id`, `t2`.`c3` AS `r`, `t2`.`c4` AS `s` FROM `p1` AS `t2`",
+    (
+        "EB1Lneg",
+        "postgres",
+    ): 'WITH "p0" ("c0", "c1", "c2", "c3") AS (SELECT "s0"."id" AS "c0", "s0"."x" AS "c1", "s0"."y" AS "c2", (-"s0"."x") AS "c3" FROM "public"."phase77 bsrc" AS "s0"), "p1" ("c0", "c1", "c2", "c3", "c4") AS (SELECT "t1"."c0" AS "c0", "t1"."c1" AS "c1", "t1"."c2" AS "c2", "t1"."c3" AS "c3", (-"t1"."c2") AS "c4" FROM "p0" AS "t1") SELECT "t2"."c0" AS "id", "t2"."c3" AS "r", "t2"."c4" AS "s" FROM "p1" AS "t2"',
+    (
+        "EB1Lneg",
+        "mysql",
+    ): "WITH `p0` (`c0`, `c1`, `c2`, `c3`) AS (SELECT `s0`.`id` AS `c0`, `s0`.`x` AS `c1`, `s0`.`y` AS `c2`, (-`s0`.`x`) AS `c3` FROM `phase66`.`phase77 bsrc` AS `s0`), `p1` (`c0`, `c1`, `c2`, `c3`, `c4`) AS (SELECT `t1`.`c0` AS `c0`, `t1`.`c1` AS `c1`, `t1`.`c2` AS `c2`, `t1`.`c3` AS `c3`, (-`t1`.`c2`) AS `c4` FROM `p0` AS `t1`) SELECT `t2`.`c0` AS `id`, `t2`.`c3` AS `r`, `t2`.`c4` AS `s` FROM `p1` AS `t2`",
+    (
+        "EB1Lmul",
+        "postgres",
+    ): 'WITH "p0" ("c0", "c1", "c2", "c3") AS (SELECT "s0"."id" AS "c0", "s0"."x" AS "c1", "s0"."y" AS "c2", ("s0"."x" * CAST(\'0.5\' AS pg_catalog.float8)) AS "c3" FROM "public"."phase77 bsrc" AS "s0"), "p1" ("c0", "c1", "c2", "c3", "c4") AS (SELECT "t1"."c0" AS "c0", "t1"."c1" AS "c1", "t1"."c2" AS "c2", "t1"."c3" AS "c3", (CAST(\'2.0\' AS pg_catalog.float8) * "t1"."c2") AS "c4" FROM "p0" AS "t1") SELECT "t2"."c0" AS "id", "t2"."c3" AS "r", "t2"."c4" AS "s" FROM "p1" AS "t2"',
+    (
+        "EB1Lmul",
+        "mysql",
+    ): "WITH `p0` (`c0`, `c1`, `c2`, `c3`) AS (SELECT `s0`.`id` AS `c0`, `s0`.`x` AS `c1`, `s0`.`y` AS `c2`, CASE WHEN (`s0`.`x` * CAST(0.5e0 AS DOUBLE)) = 0 AND `s0`.`x` <> 0 AND CAST(0.5e0 AS DOUBLE) <> 0 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) ELSE (`s0`.`x` * CAST(0.5e0 AS DOUBLE)) END AS `c3` FROM `phase66`.`phase77 bsrc` AS `s0`), `p1` (`c0`, `c1`, `c2`, `c3`, `c4`) AS (SELECT `t1`.`c0` AS `c0`, `t1`.`c1` AS `c1`, `t1`.`c2` AS `c2`, `t1`.`c3` AS `c3`, CASE WHEN (CAST(2.0e0 AS DOUBLE) * `t1`.`c2`) = 0 AND CAST(2.0e0 AS DOUBLE) <> 0 AND `t1`.`c2` <> 0 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) ELSE (CAST(2.0e0 AS DOUBLE) * `t1`.`c2`) END AS `c4` FROM `p0` AS `t1`) SELECT `t2`.`c0` AS `id`, `t2`.`c3` AS `r`, `t2`.`c4` AS `s` FROM `p1` AS `t2`",
+    (
+        "EB2A",
+        "postgres",
+    ): 'WITH "p0" ("c0", "c1", "c2") AS (SELECT "s0"."id" AS "c0", "s0"."x" AS "c1", "s0"."y" AS "c2" FROM "public"."phase77 bsrc" AS "s0" WHERE (("s0"."x" + CAST(\'1e+308\' AS pg_catalog.float8)) > CAST(\'0.0\' AS pg_catalog.float8))) SELECT "t1"."c0" AS "id", "t1"."c1" AS "x" FROM "p0" AS "t1"',
+    (
+        "EB2A",
+        "mysql",
+    ): "WITH `p0` (`c0`, `c1`, `c2`) AS (SELECT `s0`.`id` AS `c0`, `s0`.`x` AS `c1`, `s0`.`y` AS `c2` FROM `phase66`.`phase77 bsrc` AS `s0` WHERE ((`s0`.`x` + CAST(1e+308 AS DOUBLE)) > CAST(0.0e0 AS DOUBLE))) SELECT `t1`.`c0` AS `id`, `t1`.`c1` AS `x` FROM `p0` AS `t1`",
+    (
+        "EB2A2",
+        "postgres",
+    ): 'WITH "p0" ("c0", "c1", "c2") AS (SELECT "s0"."id" AS "c0", "s0"."x" AS "c1", "s0"."y" AS "c2" FROM "public"."phase77 bsrc" AS "s0" WHERE (CAST(\'0.0\' AS pg_catalog.float8) = ("s0"."y" + (-CAST(\'0.0\' AS pg_catalog.float8))))) SELECT "t1"."c0" AS "id" FROM "p0" AS "t1"',
+    (
+        "EB2A2",
+        "mysql",
+    ): "WITH `p0` (`c0`, `c1`, `c2`) AS (SELECT `s0`.`id` AS `c0`, `s0`.`x` AS `c1`, `s0`.`y` AS `c2` FROM `phase66`.`phase77 bsrc` AS `s0` WHERE (CAST(0.0e0 AS DOUBLE) = (`s0`.`y` + (-CAST(0.0e0 AS DOUBLE))))) SELECT `t1`.`c0` AS `id` FROM `p0` AS `t1`",
+    (
+        "EB2S",
+        "postgres",
+    ): 'WITH "p0" ("c0", "c1", "c2") AS (SELECT "s0"."id" AS "c0", "s0"."x" AS "c1", "s0"."y" AS "c2" FROM "public"."phase77 bsrc" AS "s0" WHERE (NOT (("s0"."x" - CAST(\'0.0\' AS pg_catalog.float8)) <> CAST(\'0.0\' AS pg_catalog.float8)))) SELECT "t1"."c0" AS "id", "t1"."c2" AS "y" FROM "p0" AS "t1"',
+    (
+        "EB2S",
+        "mysql",
+    ): "WITH `p0` (`c0`, `c1`, `c2`) AS (SELECT `s0`.`id` AS `c0`, `s0`.`x` AS `c1`, `s0`.`y` AS `c2` FROM `phase66`.`phase77 bsrc` AS `s0` WHERE (NOT ((`s0`.`x` - CAST(0.0e0 AS DOUBLE)) <> CAST(0.0e0 AS DOUBLE)))) SELECT `t1`.`c0` AS `id`, `t1`.`c2` AS `y` FROM `p0` AS `t1`",
+    (
+        "EB2S2",
+        "postgres",
+    ): 'WITH "p0" ("c0", "c1", "c2") AS (SELECT "s0"."id" AS "c0", "s0"."x" AS "c1", "s0"."y" AS "c2" FROM "public"."phase77 bsrc" AS "s0" WHERE (("s0"."y" - CAST(\'1e+308\' AS pg_catalog.float8)) <= CAST(\'0.0\' AS pg_catalog.float8))) SELECT "t1"."c0" AS "id" FROM "p0" AS "t1"',
+    (
+        "EB2S2",
+        "mysql",
+    ): "WITH `p0` (`c0`, `c1`, `c2`) AS (SELECT `s0`.`id` AS `c0`, `s0`.`x` AS `c1`, `s0`.`y` AS `c2` FROM `phase66`.`phase77 bsrc` AS `s0` WHERE ((`s0`.`y` - CAST(1e+308 AS DOUBLE)) <= CAST(0.0e0 AS DOUBLE))) SELECT `t1`.`c0` AS `id` FROM `p0` AS `t1`",
+    (
+        "EB2N",
+        "postgres",
+    ): 'WITH "p0" ("c0", "c1", "c2") AS (SELECT "s0"."id" AS "c0", "s0"."x" AS "c1", "s0"."y" AS "c2" FROM "public"."phase77 bsrc" AS "s0" WHERE ((-"s0"."x") < CAST(\'0.0\' AS pg_catalog.float8))) SELECT "t1"."c0" AS "id" FROM "p0" AS "t1"',
+    (
+        "EB2N",
+        "mysql",
+    ): "WITH `p0` (`c0`, `c1`, `c2`) AS (SELECT `s0`.`id` AS `c0`, `s0`.`x` AS `c1`, `s0`.`y` AS `c2` FROM `phase66`.`phase77 bsrc` AS `s0` WHERE ((-`s0`.`x`) < CAST(0.0e0 AS DOUBLE))) SELECT `t1`.`c0` AS `id` FROM `p0` AS `t1`",
+    (
+        "EB2N2",
+        "postgres",
+    ): 'WITH "p0" ("c0", "c1", "c2") AS (SELECT "s0"."id" AS "c0", "s0"."x" AS "c1", "s0"."y" AS "c2" FROM "public"."phase77 bsrc" AS "s0" WHERE (CAST(\'0.0\' AS pg_catalog.float8) >= (-"s0"."y"))) SELECT "t1"."c0" AS "id" FROM "p0" AS "t1"',
+    (
+        "EB2N2",
+        "mysql",
+    ): "WITH `p0` (`c0`, `c1`, `c2`) AS (SELECT `s0`.`id` AS `c0`, `s0`.`x` AS `c1`, `s0`.`y` AS `c2` FROM `phase66`.`phase77 bsrc` AS `s0` WHERE (CAST(0.0e0 AS DOUBLE) >= (-`s0`.`y`))) SELECT `t1`.`c0` AS `id` FROM `p0` AS `t1`",
+    (
+        "EB2M",
+        "postgres",
+    ): 'WITH "p0" ("c0", "c1", "c2") AS (SELECT "s0"."id" AS "c0", "s0"."x" AS "c1", "s0"."y" AS "c2" FROM "public"."phase77 bsrc" AS "s0" WHERE (("s0"."x" * CAST(\'2.0\' AS pg_catalog.float8)) >= CAST(\'1.0\' AS pg_catalog.float8))) SELECT "t1"."c0" AS "id" FROM "p0" AS "t1"',
+    (
+        "EB2M",
+        "mysql",
+    ): "WITH `p0` (`c0`, `c1`, `c2`) AS (SELECT `s0`.`id` AS `c0`, `s0`.`x` AS `c1`, `s0`.`y` AS `c2` FROM `phase66`.`phase77 bsrc` AS `s0` WHERE (CASE WHEN (`s0`.`x` * CAST(2.0e0 AS DOUBLE)) = 0 AND `s0`.`x` <> 0 AND CAST(2.0e0 AS DOUBLE) <> 0 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) ELSE (`s0`.`x` * CAST(2.0e0 AS DOUBLE)) END >= CAST(1.0e0 AS DOUBLE))) SELECT `t1`.`c0` AS `id` FROM `p0` AS `t1`",
+    (
+        "EB2M2",
+        "postgres",
+    ): 'WITH "p0" ("c0", "c1", "c2") AS (SELECT "s0"."id" AS "c0", "s0"."x" AS "c1", "s0"."y" AS "c2" FROM "public"."phase77 bsrc" AS "s0" WHERE (CAST(\'1.0\' AS pg_catalog.float8) > (CAST(\'0.5\' AS pg_catalog.float8) * "s0"."y"))) SELECT "t1"."c0" AS "id" FROM "p0" AS "t1"',
+    (
+        "EB2M2",
+        "mysql",
+    ): "WITH `p0` (`c0`, `c1`, `c2`) AS (SELECT `s0`.`id` AS `c0`, `s0`.`x` AS `c1`, `s0`.`y` AS `c2` FROM `phase66`.`phase77 bsrc` AS `s0` WHERE (CAST(1.0e0 AS DOUBLE) > CASE WHEN (CAST(0.5e0 AS DOUBLE) * `s0`.`y`) = 0 AND CAST(0.5e0 AS DOUBLE) <> 0 AND `s0`.`y` <> 0 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) ELSE (CAST(0.5e0 AS DOUBLE) * `s0`.`y`) END)) SELECT `t1`.`c0` AS `id` FROM `p0` AS `t1`",
+    (
+        "EB2M3",
+        "postgres",
+    ): 'WITH "p0" ("c0", "c1", "c2") AS (SELECT "s0"."id" AS "c0", "s0"."x" AS "c1", "s0"."y" AS "c2" FROM "public"."phase77 bsrc" AS "s0" WHERE (NOT (("s0"."y" * (-CAST(\'2.0\' AS pg_catalog.float8))) = CAST(\'0.0\' AS pg_catalog.float8)))) SELECT "t1"."c0" AS "id" FROM "p0" AS "t1"',
+    (
+        "EB2M3",
+        "mysql",
+    ): "WITH `p0` (`c0`, `c1`, `c2`) AS (SELECT `s0`.`id` AS `c0`, `s0`.`x` AS `c1`, `s0`.`y` AS `c2` FROM `phase66`.`phase77 bsrc` AS `s0` WHERE (NOT (CASE WHEN (`s0`.`y` * (-CAST(2.0e0 AS DOUBLE))) = 0 AND `s0`.`y` <> 0 AND (-CAST(2.0e0 AS DOUBLE)) <> 0 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) ELSE (`s0`.`y` * (-CAST(2.0e0 AS DOUBLE))) END = CAST(0.0e0 AS DOUBLE)))) SELECT `t1`.`c0` AS `id` FROM `p0` AS `t1`",
+    (
+        "EB2LA",
+        "postgres",
+    ): 'WITH "p0" ("c0", "c1", "c2", "c3") AS (SELECT "s0"."id" AS "c0", "s0"."x" AS "c1", "s0"."y" AS "c2", ("s0"."x" + (-CAST(\'1e+308\' AS pg_catalog.float8))) AS "c3" FROM "public"."phase77 bsrc" AS "s0"), "p1" ("c0", "c1", "c2", "c3") AS (SELECT "t1"."c0" AS "c0", "t1"."c1" AS "c1", "t1"."c2" AS "c2", "t1"."c3" AS "c3" FROM "p0" AS "t1" WHERE ("t1"."c3" < CAST(\'0.0\' AS pg_catalog.float8))) SELECT "t2"."c0" AS "id" FROM "p1" AS "t2"',
+    (
+        "EB2LA",
+        "mysql",
+    ): "WITH `p0` (`c0`, `c1`, `c2`, `c3`) AS (SELECT `s0`.`id` AS `c0`, `s0`.`x` AS `c1`, `s0`.`y` AS `c2`, (`s0`.`x` + (-CAST(1e+308 AS DOUBLE))) AS `c3` FROM `phase66`.`phase77 bsrc` AS `s0`), `p1` (`c0`, `c1`, `c2`, `c3`) AS (SELECT `t1`.`c0` AS `c0`, `t1`.`c1` AS `c1`, `t1`.`c2` AS `c2`, `t1`.`c3` AS `c3` FROM `p0` AS `t1` WHERE (`t1`.`c3` < CAST(0.0e0 AS DOUBLE))) SELECT `t2`.`c0` AS `id` FROM `p1` AS `t2`",
+    (
+        "EB2LS",
+        "postgres",
+    ): 'WITH "p0" ("c0", "c1", "c2", "c3") AS (SELECT "s0"."id" AS "c0", "s0"."x" AS "c1", "s0"."y" AS "c2", (CAST(\'1e+308\' AS pg_catalog.float8) - "s0"."y") AS "c3" FROM "public"."phase77 bsrc" AS "s0"), "p1" ("c0", "c1", "c2", "c3") AS (SELECT "t1"."c0" AS "c0", "t1"."c1" AS "c1", "t1"."c2" AS "c2", "t1"."c3" AS "c3" FROM "p0" AS "t1" WHERE ("t1"."c3" >= CAST(\'1.0\' AS pg_catalog.float8))) SELECT "t2"."c0" AS "id" FROM "p1" AS "t2"',
+    (
+        "EB2LS",
+        "mysql",
+    ): "WITH `p0` (`c0`, `c1`, `c2`, `c3`) AS (SELECT `s0`.`id` AS `c0`, `s0`.`x` AS `c1`, `s0`.`y` AS `c2`, (CAST(1e+308 AS DOUBLE) - `s0`.`y`) AS `c3` FROM `phase66`.`phase77 bsrc` AS `s0`), `p1` (`c0`, `c1`, `c2`, `c3`) AS (SELECT `t1`.`c0` AS `c0`, `t1`.`c1` AS `c1`, `t1`.`c2` AS `c2`, `t1`.`c3` AS `c3` FROM `p0` AS `t1` WHERE (`t1`.`c3` >= CAST(1.0e0 AS DOUBLE))) SELECT `t2`.`c0` AS `id` FROM `p1` AS `t2`",
+    (
+        "EB2LN",
+        "postgres",
+    ): 'WITH "p0" ("c0", "c1", "c2", "c3") AS (SELECT "s0"."id" AS "c0", "s0"."x" AS "c1", "s0"."y" AS "c2", (-"s0"."x") AS "c3" FROM "public"."phase77 bsrc" AS "s0"), "p1" ("c0", "c1", "c2", "c3") AS (SELECT "t1"."c0" AS "c0", "t1"."c1" AS "c1", "t1"."c2" AS "c2", "t1"."c3" AS "c3" FROM "p0" AS "t1" WHERE ("t1"."c3" = CAST(\'0.0\' AS pg_catalog.float8))) SELECT "t2"."c0" AS "id" FROM "p1" AS "t2"',
+    (
+        "EB2LN",
+        "mysql",
+    ): "WITH `p0` (`c0`, `c1`, `c2`, `c3`) AS (SELECT `s0`.`id` AS `c0`, `s0`.`x` AS `c1`, `s0`.`y` AS `c2`, (-`s0`.`x`) AS `c3` FROM `phase66`.`phase77 bsrc` AS `s0`), `p1` (`c0`, `c1`, `c2`, `c3`) AS (SELECT `t1`.`c0` AS `c0`, `t1`.`c1` AS `c1`, `t1`.`c2` AS `c2`, `t1`.`c3` AS `c3` FROM `p0` AS `t1` WHERE (`t1`.`c3` = CAST(0.0e0 AS DOUBLE))) SELECT `t2`.`c0` AS `id` FROM `p1` AS `t2`",
+    (
+        "EB2LM",
+        "postgres",
+    ): 'WITH "p0" ("c0", "c1", "c2", "c3") AS (SELECT "s0"."id" AS "c0", "s0"."x" AS "c1", "s0"."y" AS "c2", ("s0"."y" * CAST(\'2.0\' AS pg_catalog.float8)) AS "c3" FROM "public"."phase77 bsrc" AS "s0"), "p1" ("c0", "c1", "c2", "c3") AS (SELECT "t1"."c0" AS "c0", "t1"."c1" AS "c1", "t1"."c2" AS "c2", "t1"."c3" AS "c3" FROM "p0" AS "t1" WHERE ("t1"."c3" <= CAST(\'0.0\' AS pg_catalog.float8))) SELECT "t2"."c0" AS "id" FROM "p1" AS "t2"',
+    (
+        "EB2LM",
+        "mysql",
+    ): "WITH `p0` (`c0`, `c1`, `c2`, `c3`) AS (SELECT `s0`.`id` AS `c0`, `s0`.`x` AS `c1`, `s0`.`y` AS `c2`, CASE WHEN (`s0`.`y` * CAST(2.0e0 AS DOUBLE)) = 0 AND `s0`.`y` <> 0 AND CAST(2.0e0 AS DOUBLE) <> 0 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) ELSE (`s0`.`y` * CAST(2.0e0 AS DOUBLE)) END AS `c3` FROM `phase66`.`phase77 bsrc` AS `s0`), `p1` (`c0`, `c1`, `c2`, `c3`) AS (SELECT `t1`.`c0` AS `c0`, `t1`.`c1` AS `c1`, `t1`.`c2` AS `c2`, `t1`.`c3` AS `c3` FROM `p0` AS `t1` WHERE (`t1`.`c3` <= CAST(0.0e0 AS DOUBLE))) SELECT `t2`.`c0` AS `id` FROM `p1` AS `t2`",
+    (
+        "EB3A",
+        "postgres",
+    ): 'WITH "p0" ("c0", "c1", "c2", "c3") AS (SELECT "s0"."id" AS "c0", "s0"."x" AS "c1", "s0"."y" AS "c2", ("s0"."x" + CAST(\'1e+308\' AS pg_catalog.float8)) AS "c3" FROM "public"."phase77 bsrc" AS "s0"), "p1" ("c0", "c1") AS (SELECT "t1"."c0" AS "c0", "t1"."c3" AS "c1" FROM "p0" AS "t1") SELECT "t0"."c0" AS "id" FROM "p1" AS "t0" ORDER BY "t0"."c1" ASC',
+    (
+        "EB3A",
+        "mysql",
+    ): "WITH `p0` (`c0`, `c1`, `c2`, `c3`) AS (SELECT `s0`.`id` AS `c0`, `s0`.`x` AS `c1`, `s0`.`y` AS `c2`, (`s0`.`x` + CAST(1e+308 AS DOUBLE)) AS `c3` FROM `phase66`.`phase77 bsrc` AS `s0`), `p1` (`c0`, `c1`) AS (SELECT `t1`.`c0` AS `c0`, `t1`.`c3` AS `c1` FROM `p0` AS `t1`) SELECT `t0`.`c0` AS `id` FROM `p1` AS `t0` ORDER BY `t0`.`c1` ASC",
+    (
+        "EB3S",
+        "postgres",
+    ): 'WITH "p0" ("c0", "c1", "c2", "c3") AS (SELECT "s0"."id" AS "c0", "s0"."x" AS "c1", "s0"."y" AS "c2", (CAST(\'1e+308\' AS pg_catalog.float8) - "s0"."y") AS "c3" FROM "public"."phase77 bsrc" AS "s0"), "p1" ("c0", "c1", "c2") AS (SELECT "t1"."c0" AS "c0", "t1"."c3" AS "c1", "t1"."c3" AS "c2" FROM "p0" AS "t1") SELECT "t0"."c0" AS "id", "t0"."c1" AS "r" FROM "p1" AS "t0" ORDER BY "t0"."c2" DESC',
+    (
+        "EB3S",
+        "mysql",
+    ): "WITH `p0` (`c0`, `c1`, `c2`, `c3`) AS (SELECT `s0`.`id` AS `c0`, `s0`.`x` AS `c1`, `s0`.`y` AS `c2`, (CAST(1e+308 AS DOUBLE) - `s0`.`y`) AS `c3` FROM `phase66`.`phase77 bsrc` AS `s0`), `p1` (`c0`, `c1`, `c2`) AS (SELECT `t1`.`c0` AS `c0`, `t1`.`c3` AS `c1`, `t1`.`c3` AS `c2` FROM `p0` AS `t1`) SELECT `t0`.`c0` AS `id`, `t0`.`c1` AS `r` FROM `p1` AS `t0` ORDER BY `t0`.`c2` DESC",
+    (
+        "EB3N",
+        "postgres",
+    ): 'WITH "p0" ("c0", "c1", "c2", "c3") AS (SELECT "s0"."id" AS "c0", "s0"."x" AS "c1", "s0"."y" AS "c2", (-"s0"."x") AS "c3" FROM "public"."phase77 bsrc" AS "s0"), "p1" ("c0", "c1") AS (SELECT "t1"."c0" AS "c0", "t1"."c3" AS "c1" FROM "p0" AS "t1") SELECT "t0"."c0" AS "id" FROM "p1" AS "t0" ORDER BY "t0"."c1" DESC',
+    (
+        "EB3N",
+        "mysql",
+    ): "WITH `p0` (`c0`, `c1`, `c2`, `c3`) AS (SELECT `s0`.`id` AS `c0`, `s0`.`x` AS `c1`, `s0`.`y` AS `c2`, (-`s0`.`x`) AS `c3` FROM `phase66`.`phase77 bsrc` AS `s0`), `p1` (`c0`, `c1`) AS (SELECT `t1`.`c0` AS `c0`, `t1`.`c3` AS `c1` FROM `p0` AS `t1`) SELECT `t0`.`c0` AS `id` FROM `p1` AS `t0` ORDER BY `t0`.`c1` DESC",
+    (
+        "EB3M",
+        "postgres",
+    ): 'WITH "p0" ("c0", "c1", "c2", "c3") AS (SELECT "s0"."id" AS "c0", "s0"."x" AS "c1", "s0"."y" AS "c2", ("s0"."y" * CAST(\'0.5\' AS pg_catalog.float8)) AS "c3" FROM "public"."phase77 bsrc" AS "s0"), "p1" ("c0", "c1", "c2") AS (SELECT "t1"."c0" AS "c0", "t1"."c3" AS "c1", "t1"."c3" AS "c2" FROM "p0" AS "t1") SELECT "t0"."c0" AS "id", "t0"."c1" AS "r" FROM "p1" AS "t0" ORDER BY "t0"."c2" ASC',
+    (
+        "EB3M",
+        "mysql",
+    ): "WITH `p0` (`c0`, `c1`, `c2`, `c3`) AS (SELECT `s0`.`id` AS `c0`, `s0`.`x` AS `c1`, `s0`.`y` AS `c2`, CASE WHEN (`s0`.`y` * CAST(0.5e0 AS DOUBLE)) = 0 AND `s0`.`y` <> 0 AND CAST(0.5e0 AS DOUBLE) <> 0 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) ELSE (`s0`.`y` * CAST(0.5e0 AS DOUBLE)) END AS `c3` FROM `phase66`.`phase77 bsrc` AS `s0`), `p1` (`c0`, `c1`, `c2`) AS (SELECT `t1`.`c0` AS `c0`, `t1`.`c3` AS `c1`, `t1`.`c3` AS `c2` FROM `p0` AS `t1`) SELECT `t0`.`c0` AS `id`, `t0`.`c1` AS `r` FROM `p1` AS `t0` ORDER BY `t0`.`c2` ASC",
+    (
+        "EB3WA",
+        "postgres",
+    ): 'WITH "p0" ("c0", "c1", "c2", "c3") AS (SELECT "s0"."id" AS "c0", "s0"."x" AS "c1", "s0"."y" AS "c2", ("s0"."x" + CAST(\'1e+308\' AS pg_catalog.float8)) AS "c3" FROM "public"."phase77 bsrc" AS "s0"), "p1" ("c0", "c1", "c2", "c3") AS (SELECT "t1"."c0" AS "c0", "t1"."c1" AS "c1", "t1"."c2" AS "c2", "t1"."c3" AS "c3" FROM "p0" AS "t1" WHERE ("t1"."c3" > CAST(\'0.0\' AS pg_catalog.float8))), "p2" ("c0", "c1") AS (SELECT "t2"."c0" AS "c0", "t2"."c3" AS "c1" FROM "p1" AS "t2") SELECT "t0"."c0" AS "id" FROM "p2" AS "t0" ORDER BY "t0"."c1" ASC',
+    (
+        "EB3WA",
+        "mysql",
+    ): "WITH `p0` (`c0`, `c1`, `c2`, `c3`) AS (SELECT `s0`.`id` AS `c0`, `s0`.`x` AS `c1`, `s0`.`y` AS `c2`, (`s0`.`x` + CAST(1e+308 AS DOUBLE)) AS `c3` FROM `phase66`.`phase77 bsrc` AS `s0`), `p1` (`c0`, `c1`, `c2`, `c3`) AS (SELECT `t1`.`c0` AS `c0`, `t1`.`c1` AS `c1`, `t1`.`c2` AS `c2`, `t1`.`c3` AS `c3` FROM `p0` AS `t1` WHERE (`t1`.`c3` > CAST(0.0e0 AS DOUBLE))), `p2` (`c0`, `c1`) AS (SELECT `t2`.`c0` AS `c0`, `t2`.`c3` AS `c1` FROM `p1` AS `t2`) SELECT `t0`.`c0` AS `id` FROM `p2` AS `t0` ORDER BY `t0`.`c1` ASC",
+    (
+        "EB3WM",
+        "postgres",
+    ): 'WITH "p0" ("c0", "c1", "c2", "c3") AS (SELECT "s0"."id" AS "c0", "s0"."x" AS "c1", "s0"."y" AS "c2", ("s0"."y" * CAST(\'2.0\' AS pg_catalog.float8)) AS "c3" FROM "public"."phase77 bsrc" AS "s0"), "p1" ("c0", "c1", "c2", "c3") AS (SELECT "t1"."c0" AS "c0", "t1"."c1" AS "c1", "t1"."c2" AS "c2", "t1"."c3" AS "c3" FROM "p0" AS "t1" WHERE ("t1"."c3" > CAST(\'0.0\' AS pg_catalog.float8))), "p2" ("c0", "c1", "c2") AS (SELECT "t2"."c0" AS "c0", "t2"."c3" AS "c1", "t2"."c3" AS "c2" FROM "p1" AS "t2") SELECT "t0"."c0" AS "id", "t0"."c1" AS "r" FROM "p2" AS "t0" ORDER BY "t0"."c2" DESC',
+    (
+        "EB3WM",
+        "mysql",
+    ): "WITH `p0` (`c0`, `c1`, `c2`, `c3`) AS (SELECT `s0`.`id` AS `c0`, `s0`.`x` AS `c1`, `s0`.`y` AS `c2`, CASE WHEN (`s0`.`y` * CAST(2.0e0 AS DOUBLE)) = 0 AND `s0`.`y` <> 0 AND CAST(2.0e0 AS DOUBLE) <> 0 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) ELSE (`s0`.`y` * CAST(2.0e0 AS DOUBLE)) END AS `c3` FROM `phase66`.`phase77 bsrc` AS `s0`), `p1` (`c0`, `c1`, `c2`, `c3`) AS (SELECT `t1`.`c0` AS `c0`, `t1`.`c1` AS `c1`, `t1`.`c2` AS `c2`, `t1`.`c3` AS `c3` FROM `p0` AS `t1` WHERE (`t1`.`c3` > CAST(0.0e0 AS DOUBLE))), `p2` (`c0`, `c1`, `c2`) AS (SELECT `t2`.`c0` AS `c0`, `t2`.`c3` AS `c1`, `t2`.`c3` AS `c2` FROM `p1` AS `t2`) SELECT `t0`.`c0` AS `id`, `t0`.`c1` AS `r` FROM `p2` AS `t0` ORDER BY `t0`.`c2` DESC",
+    (
+        "EB2I",
+        "postgres",
+    ): 'WITH "p0" ("c0", "c1", "c2") AS (SELECT "s0"."id" AS "c0", "s0"."x" AS "c1", "s0"."y" AS "c2" FROM "public"."phase77 bsrc" AS "s0" WHERE (("s0"."x" * CAST(\'0.5\' AS pg_catalog.float8)) > CAST(\'0.0\' AS pg_catalog.float8))) SELECT "t1"."c0" AS "id", ("t1"."c1" * CAST(\'2.0\' AS pg_catalog.float8)) AS "r" FROM "p0" AS "t1"',
+    (
+        "EB2I",
+        "mysql",
+    ): "WITH `p0` (`c0`, `c1`, `c2`) AS (SELECT `s0`.`id` AS `c0`, `s0`.`x` AS `c1`, `s0`.`y` AS `c2` FROM `phase66`.`phase77 bsrc` AS `s0` WHERE (CASE WHEN (`s0`.`x` * CAST(0.5e0 AS DOUBLE)) = 0 AND `s0`.`x` <> 0 AND CAST(0.5e0 AS DOUBLE) <> 0 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) ELSE (`s0`.`x` * CAST(0.5e0 AS DOUBLE)) END > CAST(0.0e0 AS DOUBLE))) SELECT `t1`.`c0` AS `id`, CASE WHEN (`t1`.`c1` * CAST(2.0e0 AS DOUBLE)) = 0 AND `t1`.`c1` <> 0 AND CAST(2.0e0 AS DOUBLE) <> 0 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) ELSE (`t1`.`c1` * CAST(2.0e0 AS DOUBLE)) END AS `r` FROM `p0` AS `t1`",
+    (
+        "EB3K2",
+        "postgres",
+    ): 'WITH "p0" ("c0", "c1", "c2", "c3") AS (SELECT "s0"."id" AS "c0", "s0"."x" AS "c1", "s0"."y" AS "c2", ("s0"."x" * CAST(\'2.0\' AS pg_catalog.float8)) AS "c3" FROM "public"."phase77 bsrc" AS "s0"), "p1" ("c0", "c1", "c2", "c3", "c4") AS (SELECT "t1"."c0" AS "c0", "t1"."c1" AS "c1", "t1"."c2" AS "c2", "t1"."c3" AS "c3", (-"t1"."c2") AS "c4" FROM "p0" AS "t1"), "p2" ("c0", "c1", "c2", "c3") AS (SELECT "t2"."c0" AS "c0", "t2"."c3" AS "c1", "t2"."c3" AS "c2", "t2"."c4" AS "c3" FROM "p1" AS "t2") SELECT "t0"."c0" AS "id", "t0"."c1" AS "r" FROM "p2" AS "t0" ORDER BY "t0"."c2" ASC, "t0"."c3" DESC',
+    (
+        "EB3K2",
+        "mysql",
+    ): "WITH `p0` (`c0`, `c1`, `c2`, `c3`) AS (SELECT `s0`.`id` AS `c0`, `s0`.`x` AS `c1`, `s0`.`y` AS `c2`, CASE WHEN (`s0`.`x` * CAST(2.0e0 AS DOUBLE)) = 0 AND `s0`.`x` <> 0 AND CAST(2.0e0 AS DOUBLE) <> 0 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) ELSE (`s0`.`x` * CAST(2.0e0 AS DOUBLE)) END AS `c3` FROM `phase66`.`phase77 bsrc` AS `s0`), `p1` (`c0`, `c1`, `c2`, `c3`, `c4`) AS (SELECT `t1`.`c0` AS `c0`, `t1`.`c1` AS `c1`, `t1`.`c2` AS `c2`, `t1`.`c3` AS `c3`, (-`t1`.`c2`) AS `c4` FROM `p0` AS `t1`), `p2` (`c0`, `c1`, `c2`, `c3`) AS (SELECT `t2`.`c0` AS `c0`, `t2`.`c3` AS `c1`, `t2`.`c3` AS `c2`, `t2`.`c4` AS `c3` FROM `p1` AS `t2`) SELECT `t0`.`c0` AS `id`, `t0`.`c1` AS `r` FROM `p2` AS `t0` ORDER BY `t0`.`c2` ASC, `t0`.`c3` DESC",
+}
+# MySQL statements outside E4B's cells beside chain B's positions (PREREG Rule
+# two and neighbours, Not in any list), each keeping the blockers main reports
+# for it (E4B_REFUSAL_BLOCKERS): a refused label at each position; a `let`
+# nothing reads, or one a WHERE beside it does not read; a WHERE with another
+# condition, or comparing with a field or another operation; a `let` name as
+# an operand; a `let` or ORDER BY key beside an operation item; a WHERE on a
+# `let` beside an operation item; a literal or scalar call item beside a
+# `let` read, a WHERE or a key; two `let`s with one key; a field key; three
+# `let`s; LIMIT, DISTINCT, a window, an aggregate of a `let`, an upstream query,
+# a relation alias and an unread window or header parameter; `+`, `/`, an Int
+# literal, two signs or a `+` on a literal, a coalesced operation; and a JOIN,
+# a grouped and a window statement that main emits with each operation
+# replaced by its field (E4B_SUBSTITUTED), so the law, not the substitution,
+# refuses them.
+_E4B_LABEL = "r" * 257
+E4B_REFUSALS = {
+    "p1_long_label": _e4b(
+        "query", "bsrc", "let t = x + 0.1", "select:", "    id", f"    {_E4B_LABEL} = t"
+    ),
+    "p2_long_label": _e4b(
+        "query",
+        "bsrc",
+        "where x * 2.0 > 1.0",
+        "select:",
+        "    id",
+        f"    {_E4B_LABEL} = y",
+    ),
+    "p3_long_label": _e4b(
+        "query",
+        "bsrc",
+        "let t = -x",
+        "select:",
+        "    id",
+        f"    {_E4B_LABEL} = y",
+        "order by t",
+    ),
+    "let_unread": _e4b("query", "bsrc", "let t = x * 2.0", "select:", "    id"),
+    "let_beside_unread_where": _e4b(
+        "query",
+        "bsrc",
+        "let t = x * 2.0",
+        "where y > 0.0",
+        "select:",
+        "    id",
+        "    r = t",
+    ),
+    "where_reads_one_let": _e4b(
+        "query",
+        "bsrc",
+        "let t = x * 2.0",
+        "let u = y * 2.0",
+        "where t > 0.0",
+        "select:",
+        "    id",
+        "    r = u",
+    ),
+    "where_and": _e4b(
+        "query", "bsrc", "where x * 2.0 > 1.0 and id > 1", "select:", "    id"
+    ),
+    "where_or": _e4b(
+        "query", "bsrc", "where x * 2.0 > 1.0 or y > 1.0", "select:", "    id"
+    ),
+    "where_field": _e4b("query", "bsrc", "where x * 2.0 > y", "select:", "    id"),
+    "where_two_operations": _e4b(
+        "query", "bsrc", "where x * 2.0 > y * 2.0", "select:", "    id"
+    ),
+    "where_let_field": _e4b(
+        "query", "bsrc", "let t = x * 2.0", "where t > y", "select:", "    id"
+    ),
+    "where_nested_not": _e4b(
+        "query", "bsrc", "where not (not (x * 2.0 > 1.0))", "select:", "    id"
+    ),
+    "let_operand": _e4b(
+        "query",
+        "bsrc",
+        "let t = x * 2.0",
+        "let u = t * 3.0",
+        "select:",
+        "    id",
+        "    r = u",
+    ),
+    "let_beside_item": _e4b(
+        "query",
+        "bsrc",
+        "let t = x * 2.0",
+        "select:",
+        "    id",
+        "    r = t",
+        "    s = y + 0.1",
+    ),
+    "key_beside_item": _e4b(
+        "query",
+        "bsrc",
+        "let t = -x",
+        "select:",
+        "    id",
+        "    s = y + 0.1",
+        "order by t",
+    ),
+    "where_let_beside_item": _e4b(
+        "query",
+        "bsrc",
+        "let t = x * 2.0",
+        "where t > 0.0",
+        "select:",
+        "    id",
+        "    s = y * 2.0",
+    ),
+    "literal_beside_let": _e4b(
+        "query",
+        "bsrc",
+        "let t = x * 2.0",
+        "select:",
+        "    id",
+        "    r = t",
+        "    s = 1.0",
+    ),
+    "call_beside_let": _e4b(
+        "query",
+        "bsrc",
+        "let t = x * 2.0",
+        "select:",
+        "    id",
+        "    r = t",
+        "    s = coalesce(x, 1.0)",
+    ),
+    "literal_beside_where": _e4b(
+        "query", "bsrc", "where x * 2.0 > 1.0", "select:", "    id", "    s = 1.0"
+    ),
+    "literal_beside_key": _e4b(
+        "query", "bsrc", "let t = -x", "select:", "    id", "    s = 1.0", "order by t"
+    ),
+    "two_lets_one_key": _e4b(
+        "query",
+        "bsrc",
+        "let t = x * 2.0",
+        "let u = -y",
+        "select:",
+        "    id",
+        "    r = u",
+        "order by t",
+    ),
+    "field_key": _e4b(
+        "query",
+        "bsrc",
+        "let t = x * 2.0",
+        "select:",
+        "    id",
+        "    r = t",
+        "order by id",
+    ),
+    "three_lets": _e4b(
+        "query",
+        "bsrc",
+        "let t = x * 2.0",
+        "let u = -y",
+        "let v = x + 0.1",
+        "select:",
+        "    id",
+        "    r = t",
+        "    s = u",
+        "    w = v",
+    ),
+    "limit": _e4b(
+        "query", "bsrc", "let t = x * 2.0", "select:", "    id", "order by t", "limit 1"
+    ),
+    "distinct": _e4b(
+        "query", "bsrc", "let t = x * 2.0", "select distinct:", "    r = t"
+    ),
+    "aggregate_of_let": _e4b(
+        "query",
+        "bsrc",
+        "let t = x * 2.0",
+        "group by id",
+        "select:",
+        "    id",
+        "    m = max(t)",
+    ),
+    "upstream": "query up:\n    from bsrc\n    select:\n        id\n        x\n"
+    "        y\n"
+    + _e4b("query", "up", "let t = x * 2.0", "select:", "    id", "    r = t"),
+    "relation_alias": _e4b(
+        "query", "bsrc", "let t = x * 2.0", "select:", "    id", "    r = t"
+    ).replace("    from bsrc\n", "    let s = bsrc\n    from s\n"),
+    "unread_window": _e4b(
+        "query",
+        "bsrc",
+        "let w = window(order by id)",
+        "let t = x * 2.0",
+        "select:",
+        "    id",
+        "    r = t",
+    ),
+    "unread_parameter": _e4b(
+        "query",
+        "bsrc",
+        "let t = x * 2.0",
+        "select:",
+        "    id",
+        "    r = t",
+        params="(p: Float)",
+    ),
+    "plus": _e4b("query", "bsrc", "let t = +x", "select:", "    id", "    r = t"),
+    "division": _e4b(
+        "query", "bsrc", "let t = x / 2.0", "select:", "    id", "    r = t"
+    ),
+    "int_literal": _e4b(
+        "query", "bsrc", "let t = x * 2", "select:", "    id", "    r = t"
+    ),
+    "double_negation": _e4b(
+        "query", "bsrc", "let t = x * -(-2.0)", "select:", "    id", "    r = t"
+    ),
+    "plus_literal": _e4b(
+        "query", "bsrc", "let t = x * +2.0", "select:", "    id", "    r = t"
+    ),
+    "coalesced": _e4b(
+        "query",
+        "bsrc",
+        "let t = coalesce(x * 2.0, 0.0)",
+        "select:",
+        "    id",
+        "    r = t",
+    ),
+    "join": _e4b(
+        "query",
+        "bsrc",
+        "let o = bsrc",
+        "inner join o on bsrc.id == o.id",
+        "where bsrc.x * 2.0 > 1.0",
+        "select:",
+        "    id = bsrc.id",
+    ),
+    "grouped": _e4b(
+        "query",
+        "bsrc",
+        "where x * 2.0 > 1.0",
+        "group by id",
+        "select:",
+        "    id",
+        "    n = count()",
+    ),
+    "window": _e4b(
+        "query",
+        "bsrc",
+        "let t = x * 2.0",
+        "select:",
+        "    id",
+        "    r = t",
+        "    w = lag(id) window(order by id)",
+    ),
+}
+# The JOIN, grouped and window neighbours with each operation replaced by its
+# field, which main emits on MySQL.
+E4B_SUBSTITUTED = {
+    "join": E4B_REFUSALS["join"].replace("bsrc.x * 2.0", "bsrc.x"),
+    "grouped": E4B_REFUSALS["grouped"].replace("x * 2.0", "x"),
+    "window": E4B_REFUSALS["window"].replace("x * 2.0", "x"),
+}
+# The MySQL blockers main reports for each of E4B_REFUSALS under both literal
+# policies, as (code, detail, line, column), observed at this slice's base,
+# and PostgreSQL's where it refuses the body too.
+E4B_REFUSAL_BLOCKERS = {
+    "p1_long_label": [
+        ("PIE-B1003", "float_literal_operands_required", 8, 5),
+        ("PIE-B1002", "output_label_unrepresentable", None, None),
+    ],
+    "p2_long_label": [
+        ("PIE-B1003", "float_literal_operands_required", 8, 5),
+        ("PIE-B1002", "output_label_unrepresentable", None, None),
+    ],
+    "p3_long_label": [
+        ("PIE-B1003", "unary_sign_requires_int_operand", 8, 5),
+        ("PIE-B1002", "output_label_unrepresentable", None, None),
+    ],
+    "let_unread": [("PIE-B1003", "float_literal_operands_required", 8, 5)],
+    "let_beside_unread_where": [("PIE-B1003", "float_literal_operands_required", 8, 5)],
+    "where_reads_one_let": [("PIE-B1003", "float_literal_operands_required", 8, 5)],
+    "where_and": [("PIE-B1003", "float_literal_operands_required", 8, 5)],
+    "where_or": [("PIE-B1003", "float_literal_operands_required", 8, 5)],
+    "where_field": [("PIE-B1003", "float_literal_operands_required", 8, 5)],
+    "where_two_operations": [("PIE-B1003", "float_literal_operands_required", 8, 5)],
+    "where_let_field": [("PIE-B1003", "float_literal_operands_required", 8, 5)],
+    "where_nested_not": [("PIE-B1003", "float_literal_operands_required", 8, 5)],
+    "let_operand": [("PIE-B1003", "float_literal_operands_required", 8, 5)],
+    "let_beside_item": [("PIE-B1003", "float_literal_operands_required", 8, 5)],
+    "key_beside_item": [("PIE-B1003", "unary_sign_requires_int_operand", 8, 5)],
+    "where_let_beside_item": [("PIE-B1003", "float_literal_operands_required", 8, 5)],
+    "literal_beside_let": [("PIE-B1003", "float_literal_operands_required", 8, 5)],
+    "call_beside_let": [("PIE-B1003", "float_literal_operands_required", 8, 5)],
+    "literal_beside_where": [("PIE-B1003", "float_literal_operands_required", 8, 5)],
+    "literal_beside_key": [("PIE-B1003", "unary_sign_requires_int_operand", 8, 5)],
+    "two_lets_one_key": [("PIE-B1003", "float_literal_operands_required", 8, 5)],
+    "field_key": [("PIE-B1003", "float_literal_operands_required", 8, 5)],
+    "three_lets": [("PIE-B1003", "float_literal_operands_required", 8, 5)],
+    "limit": [("PIE-B1003", "float_literal_operands_required", 8, 5)],
+    "distinct": [("PIE-B1003", "float_literal_operands_required", 8, 5)],
+    "aggregate_of_let": [("PIE-B1003", "float_literal_operands_required", 8, 5)],
+    "upstream": [("PIE-B1003", "float_literal_operands_required", 14, 5)],
+    "relation_alias": [("PIE-B1003", "float_literal_operands_required", 9, 5)],
+    "unread_window": [("PIE-B1003", "float_literal_operands_required", 9, 5)],
+    "unread_parameter": [("PIE-B1003", "float_literal_operands_required", 8, 5)],
+    "plus": [("PIE-B1003", "unary_sign_requires_int_operand", 8, 5)],
+    "division": [("PIE-B1003", "float_division_not_realized", 8, 5)],
+    "int_literal": [("PIE-B1003", "arithmetic_requires_signed_int_operands", 8, 5)],
+    "double_negation": [("PIE-B1003", "float_literal_operands_required", 8, 5)],
+    "plus_literal": [("PIE-B1003", "float_literal_operands_required", 8, 5)],
+    "coalesced": [("PIE-B1003", "float_literal_operands_required", 8, 5)],
+    "join": [("PIE-B1003", "float_literal_operands_required", 10, 5)],
+    "grouped": [("PIE-B1003", "float_literal_operands_required", 8, 5)],
+    "window": [("PIE-B1003", "float_literal_operands_required", 8, 5)],
+}
+E4B_POSTGRES_BLOCKERS = {
+    "p1_long_label": [("PIE-B1002", "output_label_unrepresentable", None, None)],
+    "p2_long_label": [("PIE-B1002", "output_label_unrepresentable", None, None)],
+    "p3_long_label": [("PIE-B1002", "output_label_unrepresentable", None, None)],
+    "int_literal": [("PIE-B1003", "arithmetic_requires_signed_int_operands", 8, 5)],
 }

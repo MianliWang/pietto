@@ -1677,6 +1677,10 @@ PHASE77_MYSQL_FORMS = {
         "float",
         "table result:\n    from rows\n    select:\n        id\n        r = 0.5 * y\n",
     ),
+    # MC E4B (D77.73): a guarded `*` as a `let` value, and a WHERE
+    # comparison of a `let` value.
+    "E4B_let": ("e4b", sql_emission.E4B_FORMS["EB1M"]),
+    "E4B_where": ("e4b", sql_emission.E4B_FORMS["EB2LM"]),
 }
 # A neighbour of each that 0.1.11 already compiled, R2's cross JOIN of the
 # public journey, and an R01 class U form, with the R2 refusal each keeps.
@@ -2062,6 +2066,17 @@ def test_mysql_r2_keeps_each_earlier_refusal_and_checks_an_unbound_recover(
     ):
         _save, recovered = _r2_refusals(query, parameters=parameters)
         assert recovered == refusal
+
+
+def test_mysql_r2_refuses_an_e4b_order_key_by_its_comparison_domain(tmp_path):
+    """MC E4B: R2 prepares no refinement over a `Float` ORDER BY key, so an
+    E4B ORDER BY form keeps that earlier refusal; `recover` with parameters
+    that cannot bind still meets the unqualified form."""
+    query = _world_query(tmp_path, "e4b", sql_emission.E4B_FORMS["EB3K2"])
+    assert query._main_emits is False
+    assert _r2_refusals(query) == (("PIE-R1004", "REFINEMENT_COMPARISON_DOMAIN"),) * 2
+    _save, recovered = _r2_refusals(query, parameters={"x": 1})
+    assert recovered == _UNQUALIFIED
 
 
 def test_mysql_r2_checks_the_form_after_its_other_checks(tmp_path):
