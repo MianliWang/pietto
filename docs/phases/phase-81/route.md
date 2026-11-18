@@ -716,6 +716,105 @@ still uses its copies, since Phase81 is not in it.
 For the next release the checklist runs this test owner where it ran the
 two self-tests and calls both scripts from the release commit's tree.
 
+## P15 record
+
+P15 ran on 2026-11-18 on the route's commit `6fa66291`, in a fresh
+worktree whose environment was synced offline from `uv.lock` (CPython
+3.13.13, `pietto` editable from that worktree). Row 20's implementation
+(`98caa107`) writes `project_completed_semantics.py`, not the plan
+verification, so P15 does not follow it. Its write set is
+`src/pietto/_project/project_sql_plan_verification.py`,
+`src/pietto/_project/project_sql_emission_cli.py` and
+`tests/test_project_verification_scope.py`; P05's hunks in the emission
+module are batch output checks that P15 does not touch. The profile and
+the paired measure are working records outside Git, and only the
+profile's output was kept. The profile's run after the change is not
+paired with its run before, so their wall times do not compare; the
+benefit is the paired measure's below.
+
+- **Profile.** Before any change, each public call was counted and timed
+  with the complete plan check wrapped, on PostgreSQL and MySQL alike.
+  `compile_sql` of P01's one-relation table, of a parameterized query, of
+  a cross join and of a grouped self-join each ran the check 34 times on
+  one plan, as P01 found. A chain of 8 filtered tables of 7 columns ending
+  in a grouped self-join ran it 34 times for that query and 306 times for
+  its 9 plans under `compile_all_sql`; a chain of 24 tables of 13 columns
+  34 and 850 times (25 plans; that batch then exceeds the 64 MiB output
+  limit). The check took 30% to 39% of a single call and 35% to 38% of a
+  batch, at a one-minute load near 19. `pietto check --project` runs no
+  plan check, so it gains nothing. The benefit was enough to go on.
+- **Change.** `ProjectSQLPlanVerification` runs its complete check through
+  the existing `once`, marked by the identity of its six inputs: the
+  plan, the completed semantic result, the analysis bundle, the selected
+  owner, the literal policy and the envelope, after an absent envelope
+  becomes the plan's own. A failed check raises inside `once`, so no mark
+  records it and every call reports its issues again; outside a scope
+  every call checks, as before. The emission module opens a scope at two
+  new entries: a single `emit-sql --project` or `compile_sql` call, from
+  its emission through its document, and each owner of a batch, from its
+  emission through its document, so no owner's plan outlives its item, as
+  the batch's release of each outcome already intended. A scope around the
+  whole batch was measured first: on the 8-table chain it raised the
+  batch's traced peak from 15.2 MiB to 18.2 MiB, growing with each owner.
+- **Key.** PL.50 Q6 names version, configuration and semantic identity.
+  Under the law the key is object identity, which holds all three within
+  one call. A mark lives only in one call of one process, so the code
+  version cannot change under it, and nothing is persisted or shared
+  across processes; a stored or cross-process result is verified again
+  when loaded, as before. The configuration that the check reads, the
+  literal policy and the envelope, is in the key; the configuration file,
+  the contract and the dialect reach the check only through the objects
+  built from them. The semantic identity is that of the semantic result,
+  the bundle and the owner. Object identity is stricter than a content
+  key: equal but distinct objects check again, and a mark keeps its
+  objects alive, so no identity is reused in a scope.
+- **After.** On the same inputs each call checks each plan once: 34 to 1
+  for every single call, 306 to 9 and 850 to 25 for the batches. Paired
+  in one process, with `once` bypassed for the base and the order
+  alternating, median times fell by 38.6% for P01's table on PostgreSQL
+  (0.0537 s to 0.0329 s, 21 pairs), 31.1% for the grouped self-join on
+  MySQL (0.1214 s to 0.0836 s, 21 pairs), 33.9% for the 8-table chain's
+  query (0.7673 s to 0.5072 s, 9 pairs) and 38.5% for its batch
+  (3.0939 s to 1.9018 s, 5 pairs), on the shared host at a one-minute load
+  near 20. Tests count the checks and never time them (78-7).
+  `compile_query` runs 38 checks instead of 48 on PostgreSQL and 70
+  instead of 80 on MySQL, saved only inside the existing
+  `prepare_live_template` scope.
+- **Tests.** In `tests/test_project_verification_scope.py` the plan check
+  is the eighth memoized body, and both entries are in the inventory. Two
+  budget routes, `compile_sql` of a three-table chain's `result` on
+  PostgreSQL and `compile_all_sql` of its three tables on MySQL, assert
+  on each of two calls that each plan is checked exactly once (one and
+  three plans), that every check a hit skipped would have passed, and
+  that both entries are reached. A new test calls the check in one scope
+  with each of its six inputs changed in turn: an equal but distinct plan
+  passes once, each of the five others fails on every call with
+  `root_continuity` or `literal_transport`, and the original inputs are
+  checked once; a plan changed between calls is checked again and
+  refused. The foreign-object refusal covers the new body. On the product
+  code of `6fa66291` eight of these tests fail: the budget of the two
+  emission routes, with 34 checks of one plan, and of the existing live
+  route, with 11; the shadow test of both emission routes; the inventory
+  and entry-coverage tests; and the new test.
+- **Checks.** Ruff format and lint over the tree and both `pyright` runs
+  of `scripts/validate.py`, with no error. Pytest with 8 workers, in an
+  environment with every extra: the scope owner, 60 passed, and the 14
+  emission, compile API, plan and execution owners that reach the plan
+  check or the emission entries, 1,832 passed; then one run of the whole
+  tree in the core environment of `uv sync --locked`: 31,290 passed and
+  140 skipped. Not run: the authoritative Gate 2, databases, Windows and
+  CPython 3.12.
+- **Residuals.** `compile_query`'s emission still runs outside any scope,
+  and its document is serialized in `pietto.execution`, so a scope at its
+  emission alone would leave that document's five checks outside it. At
+  integration, the single writer of the roadmap narrows its deferral row
+  for this memo to that residual: 38 checks in one `compile_query` call
+  on PostgreSQL and 70 on MySQL, five of them while `pietto.execution`
+  serializes the document. The row's owner is P16, which keeps it in
+  Phase81 or, as for an undone P15, moves it to `0.3.0`. P16 also aligns
+  the post-Phase68 interlude record, which still counts seven memoized
+  checks.
+
 ## Single writers and the other lines
 
 The lead sets the order and a later arrival rebases. At the first
