@@ -61,7 +61,7 @@ interop-polars = [
     "polars==2.1.0",
 ]
 interop-numpy = [
-    "numpy==2.5.4",
+    "numpy==2.5.5",
 ]
 interop-scipy = [
     "scipy==1.18.1",
