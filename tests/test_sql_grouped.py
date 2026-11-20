@@ -3783,8 +3783,8 @@ def test_mysql_g4_neighbours_keep_main_refusal(tmp_path, shape, policy):
     blocker (a label too long, over one level or two, an upstream item that
     computes) and one outside it (an
     upstream with HAVING, ORDER BY with LIMIT or not, DISTINCT, a JOIN or a
-    read window, or a set operation, a third
-    level, an alias of an alias or of a relation FROM does not read (a
+    read window, or a set operation (a third level is MC G8's chain), an
+    alias of an alias or of a relation FROM does not read (a
     second import name of FROM's upstream included), an upstream declared
     as a relation `let` block, an aggregating upstream with an unread sum,
     no key or no sum, under a
@@ -4371,6 +4371,24 @@ G6_NON_NULL = {
 }
 
 
+# The result columns each G8 form declares non-null on both targets: a
+# non-null key or field carried up, and each count (the G8 list's
+# non_null).
+G8_NON_NULL = {
+    "D1": {"g"},
+    "D2": {"k"},
+    "D3": {"m"},
+    "D4": set(),
+    "D5": {"m"},
+    "D6": {"k", "r"},
+    "D7": {"tag", "m"},
+    "D8": {"m"},
+    "S1": {"customer_id"},
+    "S2": {"customers"},
+    "S3": {"n"},
+}
+
+
 @pytest.mark.parametrize("target", ("postgres", "mysql"))
 @pytest.mark.parametrize("form", sorted(probe.G6_FORMS))
 def test_mysql_g6_forms_emit_the_guarded_sum(tmp_path, form, target):
@@ -4402,6 +4420,35 @@ def test_mysql_g6_forms_emit_the_guarded_sum(tmp_path, form, target):
 
 
 @pytest.mark.parametrize("target", ("postgres", "mysql"))
+@pytest.mark.parametrize("form", sorted(probe.G8_FORMS))
+def test_mysql_g8_forms_emit_the_guarded_sum_at_every_level(tmp_path, form, target):
+    """MC G8: a MySQL project whose definitions form a chain of levels,
+    three or more over a source or two or more over the style page's
+    per-order level, emits S02's guarded SUM for every `sum` at every
+    level. Both families emit the pinned SQL, pairwise distinct per family
+    and PostgreSQL's unchanged; every reader accepts it, the pure boundary's
+    re-rendering included."""
+    import _pietto_sql_emission_portable as portable
+    import _pietto_sql_emission_pure_boundary as pure
+
+    checked, outcome = probe.levels_world(tmp_path, target, probe.G8_FORMS[form])
+    assert checked.verified
+    probe.numeric_readers_accept(outcome)
+    assert outcome.artifact is not None
+    assert outcome.artifact.rendered.sql.decode() == probe.G8_FORM_SQL[form, target]
+    observed = portable.export_emission_observation(
+        outcome.artifact, outcome.artifact.request
+    ).canonical_bytes
+    assert observed is not None and pure.rendering_refusal(observed) is None
+    document = json.loads(serialize_project_sql_emission(outcome))
+    assert {
+        column["label"] for column in document["columns"] if not column["nullable"]
+    } == G8_NON_NULL[form]
+    texts = [probe.G8_FORM_SQL[name, target] for name in probe.G8_FORMS]
+    assert len(set(texts)) == len(texts)
+
+
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
 @pytest.mark.parametrize("spelling", sorted(probe.G6_SPELLINGS))
 def test_mysql_g6_spellings_emit_their_form_sql(tmp_path, spelling, target):
     """A relationship call read as its body, parentheses around the `on` or
@@ -4414,8 +4461,21 @@ def test_mysql_g6_spellings_emit_their_form_sql(tmp_path, spelling, target):
     assert outcome.artifact.rendered.sql.decode() == probe.G6_FORM_SQL[form, target]
 
 
-# MC G6 replaces each summed maximum, cast or not, by S02's guarded SUM as
-# G2's _guarded_maxima above does.
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+@pytest.mark.parametrize("spelling", sorted(probe.G8_SPELLINGS))
+def test_mysql_g8_spellings_emit_their_form_sql(tmp_path, spelling, target):
+    """`table` for `query` at a level, the style page's one-line `select`, a
+    read qualified by the source's name in a bottom level, an identity
+    `def` and parentheses around a `sum` argument emit the form's bytes."""
+    form, body = probe.G8_SPELLINGS[spelling]
+    _, outcome = probe.levels_world(tmp_path, target, body)
+    probe.numeric_readers_accept(outcome)
+    assert outcome.artifact is not None
+    assert outcome.artifact.rendered.sql.decode() == probe.G8_FORM_SQL[form, target]
+
+
+# MC G6 and G8 replace each summed maximum, cast or not, by S02's guarded SUM
+# as G2's _guarded_maxima above does.
 def _g6_bodies():
     """Each G6 body with its world: the forms, their spellings, the cells
     the law opens and S03's JOIN neighbours it opens, and S03's J1-J3
@@ -4503,6 +4563,85 @@ def test_mysql_g6_neighbours_keep_main_refusal(tmp_path, shape, policy):
         assert postgres.status == "VERIFIED", postgres.blockers
 
 
+@pytest.mark.parametrize(
+    "name", sorted({*probe.G8_FORMS, *probe.G8_SPELLINGS, *probe.G8_CELLS})
+)
+def test_mysql_g8_sql_is_main_max_sql_but_the_guard(tmp_path, name):
+    """B2: each G8 body's MySQL SQL, `let` stages kept, is main's MySQL SQL
+    of the same body with every `sum(x)` at every level written `max(x)`,
+    each such maximum, cast where main casts it, wholly replaced by S02's
+    guarded SUM of x, which no cast wraps: so every level's keys, other
+    aggregates, plain items, `let` stages, FROM, the per-order JOIN, WHERE
+    and GROUP BY are main's verified MySQL emission, and a chain the forms
+    do not run (five levels, a bottom `let`, a `min` of a min column)
+    rests on the forms' parts. It is also main's PostgreSQL SQL of the
+    body in MySQL's spelling with each sum S02's guarded SUM."""
+    import re
+
+    body: Any = (
+        probe.G8_SPELLINGS.get(name, (None, None))[1]
+        or {
+            **probe.G8_FORMS,
+            **probe.G8_CELLS,
+        }[name]
+    )
+    text = body if type(body) is str else body["main.pietto"]
+    maximum: Any = text.replace("sum(", "max(")
+    if type(body) is dict:
+        maximum = dict(body, **{"main.pietto": maximum})
+    _, maxima = probe.levels_world(tmp_path / "max", "mysql", maximum)
+    _, outcome = probe.levels_world(tmp_path / "sum", "mysql", body)
+    probe.numeric_readers_accept(outcome)
+    assert maxima.artifact is not None and outcome.artifact is not None
+    summed = [found == "sum" for found in re.findall(r"= (sum|max)\(", text)]
+    sql = outcome.artifact.rendered.sql.decode()
+    assert sql == _guarded_maxima(maxima.artifact.rendered.sql.decode(), summed)
+    assert "CAST(CASE WHEN SUM(" not in sql
+    _, postgres = probe.levels_world(tmp_path / "postgres", "postgres", body)
+    assert postgres.artifact is not None, postgres.blockers
+    assert sql == _mysql_spelling(postgres.artifact.rendered.sql.decode(), text)
+
+
+@pytest.mark.parametrize("policy", ("preserve_literals", "bind_safe_literals"))
+@pytest.mark.parametrize("shape", sorted(probe.G8_REFUSALS))
+def test_mysql_g8_neighbours_keep_main_refusal(tmp_path, shape, policy):
+    """Rule two (D77.37): a chain the G8 law matches beside another blocker
+    (a label too long, `sum(a + b)`, HAVING, ORDER BY, LIMIT, DISTINCT, a
+    header parameter, a bind-safe `?`, a relation alias, an unread or read
+    window, a read qualified by a definition's name above the bottom, an
+    imported definition or source, a JOIN above the bottom, a conditional
+    sum at any level) and one outside it
+    (a WHERE above the lowest sum level, a lower sum that reaches no sum, a
+    sum, count, min or `avg` column as a key, a min column summed, a sum or
+    count column counted or under `max`, a count column averaged, an `avg`
+    column counted or under `max`, a `Float` sum, a min column of a BIGINT
+    field counted, a min or max column of
+    an INT field, MySQL's cast `my_signed_int` at every level above it,
+    under `min`, `max` or `avg`, a min column of a `Float` or `Timestamp`
+    field under `min`, a lower aggregate level without a key or a sum, a
+    per-order level or second level that is not T1's, a plain one among
+    them, another JOIN kind, other `Order` carriers, a `count` or `min` of
+    a SMALLINT field) keep main's blockers, object for object, under
+    each policy they are refused with: only the lowest level's sums, never
+    a higher level's that main does not list. (Two levels over a source are
+    MC G4's upstream, which G4 opens as its `sum_upstream` cell.)
+    PostgreSQL emits each but the long label as main does."""
+    if policy not in probe.G8_REFUSAL_POLICIES.get(shape, (policy,)):
+        pytest.skip("refused under its own policy only")
+    body = probe.G8_REFUSALS[shape]
+    world = probe.G8_REFUSAL_WORLDS.get(shape, {})
+    _, outcome = probe.levels_world(tmp_path / "mysql", "mysql", body, policy, **world)
+    assert outcome.status == "BLOCKED" and outcome.artifact is None
+    assert _numeric_blockers(outcome) == probe.G8_REFUSAL_BLOCKERS[shape]
+    _, postgres = probe.levels_world(
+        tmp_path / "postgres", "postgres", body, policy, **world
+    )
+    if shape in probe.G8_POSTGRES_BLOCKERS:
+        assert _numeric_blockers(postgres) == probe.G8_POSTGRES_BLOCKERS[shape]
+    else:
+        assert postgres.status == "VERIFIED", postgres.blockers
+
+
 @pytest.mark.parametrize("target", ("postgres", "mysql"))
 def test_a_conditional_sum_over_join_rows_is_refused_at_check(tmp_path, capsys, target):
     """G6's X3: project checking refuses a conditional sum over JOIN rows
@@ -4518,3 +4657,88 @@ def test_a_conditional_sum_over_join_rows_is_refused_at_check(tmp_path, capsys, 
         (item["code"], item["location"]["line"], item["location"]["column"])
         for item in json.loads(capsys.readouterr().out)["diagnostics"]
     ] == [expected]
+
+
+@pytest.mark.parametrize("policy", ("preserve_literals", "bind_safe_literals"))
+def test_mysql_g8_leaves_the_s03_route_as_main(tmp_path, policy):
+    """Over S03's sources G8 opens nothing: T1 and T2 keep main's bytes,
+    which are also their bodies' with each sum written `max` and each such
+    MAX the guarded SUM (B3); T1 or T2 under a third level keeps main's
+    blockers, and so does each of S03's two-level neighbours that no stage
+    opens (MC G4 opens `ctl_t_plain_first_level`, its G4_ORDERS_CELLS P1).
+    PostgreSQL emits each as main does."""
+    import re
+
+    for form in ("T1", "T2"):
+        body = probe.S03_FORMS[form]
+        _, outcome = probe.s03_world(tmp_path / form, "mysql", body, policy)
+        _, maxima = probe.s03_world(
+            tmp_path / (form + "max"), "mysql", body.replace("sum(", "max("), policy
+        )
+        assert outcome.artifact is not None and maxima.artifact is not None
+        sql = outcome.artifact.rendered.sql.decode()
+        assert sql == probe.S03_FORM_SQL[form, "mysql"]
+        summed = [found == "sum" for found in re.findall(r"= (sum|max)\(", body)]
+        assert sql == _guarded_maxima(maxima.artifact.rendered.sql.decode(), summed)
+    refused = {
+        **probe.G8_S03_REFUSALS,
+        **{
+            name: (probe.S03_REFUSALS[name], probe.S03_REFUSAL_BLOCKERS[name])
+            for name in (
+                "ctl_t_second_where",
+                "ctl_t_third_level",
+                "t1_upstream_subset",
+                "t2_upstream_subset",
+                "t2_extra_upstream_count",
+            )
+        },
+    }
+    for name, (body, blockers) in refused.items():
+        _, outcome = probe.s03_world(tmp_path / name, "mysql", body, policy)
+        assert outcome.status == "BLOCKED" and outcome.artifact is None
+        assert _numeric_blockers(outcome) == blockers, name
+        _, postgres = probe.s03_world(tmp_path / (name + "pg"), "postgres", body)
+        assert postgres.status == "VERIFIED", postgres.blockers
+    form, extra = probe.S03_WIDER["t1_wider_orders"]
+    _, wider = probe.s03_world(
+        tmp_path / "wider", "mysql", probe.S03_FORMS[form], policy, extra=extra
+    )
+    assert _numeric_blockers(wider) == _S03_WIDER_BLOCKERS["t1_wider_orders"]
+
+
+@pytest.mark.parametrize("policy", ("preserve_literals", "bind_safe_literals"))
+@pytest.mark.parametrize(
+    ("header", "shape"),
+    (
+        ("    order_id: Int\n", "    order_id: Int\n    item_key = unique(id)\n"),
+        (
+            "    order_key = unique(id)\n",
+            "    order_key = unique(id)\n    pair_key = unique(customer_id, amount)\n",
+        ),
+        ("    order_key = unique(id)\n", "    order_key = unique(customer_id)\n"),
+        ("    order_key = unique(id)\n", "    order_key = unique(id, amount)\n"),
+    ),
+)
+def test_mysql_g8_per_order_level_needs_the_style_pages_keys(
+    tmp_path, monkeypatch, header, shape, policy
+):
+    """The per-order level reads the style page's `Order`, whose one key is
+    `unique(id)`, and `Item`, which has none: another key on either, or
+    `Order`'s one key over other fields, keeps main's blockers under each
+    policy, though the SQL would be S1's (the pure document holds no key,
+    so emission and compiled replay refuse it)."""
+    monkeypatch.setattr(
+        probe, "LEVELS_HEADER", probe.LEVELS_HEADER.replace(header, shape)
+    )
+    _, outcome = probe.levels_world(
+        tmp_path / "mysql", "mysql", probe.G8_FORMS["S1"], policy
+    )
+    line = 36 + shape.count("\n") - header.count("\n")
+    assert _numeric_blockers(outcome) == [
+        ("PIE-B1004", "sum_int_aggregate_range_proof_missing", line, 9),
+        ("PIE-B1004", "sum_int_aggregate_range_proof_missing", line + 1, 9),
+    ]
+    _, postgres = probe.levels_world(
+        tmp_path / "postgres", "postgres", probe.G8_FORMS["S1"], policy
+    )
+    assert postgres.status == "VERIFIED", postgres.blockers

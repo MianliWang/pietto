@@ -3036,6 +3036,17 @@ _NUMERIC_UNFORGEABLE = {
     "G6_R3": "PIE-B1003",
     "G6_X1": "PIE-B1003",
     "G6_X2": "PIE-B1003",
+    # MC G8's: a label too long, a sum of an operation, a `Float` sum, an
+    # `avg` column as a key, which main's Float key law refuses first, and a
+    # conditional sum at the top whose test reads a column of the level
+    # below, which no opened cell law admits (G7's test reads a source
+    # field).
+    "G8_R1": "PIE-B1002",
+    "G8_R8": "PIE-B1004",
+    "G8_X1": "PIE-B1004",
+    "G8_avg_key": "PIE-B1003",
+    "G8_cond_top": "PIE-B1004",
+    "G8_cond_top_sum_test": "PIE-B1004",
 }
 
 
@@ -3069,10 +3080,11 @@ assert _NUMERIC_FORGED_CONTROLS["G5_R9_ge"][1] != _pietto_sql_emission.G5_REFUSA
 
 
 # Each refused S01/S02 body, the S01 WHERE cell whose literal a bind-safe
-# `?` replaces, each MC G1 to G6 (`G2_` to `G6_` before its name) neighbour
-# under a policy that refuses it, each SMALLINT read that G1, G2, G4 and G5
-# leave in S02's cell (`G1S_`, `G2K_`, `G4S_` and `G5S_` before its name),
-# and the forged-only controls under bind-safe literals.
+# `?` replaces, each MC G1 to G6 and G8 (`G2_` to `G6_` and `G8_` before
+# its name) neighbour under a policy that refuses it, each SMALLINT read
+# that G1, G2, G4 and G5 leave in S02's cell (`G1S_`, `G2K_`, `G4S_` and
+# `G5S_` before its name), and the forged-only controls under bind-safe
+# literals.
 _NUMERIC_FORGED = [
     *(
         (shape, "preserve_literals")
@@ -3155,6 +3167,20 @@ _NUMERIC_FORGED = [
         )
         for shape in sorted(_pietto_sql_emission.G6_REFUSALS)
     ),
+    *(
+        (
+            "G8_" + shape,
+            _pietto_sql_emission.G8_REFUSAL_POLICIES.get(shape, ("preserve_literals",))[
+                0
+            ],
+        )
+        for shape in sorted(
+            {
+                *_pietto_sql_emission.G8_REFUSALS,
+                *_pietto_sql_emission.G8_S03_REFUSALS,
+            }
+        )
+    ),
 ]
 # An alias of an alias, an unread alias of another relation or of a second
 # import name of the upstream and an upstream declared as a relation `let`
@@ -3164,7 +3190,9 @@ _NUMERIC_FORGED = [
 # body read directly, and a `def` or relationship call or a JOIN with no
 # `let` leaves G6's neighbours those of the form it inlines to or binds, as
 # an unread window or relation alias and an imported source leave them
-# K1's. (G1's X6 and G2's R6, relation aliases that G4 opens, are no longer
+# K1's. A relation alias leaves G8's R12, Q1 and Q2 those of D2 and its Q3
+# those of D1; G8's imports I1 and I2 and its unread window leave D2's.
+# (G1's X6 and G2's R6, relation aliases that G4 opens, are no longer
 # neighbours.)
 _NUMERIC_ALIASES = {
     **_pietto_sql_emission.NUMERIC_ALIASES,
@@ -3183,20 +3211,39 @@ _NUMERIC_ALIASES = {
     "G6_window": _pietto_sql_emission.G6_FORMS["K1"],
     "G6_unread_alias": _pietto_sql_emission.G6_FORMS["K1"],
     "G6_imported": _pietto_sql_emission.G6_FORMS["K1"],
+    "G8_R12": _pietto_sql_emission.G8_FORMS["D2"],
+    "G8_Q1": _pietto_sql_emission.G8_FORMS["D2"],
+    "G8_Q2": _pietto_sql_emission.G8_FORMS["D2"],
+    "G8_Q3": _pietto_sql_emission.G8_FORMS["D1"],
+    "G8_I1": _pietto_sql_emission.G8_FORMS["D2"],
+    "G8_I2": _pietto_sql_emission.G8_FORMS["D2"],
+    "G8_window": _pietto_sql_emission.G8_FORMS["D2"],
 }
 
 
 def _numeric_forged_world(shape):
     """The world, keywords and body of a forged numeric shape: a G2 to G5
-    neighbour (`G2_` to `G5_` before its name) over grouping_world, a G6
-    one (`G6_`) over join_world (with G6_REFUSAL_WORLDS' keywords) or a
-    SMALLINT read beside G1, G2 or G3 (`G1S_`, `G2K_`) or under G4's
-    organization or G5's placeholders (`G4S_`, `G5S_`) over division_world
-    (or G4_SMALLINT_WORLDS' world); a forged-only control
-    (_NUMERIC_FORGED_CONTROLS) over its own world."""
+    neighbour (`G2_` to `G5_` before its name) over grouping_world, a G6 one
+    (`G6_`) over join_world (with G6_REFUSAL_WORLDS' keywords), a G8 one
+    (`G8_`) over levels_world (with G8_REFUSAL_WORLDS' keywords) or, for T1
+    or T2 under a third level, s03_world, a SMALLINT read beside G1, G2 or
+    G3 (`G1S_`, `G2K_`) or under G4's organization or G5's placeholders
+    (`G4S_`, `G5S_`) over division_world (or G4_SMALLINT_WORLDS' world); a
+    forged-only control (_NUMERIC_FORGED_CONTROLS) over its own world."""
     if shape in _NUMERIC_FORGED_CONTROLS:
         world, body = _NUMERIC_FORGED_CONTROLS[shape]
         return world, {}, body
+    if shape.startswith("G8_"):
+        s03 = _pietto_sql_emission.G8_S03_REFUSALS.get(shape[3:])
+        return (
+            (
+                _pietto_sql_emission.levels_world,
+                _pietto_sql_emission.G8_REFUSAL_WORLDS.get(shape[3:], {}),
+                _pietto_sql_emission.G8_REFUSALS[shape[3:]],
+            )
+            if s03 is None
+            else (_pietto_sql_emission.s03_world, {}, s03[0])
+        )
     if shape.startswith("G6_"):
         return (
             _pietto_sql_emission.join_world,
@@ -3257,7 +3304,9 @@ def test_forged_mysql_numeric_cells_fail_every_reader(
     A relation alias or a window, read or not, an imported source, an
     upstream declared as a relation `let` block that no cell takes (MC
     G4's R6, R13, X9 and X10 among them), a `def` or relationship call
-    or a JOIN with no `let` (MC G6's neighbours) fails the plan's readers
+    or a JOIN with no `let` (MC G6's neighbours), or an imported definition
+    or a read qualified by a definition's name in a chain of levels (MC
+    G8's R12, Q1 to Q3, I1 and I2) fails the plan's readers
     only: its document and records are the direct read's apart from source
     positions and the source digest, so the pure boundary and compiled
     replay accept them (NUMERIC_ALIASES)."""
@@ -3303,6 +3352,7 @@ def test_forged_mysql_numeric_cells_fail_every_reader(
             "G5_",
             "G5S_",
             "G6_",
+            "G8_",
         )
     ) or (shape in _pietto_sql_emission.G1_REFUSALS)
     assert not verify_project_sql_emission(artifact, artifact.request).verified
@@ -3334,7 +3384,12 @@ def test_forged_mysql_numeric_cells_fail_every_reader(
         refused = pure.parse_emission_observation(observed.canonical_bytes)
         assert (refused.status, refused.detail) == (
             pure.Status.INVALID_RELATION,
-            "sum result" if summed else "target checked evidence",
+            # A conditional sum in a chain's lowest sum level fails first.
+            "conditional aggregate shape"
+            if shape == "G8_cond_bottom"
+            else "sum result"
+            if summed
+            else "target checked evidence",
         )
         # The cell laws are _Check's alone: the re-rendering takes the records.
         assert pure.rendering_refusal(observed.canonical_bytes) is None
@@ -4439,6 +4494,36 @@ _COMPILED_G4_EDITS = {
 }
 
 
+# MC G8: each edit of a native chain that only the G8 law refuses, over
+# G8_FORMS' D2 (its bottom field 1 is `a`, summed by `mid`; `result`'s key
+# is read 13, its `x = sum(s)` value 3 and its read of `s` port 19), or
+# over S1 (its one JOIN).
+_COMPILED_G8_EDITS = {
+    "g8_summed_storage": _record_edit(
+        _A("field", 1), physical=_SMALLINT_PHYSICAL.replace("false", "true")
+    ),
+    "g8_sum_key": _record_edit(_A("read", 13), port=_A("port", 19)),
+    "g8_unread_sum": _record_edit(_A("aggregate_value", 3), function="count"),
+    "g8_join_kind": _record_edit(_A("join", 0), kind="inner"),
+    # `mid`'s projection read 11 of `t` (port 15) reads `s` (port 14)
+    # instead, so its sum value 1 is computed and read by nothing.
+    "g8_dropped_sum": _record_edit(_A("read", 11), port=_A("port", 14)),
+    # The key of `orders` (source 0) over `customer_id` (port 1) in place
+    # of `id` (port 0): the style page's `Order` has `unique(id)` alone.
+    "g8_join_order_key_field": _record_edit(
+        _A("source_unique", 0), fields=(_A("port", 1),)
+    ),
+    # A key of `items` (source 1, its `id` port 3), which the style page's
+    # `Item` has not.
+    "g8_join_item_key": _record_edit(
+        _A("source_unique", 0),
+        copy=True,
+        source=_A("source", 1),
+        fields=(_A("port", 3),),
+    ),
+}
+
+
 @pytest.mark.parametrize("edit", sorted(_COMPILED_G4_EDITS))
 def test_the_mysql_compiled_g4_law_refuses_each_edited_record(tmp_path, edit):
     """MC G4: compiled replay's two-level law finds a G4 body's sums at both
@@ -4661,6 +4746,80 @@ def test_the_mysql_pure_g5_law_refuses_each_edited_record(tmp_path, edit):
     assert sums and pure._mysql_cells(pure._Doc(records))[1] == sums
     edited = pure._Doc(change(records))
     assert pure._mysql_cells(edited) == (frozenset(),) * 5
+
+
+@pytest.mark.parametrize("edit", sorted(_COMPILED_G8_EDITS))
+def test_the_mysql_compiled_g8_law_refuses_each_edited_record(tmp_path, edit):
+    """Compiled replay derives the G8 law from the records on its own: it
+    finds every sum of a native chain, and none once one record changes: a
+    SMALLINT field summed, a lower sum column as a key, a lower sum that no
+    sum above reads or that its own level's projection drops, another kind
+    for the per-order JOIN, a key of its joined source, or its FROM
+    source's key over another field."""
+    from pietto._project import project_sql_emission_rows as rows
+
+    form = "S1" if edit.startswith("g8_join") else "D2"
+    records, query = _numeric_records(
+        tmp_path, _pietto_sql_emission.G8_FORMS[form], _pietto_sql_emission.levels_world
+    )
+    native = rows.mysql_g8_compiled(records, records[query])
+    assert native == frozenset(
+        address
+        for address, record in records.items()
+        if address.kind == "aggregate_value" and record.get("function") == "sum"
+    )
+    assert len(native) == (2 if form == "S1" else 5)
+    edited = _COMPILED_G8_EDITS[edit](records)
+    assert rows.mysql_g8_compiled(edited, edited[query]) == frozenset()
+
+
+# The same edits of the native document, over D2 (bound field 1 is `a`;
+# `result`'s key column is aggregate_key_column 2 and its `x = sum(s)`
+# aggregate_value_column 3, whose argument reads stage column 29) or S1.
+_PURE_G8_EDITS = {
+    "g8_summed_storage": _doc_edit(
+        "bound_field", 1, representation=_SMALLINT_PHYSICAL.replace("false", "true")
+    ),
+    "g8_sum_key": _doc_edit(
+        "aggregate_key_column", 2, read=_doc_ref("stage_column", 29)
+    ),
+    "g8_unread_sum": _doc_edit("aggregate_value_column", 3, function="count"),
+    "g8_join_kind": _doc_edit("join_body", 0, join_kind="inner"),
+    # `mid`'s projection column 3 (`t`) reads `s`'s stage column 21 in
+    # place of its own (23).
+    "g8_dropped_sum": _doc_edit(
+        "aggregate_projection_column", 3, read=_doc_ref("stage_column", 21)
+    ),
+}
+
+
+@pytest.mark.parametrize("edit", sorted(_PURE_G8_EDITS))
+def test_the_mysql_pure_g8_law_refuses_each_edited_record(tmp_path, edit):
+    """The pure boundary derives the G8 law from the document on its own:
+    it finds every sum column of a native chain, and none once one record
+    changes, as compiled replay does from its records."""
+    import _pietto_sql_emission_portable as portable
+    import _pietto_sql_emission_pure_boundary as pure
+
+    form = "S1" if edit == "g8_join_kind" else "D2"
+    _, outcome = _pietto_sql_emission.levels_world(
+        tmp_path, "mysql", _pietto_sql_emission.G8_FORMS[form]
+    )
+    artifact = outcome.artifact
+    assert artifact is not None, outcome.blockers
+    exported = portable.export_emission_observation(artifact, artifact.request)
+    assert exported.canonical_bytes is not None
+    view = pure.parse_emission_observation(exported.canonical_bytes).view
+    assert view is not None
+    records = dict(view.records)
+    native = pure._mysql_g8(pure._Doc(records))
+    assert native == frozenset(
+        ref
+        for ref, record in records.items()
+        if ref.kind == "aggregate_value_column" and record.fields["function"] == "sum"
+    )
+    assert len(native) == (2 if form == "S1" else 5)
+    assert pure._mysql_g8(pure._Doc(_PURE_G8_EDITS[edit](records))) == frozenset()
 
 
 def test_the_mysql_pure_cell_law_ends_at_a_fourth_body(tmp_path):

@@ -3555,31 +3555,14 @@ def mysql_s03_statement(request) -> bool:
         elif type(named.get(origin.source_name)) is not ast.SourceDef:
             return None
         elif definition.join_clauses or definition.naming_declarations:
-            if (
-                len(definition.join_clauses) != 1
-                or len(definition.naming_declarations) != 1
-            ):
+            written = _written_join(
+                definition,
+                named,
+                (ast.AuthoredJoinKind.INNER, ast.AuthoredJoinKind.LEFT),
+            )
+            if written is None:
                 return None
-            (clause,), (let,) = definition.join_clauses, definition.naming_declarations
-            on = None if clause.on_clause is None else clause.on_clause.expression
-            if not (
-                type(let) is ast.QueryLetDeclaration
-                and type(let.expression) is ast.NameExpr
-                and type(named.get(let.expression.name)) is ast.SourceDef
-                and let.expression.name != origin.source_name
-                and let.name != origin.source_name
-                and clause.kind
-                in (ast.AuthoredJoinKind.INNER, ast.AuthoredJoinKind.LEFT)
-                and clause.target_relation_name == let.name
-                and clause.target_binding_name == let.name
-                and clause.source_binding_name is None
-                and not clause.traversal_steps
-                and clause.uses_named_input is True
-                and clause.asof is False
-                and type(on) is ast.ComparisonExpr
-                and on.operator == "=="
-            ):
-                return None
+            clause, let, on = written
             sides = {
                 origin.source_name: ("A", origin.source_name),
                 let.name: ("B", let.expression.name),
@@ -3667,6 +3650,39 @@ def mysql_s03_statement(request) -> bool:
             levels, plan.literal_policy is ProjectSQLLiteralPolicy.PRESERVE_LITERALS
         )
     )
+
+
+def _written_join(definition, named, kinds) -> tuple[Any, Any, Any] | None:
+    """S03 and MC G8: ``definition``'s one JOIN as written, `let i = S` and
+    `KIND join i on X == Y` over its FROM source and another source S of
+    ``named`` (its module's relations by name), KIND among ``kinds``, as
+    (clause, let, on); None for any other JOIN, `let` or relation alias."""
+
+    from pietto import ast_nodes as ast
+
+    if len(definition.join_clauses) != 1 or len(definition.naming_declarations) != 1:
+        return None
+    (clause,), (let,) = definition.join_clauses, definition.naming_declarations
+    origin = definition.from_clause
+    on = None if clause.on_clause is None else clause.on_clause.expression
+    if not (
+        type(let) is ast.QueryLetDeclaration
+        and type(let.expression) is ast.NameExpr
+        and type(named.get(let.expression.name)) is ast.SourceDef
+        and let.expression.name != origin.source_name
+        and let.name != origin.source_name
+        and clause.kind in kinds
+        and clause.target_relation_name == let.name
+        and clause.target_binding_name == let.name
+        and clause.source_binding_name is None
+        and not clause.traversal_steps
+        and clause.uses_named_input is True
+        and clause.asof is False
+        and type(on) is ast.ComparisonExpr
+        and on.operator == "=="
+    ):
+        return None
+    return clause, let, on
 
 
 def _starts(outer, inner) -> bool:
@@ -3759,6 +3775,13 @@ def _mysql_s03_item(expression, read, conditional):
 
 
 def mysql_s03_compiled(records, entry) -> frozenset:
+    """Compiled replay's S03 sums and conditional sums, or else MC G8's sums
+    (mysql_g8_compiled): their aggregate_value addresses."""
+
+    return _mysql_s03_compiled(records, entry) or mysql_g8_compiled(records, entry)
+
+
+def _mysql_s03_compiled(records, entry) -> frozenset:
     """Compiled replay's S03 sums and conditional sums (their aggregate_value
     addresses), from the records alone, as emission derives the statement
     (mysql_s03_statement): every record is of a kind in _MYSQL_S03_RECORDS,
@@ -3957,6 +3980,604 @@ def mysql_s03_compiled(records, entry) -> frozenset:
         "preserve_literals"
     )
     return frozenset(sums) if forms.paired(levels, preserve) else frozenset()
+
+
+def _mysql_g8_shapes(order, item) -> bool:
+    """MC G8: the per-order level's shapes as written, the style page's: the
+    FROM source's three fields and one key, `unique` of its first field, and
+    the joined source's two fields and nothing else (the carriers are the
+    contract's)."""
+
+    from pietto import ast_nodes as ast
+
+    return (
+        type(order) is ast.ShapeDef
+        and type(item) is ast.ShapeDef
+        and len(order.items) == 4
+        and len(order.fields) == 3
+        and len(order.uniques) == 1
+        and order.uniques[0].field_names == (order.fields[0].name,)
+        and len(item.items) == len(item.fields) == 2
+    )
+
+
+def mysql_g8_compiled(records, entry) -> frozenset:
+    """Compiled replay's MC G8 sums (their aggregate_value addresses), from
+    the records alone, as emission derives the statement
+    (mysql_g8_statement): every record is of a kind in _MYSQL_S03_RECORDS,
+    and the entry's terminal stands over one chain of rows and aggregates,
+    each declaration a run of `let`, WHERE, aggregate and projection units
+    over the projection row of the declaration below, the lowest over a
+    source or one JOIN of two sources; no other row, aggregate or JOIN
+    exists. A port is followed by what its read reads: a source or joined
+    field, an item of the level below, a `let` value, a key or an aggregate
+    of its declaration; each `let` keeps MC G1's law (_mysql_compiled_lets),
+    and each sum of an aggregate level is read by that level's projection.
+    An imported source or definition, a relation alias, an unread window
+    and a read qualified by a definition's name leave the same records, so
+    only emission refuses them. Linear in the records."""
+
+    from pietto._project import project_sql_emission_levels as levels_law
+    from pietto._project import project_sql_emission_sum_forms as forms
+
+    empty: frozenset = frozenset()
+    if any(address.kind not in _MYSQL_S03_RECORDS for address in records):
+        return empty
+    chain = []
+    current = records[entry.get("terminal")]
+    while current.address.kind in ("row", "aggregate") and len(chain) < len(records):
+        chain.append(current)
+        current = records[current.get("input")]
+    chain.reverse()
+    units = {unit.address for unit in chain}
+    if current.address.kind == "join":
+        units.add(current.address)
+    elif current.address.kind != "source":
+        return empty
+    if any(
+        address.kind in ("row", "aggregate", "join") and address not in units
+        for address in records
+    ):
+        return empty
+    groups: list[list] = []
+    for unit in chain:
+        if groups and groups[-1][0].get("owner") == unit.get("owner"):
+            groups[-1].append(unit)
+        else:
+            groups.append([unit])
+
+    def field(port, side):
+        source = records[port.get("source")]
+        return (side, source.get("ordinal"), forms.carrier(source.get("physical")))
+
+    levels = []
+    sums: list = []
+    lower: tuple = ()
+    for index, group in enumerate(groups):
+        kinds = tuple(
+            "aggregate" if unit.address.kind == "aggregate" else unit.get("stage")
+            for unit in group
+        )
+        lets = kinds.count("let")
+        if kinds[lets:] not in (
+            ("projection",),
+            ("where", "projection"),
+            ("aggregate", "projection"),
+            ("where", "aggregate", "projection"),
+        ) or any(
+            unit.address.kind == "row"
+            and (unit.get("predicate") is not None) is not (kind == "where")
+            for unit, kind in zip(group, kinds, strict=True)
+        ):
+            return empty
+        below = records[group[0].get("input")]
+        meaning: dict = {}
+        join = None
+        if index:
+            if below.address != lower[0]:
+                return empty
+            meaning = {port: ("U", position) for position, port in enumerate(lower[1])}
+        elif below.address.kind == "source":
+            meaning = {
+                port: field(records[port], "A")
+                for port in records
+                if port.kind == "port" and records[port].get("owner") == below.address
+            }
+        else:
+            uses = [records[use] for use in below.get("inputs")]
+            predicate = below.get("predicate")
+            operands = (
+                records[predicate].get("operands")
+                if predicate is not None and predicate.kind == "operation"
+                else ()
+            )
+            if (
+                below.get("equalities") != ()
+                or [use.get("ordinal") for use in uses] != [0, 1]
+                or any(use.get("producer").kind != "source" for use in uses)
+                or uses[0].get("producer") == uses[1].get("producer")
+                or len(operands) != 2
+                or records[predicate].get("operator") != ("comparison", "==")
+                or any(item.kind != "read" for item in operands)
+            ):
+                return empty
+
+            def side(read, uses=uses):
+                """A read of a JOIN input's source port: its side and field."""
+                use = records[records[read].get("use")]
+                port = records[records[read].get("port")]
+                if use not in uses or port.get("owner") != use.get("producer"):
+                    return None
+                return field(port, "AB"[use.get("ordinal")])
+
+            for port in records:
+                value = records[port].get("source") if port.kind == "port" else None
+                if (
+                    value is not None
+                    and records[port].get("owner") == below.address
+                    and value.kind == "join_value"
+                ):
+                    meaning[port] = side(records[value].get("input"))
+            # The style page's keys: `unique` of the FROM source's first
+            # field, and none of the joined source.
+            if [
+                (
+                    record.get("source"),
+                    tuple(
+                        records[port].get("ordinal") for port in record.get("fields")
+                    ),
+                )
+                for address, record in records.items()
+                if address.kind == "source_unique"
+            ] != [(uses[0].get("producer"), (0,))]:
+                return empty
+            join = (
+                below.get("kind"),
+                side(operands[0]),
+                side(operands[1]),
+                *(
+                    tuple(
+                        forms.carrier(records[item].get("physical"))
+                        for item in records[use.get("producer")].get("fields")
+                    )
+                    for use in uses
+                ),
+            )
+
+        def read(address, meaning=meaning):
+            """A read as the column it reads, or None."""
+            if getattr(address, "kind", None) != "read":
+                return None
+            return meaning.get(records[address].get("port"))
+
+        level_lets: list = []
+        keys: list = []
+        values: list = []
+        items: list = []
+        projected: set = set()
+        for unit in group:
+            outputs = unit.get("outputs")
+            if unit.address.kind == "aggregate":
+                keys = [read(key) for key in unit.get("keys")]
+                for address in unit.get("values"):
+                    value = records[address]
+                    arguments = value.get("arguments")
+                    if value.get("order_by") or len(arguments) > 1:
+                        return empty
+                    item = (
+                        value.get("function"),
+                        read(arguments[0]) if arguments else None,
+                    )
+                    if arguments and item[1] is None:
+                        return empty
+                    values.append(item)
+                    if item[0] == "sum":
+                        sums.append(address)
+                for port in outputs:
+                    source = records[port].get("source")
+                    if source in unit.get("keys"):
+                        meaning[port] = ("K", unit.get("keys").index(source))
+                    elif source in unit.get("values"):
+                        meaning[port] = ("V", unit.get("values").index(source))
+                    else:
+                        return empty
+                continue
+            if len(unit.get("values")) != len(outputs):
+                return empty
+            for position, (address, port) in enumerate(
+                zip(unit.get("values"), outputs, strict=True)
+            ):
+                found = read(address)
+                if found is None:
+                    return empty
+                if unit.get("stage") == "let" and position == len(outputs) - 1:
+                    if found[0] == "L":
+                        return empty
+                    meaning[port] = ("L", len(level_lets))
+                    level_lets.append(found)
+                elif unit.get("stage") != "projection":
+                    meaning[port] = found
+                elif "aggregate" in kinds:
+                    if found[0] not in ("K", "V"):
+                        return empty
+                    if found[0] == "V":
+                        projected.add(found[1])
+                    items.append(
+                        ("read", keys[found[1]])
+                        if found[0] == "K"
+                        else values[found[1]]
+                    )
+                else:
+                    items.append(("read", found))
+        # MC G1: each `let` of an aggregate level read only by its sums, in
+        # its WHERE as anywhere else; each sum read by its level's
+        # projection, so that the law sees it.
+        if (
+            None in keys
+            or any(
+                item[0] == "sum" and position not in projected
+                for position, item in enumerate(values)
+            )
+            or any(item[1] is None and item != ("count", None) for item in items)
+            or level_lets
+            and (
+                "aggregate" not in kinds
+                or not _mysql_compiled_lets(
+                    records,
+                    group[kinds.index("aggregate") - 1 :: -1],
+                    group[kinds.index("aggregate")],
+                )
+            )
+        ):
+            return empty
+        lower = (group[-1].address, group[-1].get("outputs"))
+        levels.append(
+            (join, "where" in kinds, tuple(level_lets), tuple(keys), tuple(items))
+        )
+    return frozenset(sums) if levels_law.chain(tuple(levels)) else empty
+
+
+# MC G8 (project_sql_emission_levels): the plan tables a chain of levels may
+# hold, a WHERE, value `let`s and the per-order JOIN among them, and the
+# fields of each of its definitions as written that may be set.
+_MYSQL_G8_PLAN_TABLES = _MYSQL_S03_PLAN_TABLES | {"filters", "let_values"}
+_MYSQL_G8_AUTHORED = _MYSQL_S03_AUTHORED | {"where_clause"}
+
+
+def mysql_g8_statement(request) -> bool:
+    """MC G8: whether this MySQL statement is a chain of levels
+    (levels.chain), from its plan and bound contract: the selected definition
+    reads by FROM one definition of its module by its own name, and so on
+    down to one of its sources (or two, by the per-order level's JOIN); each
+    definition is a run of `let`, WHERE, aggregate and projection blocks over
+    its one input, sets only _MYSQL_G8_AUTHORED fields as written, and every
+    `let` of the statement is a value `let` read only as the whole argument
+    of a `sum` (mysql_sum_lets). An imported source or definition, a
+    relation alias read by FROM, an unread window and a read qualified by a
+    definition's name keep main's refusal (D77.24). Linear in the plan and the module's
+    definitions. No statement is one while emission derives as main
+    (AS_MAIN)."""
+
+    from pietto import ast_nodes as ast
+    from pietto._project import project_sql_emission_levels as levels_law
+    from pietto._project import project_sql_emission_sum_forms as forms
+    from pietto._project.module_catalog import authored_definitions
+    from pietto._project.project_sql_emission_aggregation import function_name
+    from pietto._project.project_sql_plan import (
+        ProjectSQLBoundary,
+        ProjectSQLBoundaryReason,
+    )
+
+    plan = request.plan
+    if (
+        AS_MAIN.get()
+        or request.family != "mysql"
+        or not plan.blocks
+        or any(
+            type(value := getattr(plan, name)) is tuple
+            and value
+            and name not in _MYSQL_G8_PLAN_TABLES
+            for name in plan.__dataclass_fields__
+        )
+        or not mysql_sum_lets(plan)
+    ):
+        return False
+    owner = plan.scope.selected_owner
+    module = plan.scope.completed.semantic_result.modules[owner.module_position]
+    if any(binding.module is not module for binding in plan.sources):
+        return False
+    stage = row.ProjectSQLStageKind
+    groups: list[list] = []
+    for block in plan.blocks:
+        if groups and groups[-1][0].definition is block.definition:
+            groups[-1].append(block)
+        else:
+            groups.append([block])
+    # The chain as written, top first, by name in the selected module.
+    definitions = authored_definitions(module)
+    named: dict[Any, Any] = {}
+    for definition in definitions:
+        name = getattr(definition, "name", None)
+        named[name] = None if name in named else definition
+    written: list[Any] = []
+    current: Any = definitions[owner.declaration_position]
+    while type(current) in (ast.QueryDef, ast.TableDef) and len(written) < len(groups):
+        if current.from_clause.binding_name is not None or any(
+            getattr(current, name) not in (None, ())
+            for name in current.__dataclass_fields__
+            if name not in _MYSQL_G8_AUTHORED
+        ):
+            return False
+        written.append(current)
+        current = named.get(current.from_clause.source_name)
+    route = bool(written) and bool(written[-1].join_clauses)
+    joined = (
+        _written_join(written[-1], named, (ast.AuthoredJoinKind.LEFT,))
+        if route
+        else None
+    )
+    if (
+        type(current) is not ast.SourceDef
+        or len(written) != len(groups)
+        or any(definition.join_clauses for definition in written[:-1])
+        or route
+        and (
+            joined is None
+            or not _mysql_g8_shapes(
+                named.get(current.shape_name),
+                named.get(
+                    getattr(named.get(joined[1].expression.name), "shape_name", None)
+                ),
+            )
+        )
+        or sum(len(definition.naming_declarations) for definition in written)
+        != len(plan.let_values) + route
+    ):
+        return False
+    carriers: dict[Any, dict[str, tuple[int, str | None]]] = {}
+    for source in request.sources:
+        name = json.loads(source.selector)["name"]
+        carriers[name] = (
+            {}
+            if name in carriers
+            else {
+                field.name: (field.ordinal, forms.carrier(field.representation))
+                for field in source.fields
+            }
+        )
+    bindings: dict[Any, Any] = {binding.ref: binding for binding in plan.sources}
+    stages: dict[Any, Any] = {port.ref: port for port in plan.stage_ports}
+    inputs: dict[Any, Any] = {port.ref: port for port in plan.input_ports}
+    sources: dict[Any, Any] = {port.ref: port for port in plan.source_ports}
+    joins: dict[Any, Any] = {port.ref: port for port in plan.join_ports}
+    join_inputs: dict[Any, Any] = {item.ref: item for item in plan.join_inputs}
+    lets: dict[Any, Any] = {value.port: value for value in plan.let_values}
+    keys: dict[Any, Any] = {key.ref: key for key in plan.group_keys}
+    aggregates: dict[Any, Any] = {value.ref: value for value in plan.aggregates}
+
+    # A read qualified by a definition's name, in an item, `let`, WHERE or
+    # key of a level above the bottom, is G4's (D77.24): only the bottom's
+    # reads of its sources may be qualified.
+    bottom = {block.ref for block in groups[0]}
+    if any(
+        type(expression) is row.ProjectSQLReference
+        and type(expression.expression) is ast.DottedNameExpr
+        and getattr(stages.get(expression.port), "block", None) not in bottom
+        for expression in plan.expressions
+    ) or any(
+        type(getattr(key.source.item, "key", None)) is ast.DottedNameExpr
+        and getattr(stages.get(key.input), "block", None) not in bottom
+        for key in plan.group_keys
+    ):
+        return False
+
+    def field(port, side):
+        """A source port as a column of ``side``."""
+        binding = bindings.get(getattr(port, "owner", None))
+        if binding is None:
+            return None
+        ordinal, carrier = carriers.get(binding.declaration.name, {}).get(
+            port.identity.name, (None, None)
+        )
+        return None if carrier is None else (side, ordinal, carrier)
+
+    def origin(ref):
+        """The input port, `let` value, key or aggregate a stage port carries."""
+        while ref in stages and ref not in lets:
+            ref = stages[ref].source
+        return ref
+
+    def operand(ref, owned):
+        """The expression ``ref`` as a read of a column, or None."""
+        expression: Any = _planned(plan, ref)
+        if type(expression) not in (
+            row.ProjectSQLReference,
+            row.ProjectSQLJoinedReference,
+        ):
+            return None
+        return owned(origin(expression.port))
+
+    chain = []
+    exports: dict = {}
+    for index, blocks in enumerate(groups):
+        boundary = blocks[0].boundary
+        kinds = tuple(block.kind for block in blocks)
+        lowest = index == 0
+        if any(block.boundary is not boundary for block in blocks):
+            return False
+        if route and lowest:
+            if kinds != (stage.AGGREGATE, stage.PROJECTION) or len(plan.joins) != 1:
+                return False
+        elif (
+            type(boundary) is not ProjectSQLBoundary
+            or boundary.reason
+            is not (
+                ProjectSQLBoundaryReason.SOURCE_INPUT
+                if lowest
+                else ProjectSQLBoundaryReason.NAMED_INPUT
+            )
+            or (
+                boundary.use.producer not in bindings
+                if lowest
+                else boundary.use.producer is not groups[index - 1][0].definition
+            )
+            or kinds
+            not in {
+                (*(stage.LET,) * kinds.count(stage.LET), *middle, stage.PROJECTION)
+                for middle in (
+                    (),
+                    (stage.WHERE,),
+                    (stage.AGGREGATE,),
+                    (stage.WHERE, stage.AGGREGATE),
+                )
+            }
+        ):
+            return False
+        names = [
+            value
+            for block in blocks
+            if block.kind is stage.LET
+            for value in plan.let_values
+            if stages.get(value.port) is not None
+            and stages[value.port].block is block.ref
+        ]
+
+        def owned(ref, boundary=boundary, names=names, lowest=lowest):
+            """A column this level reads: an input, JOIN or `let` port."""
+            if ref in lets:
+                value = lets[ref]
+                return ("L", names.index(value)) if value in names else None
+            if ref in joins and route and lowest:
+                port: Any = joins[ref]
+                if port.input is None:
+                    port = joins.get(port.source)
+                item = join_inputs.get(getattr(port, "input", None))
+                if item is None:
+                    return None
+                return field(sources.get(port.source), "AB"[item.ordinal])
+            port = inputs.get(ref)
+            if port is None or port not in getattr(
+                getattr(boundary, "use", None), "ports", ()
+            ):
+                return None
+            if lowest:
+                return field(sources.get(port.producer_port), "A")
+            return exports.get(port.producer_port)
+
+        level_lets = []
+        for value in names:
+            column = operand(value.expression, owned)
+            if column is None or column[0] == "L":
+                return False
+            level_lets.append(column)
+        projection = blocks[-1]
+        items = []
+        level_keys: tuple = ()
+        join = None
+        if stage.AGGREGATE in kinds:
+            aggregation = next(
+                (
+                    item
+                    for item in plan.aggregations
+                    if item.block is blocks[kinds.index(stage.AGGREGATE)].ref
+                ),
+                None,
+            )
+            if aggregation is None:
+                return False
+            level_keys = tuple(
+                owned(origin(keys[key].input)) if key in keys else None
+                for key in aggregation.keys
+            )
+            values = {}
+            for ref in aggregation.aggregates:
+                value = aggregates.get(ref)
+                if value is None or value.order_by or len(value.arguments) > 1:
+                    return False
+                function = function_name(value.source)
+                values[value.ref] = (
+                    function,
+                    operand(value.arguments[0], owned) if value.arguments else None,
+                )
+                if value.arguments and values[value.ref][1] is None:
+                    return False
+            projections = {
+                item.export: item.input
+                for item in plan.aggregate_projections
+                if item.block is projection.ref
+            }
+            for export in projection.exports:
+                found = origin(projections.get(export))
+                if found in keys:
+                    position = aggregation.keys.index(found)
+                    items.append(("read", level_keys[position]))
+                elif found in values:
+                    items.append(values[found])
+                else:
+                    return False
+        else:
+            projections = {
+                item.export: item.expression
+                for item in plan.projections
+                if item.block is projection.ref
+            }
+            for export in projection.exports:
+                column = (
+                    operand(projections[export], owned)
+                    if export in projections
+                    else None
+                )
+                if column is None:
+                    return False
+                items.append(("read", column))
+        if route and lowest:
+            on = _planned(plan, plan.joins[0].on)
+            join_item = join_inputs.get(plan.joins[0].inputs[0])
+            joined_item = join_inputs.get(plan.joins[0].inputs[1])
+            if (
+                plan.joins[0].equalities
+                or type(on) is not row.ProjectSQLComparison
+                or on.expression.operator != "=="
+                or join_item is None
+                or joined_item is None
+            ):
+                return False
+            ends = []
+            for side in (on.left, on.right):
+                read = _planned(plan, side)
+                port: Any = joins.get(getattr(read, "port", None))
+                item = join_inputs.get(getattr(port, "input", None))
+                ends.append(
+                    None
+                    if item is None
+                    else field(sources.get(port.source), "AB"[item.ordinal])
+                )
+            layouts = []
+            for item in (join_item, joined_item):
+                binding = bindings.get(item.producer)
+                fields = carriers.get(
+                    getattr(getattr(binding, "declaration", None), "name", None), {}
+                )
+                layouts.append(tuple(carrier for _, carrier in sorted(fields.values())))
+            join = (
+                str(plan.joins[0].kind),
+                ends[0],
+                ends[1],
+                layouts[0],
+                layouts[1],
+            )
+        if None in level_keys or any(
+            item[1] is None and item != ("count", None) for item in items
+        ):
+            return False
+        exports = {
+            export: ("U", position)
+            for position, export in enumerate(projection.exports)
+        }
+        chain.append(
+            (join, stage.WHERE in kinds, tuple(level_lets), level_keys, tuple(items))
+        )
+    return levels_law.chain(tuple(chain))
 
 
 TEXT_WIDTH_OBLIGATION = "text_result_width"

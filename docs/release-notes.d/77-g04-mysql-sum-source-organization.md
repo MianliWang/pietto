@@ -57,7 +57,8 @@
   `sum_int_aggregate_range_proof_missing` where that is its blocker). Among
   them are an alias of an alias, an unread alias of a relation that FROM
   does not read (a second import name of FROM's upstream included), a
-  window that is read, a third level, an upstream declared as a relation
+  window that is read, a third level (but for the G8 note's chains), an
+  upstream declared as a relation
   `let` block of the query, an upstream with a JOIN, HAVING, ORDER BY,
   LIMIT, DISTINCT, a header parameter or a bind-safe `?` other than the G5
   note below opens, a plain upstream with a `let` or an item that

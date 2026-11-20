@@ -1510,8 +1510,9 @@ _FIRST = (
 # divisor, MC G1's INT and `let` carriers, MC G2's aggregates and keys,
 # MC G3's later clauses, MC G4's relation alias and aggregating upstream,
 # MC G5's header parameter, MC G6's JOIN chains and `on` literal
-# comparisons, and MC G7's compound tests and conditional sums beside other
-# aggregates under a WHERE.
+# comparisons, MC G7's compound tests and conditional sums beside other
+# aggregates under a WHERE, and MC G8's chains of levels over a source and
+# over the per-order level.
 PHASE77_MYSQL_FORMS = {
     "S05": ("agg", _STATISTIC),
     "S06_join": (
@@ -1628,6 +1629,24 @@ PHASE77_MYSQL_FORMS = {
         "    select:\n        customer\n        x = sum(amount)\n"
         "        y = sum(o.customer for o in group if o.flag)\n        c = count()\n",
     ),
+    "G8_levels": (
+        "levels",
+        "query base:\n    from rows\n    select:\n        k\n        a\n"
+        "query mid:\n    from base\n    group by k\n    select:\n        k\n"
+        "        s = sum(a)\nquery result:\n    from mid\n    select:\n"
+        "        x = sum(s)\n",
+    ),
+    "G8_route": (
+        "levels",
+        "query per_order:\n    from orders\n    let item = items\n"
+        "    left join item on item.order_id == orders.id\n"
+        "    group by orders.id, orders.customer_id, orders.amount\n"
+        "    select:\n        id = orders.id\n"
+        "        customer_id = orders.customer_id\n        amount = orders.amount\n"
+        "        lines = count(item.id)\nquery result:\n    from per_order\n"
+        "    group by customer_id\n    select:\n        customer_id\n"
+        "        revenue = sum(amount)\n",
+    ),
     "S15": (
         "remainder",
         "table result:\n    from nums\n    select:\n        id\n        r = a % b\n",
@@ -1731,6 +1750,14 @@ MYSQL_0111_FORMS = {
         "query result:\n    from orders\n    let i = items\n"
         "    inner join i on i.order_id == orders.id\n    group by orders.id\n"
         "    select:\n        id = orders.id\n        qty = max(i.qty)\n",
+        _WORKSPACE,
+    ),
+    "G8": (
+        "levels",
+        "query base:\n    from rows\n    select:\n        k\n        a\n"
+        "query mid:\n    from base\n    group by k\n    select:\n        k\n"
+        "        s = max(a)\nquery result:\n    from mid\n    select:\n"
+        "        x = max(s)\n",
         _WORKSPACE,
     ),
     "S15": (

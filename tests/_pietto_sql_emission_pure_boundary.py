@@ -24,6 +24,7 @@ from types import MappingProxyType
 from typing import Any, cast
 
 from pietto._project import project_sql_emission_portable_schema as schema
+from pietto._project import project_sql_emission_levels as levels_law
 from pietto._project import project_sql_emission_sum_forms as sum_forms
 
 __all__: tuple[str, ...] = ()
@@ -3295,6 +3296,245 @@ def _mysql_s03(doc) -> frozenset:
 _MYSQL_SUM_STAGE_FUNCTIONS = frozenset({"sum", "filtered_sum", "count", "min"})
 
 
+def _mysql_g8(doc) -> frozenset:
+    """MC G8: the sum columns of a MySQL chain of levels (levels.chain), from
+    the document alone, as emission derives it from the plan
+    (mysql_g8_statement): every record is of a kind in _MYSQL_S03_KINDS, and
+    the bodies form one chain from the final projection body down, each
+    definition a run of `let`, WHERE, aggregate and projection bodies over
+    the named use of the definition below, the lowest over a source scan or
+    one JOIN of two sources, with no window. A column is followed by its
+    terminal: a scanned or joined field, an item of the level below, a
+    `let` value, a key or an aggregate of its definition; each `let` keeps
+    MC G1's law (_mysql_sum_lets), and each sum of an aggregate level is
+    read by that level's projection. An imported source or definition, a
+    relation alias, an unread window and a read qualified by a definition's
+    name leave the same document, so only emission refuses them. A level composes with MC
+    G1 and G2 alone: a conditional sum (MC G7's `filtered_sum`, whose test
+    the column carries) holds no chain, as in levels.chain. Linear in the
+    document."""
+
+    empty: frozenset = frozenset()
+    if not _MYSQL_S03_KINDS.issuperset(doc.kinds):
+        return empty
+    bodies = doc.all("row_body")
+    finals = [ref for ref in bodies if doc[ref]["final"] is True]
+    if len(finals) != 1:
+        return empty
+    chain = [finals[0]]
+    while doc[chain[-1]]["scan"].kind in ("row_stage_use", "row_named_use"):
+        inner = doc[doc[chain[-1]]["scan"]]["body"]
+        # Only keeps the walk finite: producer order refuses a cycle first.
+        if len(chain) > len(bodies) or inner.kind != "row_body":
+            return empty
+        chain.append(inner)
+    chain.reverse()
+    if len(chain) != len(bodies) or any(
+        doc[ref]["window"] is not None for ref in chain
+    ):
+        return empty
+    groups: list[list] = []
+    for ref in chain:
+        if groups and doc[groups[-1][0]]["definition"] == doc[ref]["definition"]:
+            groups[-1].append(ref)
+        else:
+            groups.append([ref])
+    sums: list = []
+    levels = []
+    lower: tuple = ()
+
+    def carrier(field):
+        return sum_forms.carrier(doc[field]["representation"])
+
+    for index, group in enumerate(groups):
+        kinds = tuple(doc[ref]["block_kind"] for ref in group)
+        lets = kinds.count("let")
+        if kinds[lets:] not in (
+            ("projection",),
+            ("where", "projection"),
+            ("aggregate", "projection"),
+            ("where", "aggregate", "projection"),
+        ) or any(
+            (doc[ref]["predicate"] is not None) is not (kind == "where")
+            or (doc[ref]["aggregation"] is not None) is not (kind == "aggregate")
+            for ref, kind in zip(group, kinds, strict=True)
+        ):
+            return empty
+        scan = doc[group[0]]["scan"]
+        meaning: dict = {}
+        join = None
+        if index:
+            if scan.kind != "row_named_use" or doc[scan]["body"] != lower[0]:
+                return empty
+            meaning = {
+                terminal: ("U", position) for position, terminal in enumerate(lower[1])
+            }
+        elif scan.kind == "row_scan":
+            fields = doc[doc[scan]["realization"]]["fields"]
+            for ref in doc.all("stage_column"):
+                field = doc[ref]["field"]
+                if doc[ref]["terminal"].kind == "source_port" and field in fields:
+                    meaning[doc[ref]["terminal"]] = (
+                        "A",
+                        doc[field]["ordinal"],
+                        carrier(field),
+                    )
+        elif scan.kind == "row_join_use":
+            joined = doc[doc[scan]["body"]]
+            inputs = [doc[item] for item in joined["inputs"]]
+            predicate = joined["predicate"]
+            operands = (
+                doc[predicate]["operands"]
+                if type(predicate) is Ref and predicate.kind == "sql_operation"
+                else ()
+            )
+            if (
+                len(inputs) != 2
+                or joined["equalities"]
+                or [item["ordinal"] for item in inputs] != [0, 1]
+                or any(item["producer"].kind != "bound_source" for item in inputs)
+                or inputs[0]["producer"] == inputs[1]["producer"]
+                or len(operands) != 2
+                or doc[predicate]["kind"] != "comparison"
+                or doc[predicate]["operator"] != "=="
+                or any(item.kind != "sql_stage_reference" for item in operands)
+            ):
+                return empty
+            sides = {
+                field: (side, doc[field]["ordinal"], carrier(field))
+                for side, item in zip("AB", inputs, strict=True)
+                for field in doc[item["producer"]]["fields"]
+            }
+            for column in joined["columns"]:
+                meaning[doc[doc[column]["column"]]["terminal"]] = sides.get(
+                    doc[doc[column]["read"]]["field"]
+                )
+            join = (
+                joined["join_kind"],
+                *(sides.get(doc[doc[item]["column"]]["field"]) for item in operands),
+                *(
+                    tuple(carrier(field) for field in doc[item["producer"]]["fields"])
+                    for item in inputs
+                ),
+            )
+        else:
+            return empty
+
+        def column(stage, meaning=meaning):
+            return meaning.get(doc[stage]["terminal"])
+
+        def read(ref, column=column):
+            """A sql_stage_reference as its column, or None."""
+            if type(ref) is not Ref or ref.kind != "sql_stage_reference":
+                return None
+            return column(doc[ref]["column"])
+
+        level_lets: list = []
+        keys: list = []
+        values: dict = {}
+        items: list = []
+        projected: set = set()
+        for ref in group:
+            body = doc[ref]
+            outputs = body["columns"]
+            if body["block_kind"] in ("let", "where"):
+                if body["block_kind"] == "let":
+                    if not outputs or outputs[-1].kind != "row_value_column":
+                        return empty
+                    value = read(doc[outputs[-1]]["value"])
+                    if value is None or value[0] == "L":
+                        return empty
+                    meaning[doc[doc[outputs[-1]]["column"]]["terminal"]] = (
+                        "L",
+                        len(level_lets),
+                    )
+                    level_lets.append(value)
+                    outputs = outputs[:-1]
+                for carry in outputs:
+                    if carry.kind != "row_carry_column":
+                        return empty
+                    meaning[doc[doc[carry]["column"]]["terminal"]] = column(
+                        doc[carry]["read"]
+                    )
+            elif body["block_kind"] == "aggregate":
+                stage = doc[body["aggregation"]]
+                for key in stage["keys"]:
+                    meaning[doc[doc[key]["column"]]["terminal"]] = ("K", len(keys))
+                    keys.append(column(doc[key]["read"]))
+                for ref_value in stage["values"]:
+                    value = doc[ref_value]
+                    if (
+                        value["order_by"]
+                        or value["extra_arguments"]
+                        or value["delimiter"] is not None
+                    ):
+                        return empty
+                    item = (
+                        value["function"],
+                        None if value["argument"] is None else read(value["argument"]),
+                    )
+                    if value["argument"] is not None and item[1] is None:
+                        return empty
+                    meaning[doc[value["column"]]["terminal"]] = ("V", len(values))
+                    values[len(values)] = item
+                    if value["function"] == "sum":
+                        sums.append(ref_value)
+                if set(stage["keys"]) | set(stage["values"]) != set(outputs):
+                    return empty
+            else:
+                for output in outputs:
+                    if "aggregate" in kinds:
+                        found = (
+                            column(doc[output]["read"])
+                            if output.kind == "aggregate_projection_column"
+                            else None
+                        )
+                        if found is None or found[0] not in ("K", "V"):
+                            return empty
+                        if found[0] == "V":
+                            projected.add(found[1])
+                        items.append(
+                            ("read", keys[found[1]])
+                            if found[0] == "K"
+                            else values[found[1]]
+                        )
+                    else:
+                        found = (
+                            read(doc[output]["value"])
+                            if output.kind == "row_value_column"
+                            else None
+                        )
+                        if found is None:
+                            return empty
+                        items.append(("read", found))
+        # MC G1: each `let` of an aggregate level read only by its sums, in
+        # its WHERE as anywhere else; each sum read by its level's
+        # projection, so that the law sees it.
+        if (
+            None in keys
+            or any(
+                item[0] == "sum" and position not in projected
+                for position, item in values.items()
+            )
+            or any(item[1] is None and item != ("count", None) for item in items)
+            or level_lets
+            and (
+                "aggregate" not in kinds
+                or not _mysql_sum_lets(
+                    doc,
+                    group[: kinds.index("aggregate")],
+                    doc[doc[group[kinds.index("aggregate")]]["aggregation"]],
+                )
+            )
+        ):
+            return empty
+        lower = (group[-1], doc[group[-1]]["terminals"])
+        levels.append(
+            (join, "where" in kinds, tuple(level_lets), tuple(keys), tuple(items))
+        )
+    return frozenset(sums) if levels_law.chain(tuple(levels)) else empty
+
+
 # MC G2, restated: the storage kinds of an S02 cell's GROUP BY key fields,
 # and of the one field each other aggregate beside its sums reads.
 _MYSQL_SUM_KEY_KINDS = frozenset({"my_bigint", "my_int", "my_varchar"})
@@ -4994,7 +5234,9 @@ class _Check:
         mysql_sums = _mysql_cells(doc)[1] if family == "mysql" else frozenset()
         # A MySQL `first` or `last` only in the S13 statement class.
         self.ranked = _ranked_stage(doc, family)
-        mysql_s03 = _mysql_s03(doc) if family == "mysql" else frozenset()
+        mysql_s03 = (
+            _mysql_s03(doc) | _mysql_g8(doc) if family == "mysql" else frozenset()
+        )
         for ref in doc.all("aggregate_value_column"):
             column = doc[ref]
             expected = _AGGREGATE_SPELLING[family].get(column["function"])
