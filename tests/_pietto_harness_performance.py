@@ -657,7 +657,9 @@ def _use_product(product_root: Path) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    # The docstring's first paragraph; `python -OO` strips docstrings to None.
+    summary = __doc__.split("\n\n")[0] if __doc__ is not None else None
+    parser = argparse.ArgumentParser(description=summary)
     commands = parser.add_subparsers(dest="command", required=True)
     bench = commands.add_parser("compile", help="the compile-time benchmark")
     bench.add_argument("--directory", type=Path, required=True)

@@ -23,6 +23,7 @@ import re
 import subprocess
 import sys
 from types import SimpleNamespace
+from typing import Any, cast
 
 import _pietto_harness_generated_forms as forms
 import _pietto_harness_performance as perf
@@ -152,7 +153,10 @@ def test_benchmark_leaves_warmup_out_of_the_median_and_reports_changed_output(
     assert not report["outputs_stable"]
     assert len(report["output_changes"]) == 1
     assert report["output_changes"][0].startswith("pass 3: narrow:0:mysql")
-    for warmup, repeats in ((-1, 1), (0, 0), (0, 1.5)):
+    # A non-integer repeat count is refused at run time; the cast passes it
+    # past the signature on purpose.
+    fractional = cast(Any, 1.5)
+    for warmup, repeats in ((-1, 1), (0, 0), (0, fractional)):
         with pytest.raises(ValueError):
             perf.benchmark(tmp_path / "x", range(1), warmup, repeats, compile=compile)
 

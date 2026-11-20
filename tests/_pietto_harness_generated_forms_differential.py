@@ -216,7 +216,11 @@ def compare(case: forms.Case, limited: dict, full: dict | None = None) -> list[s
 
 
 def _execute(query: Any, target: str, endpoint: tuple) -> dict:
-    import pyarrow as pa
+    import importlib
+
+    # PyArrow is optional: only the explicit campaign, with an execute extra,
+    # reaches this, and the core environment never imports it.
+    pa: Any = importlib.import_module("pyarrow")
 
     from pietto.execution import ExecutionError, ExecutionLimits, execute
 
