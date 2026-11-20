@@ -14,6 +14,7 @@ import pytest
 pytest.importorskip("fcntl", reason="the live witness needs the POSIX job runtime")
 
 import _pietto_execution_jobs_probe as workspace_probe
+import _pietto_sql_emission
 import _pietto_sql_nullsafe_cells as nullsafe_cells
 from pietto._project import project_public_r2_proposal as proposal
 
@@ -1467,6 +1468,7 @@ def _r2_inputs(query):
 
 _PARAMETER_VALUES = {
     "Int": 1,
+    "Float": 0.5,
     "Timestamp": datetime.datetime(2020, 1, 2, 3, 4, 5),
     "Date": datetime.date(2020, 1, 2),
     "Decimal": decimal.Decimal("1.50"),
@@ -1596,6 +1598,21 @@ PHASE77_MYSQL_FORMS = {
         "float",
         "table result:\n    from rows\n    select:\n        id\n        r = 0.5 * y\n",
     ),
+    # MC E4B (D77.73): a guarded `*` as a `let` value, and a WHERE
+    # comparison of a `let` value.
+    "E4B_let": ("e4b", _pietto_sql_emission.E4B_FORMS["EB1M"]),
+    "E4B_where": ("e4b", _pietto_sql_emission.E4B_FORMS["EB2LM"]),
+    # Two fields as a `let` value, a nesting compared in a WHERE and a
+    # grouped `count` of a guarded product.
+    "E4B_fields": ("e4bc", _pietto_sql_emission.E4BC_FORMS["EC4L"]),
+    "E4B_nested": ("e4bc", _pietto_sql_emission.E4BC_FORMS["EC5W"]),
+    "E4B_count": ("e4bc", _pietto_sql_emission.E4BC_FORMS["EC6M"]),
+    # A Float header parameter beside a field, in a `let` and in a WHERE.
+    "E4B_parameter_let": ("e4bc", _pietto_sql_emission.E4BC_FORMS["EPL1"]),
+    "E4B_parameter_where": ("e4bc", _pietto_sql_emission.E4BC_FORMS["EPW3"]),
+    # A guarded `*` over an S06 Float-keyed JOIN row and over an Int-keyed one.
+    "E4B_join_float_key": ("e4bj", _pietto_sql_emission.E4BJ_FORMS["EJ1"]),
+    "E4B_join_int_key": ("e4bj", _pietto_sql_emission.E4BJ_FORMS["EJ5"]),
 }
 # A neighbour of each that 0.1.11 already compiled, R2's cross JOIN of the
 # public journey, and an R01 class U form, with the R2 refusal each keeps.
@@ -1845,6 +1862,25 @@ def test_mysql_r2_keeps_each_earlier_refusal_and_checks_an_unbound_recover(
     ):
         _save, recovered = _r2_refusals(query, parameters=parameters)
         assert recovered == refusal
+
+
+def test_mysql_r2_refuses_an_e4b_order_key_by_its_comparison_domain(tmp_path):
+    """MC E4B: R2 prepares no refinement over a `Float` ORDER BY key, so an
+    E4B ORDER BY form keeps that earlier refusal; `recover` with parameters
+    that cannot bind still meets the unqualified form."""
+    query = _world_query(tmp_path, "e4b", _pietto_sql_emission.E4B_FORMS["EB3K2"])
+    assert query._main_emits is False
+    assert _r2_refusals(query) == (("PIE-R1004", "REFINEMENT_COMPARISON_DOMAIN"),) * 2
+    _save, recovered = _r2_refusals(query, parameters={"x": 1})
+    assert recovered == _UNQUALIFIED
+
+
+def test_mysql_r2_refuses_an_e4b_computed_key_as_a_computed_key(tmp_path):
+    """MC E4B's P8: R2 refuses a computed `let` GROUP BY key before its last
+    check, so a P8 form keeps that refusal."""
+    query = _world_query(tmp_path, "e4bc", _pietto_sql_emission.E4BC_FORMS["EC8N"])
+    assert query._main_emits is False
+    assert _r2_refusals(query) == (("PIE-R1004", "PUBLIC_R2_COMPUTED_GROUP_KEY"),) * 2
 
 
 def test_mysql_r2_checks_the_form_after_its_other_checks(tmp_path):

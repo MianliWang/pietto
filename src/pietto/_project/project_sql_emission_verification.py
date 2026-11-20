@@ -1496,31 +1496,80 @@ def _row_realization(request, expression, operands, operand_values):
         # one field and one literal by this reader's own law.
         mysql_float=request.family == "mysql"
         and rows.mysql_float_arithmetic_cell(request.plan, expression, operand_values)
-        and _mysql_float_shape(operand_values),
+        and _mysql_float_shape(operand_values)
+        # E4B P7, by this reader's own law: `*` beside a header parameter
+        # stays refused (MC.05's guard would repeat its one read).
+        and not (
+            operator == "*"
+            and any(type(value) is rows.SQLParameterRead for value in operand_values)
+        ),
         # This reader's own S17 pairing check.
         paired=tag == "Decimal" and pairing.project_form(request) is not None,
     )
 
 
-def _mysql_float_shape(values) -> bool:
-    """Independent E4 operand shape: one source field read and, beside it,
-    one literal chain of at most one sign over a Float literal."""
-    fields = [
-        value
-        for value in values
-        if type(value) is rows.SQLStageReference
-        and value.column.field is not None
-        and value.column.source_port is not None
-    ]
-    others = [value for value in values if all(value is not f for f in fields)]
-    return len(fields) == 1 and all(
-        _float_literal_value(value) is not None
-        and [
+def _mysql_float_shape(values, inner=False) -> bool:
+    """Independent E4 and E4B operand shape: a source field read, or one
+    level deep a Float `+`, `-`, `*` or `-` sign of this shape, and beside it
+    a field read, one literal chain of at most one sign over a Float literal
+    or, beside a field read only, a Float header parameter read, whose
+    operation nests under a sign at most; a sign takes a field read or such
+    an operation."""
+
+    def field(value) -> bool:
+        return (
+            type(value) is rows.SQLStageReference
+            and value.column.field is not None
+            and value.column.source_port is not None
+        )
+
+    def literal(value) -> bool:
+        return _float_literal_value(value) is not None and [
             node.original.expression.operator
             for node in parameters.value_nodes(value)[:-2]
-        ]
-        in ([], ["-"])
-        for value in others
+        ] in ([], ["-"])
+
+    nested = [
+        value
+        for value in values
+        if not inner
+        and type(value) is rows.SQLOperation
+        and value.realization.tag == "Float"
+        and (value.kind, value.original.expression.operator)
+        in {
+            ("arithmetic", "+"),
+            ("arithmetic", "-"),
+            ("arithmetic", "*"),
+            ("sign", "-"),
+        }
+        and _mysql_float_shape(value.operands, True)
+    ]
+    others = [
+        value
+        for value in values
+        if not field(value) and all(value is not item for item in nested)
+    ]
+    parameter = [value for value in others if type(value) is rows.SQLParameterRead]
+    return (
+        len(nested) + sum(map(field, values)) > 0
+        and len(nested) <= 1
+        and all(
+            literal(value)
+            or type(value) is rows.SQLParameterRead
+            and value.realization.tag == "Float"
+            for value in others
+        )
+        and not (len(values) == 1 and others)
+        # P7: a parameter stands beside a field, its operation under a sign.
+        and not (parameter and nested)
+        and not (
+            len(values) == 2
+            and any(
+                type(item) is rows.SQLParameterRead
+                for value in nested
+                for item in value.operands
+            )
+        )
     )
 
 

@@ -3060,16 +3060,36 @@ def test_the_rendering_tables_restate_the_emitter():
     assert pure._MYSQL_PRODUCT_GUARD == rows.MYSQL_PRODUCT_GUARD
 
 
-@pytest.mark.parametrize("form", ("EM1", "EM3", "EMQ"))
-def test_a_mysql_float_product_renders_its_guard_from_its_records(tmp_path, form):
-    """MC.05: a MySQL Float `*` in its E4 cell renders from its records under
-    the underflow guard, its operands in written order, with the binary64
+@pytest.mark.parametrize(
+    "world, form",
+    (
+        ("float", "EM1"),
+        ("float", "EM3"),
+        ("float", "EMQ"),
+        ("e4b", "EB1M2"),
+        ("e4b", "EB2M"),
+        ("e4bc", "EC4M"),
+        ("e4bc", "EC6M"),
+        ("e4bj", "EJ1"),
+    ),
+)
+def test_a_mysql_float_product_renders_its_guard_from_its_records(
+    tmp_path, world, form
+):
+    """MC.05: a MySQL Float `*` in its E4 or E4B cell, a `let` value and a
+    WHERE comparison's side included, renders from its records under the
+    underflow guard, its operands in written order, with the binary64
     evidence. Each forgery is refused end to end: the evidence dropped and
     the result declared non-null, which the SQL does not show, by _Check
     alone; the operands swapped under unchanged SQL, a guard token's text
     changed, its role relabelled and the guard dropped for a bare `(x * y)`
     also by the re-rendering alone."""
-    _, outcome = emission.float_world(tmp_path, "mysql", emission.E4_FORMS[form])
+    forms = {
+        "float": emission.E4_FORMS,
+        "e4b": emission.E4B_FORMS,
+        "e4bj": emission.E4BJ_FORMS,
+    }.get(world, emission.E4BC_FORMS)
+    _, outcome = getattr(emission, world + "_world")(tmp_path, "mysql", forms[form])
     artifact = outcome.artifact
     assert outcome.status == "VERIFIED" and artifact is not None
     data = portable.export_emission_observation(

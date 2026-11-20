@@ -758,23 +758,391 @@ def mysql_float_arithmetic_cell(plan, expression, values) -> bool:
     (mysql_float_literal), in either order, and a unary `-` when its operand
     is a source field; the operation is the whole value of a SELECT item of
     the emitted query, and the query is mysql_checked_query's (one WHERE at
-    most, no slot). Its carriers are mysql_float_operands'."""
+    most, no slot). E4B: an operation of mysql_float_statement's whose
+    operands are each such a field or literal or one of its operations. Its
+    carriers are mysql_float_operands'."""
 
     site = getattr(expression, "site", None)
     kind = {row.ProjectSQLBinary: "binary", row.ProjectSQLUnary: "unary"}.get(
         type(expression)
     )
-    return (
-        kind is not None
-        and expression.expression.operator in E4_OPERATORS[kind]
-        and len(values) == (2 if kind == "binary" else 1)
-        and sum(mysql_field(value) for value in values) == 1
+    if (
+        kind is None
+        or expression.expression.operator not in E4_OPERATORS[kind]
+        or len(values) != (2 if kind == "binary" else 1)
+    ):
+        return False
+    if (
+        sum(mysql_field(value) for value in values) == 1
         and all(mysql_field(value) or mysql_float_literal(value) for value in values)
         and type(site) is row.ProjectSQLExpressionSite
         and site.role is row.ProjectSQLExpressionRole.SELECT
         and site.occurrence.expression is expression.expression
         and mysql_checked_query(plan, aggregate=False)
+    ):
+        return True
+    cells = mysql_float_statement(plan)
+    return expression in cells and all(
+        mysql_field(value)
+        or mysql_float_literal(value)
+        or type(value) is SQLOperation
+        and value.original in cells
+        or type(value) is SQLParameterRead
+        and value.realization.tag == "Float"
+        for value in values
     )
+
+
+# MC E4B (its preregistered law): the positions of E4's wider
+# cells. A statement emits them only when all four conditions hold, else it
+# keeps main's whole blocker list (D77.37). (1) Each operation has a source
+# field operand, or an inner operation one level deep that itself has one,
+# and beside it a field or a Float literal, or beside a field the
+# statement's one header parameter, read once, in an operation that nests
+# under a unary `-` at most; a unary `-` takes a field or such an inner
+# operation; a `let` name is not a field. (2) The statement reads
+# one source of its own module through value `let`s of such operations,
+# each read, every one of them by the WHERE when there is one, a WHERE that
+# is one whole comparison, or its `not`, of such an operation or `let` name
+# with a Float literal, ORDER BY keys that are `let` names, and `count`s of
+# a nullable such operation under a GROUP BY of direct fields at most.
+# (3) Its clauses make one of E4B_SHAPES; an operation of two fields or a
+# nesting stands only in E4B_WIDE_SHAPES, and a `count` argument is narrow
+# or a `+` or `-` of two fields. (4) With each operation replaced by its
+# field the statement is main's, so it adds nothing main refuses.
+E4B_PLAN_TABLES = _MYSQL_CELL_PLAN_TABLES | {
+    "parameters",
+    "let_values",
+    "orders",
+    "order_expressions",
+    "order_items",
+    "order_uses",
+    "result_boundaries",
+}
+E4B_AUTHORED = frozenset(
+    {
+        "span",
+        "name",
+        "from_clause",
+        "where_clause",
+        "group_by_clause",
+        "select_items",
+        "order_by_clause",
+        "naming_declarations",
+        "parameters",
+    }
+)
+# (lets, WHERE, operation item, ORDER BY keys) of each shape, a WHERE that
+# reads its one `let` apart from one beside no `let`; a `count` argument is
+# an operation item.
+E4B_SHAPES = {
+    (0, None, True, 0): "item",
+    (1, None, False, 0): "let",
+    (2, None, False, 0): "let2",
+    (0, "operation", False, 0): "where",
+    (1, "let", False, 0): "where-let",
+    (0, "operation", True, 0): "where-item",
+    (1, None, False, 1): "order",
+    (1, "let", False, 1): "order-where",
+    (2, None, False, 2): "order2",
+}
+E4B_WIDE_SHAPES = frozenset({"item", "let", "where", "order"})
+E4B_COMPARISONS = frozenset({"<", "<=", ">", ">=", "==", "!="})
+
+
+def mysql_float_statement(plan) -> frozenset:
+    """E4B: the plan expressions of the statement's operations in their
+    cells, inner ones included (the comment above), or none; never while
+    emission derives as main (AS_MAIN)."""
+
+    return frozenset() if AS_MAIN.get() else _mysql_float_statement(plan)
+
+
+@functools.lru_cache(maxsize=1)
+def _mysql_float_statement(plan) -> frozenset:
+    """Every MySQL Float operation of one plan asks, so the last plan's
+    answer is kept; the cache holds that plan, so its identity is never
+    reused."""
+
+    from pietto._project.module_catalog import authored_definitions
+    from pietto._project.project_sql_emission_aggregation import function_name
+    from pietto._project.project_sql_plan import (
+        ProjectSQLBoundary,
+        ProjectSQLBoundaryReason,
+    )
+    from pietto._project.model import ProjectRowField
+
+    owner = plan.scope.selected_owner
+    module = plan.scope.completed.semantic_result.modules[owner.module_position]
+    authored = authored_definitions(module)[owner.declaration_position]
+    if plan.joins:
+        return _mysql_float_join_statement(plan, authored, module)
+    stage = row.ProjectSQLStageKind
+    lets = plan.let_values
+    if (
+        any(
+            type(value := getattr(plan, name)) is tuple
+            and value
+            and name not in E4B_PLAN_TABLES
+            for name in plan.__dataclass_fields__
+        )
+        or any(
+            getattr(authored, name) not in (None, ())
+            for name in authored.__dataclass_fields__
+            if name not in E4B_AUTHORED
+        )
+        or len(authored.naming_declarations) != len(lets)
+        or tuple(block.kind for block in plan.blocks)
+        != (
+            *(stage.LET,) * len(lets),
+            *(stage.WHERE,) * len(plan.filters),
+            *(stage.AGGREGATE,) * len(plan.aggregations),
+            stage.PROJECTION,
+        )
+        or any(
+            type(block.boundary) is not ProjectSQLBoundary
+            or block.boundary.reason is not ProjectSQLBoundaryReason.SOURCE_INPUT
+            for block in plan.blocks
+        )
+        or any(binding.module is not module for binding in plan.sources)
+    ):
+        return frozenset()
+
+    def node(reference):
+        return _planned(plan, reference)
+
+    def key(expression):
+        """The field or `let` a direct read reads, or None."""
+        port = getattr(expression, "port", None)
+        position = getattr(port, "position", None)
+        if (
+            type(expression) is not row.ProjectSQLReference
+            or type(position) is not int
+            or not 0 <= position < len(plan.stage_ports)
+            or plan.stage_ports[position].ref is not port
+        ):
+            return None
+        return plan.stage_ports[position].key
+
+    def field(expression) -> bool:
+        return type(key(expression)) is ProjectRowField
+
+    def literal(expression) -> bool:
+        """A Float literal token, or one `-` over one."""
+        if (
+            type(expression) is row.ProjectSQLUnary
+            and expression.expression.operator == "-"
+        ):
+            expression = node(expression.operand)
+        return (
+            type(expression) is row.ProjectSQLLiteral
+            and value_tag(expression) == "Float"
+        )
+
+    def operands(expression):
+        if type(expression) is row.ProjectSQLBinary:
+            return [node(expression.left), node(expression.right)]
+        return [node(expression.operand)]
+
+    def parameter(expression) -> bool:
+        return (
+            type(expression) is row.ProjectSQLParameterRead
+            and value_tag(expression) == "Float"
+        )
+
+    def operation(expression, inner=False) -> str | None:
+        """Law item 1: "narrow", "fields" (two fields), "parameter" or
+        "nested" for an operation, else None."""
+        kind = {row.ProjectSQLBinary: "binary", row.ProjectSQLUnary: "unary"}.get(
+            type(expression)
+        )
+        if (
+            kind is None
+            or expression.expression.operator not in E4_OPERATORS[kind]
+            or value_tag(expression) != "Float"
+        ):
+            return None
+        items = operands(expression)
+        nested = [o for o in items if not inner and operation(o, True) is not None]
+        fields = [o for o in items if field(o)]
+        if (
+            len(nested) > 1
+            or not fields
+            and not nested
+            or any(
+                not literal(o) and not parameter(o) or kind == "unary"
+                for o in items
+                if not field(o) and all(o is not n for n in nested)
+            )
+        ):
+            return None
+        if any(map(parameter, items)):
+            # P7: a parameter stands beside a field only. shortcut: MC.05's
+            # guard renders each operand three times, and a MySQL parameter
+            # read is one `?` per rendered read, so `*` beside a parameter
+            # stays refused until reads may repeat.
+            if nested or expression.expression.operator == "*":
+                return None
+            return "parameter"
+        if nested:
+            # P7: an operation beside a parameter nests under a `-` only.
+            if kind == "binary" and operation(nested[0], True) == "parameter":
+                return None
+            return "nested"
+        return "fields" if len(fields) == 2 else "narrow"
+
+    def leaves(expression):
+        """The field and parameter operands, depth first in written order."""
+        for o in operands(expression):
+            if operation(o, True) is not None:
+                yield from leaves(o)
+            elif field(o) or parameter(o):
+                yield o
+
+    def nullable(expression) -> bool:
+        """Law item 4: some field or parameter operand is nullable."""
+        return any(value_nullable(o) is True for o in leaves(expression))
+
+    def substitutable(expression) -> bool:
+        """Law item 4: a field operand has the value's nullability."""
+        return any(
+            field(o) and (value_nullable(o) is True) == nullable(expression)
+            for o in leaves(expression)
+        )
+
+    cells, kinds = set(), set()
+
+    def admit(expression) -> str | None:
+        kind = operation(expression)
+        if kind is not None and not substitutable(expression):
+            kind = None
+        if kind is not None:
+            cells.add(expression)
+            cells.update(o for o in operands(expression) if operation(o, True))
+            kinds.add(kind)
+        return kind
+
+    carried = {}
+    for value in lets:
+        expression = node(value.expression)
+        port = value.port.position
+        if admit(expression) is None or plan.stage_ports[port].ref is not value.port:
+            return frozenset()
+        carried[plan.stage_ports[port].key] = expression
+    if [binding.name for binding in carried] != [
+        declaration.name for declaration in authored.naming_declarations
+    ]:
+        return frozenset()
+    read, filtered, where = set(), set(), None
+    for filter_ in plan.filters:
+        predicate = node(filter_.predicate)
+        if (
+            type(predicate) is row.ProjectSQLUnary
+            and predicate.expression.operator == "not"
+        ):
+            predicate = node(predicate.operand)
+        if (
+            type(predicate) is not row.ProjectSQLComparison
+            or predicate.expression.operator not in E4B_COMPARISONS
+        ):
+            return frozenset()
+        sides = [node(predicate.left), node(predicate.right)]
+        others = [side for side in sides if not literal(side)]
+        if len(others) != 1:
+            return frozenset()
+        (other,) = others
+        if key(other) in carried:
+            filtered.add(key(other))
+            where = "let"
+        elif admit(other) is not None:
+            where = "operation"
+        else:
+            return frozenset()
+    items = False
+    for projection in plan.projections:
+        expression = node(projection.expression)
+        if key(expression) in carried:
+            read.add(key(expression))
+        elif admit(expression) is not None:
+            items = True
+        elif not field(expression):
+            return frozenset()
+    if plan.aggregations and (plan.projections or plan.order_items):
+        return frozenset()
+    keyed = set()
+    for group in plan.group_keys:
+        port = plan.stage_ports[group.input.position]
+        if port.ref is not group.input or (
+            type(port.key) is not ProjectRowField and port.key not in carried
+        ):
+            return frozenset()
+        if port.key in carried:
+            keyed.add(port.key)
+    if lets and plan.aggregations:
+        # P8: computed `let` keys of narrow operations in S07's shape, every
+        # `let` a key, `count()` alone and no WHERE (mysql_float_key_cell).
+        if (
+            plan.filters
+            or keyed != set(carried)
+            or kinds - {"narrow"}
+            or any(
+                function_name(aggregate.source) != "count" or aggregate.arguments
+                for aggregate in plan.aggregates
+            )
+        ):
+            return frozenset()
+        read |= keyed
+    for aggregate in plan.aggregates if not lets else ():
+        # P6: `count` of a nullable narrow operation, or of a `+` or `-` of
+        # two fields.
+        arguments = [node(item) for item in aggregate.arguments]
+        if (
+            function_name(aggregate.source) != "count"
+            or len(arguments) != 1
+            or operation(arguments[0]) not in {"narrow", "fields"}
+            or type(arguments[0]) is row.ProjectSQLBinary
+            and operation(arguments[0]) == "fields"
+            and arguments[0].expression.operator == "*"
+            or not nullable(arguments[0])
+        ):
+            return frozenset()
+        cells.add(arguments[0])
+        kinds.add(operation(arguments[0]))
+        items = True
+    if len(plan.order_items) != len(plan.order_uses) or not all(
+        type(item.expression) is NameExpr for item in plan.order_expressions
+    ):
+        return frozenset()
+    for use in plan.order_uses:
+        ports = [plan.result_ports[port.position] for port in use.ports]
+        if len(ports) != 1 or ports[0].key not in carried:
+            return frozenset()
+        read.add(ports[0].key)
+    read_parameters = [item for item in plan.expressions if parameter(item)]
+    if (plan.parameters or read_parameters) and (
+        plan.aggregations
+        # P7: the statement's one header parameter, read once.
+        or len(plan.parameters) != 1
+        or len(read_parameters) != 1
+        or not all(
+            any(o is item for cell in cells for o in operands(cell))
+            for item in read_parameters
+        )
+        or len(read_parameters)
+        != sum(type(item) is row.ProjectSQLParameterRead for item in plan.expressions)
+    ):
+        return frozenset()
+    shape = E4B_SHAPES.get((len(lets), where, items, len(plan.order_items)))
+    if (
+        shape is None
+        or not read | filtered >= set(carried)
+        or where is not None
+        and filtered != set(carried)
+        or kinds - {"narrow"}
+        and shape not in E4B_WIDE_SHAPES
+    ):
+        return frozenset()
+    return frozenset(cells)
 
 
 # MC.05: MySQL's guarded Float `*`, as (role, text) between the operands x, y,
@@ -1242,6 +1610,597 @@ def _mysql_compiled_lets(records, rows, aggregate) -> bool:
                 elif not (address in carries and record.get("source") == item):
                     return False
     return used == values
+
+
+# MC E4B's P9 (E4B's law, item 2): the plan tables and authored fields
+# of a JOIN statement whose whole SELECT items are E4B operations.
+E4B_JOIN_PLAN_TABLES = _MYSQL_CELL_PLAN_TABLES | {
+    "joins",
+    "join_inputs",
+    "join_ports",
+    "join_tails",
+}
+E4B_JOIN_AUTHORED = frozenset(
+    {"span", "name", "from_clause", "where_clause", "select_items", "join_clauses"}
+)
+
+
+def _mysql_float_join_statement(plan, authored, module) -> frozenset:
+    """P9: one INNER or LEFT JOIN of two sources of the statement's own module
+    under one WHERE at most and a projection, with no `let`, header
+    parameter or other clause, whose SELECT items are joined field reads or
+    E4B operations over them: narrow ones, or with no WHERE a `+` or `*` of
+    two fields; no Float `+`, `-` or `*` or sign stands in the `on` or the
+    WHERE. The JOIN itself is main's or S06's to judge, with each operation
+    replaced by its field (E4B's law, item 4: mysql_float_cell)."""
+
+    from pietto._project.project_sql_plan_joins import ProjectSQLJoinTail
+
+    if (
+        len(plan.joins) != 1
+        or plan.joins[0].kind not in ("inner", "left")
+        or len(plan.sources) != 2
+        or any(binding.module is not module for binding in plan.sources)
+        or any(
+            type(value := getattr(plan, name)) is tuple
+            and value
+            and name not in E4B_JOIN_PLAN_TABLES
+            for name in plan.__dataclass_fields__
+        )
+        or any(
+            getattr(authored, name) not in (None, ())
+            for name in authored.__dataclass_fields__
+            if name not in E4B_JOIN_AUTHORED
+        )
+        or tuple(block.kind for block in plan.blocks)
+        != (
+            *(row.ProjectSQLStageKind.WHERE,) * len(plan.filters),
+            row.ProjectSQLStageKind.PROJECTION,
+        )
+        or any(type(block.boundary) is not ProjectSQLJoinTail for block in plan.blocks)
+    ):
+        return frozenset()
+
+    def node(reference):
+        return _planned(plan, reference)
+
+    def field(expression) -> bool:
+        return (
+            type(expression) is row.ProjectSQLJoinedReference
+            and value_tag(expression) == "Float"
+        )
+
+    def literal(expression) -> bool:
+        if (
+            type(expression) is row.ProjectSQLUnary
+            and expression.expression.operator == "-"
+        ):
+            expression = node(expression.operand)
+        return (
+            type(expression) is row.ProjectSQLLiteral
+            and value_tag(expression) == "Float"
+        )
+
+    def arithmetic(expression) -> bool:
+        kind = {row.ProjectSQLBinary: "binary", row.ProjectSQLUnary: "unary"}.get(
+            type(expression)
+        )
+        return (
+            kind is not None
+            and expression.expression.operator in E4_OPERATORS[kind]
+            and value_tag(expression) == "Float"
+            and not literal(expression)
+        )
+
+    cells = set()
+    for projection in plan.projections:
+        expression = node(projection.expression)
+        if expression is None:
+            return frozenset()
+        if type(expression) is row.ProjectSQLJoinedReference:
+            continue
+        operands = [
+            node(item)
+            for item in (
+                (expression.left, expression.right)
+                if type(expression) is row.ProjectSQLBinary
+                else (getattr(expression, "operand", None),)
+            )
+        ]
+        fields = sum(map(field, operands))
+        if not (
+            arithmetic(expression)
+            and all(field(item) or literal(item) for item in operands)
+            and (
+                fields == 1
+                and (len(operands) == 2 or not literal(operands[0]))
+                or fields == 2
+                and expression.expression.operator in ("+", "*")
+                and not plan.filters
+            )
+        ):
+            return frozenset()
+        cells.add(expression)
+    if not cells or any(
+        arithmetic(item) and item not in cells for item in plan.expressions
+    ):
+        return frozenset()
+    return frozenset(cells)
+
+
+# MC E4B: the record kinds a header parameter read beside an E4B operation
+# adds; a bind-safe slot stays outside (its native use must be a read's).
+_E4B_COMPILED_RECORDS = frozenset(
+    {"result", "parameter", "parameter_read", "native_use"}
+)
+
+
+def mysql_compiled_float_statement(records, entry) -> frozenset:
+    """Compiled replay's MC E4B operations in their cells, inner ones
+    included, from the records alone, as emission derives them from the plan
+    (mysql_float_statement). The entry's terminal is a projection row of its
+    declaration, or a result with an ORDER BY only over one, over an
+    aggregate at most, over a WHERE row at most, over a row per `let`, over a
+    source; no other row, aggregate or result exists and every record is of
+    a kind in _MYSQL_CELL_RECORDS. A read traces through the ports that carry
+    it to a source field or to the operation a row computed. An E4B
+    operation is a Float `+`, `-` or `*` with a read of a `my_double` Float
+    field or, one level deep, such an operation as an operand, and beside it
+    such a read or a Float literal record (or a `-` operation over one), or
+    beside a read the read of the bundle's one Float header parameter, in a
+    `+` or `-` under a `-` at most, with no other read of it; a `-` takes a
+    read or an inner operation; no other counted record names either. Each
+    `let` row computes one such operation beside its reads. The
+    WHERE row's predicate is a comparison, or its `not`, of a Float literal
+    with such an operation or a read of a `let` value; each projection value
+    reads a field or a `let` value, or is such an operation (with no `let`);
+    each ORDER BY key reads a `let` value. An aggregate has no `let` beside
+    it, keys that read fields and `count`s of a nullable narrow operation or
+    a `+` or `-` of two fields, which the projection only reads. Every `let`
+    value is read, every one by the WHERE when there is one; the clauses
+    make one of E4B_SHAPES, and two fields or a nesting stand only in
+    E4B_WIDE_SHAPES."""
+
+    from pietto._project.project_compiled_schema import Address
+
+    owner = entry.get("declaration")
+    current, order = records[entry.get("terminal")], ()
+    if current.address.kind == "result":
+        if (
+            current.get("owner") != owner
+            or current.get("distinct") is not False
+            or current.get("limit") is not None
+            or current.get("limit_literal") is not None
+            or not current.get("ordering")
+        ):
+            return frozenset()
+        order = current.get("ordering")
+        current = records[current.get("input")]
+    chain = []
+    while current.address.kind in {"row", "aggregate"} and current not in chain:
+        chain.append(current)
+        current = records[current.get("input")]
+    chain.reverse()
+    stages = [
+        unit.get("stage") if unit.address.kind == "row" else "aggregate"
+        for unit in chain
+    ]
+    lets, where = stages.count("let"), stages.count("where")
+    grouped = stages.count("aggregate")
+    units = {unit.address for unit in chain} | {entry.get("terminal")}
+    if (
+        current.address.kind != "source"
+        or stages
+        != ["let"] * lets + ["where"] * where + ["aggregate"] * grouped + ["projection"]
+        or where > 1
+        or grouped > 1
+        or grouped
+        and order
+        or any(unit.get("owner") != owner for unit in chain)
+    ):
+        return frozenset()
+    named: dict[Any, list] = {}
+    for address, record in records.items():
+        kind = address.kind
+        if kind not in _MYSQL_CELL_RECORDS | _E4B_COMPILED_RECORDS or (
+            kind in {"row", "aggregate", "result"} and address not in units
+        ):
+            return frozenset()
+        pending = [] if kind in {"requirement", "port"} else list(record.values)
+        while pending:
+            item = pending.pop()
+            if type(item) is tuple:
+                pending.extend(item)
+            elif type(item) is Address and item.kind == "operation":
+                named.setdefault(item, []).append(address)
+
+    def traced(address):
+        """("field", field), ("value", operation) or ("aggregate", holder) a
+        read carries, or None."""
+        for _ in range(len(chain) + 1):
+            if address.kind != "read":
+                return None
+            port = records[records[address].get("port")]
+            source, holder = port.get("source"), port.get("owner")
+            if holder.kind == "source":
+                return ("field", source) if source.kind == "field" else None
+            if holder not in units or source is None:
+                return None
+            if holder.kind == "aggregate":
+                return ("aggregate", holder)
+            if source.kind != "read":
+                return ("value", source) if source.kind == "operation" else None
+            address = source
+        return None
+
+    def field_logical(address):
+        found = traced(address)
+        if found is None or found[0] != "field":
+            return None
+        try:
+            storage = json.loads(records[found[1]].get("physical"))["storage"]
+        except (KeyError, TypeError, ValueError):
+            return None
+        return records[found[1]].get("logical"), storage
+
+    def double(address) -> bool:
+        found = field_logical(address)
+        return found is not None and (found[0][0], found[1]) == (
+            "Float",
+            {"kind": "my_double"},
+        )
+
+    def parameter(address) -> bool:
+        """A read of a Float header parameter."""
+        return (
+            address.kind == "parameter_read"
+            and records[records[address].get("parameter")].get("tag") == "Float"
+        )
+
+    def float_literal(address) -> bool:
+        record = records[address]
+        if (
+            address.kind == "operation"
+            and record.get("operator") == ("unary", "-")
+            and len(record.get("operands")) == 1
+        ):
+            address = record.get("operands")[0]
+        return address.kind == "literal" and records[address].get("tag") == "Float"
+
+    def operation(address, holder, inner=False) -> str | None:
+        """ "narrow", "fields" or "nested" for an E4B operation, else None."""
+        if address.kind != "operation" or named.get(address) != [holder]:
+            return None
+        record = records[address]
+        operands = record.get("operands")
+        if record.get("logical")[0] != "Float" or _E4_COMPILED.get(
+            record.get("operator")
+        ) != len(operands):
+            return None
+        nested = [
+            item
+            for item in operands
+            if not inner and operation(item, address, True) is not None
+        ]
+        others = [item for item in operands if not double(item) and item not in nested]
+        if (
+            len(nested) > 1
+            or not nested
+            and not any(map(double, operands))
+            or any(
+                record.get("operator") == ("unary", "-")
+                or not float_literal(item)
+                and not parameter(item)
+                for item in others
+            )
+        ):
+            return None
+        if any(map(parameter, operands)):
+            # P7: beside a field only. shortcut: as emission's, `*` beside a
+            # parameter stays refused until a parameter's reads may repeat
+            # under MC.05's guard.
+            if nested or record.get("operator") == ("binary", "*"):
+                return None
+            return "parameter"
+        if nested:
+            # P7: an operation beside a parameter nests under a `-` only.
+            if (
+                record.get("operator") != ("unary", "-")
+                and operation(nested[0], address, True) == "parameter"
+            ):
+                return None
+            return "nested"
+        return "fields" if sum(map(double, operands)) == 2 else "narrow"
+
+    cells, kinds = set(), set()
+
+    def leaves(address):
+        for item in records[address].get("operands"):
+            if item.kind == "operation" and operation(item, address, True):
+                yield from leaves(item)
+            elif double(item) or parameter(item):
+                yield item
+
+    def nullable(address) -> bool:
+        if address.kind == "parameter_read":
+            return records[records[address].get("parameter")].get("nullable") is True
+        return (field_logical(address) or (("", ""),))[0][1] == "nullable"
+
+    def admit(address, holder) -> str | None:
+        kind = operation(address, holder)
+        if kind is not None and not any(
+            not item.kind == "parameter_read"
+            and nullable(item) == any(map(nullable, leaves(address)))
+            for item in leaves(address)
+        ):
+            # Law item 4: no field operand has the value's nullability.
+            kind = None
+        if kind is not None:
+            cells.add(address)
+            cells.update(
+                item
+                for item in records[address].get("operands")
+                if operation(item, address, True) is not None
+            )
+            kinds.add(kind)
+        return kind
+
+    def value(address):
+        found = traced(address)
+        return found[1] if found is not None and found[0] == "value" else None
+
+    carried = set()
+    for unit in chain[:lets]:
+        computed = [item for item in unit.get("values") if item.kind != "read"]
+        if len(computed) != 1 or admit(computed[0], unit.address) is None:
+            return frozenset()
+        carried.add(computed[0])
+    read, filtered, shape = set(), set(), None
+    for unit in chain[lets : lets + where]:
+        predicate = unit.get("predicate")
+        holder = unit.address
+        if (
+            predicate is not None
+            and predicate.kind == "operation"
+            and records[predicate].get("operator") == ("not", "not")
+            and len(records[predicate].get("operands")) == 1
+        ):
+            holder, predicate = predicate, records[predicate].get("operands")[0]
+        if (
+            predicate is None
+            or predicate.kind != "operation"
+            or named.get(predicate) != [holder]
+            or records[predicate].get("operator")
+            not in {("comparison", item) for item in E4B_COMPARISONS}
+            or len(records[predicate].get("operands")) != 2
+            or any(item.kind != "read" for item in unit.get("values"))
+        ):
+            return frozenset()
+        others = [
+            item
+            for item in records[predicate].get("operands")
+            if not float_literal(item)
+        ]
+        if len(others) != 1:
+            return frozenset()
+        if value(others[0]) in carried:
+            filtered.add(value(others[0]))
+            shape = "let"
+        elif admit(others[0], predicate) is not None:
+            shape = "operation"
+        else:
+            return frozenset()
+    items = False
+    for item in chain[-1].get("values"):
+        found = traced(item)
+        if grouped:
+            if found is None or found[0] != "aggregate":
+                return frozenset()
+        elif value(item) in carried:
+            read.add(value(item))
+        elif admit(item, chain[-1].address) is not None:
+            items = True
+        elif found is None or found[0] != "field":
+            return frozenset()
+    for unit in chain[lets + where : lets + where + grouped]:
+        keyed = {value(key) for key in unit.get("keys")} - {None}
+        if (
+            unit.get("risk_law") is not None
+            or not keyed <= carried
+            or not all(
+                (traced(key) or ("",))[0] in {"field", "value"}
+                for key in unit.get("keys")
+            )
+        ):
+            return frozenset()
+        if lets:
+            # P8: computed `let` keys of narrow operations in S07's shape.
+            if (
+                where
+                or keyed != carried
+                or kinds - {"narrow"}
+                or any(
+                    records[item].get("function") != "count"
+                    or records[item].get("arguments")
+                    for item in unit.get("values")
+                )
+            ):
+                return frozenset()
+            read |= keyed
+            continue
+        for item in unit.get("values"):
+            aggregate = records[item]
+            arguments = aggregate.get("arguments")
+            kind = (
+                operation(arguments[0], item)
+                if item.kind == "aggregate_value" and len(arguments) == 1
+                else None
+            )
+            if (
+                aggregate.get("function") != "count"
+                or aggregate.get("order_by") != ()
+                or kind not in {"narrow", "fields"}
+                or kind == "fields"
+                and records[arguments[0]].get("operator") == ("binary", "*")
+                or not any(
+                    (field_logical(operand) or (("", ""),))[0][1] == "nullable"
+                    for operand in records[arguments[0]].get("operands")
+                )
+            ):
+                return frozenset()
+            admit(arguments[0], item)
+            items = True
+    for item, _ in order:
+        if value(item) not in carried:
+            return frozenset()
+        read.add(value(item))
+    reads = [address for address in records if address.kind == "parameter_read"]
+    if (
+        any(
+            record.address.kind == "native_use"
+            and record.get("slot").kind != "parameter_read"
+            for record in records.values()
+        )
+        or reads
+        and grouped
+        or not all(
+            parameter(item)
+            and any(item in records[cell].get("operands") for cell in cells)
+            for item in reads
+        )
+        or any(address.kind == "parameter" for address in records)
+        and not reads
+        # P7: the one header parameter, read once.
+        or len(reads) > 1
+        or sum(address.kind == "parameter" for address in records) > 1
+    ):
+        return frozenset()
+    name = E4B_SHAPES.get((lets, shape, items, len(order)))
+    if (
+        name is None
+        or not read | filtered >= carried
+        or where
+        and filtered != carried
+        or kinds - {"narrow"}
+        and name not in E4B_WIDE_SHAPES
+    ):
+        return frozenset()
+    return frozenset(cells)
+
+
+def mysql_compiled_float_join_statement(records, entry) -> frozenset:
+    """Compiled replay's MC E4B P9 operations, from the records alone, as
+    emission derives them (_mysql_float_join_statement): the entry's
+    terminal is a projection row of its declaration over a WHERE row at most
+    over one INNER or LEFT JOIN of two sources; every record is of a kind in
+    _MYSQL_CELL_RECORDS or the JOIN's. A read traces through the WHERE
+    row's and the JOIN's ports to a source field. Each operation the
+    projection computes is named by it alone: a Float `+`, `-` or `*` of one
+    read of a `my_double` Float field and one Float literal record (or a `-`
+    operation over one), a `-` of such a read, or with no WHERE row a `+` or
+    `*` of two such reads; no other Float `+`, `-`, `*` or sign of a read
+    stands in the bundle (none in the ON or the WHERE)."""
+
+    from pietto._project.project_compiled_schema import Address
+
+    owner = entry.get("declaration")
+    terminal = records[entry.get("terminal")]
+    chain = [terminal]
+    if terminal.address.kind != "row" or terminal.get("stage") != "projection":
+        return frozenset()
+    current = records[terminal.get("input")]
+    if current.address.kind == "row" and current.get("stage") == "where":
+        chain.append(current)
+        current = records[current.get("input")]
+    if (
+        current.address.kind != "join"
+        or current.get("kind") not in ("inner", "left")
+        or any(unit.get("owner") != owner for unit in chain)
+    ):
+        return frozenset()
+    units = {unit.address for unit in chain} | {current.address}
+    named: dict[Any, list] = {}
+    for address, record in records.items():
+        kind = address.kind
+        if kind not in _MYSQL_CELL_RECORDS | {"join", "join_value"} or (
+            kind in {"row", "aggregate", "join"} and address not in units
+        ):
+            return frozenset()
+        pending = [] if kind in {"requirement", "port"} else list(record.values)
+        while pending:
+            item = pending.pop()
+            if type(item) is tuple:
+                pending.extend(item)
+            elif type(item) is Address and item.kind == "operation":
+                named.setdefault(item, []).append(address)
+
+    def double(address) -> bool:
+        for _ in range(3):
+            if address.kind != "read":
+                return False
+            port = records[records[address].get("port")]
+            holder, source = port.get("owner"), port.get("source")
+            if holder.kind == "source":
+                try:
+                    storage = json.loads(records[source].get("physical"))["storage"]
+                except (KeyError, TypeError, ValueError):
+                    return False
+                return (records[source].get("logical")[0], storage) == (
+                    "Float",
+                    {"kind": "my_double"},
+                )
+            if holder not in units or source is None:
+                return False
+            address = (
+                records[source].get("input") if source.kind == "join_value" else source
+            )
+        return False
+
+    def float_literal(address) -> bool:
+        record = records[address]
+        if (
+            address.kind == "operation"
+            and record.get("operator") == ("unary", "-")
+            and len(record.get("operands")) == 1
+        ):
+            address = record.get("operands")[0]
+        return address.kind == "literal" and records[address].get("tag") == "Float"
+
+    def arithmetic(address) -> bool:
+        record = records[address]
+        return (
+            record.get("logical")[0] == "Float"
+            and record.get("operator") in _E4_COMPILED
+            and not float_literal(address)
+        )
+
+    cells = set()
+    for item in terminal.get("values"):
+        if item.kind != "operation":
+            continue
+        record = records[item]
+        operands = record.get("operands")
+        reads = sum(map(double, operands))
+        if not (
+            named.get(item) == [terminal.address]
+            and arithmetic(item)
+            and _E4_COMPILED.get(record.get("operator")) == len(operands)
+            and all(double(o) or float_literal(o) for o in operands)
+            and (
+                reads == 1
+                or reads == 2
+                and record.get("operator") in (("binary", "+"), ("binary", "*"))
+                and len(chain) == 1
+            )
+        ):
+            return frozenset()
+        cells.add(item)
+    if not cells or any(
+        address.kind == "operation" and arithmetic(address) and address not in cells
+        for address in records
+    ):
+        return frozenset()
+    return frozenset(cells)
 
 
 # The MySQL project cells of lpad and now() that the Phase77 native
@@ -4842,14 +5801,31 @@ def _mysql_float_shape(plan, expression):
         return None
     operands = tuple(at(item) for item in operands)
     selected = tuple(value for value in roots if type(value) is items)
+    # MC E4B's P9: a JOIN cell's SELECT item may be an E4B operation over its
+    # joined fields (mysql_float_statement), which mysql_float_cell replaces
+    # by one of them (E4B's law, item 4).
+    computed = tuple(
+        value
+        for value in roots
+        if joins and type(value) is not items and value in mysql_float_statement(plan)
+    )
+
+    def size(value) -> int:
+        return 1 + sum(
+            size(at(getattr(value, name)))
+            for name in ("left", "right", "operand")
+            if at(getattr(value, name, None)) is not None
+        )
+
     if (
         any(type(item) is not reference for item in operands)
-        or len(expressions) != len(selected) + 3 + negated + parts
+        or len(expressions)
+        != len(selected) + sum(map(size, computed)) + 3 + negated + parts
         or not _unit_written(plan, anti=bool(uses))
     ):
         return None
     cell = (*shape, "not " + form if negated else form)
-    return cell, operands, keys, selected
+    return cell, operands, keys, selected, computed
 
 
 def _mysql_float_field(request, ref):
@@ -4900,8 +5876,31 @@ def mysql_float_cell(request, expression):
     shape = None if AS_MAIN.get() else _mysql_float_shape(request.plan, expression)
     if shape is None:
         return None
-    cell, operands, keys, selected = shape
+    cell, operands, keys, selected, computed = shape
     plan = request.plan
+    for value in computed:
+        # P9: the first joined field operand, in written order, whose declared
+        # nullability is the operation's (any operand's); none refuses.
+        fields = [
+            item
+            for item in (
+                _planned(plan, getattr(value, name, None))
+                for name in ("left", "right", "operand")
+            )
+            if type(item) is row.ProjectSQLJoinedReference
+        ]
+        found = [_mysql_float_field(request, item.port) for item in fields]
+        if not fields or any(item is None for item in found):
+            return None
+        nulls = [
+            json.loads(item[1].representation).get("nullable") is True
+            for item in found
+            if item is not None
+        ]
+        chosen = [item for item, null in zip(fields, nulls) if null == any(nulls)]
+        if not chosen:
+            return None
+        selected = (*selected, chosen[0])
     binder = plan.expression_block_uses[0] if cell[0] == "anti" else None
     exports = tuple(
         item.exports
@@ -5034,6 +6033,10 @@ MYSQL_FLOAT_KEY_CARRIERS = {
         },
     ),
 }
+# MC E4B's P8: the plan parts a cell with computed `let` keys also holds.
+_MYSQL_FLOAT_LET_KEY_PARTS = frozenset(
+    {"let_values", "expression_sites", "expressions", "operands"}
+)
 # The plan parts a cell's plan may hold; every other part is empty.
 _MYSQL_FLOAT_KEY_PARTS = frozenset(
     {
@@ -5100,10 +6103,12 @@ def mysql_float_key_cell(request):
     from pietto.ast_nodes import QueryDef, SourceDef, TableDef, inlined_arguments
 
     plan = request.plan
+    lets = plan.let_values
     if not plan.aggregations or any(
         getattr(plan, item.name)
         for item in dataclasses.fields(plan)
         if item.name not in _MYSQL_FLOAT_KEY_PARTS
+        and not (lets and item.name in _MYSQL_FLOAT_LET_KEY_PARTS)
         and type(getattr(plan, item.name)) is tuple
     ):
         return None
@@ -5118,7 +6123,11 @@ def mysql_float_key_cell(request):
         or len(plan.input_uses) != 1
         or len(named) != 1
         or tuple(block.kind for block in blocks)
-        != (row.ProjectSQLStageKind.AGGREGATE, row.ProjectSQLStageKind.PROJECTION)
+        != (
+            *(row.ProjectSQLStageKind.LET,) * len(lets),
+            row.ProjectSQLStageKind.AGGREGATE,
+            row.ProjectSQLStageKind.PROJECTION,
+        )
         or any(
             type(block.boundary) is not ProjectSQLBoundary
             or block.boundary.reason is not ProjectSQLBoundaryReason.SOURCE_INPUT
@@ -5148,7 +6157,7 @@ def mysql_float_key_cell(request):
         )
     ):
         return None
-    found = tuple(_mysql_float_field(request, key.input) for key in keys)
+    found = tuple(_mysql_float_key_field(request, key.input) for key in keys)
     fields = tuple(item[1] for item in found if item is not None)
     if len(fields) != len(keys) or len({id(field) for field in fields}) != len(fields):
         return None
@@ -5159,6 +6168,7 @@ def mysql_float_key_cell(request):
     if (
         type(written) not in {TableDef, QueryDef}
         or written.naming_declarations
+        and not mysql_float_statement(plan)
         or written.named_windows
         or written.let_clause is not None
         or any(
@@ -5178,6 +6188,45 @@ def mysql_float_key_cell(request):
         ),
     )
     return cell if cell in MYSQL_FLOAT_KEY_CELLS else None
+
+
+def _mysql_float_key_field(request, ref, computed=True):
+    """The source port and contract field a GROUP BY key reads, through the
+    stage and input ports that carry it (_mysql_float_field), or, for MC
+    E4B's computed `let` key (P8), those of the one field operand of its
+    narrow operation (mysql_float_statement), the key replaced by that field
+    (E4B's law, item 4). None otherwise."""
+
+    plan = request.plan
+    for _ in range(9):
+        if any(port.ref is ref for port in plan.source_ports):
+            return _mysql_float_field(request, ref)
+        step = None
+        for item in (*plan.stage_ports, *plan.join_ports):
+            if item.ref is ref:
+                step = item.source
+        for item in plan.input_ports:
+            if item.ref is ref:
+                step = item.producer_port
+        if step is None:
+            return None
+        expression = _planned(plan, step)
+        if expression is not None:
+            if not computed or expression not in mysql_float_statement(plan):
+                return None
+            reads = [
+                item
+                for item in (
+                    _planned(plan, getattr(expression, name, None))
+                    for name in ("left", "right", "operand")
+                )
+                if type(item) is row.ProjectSQLReference
+            ]
+            if len(reads) != 1:
+                return None
+            return _mysql_float_key_field(request, reads[0].port, False)
+        ref = step
+    return None
 
 
 def mysql_float_key_admitted(request, realization) -> bool:
