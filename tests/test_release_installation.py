@@ -68,7 +68,7 @@ POSTGRES = ARROW | {
     "psycopg==3.3.8",
     "psycopg-binary==3.3.8 ; implementation_name != 'pypy'",
     "typing-extensions==4.16.0 ; python_full_version < '3.13'",
-    "tzdata==2026.4 ; sys_platform == 'win32'",
+    "tzdata==2026.6 ; sys_platform == 'win32'",
 }
 MYSQL = ARROW | {"mysql-connector-python==26.10.0"}
 ADBC = ARROW | {
@@ -162,7 +162,7 @@ def test_selections_are_exactly_the_dispatch_extras_and_core_is_unchanged():
         "psycopg": "3.3.8",
         "psycopg-binary": "3.3.8",
         "pyarrow": "26.0.1",
-        "ruff": "0.17.4",
+        "ruff": "0.17.5",
         "scipy": "1.18.1",
         "typing-extensions": "4.16.0",
     }
@@ -295,7 +295,7 @@ def test_each_cell_is_pre_seeded_with_only_its_locked_closure(
     "closure,message",
     (
         ("pyarrow==26.0.1\nsix==1.17.0\n", "lacks a hash allowlist entry: six"),
-        ("pyarrow==26.0.1\ntzdata==2026.6\n", "differs from the lock: tzdata"),
+        ("pyarrow==26.0.1\ntzdata==2026.4\n", "differs from the lock: tzdata"),
         (
             "pyarrow==26.0.1\npyarrow==26.0.1 ; sys_platform == 'win32'\n",
             "duplicate requirement pyarrow",
