@@ -1157,7 +1157,7 @@ def aggregate_casts(family: str, function: str, arguments):
         grouping.argument_cast(family, function, read)
         if function in {"sum", "avg"}
         else None,
-        grouping.result_cast(family, function, read),
+        grouping.result_cast(family, function, read, window=True),
     )
 
 
@@ -1233,7 +1233,7 @@ def result_realization(family: str, function: str, arguments, retained):
         if len(reads) != len(arguments) or len(reads) > 1:
             return None, ("PIE-B1004", "window_value_argument_evidence_missing")
         return grouping.result_realization(
-            family, function, reads[0] if reads else None, retained
+            family, function, reads[0] if reads else None, retained, window=True
         )
     if function in RANKING or function == "ntile":
         if tag != "Int" or nullable is not False:

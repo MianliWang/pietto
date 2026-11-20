@@ -2124,7 +2124,7 @@ def _window_result_realization(family, function, arguments, retained):
         if len(reads) > 1 or None in reads:
             raise ValueError("aggregate window argument")
         return _aggregate_result_realization(
-            family, function, reads[0] if reads else None, retained
+            family, function, reads[0] if reads else None, retained, window=True
         )
     if function in windowing.RANKING or function == "ntile":
         if tag != "Int" or nullable is not False:
@@ -2335,8 +2335,11 @@ def _mysql_guarded_argument(realization) -> bool:
     )
 
 
-def _aggregate_result_realization(family, function, argument, retained):
-    """Independently re-derive one aggregate result's own physical realization."""
+def _aggregate_result_realization(
+    family, function, argument, retained, *, window=False
+):
+    """Independently re-derive one aggregate result's own physical realization;
+    ``window``: it is an aggregate over a window, not a grouped one."""
     tag, nullable = retained
     if function in grouping.ORDERED_VALUE_FUNCTIONS:
         # One row's value as it is: the argument's carrier, NULL where that
@@ -2533,9 +2536,17 @@ def _aggregate_result_realization(family, function, argument, retained):
     carrier = argument.realization
     if tag != carrier.tag or nullable is not True:
         raise ValueError("extrema result domain")
+    # A grouped MySQL MIN or MAX of a SMALLINT or INT, whatever its source, is
+    # cast to SIGNED (PL.67, PL.73); one over a window keeps its carrier.
+    widened = (
+        family == "mysql"
+        and not window
+        and carrier.tag == "Int"
+        and carrier.storage in ({"kind": "my_smallint"}, {"kind": "my_int"})
+    )
     return rows.Realization(
         carrier.tag,
-        carrier.storage,
+        {"kind": "my_signed_int"} if widened else carrier.storage,
         True,
         carrier.domain,
         carrier.proven_int_range,
@@ -5225,10 +5236,21 @@ def resolved_set_column_realization(
     domain = dict(first.domain)
     proofs = []
     if tag == "Int":
-        widths = {rows.INT_WIDTHS.get(r.realization.storage["kind"]) for r in reads}
+        kinds = {r.realization.storage["kind"] for r in reads}
+        # On MySQL a my_signed_int joins SMALLINT, INT or BIGINT operands of one
+        # width as itself, in any order; MySQL types the column BIGINT.
+        if "my_signed_int" in kinds and kinds <= {
+            "my_signed_int",
+            "my_smallint",
+            "my_int",
+            "my_bigint",
+        }:
+            kinds.discard("my_signed_int")
+            storage = {"kind": "my_signed_int"}
+        widths = {rows.INT_WIDTHS.get(kind) for kind in kinds}
         bounds = [rows.int_bounds(r.realization) for r in reads]
         proofs = [rows.proven_int_bounds(r.realization) for r in reads]
-        if None in widths or len(widths) != 1 or any(b is None for b in bounds):
+        if None in widths or len(widths) > 1 or any(b is None for b in bounds):
             raise ValueError("set int width")
         low = min(b[0] for b in bounds if b is not None)
         high = max(b[1] for b in bounds if b is not None)

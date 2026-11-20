@@ -108,6 +108,11 @@ TARGET_CHECKED_BINARY64 = rows.TARGET_CHECKED_BINARY64
 DISTINCT_FUNCTIONS = frozenset({"count_distinct", "count_distinct_tuple"})
 COUNTING_FUNCTIONS = frozenset({"count", "count_distinct", "count_distinct_tuple"})
 EXTREMA_FUNCTIONS = frozenset({"min", "max"})
+# MySQL 8.4 keeps a MIN or MAX of a SMALLINT or INT base-table column that
+# column's type, but returns one over a view column or a merged stage's column
+# as BIGINT (G1, MC, run 2026-11-17), and emission cannot tell a view from a
+# table; so every such extreme is cast to SIGNED, one BIGINT (PL.67, PL.73).
+MYSQL_WIDENED_EXTREMA = ({"kind": "my_smallint"}, {"kind": "my_int"})
 # COUNT publishes its own non-null result; R13 declares the signed64 premise, so
 # the domain is that premise's bound, never a guess about this input's row count.
 COUNT_STORAGE = {"postgres": "pg_int8", "mysql": "my_bigint"}
@@ -814,13 +819,33 @@ def result_value(source):
     return None if nullable is None else (value_type.resolved_type.name, nullable)
 
 
-def result_realization(family: str, function: str, argument, retained):
+def mysql_widened_extremum(
+    family: str, function: str, argument, *, window: bool = False
+) -> bool:
+    """A grouped MySQL MIN or MAX of a SMALLINT or INT, over a base table, a
+    view or an intermediate stage alike (PL.67, PL.73): it is cast to SIGNED, a
+    BIGINT whatever MySQL returns for that source (MYSQL_WIDENED_EXTREMA). A
+    MIN or MAX over a window (``window``) keeps its argument's carrier."""
+    return (
+        family == "mysql"
+        and not window
+        and function in EXTREMA_FUNCTIONS
+        and argument is not None
+        and argument.realization.tag == "Int"
+        and argument.realization.storage in MYSQL_WIDENED_EXTREMA
+    )
+
+
+def result_realization(
+    family: str, function: str, argument, retained, *, window: bool = False
+):
     """One aggregate result's independently established physical realization.
 
     A counting result is the target's own non-null signed64 count, bounded by
     R13's declared premise rather than by the argument's value range. MIN and MAX
     retain their argument's representation and only gain the possibility of NULL,
-    because an empty or all-null input has no extreme value.
+    because an empty or all-null input has no extreme value; a MySQL one of a
+    SMALLINT or INT not over a ``window`` is a my_signed_int.
     """
     tag, nullable = retained
     if function in ORDERED_VALUE_FUNCTIONS:
@@ -1011,7 +1036,9 @@ def result_realization(family: str, function: str, argument, retained):
     return (
         rows.Realization(
             carrier.tag,
-            carrier.storage,
+            {"kind": "my_signed_int"}
+            if mysql_widened_extremum(family, function, argument, window=window)
+            else carrier.storage,
             True,
             carrier.domain,
             carrier.proven_int_range,
@@ -1607,12 +1634,17 @@ def argument_cast(family: str, function: str, argument) -> str | None:
     return "pg_catalog.float8" if family == "postgres" else "DOUBLE"
 
 
-def result_cast(family: str, function: str, argument) -> str | None:
+def result_cast(
+    family: str, function: str, argument, *, window: bool = False
+) -> str | None:
     """Q1: PostgreSQL SUM(Int) accumulates exactly and its result is narrowed
     to bigint by a checked CAST, which refuses an out-of-range sum with
     SQLSTATE 22003 instead of returning a wrong value. A PostgreSQL VAR_SAMP
     or VAR_POP is cast to float8 once, under the fixed SQRT of a deviation; a
-    MySQL variance or deviation of a DOUBLE (S05) is not cast."""
+    MySQL variance or deviation of a DOUBLE (S05) is not cast. A MySQL MIN or
+    MAX of a SMALLINT or INT not over a ``window`` is cast to SIGNED."""
+    if mysql_widened_extremum(family, function, argument, window=window):
+        return "SIGNED"
     if function in SPREAD_FUNCTIONS:
         if family == "postgres" and argument is not None:
             return "pg_catalog.float8"

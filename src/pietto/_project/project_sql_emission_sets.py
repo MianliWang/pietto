@@ -37,6 +37,10 @@ QUANTIFIER_SPELLING = {
 # 0.0 as different values, and its deduplicating hash over a wide key keeps them
 # apart, so a MySQL Float set is UNION ALL only.
 EQUIVALENCE_TAGS = frozenset({"Int", "Bool", "Text", "Decimal", "Float"})
+# R22's one MySQL Int widening: a my_signed_int (a computed BIGINT) joins
+# operands of these kinds, all of one width, as itself, in any operand order;
+# MySQL types such a column BIGINT (PL.71).
+MYSQL_SIGNED_SET_KINDS = frozenset({"my_smallint", "my_int", "my_bigint"})
 NULLABILITY = {
     ProjectRowFieldNullability.NON_NULL: False,
     ProjectRowFieldNullability.NULLABLE: True,
@@ -197,7 +201,8 @@ def column_realization(kind, quantifier, column, inputs, evidence):
     """One SET output's independently checked physical realization.
 
     Corresponding operands must carry the same logical tag and the same
-    physical representation: an Int of equal width whose exact ranges merge, an
+    physical representation: an Int of equal width whose exact ranges merge
+    (on MySQL a my_signed_int beside others of one width), an
     identical Bool/Text/Decimal/Float storage, identical Text encoding /
     collation / padding premises and identical validated Decimal(p, s). No common
     type is inferred and no cast conceals a mismatch.
@@ -234,12 +239,16 @@ def resolved_column_realization(
     domain: dict[str, Any] = dict(first.domain)
     proofs: list[tuple[int, int] | None] = []
     if tag == "Int":
-        widths = {
-            rows.INT_WIDTHS.get(item.realization.storage["kind"]) for item in inputs
-        }
+        kinds = {item.realization.storage["kind"] for item in inputs}
+        if "my_signed_int" in kinds and kinds - {"my_signed_int"} <= (
+            MYSQL_SIGNED_SET_KINDS
+        ):
+            kinds.discard("my_signed_int")
+            storage = {"kind": "my_signed_int"}
+        widths = {rows.INT_WIDTHS.get(kind) for kind in kinds}
         declared = [rows.int_bounds(item.realization) for item in inputs]
         proofs = [rows.proven_int_bounds(item.realization) for item in inputs]
-        if None in widths or len(widths) != 1 or any(b is None for b in declared):
+        if None in widths or len(widths) > 1 or any(b is None for b in declared):
             return None, ("PIE-B1002", "set_column_physical_representation_mismatch")
         domain = {
             "kind": "int_range",

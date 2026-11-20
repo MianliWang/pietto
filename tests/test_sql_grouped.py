@@ -2724,6 +2724,122 @@ def test_mysql_sum_int_cells_emit_the_guarded_sum(tmp_path, cell, target):
     )
 
 
+# A MIN or MAX of an INT field straight from the source or over a stage (a
+# WHERE, a let, an upstream query), each with the MySQL SQL of its aggregate:
+# MySQL returns such an extreme over a merged stage or a view as BIGINT (G1's
+# WHERE, group by, sum and min form failed PIE-R3005 on every MySQL route,
+# 2026-11-17) and emission cannot tell a view from a table, so every one is
+# cast to SIGNED and declared my_signed_int (PL.67, PL.73). Each entry is the
+# body, the MySQL SQL it holds and SQL it must not hold. An extreme of an
+# upstream query's extreme reads that query's cast my_signed_int, a BIGINT,
+# so only the inner one is cast; the outer keeps that carrier uncast.
+MYSQL_INT_EXTREMA = {
+    "source_min": (
+        "query result:\n    from rows\n    group by k\n    select:\n"
+        "        lo = min(c)\n",
+        ("CAST(MIN(`s0`.`narrow`) AS SIGNED) AS `c1`",),
+        (),
+    ),
+    "source_max": (
+        "query result:\n    from rows\n    group by k\n    select:\n"
+        "        lo = max(c)\n",
+        ("CAST(MAX(`s0`.`narrow`) AS SIGNED) AS `c1`",),
+        (),
+    ),
+    "s02_where_min": (
+        "query result:\n    from rows\n    where id > 3\n    group by k\n"
+        "    select:\n        x = sum(a)\n        lo = min(c)\n",
+        ("CAST(MIN(`t1`.`c5`) AS SIGNED)",),
+        (),
+    ),
+    "where_scalar_max_key": (
+        "query result:\n    from rows\n    where id > 3\n    select:\n"
+        "        lo = max(k)\n",
+        ("CAST(MAX(`t1`.`c3`) AS SIGNED)",),
+        (),
+    ),
+    "let_min": (
+        "query result:\n    from rows\n    let t = c\n    group by k\n"
+        "    select:\n        k\n        lo = min(t)\n",
+        ("CAST(MIN(`t1`.`c6`) AS SIGNED)",),
+        (),
+    ),
+    "upstream_min": (
+        "query base:\n    from rows\n    group by k\n    select:\n        k\n"
+        "        lo = min(c)\n"
+        "query result:\n    from base\n    select:\n        m = min(lo)\n",
+        ("CAST(MIN(`s0`.`narrow`) AS SIGNED)", "MIN(`s1`.`c1`)"),
+        ("CAST(MIN(`s1`.`c1`)",),
+    ),
+}
+
+
+@pytest.mark.parametrize("shape", sorted(MYSQL_INT_EXTREMA))
+def test_a_mysql_int_extreme_is_cast_to_signed(tmp_path, shape):
+    """MySQL keeps a MIN or MAX of an INT base-table column INT, but returns
+    one over a view's or a merged stage's column as BIGINT. Every one is
+    therefore cast to SIGNED, a BIGINT whatever its source, and declared
+    my_signed_int with the field's own range; every reader accepts it. An
+    extreme of such an extreme already reads a my_signed_int and keeps it
+    uncast. PostgreSQL's SQL and int4 carrier are unchanged."""
+    body, present, absent = MYSQL_INT_EXTREMA[shape]
+    _, mysql = probe.numeric_world(tmp_path / "mysql", "mysql", body)
+    probe.numeric_readers_accept(mysql)
+    assert mysql.artifact is not None
+    sql = mysql.artifact.rendered.sql.decode()
+    assert all(part in sql for part in present)
+    assert not any(part in sql for part in absent)
+    column = json.loads(serialize_project_sql_emission(mysql))["columns"][-1]
+    assert column["representation"]["storage"] == {"kind": "my_signed_int"}
+    assert column["representation"]["domain"] == {
+        "kind": "int_range",
+        "min": "-2147483648",
+        "max": "2147483647",
+    }
+    _, postgres = probe.numeric_world(tmp_path / "postgres", "postgres", body)
+    probe.numeric_readers_accept(postgres)
+    assert postgres.artifact is not None
+    assert "CAST(M" not in postgres.artifact.rendered.sql.decode()
+    column = json.loads(serialize_project_sql_emission(postgres))["columns"][-1]
+    assert column["representation"]["storage"] == {"kind": "pg_int4"}
+
+
+# The my_smallint branch of MYSQL_WIDENED_EXTREMA over the R08 world's
+# nullable SMALLINT `s` (numeric_world declares no SMALLINT): through a
+# WHERE or straight from the source the MIN is cast alike.
+SMALLINT_EXTREMA = {
+    "where": (
+        "    where id > 3\n",
+        "CAST(MIN(`t1`.`c3`) AS SIGNED) AS `c1`",
+        "my_signed_int",
+    ),
+    "source": ("", "CAST(MIN(`s0`.`s`) AS SIGNED) AS `c1`", "my_signed_int"),
+}
+
+
+@pytest.mark.parametrize("shape", sorted(SMALLINT_EXTREMA))
+def test_a_mysql_smallint_extreme_is_cast_to_signed(tmp_path, shape):
+    """A MySQL MIN of a SMALLINT, read through a WHERE or straight from the
+    source, is cast to SIGNED and declared my_signed_int with the field's
+    own range. Every reader accepts both."""
+    where, extreme, storage = SMALLINT_EXTREMA[shape]
+    body = (
+        f"query result:\n    from nums\n{where}    group by j\n    select:\n"
+        "        lo = min(s)\n"
+    )
+    _, outcome = probe.division_world(tmp_path, "mysql", body)
+    probe.numeric_readers_accept(outcome)
+    assert outcome.artifact is not None
+    assert extreme in outcome.artifact.rendered.sql.decode()
+    column = json.loads(serialize_project_sql_emission(outcome))["columns"][-1]
+    assert column["representation"]["storage"] == {"kind": storage}
+    assert column["representation"]["domain"] == {
+        "kind": "int_range",
+        "min": "-32768",
+        "max": "32767",
+    }
+
+
 @pytest.mark.parametrize(
     "spelling", [name for name in probe.NUMERIC_SPELLINGS if name.startswith("s02")]
 )

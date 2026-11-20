@@ -138,12 +138,14 @@ RANK_SHAPES = {
         "-5",
         str((1 << 63) - 6),
     ),
-    # R22 keeps the first operand's 64-bit carrier and merges the ranges.
+    # R22 merges the ranges; a my_signed_int operand, such as a literal, makes
+    # the column a my_signed_int in either order, and two my_bigint operands
+    # keep my_bigint.
     "literal_set": (
         "query a:\n    from w\n    select:\n        lo = rn\n"
         "query b:\n    from nums\n    select:\n        lo = 1\n"
         "query result:\n    union all:\n        from a\n        from b\n",
-        "my_bigint",
+        "my_signed_int",
         "0",
         I64_MAX,
     ),
@@ -165,9 +167,9 @@ def test_a_mysql_rank_is_cast_to_signed(tmp_path, family, shape):
     with error 1690 below zero and a set of one beside a signed column was
     DECIMAL, each PIE-R3005 on mysql_rows (native, 2026-11-18). Its project
     SQL casts it to SIGNED: the rank keeps its my_bigint, an operation over
-    it is the my_signed_int MySQL then returns, and a set beside a literal or
-    a BIGINT column takes its first operand's my_bigint over the merged range
-    (R22), which MySQL now sends as a signed BIGINT. Every reader accepts
+    it is the my_signed_int MySQL then returns, and a set beside a literal is
+    a my_signed_int and beside a BIGINT column a my_bigint, over the merged
+    range (R22), which MySQL now sends as a signed BIGINT. Every reader accepts
     each, and a PostgreSQL rank stays uncast."""
     call, spelling = FAMILIES[family]
     body, storage, low, high = RANK_SHAPES[shape]
@@ -265,25 +267,64 @@ def test_each_reader_refuses_a_rank_cast_for_the_other_target(
 
 
 # The archived N15 witness, and N32 with ntile(2) for row_number(): a rank
-# beside a MIN of the nullable INT `i` under WHERE and GROUP BY.
-RANK_BESIDE_MIN = (
+# beside a MIN of the nullable INT `i` under WHERE and GROUP BY, in either
+# operand order; `{other}` is query b's value.
+RANK_BESIDE = (
     "query a:\n    from nums\n    select:\n"
     "        lo = {call} window(order by id)\n"
     "query b:\n    from nums\n    where id > 3\n    group by j\n    select:\n"
-    "        lo = min(i)\n"
-    "query result:\n    union all:\n        from a\n        from b\n"
+    "        lo = {other}\n"
+    "query result:\n    union all:\n        from {first}\n        from {second}\n"
 )
 
 
+def rank_beside(call, other, swapped):
+    first, second = ("b", "a") if swapped else ("a", "b")
+    return RANK_BESIDE.format(call=call, other=other, first=first, second=second)
+
+
+@pytest.mark.parametrize("swapped", (False, True))
 @pytest.mark.parametrize("family", ("row_number", "ntile"), ids=("N15", "N32"))
-def test_a_mysql_rank_beside_an_int_min_stays_refused(tmp_path, family):
-    """The cast rank keeps its 64-bit my_bigint, and MIN(i) keeps i's 32-bit
-    my_int, so R22, which takes no common type, refuses the set as before;
-    it opens only where the MIN is itself a 64-bit carrier."""
+def test_a_mysql_rank_unions_with_a_signed_int_min(tmp_path, family, swapped):
+    """MIN(i) is a cast SIGNED my_signed_int (PL.67) and the rank a cast
+    SIGNED my_bigint (PL.73), so R22 (PL.71) joins them as a my_signed_int
+    over both ranges, nullable as the MIN is, in either order; MySQL sends
+    both as a signed BIGINT. Every reader accepts it. PostgreSQL's set rules
+    are unchanged: its int8 row_number beside an int4 MIN stays refused, and
+    its int4 ntile beside one sets."""
+    call, spelling = FAMILIES[family]
+    body = rank_beside(call, "min(i)", swapped)
+    _, mysql = probe.division_world(tmp_path / "mysql", "mysql", body)
+    probe.numeric_readers_accept(mysql)
+    sql = sql_of(mysql)
+    assert f"CAST({spelling} OVER (ORDER BY `s0`.`id` ASC) AS SIGNED)" in sql
+    assert re.search(r"CAST\(MIN\(`t\d+`\.`c\d+`\) AS SIGNED\)", sql)
+    assert " UNION ALL " in sql
+    column = public(mysql)["columns"][-1]
+    assert column["nullable"] is True
+    assert column["representation"]["storage"] == {"kind": "my_signed_int"}
+    assert column["representation"]["domain"] == {
+        "kind": "int_range",
+        "min": str(-(1 << 31)),
+        "max": I64_MAX,
+    }
+    _, postgres = probe.division_world(tmp_path / "postgres", "postgres", body)
+    if family == "ntile":
+        probe.numeric_readers_accept(postgres)
+    else:
+        assert [(item.code, item.detail) for item in postgres.blockers] == [
+            ("PIE-B1002", "set_column_physical_representation_mismatch")
+        ]
+
+
+@pytest.mark.parametrize("swapped", (False, True))
+@pytest.mark.parametrize("family", ("row_number", "ntile"))
+def test_a_mysql_rank_beside_an_int_field_stays_refused(tmp_path, family, swapped):
+    """The refusal control: an uncast INT field `i` keeps its 32-bit my_int,
+    and R22 takes no common type of it and the rank's 64-bit my_bigint."""
     call, _ = FAMILIES[family]
-    _, mysql = probe.division_world(
-        tmp_path, "mysql", RANK_BESIDE_MIN.format(call=call)
-    )
+    body = rank_beside(call, "i", swapped).replace("    group by j\n", "")
+    _, mysql = probe.division_world(tmp_path, "mysql", body)
     assert mysql.status == "BLOCKED"
     assert mysql.artifact is None
     assert [(item.code, item.detail) for item in mysql.blockers] == [
