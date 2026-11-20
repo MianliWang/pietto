@@ -6816,7 +6816,8 @@ def verify_compiled_window_stage(body, record, request, produced, sources):
         )
         # An aggregate over a window: PostgreSQL or a paired MySQL form (count,
         # min, max), R13's argument law, and Q1's casts of a sum or avg over
-        # its one Int argument; every other window has no cast.
+        # its one Int argument; a MySQL rank or bucket (BIGINT UNSIGNED) is
+        # cast to SIGNED; every other window has no cast.
         need(
             (
                 function not in windowing.AGGREGATE
@@ -6834,7 +6835,13 @@ def verify_compiled_window_stage(body, record, request, produced, sources):
             )
             and column.argument_cast
             == {"sum": "pg_catalog.int8", "avg": "pg_catalog.float8"}.get(function)
-            and column.result_cast == {"sum": "pg_catalog.int8"}.get(function),
+            and column.result_cast
+            == (
+                "SIGNED"
+                if request.family == "mysql"
+                and function in {"row_number", "rank", "dense_rank", "ntile"}
+                else {"sum": "pg_catalog.int8"}.get(function)
+            ),
             "WINDOW_AGGREGATE_CASTS",
         )
         origin = column.column.window

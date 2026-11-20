@@ -767,7 +767,9 @@ def test_partition_and_local_order_multiplicity_preserve_source_order_and_duplic
     order_sql = ", ".join(f'"{name}" ASC' for name in orders)
     expected = f"ROW_NUMBER() OVER ({partition_sql}ORDER BY {order_sql})"
     assert render_expression_sql(expression) == expected
-    assert render_mysql_expression(expression) == expected.replace('"', "`")
+    # MySQL returns a rank as BIGINT UNSIGNED, so it is cast to SIGNED.
+    mysql = expected.replace('"', "`")
+    assert render_mysql_expression(expression) == f"CAST({mysql} AS SIGNED)"
 
 
 @pytest.mark.parametrize("_case", range(6))
@@ -805,7 +807,8 @@ def test_window_order_omitted_asc_desc_direction_facts_are_exact(_case: int) -> 
     )
     expected = f"RANK() OVER (ORDER BY {expected_items})"
     assert render_expression_sql(expression) == expected
-    assert render_mysql_expression(expression) == expected.replace('"', "`")
+    mysql = expected.replace('"', "`")
+    assert render_mysql_expression(expression) == f"CAST({mysql} AS SIGNED)"
 
 
 @pytest.mark.parametrize("_case", range(4))
@@ -992,6 +995,14 @@ def _expected_single_window_sql(identity: str, *, dialect: str) -> str:
         f"{SQL_NAMES[identity]}({arguments}) OVER "
         f"(PARTITION BY {quote}category{quote} ORDER BY {quote}id{quote} DESC)"
     )
+    if dialect == "mysql" and identity in {
+        "row_number",
+        "rank",
+        "dense_rank",
+        "ntile",
+    }:
+        # MySQL returns a rank or bucket as BIGINT UNSIGNED; it is cast to SIGNED.
+        expression = f"CAST({expression} AS SIGNED)"
     return f"SELECT\n    {expression} AS {quote}result{quote}\nFROM {quote}rows{quote}"
 
 
@@ -1095,8 +1106,8 @@ COMPUTED_KEY_SQL = {
         "FROM (\n"
         "SELECT\n"
         "    `id` AS `id`,\n"
-        "    ROW_NUMBER() OVER (PARTITION BY (`category` <> 'x') ORDER BY (`id` + 1) DESC, `id` ASC) AS `first`,\n"
-        "    RANK() OVER `ordered` AS `named`,\n"
+        "    CAST(ROW_NUMBER() OVER (PARTITION BY (`category` <> 'x') ORDER BY (`id` + 1) DESC, `id` ASC) AS SIGNED) AS `first`,\n"
+        "    CAST(RANK() OVER `ordered` AS SIGNED) AS `named`,\n"
         "    SUM(`amount`) OVER (PARTITION BY (`category` <> 'x') ORDER BY `id` ASC) AS `__pietto_qualify_0`\n"
         "FROM `rows`\n"
         "WINDOW\n"

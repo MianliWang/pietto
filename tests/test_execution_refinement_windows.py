@@ -48,6 +48,52 @@ def test_joint_and_repeated_sources_have_complete_independent_rules(
         assert query.units[-1].rule == "set_union_all"
 
 
+# Query `w` of an R08 `nums` world ranks its rows; each shape reads `w`.
+RANKED = "query w:\n    from nums\n    select:\n        rn = {} window(order by id)\n"
+RANK_SHAPES = {
+    "operation": "query result:\n    from w\n    select:\n        lo = rn - 5\n",
+    "literal_set": (
+        "query a:\n    from w\n    select:\n        lo = rn\n"
+        "query b:\n    from nums\n    select:\n        lo = 1\n"
+        "query result:\n    union all:\n        from a\n        from b\n"
+    ),
+}
+
+
+@pytest.mark.parametrize("shape", sorted(RANK_SHAPES))
+@pytest.mark.parametrize(
+    "call,spelling",
+    (
+        ("row_number()", b"ROW_NUMBER()"),
+        ("rank()", b"RANK()"),
+        ("dense_rank()", b"DENSE_RANK()"),
+        ("ntile(2)", b"NTILE(2)"),
+    ),
+)
+def test_a_mysql_refined_rank_keeps_its_signed_cast(tmp_path, call, spelling, shape):
+    """R2 renders and checks a MySQL rank or bucket with its original's SIGNED
+    cast: refined bare, `rn - 5` failed with error 1690 below zero and a rank
+    beside a literal was DECIMAL (native MySQL 8.4.12, 2026-11-18)."""
+    import _pietto_sql_emission as probe
+
+    _, outcome = probe.division_world(
+        tmp_path, "mysql", RANKED.format(call) + RANK_SHAPES[shape]
+    )
+    assert outcome.status == "VERIFIED", outcome.blockers
+    query = prepare_refinement(
+        outcome.artifact, capabilities(outcome.artifact), policy=TieRefinement()
+    )
+    native = render(query.statement, outcome.artifact)
+    verify_native(native, query)
+    sql = native.sql
+    assert sql.count(spelling + b" OVER (") == sql.count(b"CAST(" + spelling) == 1
+    start = sql.index(b"CAST(" + spelling)
+    end = sql.index(b" AS SIGNED)", start)
+    bare = sql[:start] + sql[start + 5 : end] + sql[end + 11 :]
+    with pytest.raises(ValueError, match="REFINEMENT_NATIVE_SQL"):
+        verify_native(replace(native, sql=bare), query)
+
+
 @pytest.mark.parametrize("damage", ("rank_peer", "frame_members", "row_choice"))
 def test_coordinated_window_syntax_damage_is_not_its_own_witness(tmp_path, damage):
     artifact = original(tmp_path, "postgres", "R2_mixed", "joint")

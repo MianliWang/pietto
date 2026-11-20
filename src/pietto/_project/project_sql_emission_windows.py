@@ -407,7 +407,8 @@ class WindowColumn:
     label: str
     column: Any
     selected: bool
-    # An aggregate's own argument and result casts (`grouping`).
+    # An aggregate's own argument and result casts (`grouping`), or a MySQL
+    # rank's SIGNED result cast (`aggregate_casts`).
     argument_cast: str | None = None
     result_cast: str | None = None
 
@@ -1143,8 +1144,12 @@ def aggregate_argument_problem(family: str, function: str, arguments):
 
 def aggregate_casts(family: str, function: str, arguments):
     """An aggregate's argument and result casts: AVG reads binary64 and a
-    PostgreSQL SUM(Int) accumulates exactly and narrows to a checked bigint."""
+    PostgreSQL SUM(Int) accumulates exactly and narrows to a checked bigint.
+    A MySQL rank or bucket, BIGINT UNSIGNED, is cast to SIGNED, so an
+    operation over it or a set beside a signed column stays a signed BIGINT."""
 
+    if family == "mysql" and (function in RANKING or function == "ntile"):
+        return None, "SIGNED"
     if function not in AGGREGATE or not arguments:
         return None, None
     read = arguments[0].read

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -66,8 +67,18 @@ _QUALIFIED_SQL = {
 }
 
 
+# A rank or bucket call with its OVER specification (one nesting level).
+_RANK_CALL = re.compile(
+    r"(?<![A-Z_])(?:ROW_NUMBER\(\)|DENSE_RANK\(\)|RANK\(\)|NTILE\(\d+\)) OVER "
+    r'(?:\([^()]*(?:\([^()]*\)[^()]*)*\)|"[^"]*")'
+)
+
+
 def _quoted(sql: str, dialect: str) -> str:
-    return sql if dialect == "postgres" else sql.replace('"', "`")
+    if dialect == "postgres":
+        return sql
+    # MySQL returns a rank or bucket as BIGINT UNSIGNED; it is cast to SIGNED.
+    return _RANK_CALL.sub(r"CAST(\g<0> AS SIGNED)", sql).replace('"', "`")
 
 
 @pytest.mark.parametrize("dialect", ("postgres", "mysql"))
@@ -104,10 +115,14 @@ def test_no_qualify_retains_exact_sql(dialect: str, kind: str) -> None:
         result.ir
     )
     quote = '"' if dialect == "postgres" else "`"
+    rank = f"ROW_NUMBER() OVER (ORDER BY {quote}id{quote} ASC)"
+    if dialect == "mysql":
+        # MySQL returns a rank as BIGINT UNSIGNED, so it is cast to SIGNED.
+        rank = f"CAST({rank} AS SIGNED)"
     expected = (
         "SELECT\n"
         f"    {quote}id{quote} AS {quote}id{quote},\n"
-        f"    ROW_NUMBER() OVER (ORDER BY {quote}id{quote} ASC) AS {quote}rn{quote}\n"
+        f"    {rank} AS {quote}rn{quote}\n"
         f"FROM {quote}rows{quote}"
     )
     assert not emitted.diagnostics

@@ -523,7 +523,7 @@ POSITION_SQL = {
     ),
     ("result", "mysql"): (
         'WITH `p0` (`c0`, `c1`, `c2`, `c3`, `c4`) AS (SELECT `s0`.`order.id` AS `c0`, `s0`.`flag value` AS `c1`, `s0`.`text ``"é` AS `c2`, `s0`.`amount value` AS `c3`, `s0`.`ratio value` AS `c4` FROM `phase66`.`phase66 source é` AS `s0` WHERE (INSTR(`s0`.`text ``"é`, CAST(? AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_0900_bin) > 0)), '
-        "`p1` (`c0`, `c1`, `c2`, `c3`, `c4`, `c5`) AS (SELECT `t1`.`c0` AS `c0`, `t1`.`c1` AS `c1`, `t1`.`c2` AS `c2`, `t1`.`c3` AS `c3`, `t1`.`c4` AS `c4`, ROW_NUMBER() OVER (ORDER BY `t1`.`c0` ASC) AS `c5` FROM `p0` AS `t1`), "
+        "`p1` (`c0`, `c1`, `c2`, `c3`, `c4`, `c5`) AS (SELECT `t1`.`c0` AS `c0`, `t1`.`c1` AS `c1`, `t1`.`c2` AS `c2`, `t1`.`c3` AS `c3`, `t1`.`c4` AS `c4`, CAST(ROW_NUMBER() OVER (ORDER BY `t1`.`c0` ASC) AS SIGNED) AS `c5` FROM `p0` AS `t1`), "
         "`p2` (`c0`, `c1`, `c2`, `c3`, `c4`, `c5`) AS (SELECT `t2`.`c0` AS `c0`, `t2`.`c1` AS `c1`, `t2`.`c2` AS `c2`, `t2`.`c3` AS `c3`, `t2`.`c4` AS `c4`, `t2`.`c5` AS `c5` FROM `p1` AS `t2` WHERE (`t2`.`c5` <= (CAST(? AS SIGNED) + CAST(1 AS SIGNED)))), "
         "`p3` (`c0`, `c1`, `c2`, `c3`, `c4`) AS (SELECT `t3`.`c0` AS `c0`, (`t3`.`c0` * CAST(? AS SIGNED)) AS `c1`, LOWER(CAST(? AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_0900_bin) AS `c2`, `t3`.`c5` AS `c3`, `t3`.`c0` AS `c4` FROM `p2` AS `t3`) "
         "SELECT `t0`.`c0` AS `id`, `t0`.`c1` AS `s`, `t0`.`c2` AS `u`, `t0`.`c3` AS `r` FROM `p3` AS `t0` ORDER BY `t0`.`c1` ASC"
@@ -741,7 +741,7 @@ WINDOW_SQL = {
     'FROM "p0" AS "t1"',
     "mysql": _CARRIED["mysql"]
     + "LAG(`s0`.`order.id`, ?, CAST(? AS SIGNED)) OVER (ORDER BY `s0`.`order.id` "
-    "ASC) AS `c5`, NTILE(?) OVER (ORDER BY `s0`.`order.id` ASC) AS `c6`, "
+    "ASC) AS `c5`, CAST(NTILE(?) OVER (ORDER BY `s0`.`order.id` ASC) AS SIGNED) AS `c6`, "
     "NTH_VALUE(`s0`.`order.id`, ?) OVER (ORDER BY `s0`.`order.id` ASC ROWS "
     "BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS `c7`, "
     "LAG(CAST(? AS SIGNED)) OVER (ORDER BY `s0`.`order.id` ASC) AS `c8` "
@@ -1063,8 +1063,8 @@ SHAPES = {
     ("named", "postgres"): "NTILE(CAST(CAST($1 AS pg_catalog.int8) AS "
     'pg_catalog.int4)) OVER "w0" AS "c5", LAG("s0"."order.id", CAST(CAST($1 AS '
     'pg_catalog.int8) AS pg_catalog.int4)) OVER "w0" AS "c6"',
-    ("named", "mysql"): "NTILE(?) OVER `w0` AS `c5`, LAG(`s0`.`order.id`, ?) "
-    "OVER `w0` AS `c6`",
+    ("named", "mysql"): "CAST(NTILE(?) OVER `w0` AS SIGNED) AS `c5`, "
+    "LAG(`s0`.`order.id`, ?) OVER `w0` AS `c6`",
 }
 
 
@@ -1431,7 +1431,7 @@ CROSS_SQL = {
     ("grouped_window", "mysql"): (
         'WITH `p0` (`c0`, `c1`, `c2`, `c3`, `c4`, `c5`) AS (SELECT `s0`.`order.id` AS `c0`, `s0`.`flag value` AS `c1`, `s0`.`text ``"é` AS `c2`, `s0`.`amount value` AS `c3`, `s0`.`ratio value` AS `c4`, (`s0`.`order.id` * CAST(? AS SIGNED)) AS `c5` FROM `phase66`.`phase66 source é` AS `s0`), '
         "`p1` (`c0`, `c1`) AS (SELECT `t1`.`c5` AS `c0`, COUNT(*) AS `c1` FROM `p0` AS `t1` GROUP BY `t1`.`c5`), "
-        "`p2` (`c0`, `c1`, `c2`) AS (SELECT `t2`.`c0` AS `c0`, `t2`.`c1` AS `c1`, ROW_NUMBER() OVER (ORDER BY `t2`.`c1` DESC) AS `c2` FROM `p1` AS `t2`), "
+        "`p2` (`c0`, `c1`, `c2`) AS (SELECT `t2`.`c0` AS `c0`, `t2`.`c1` AS `c1`, CAST(ROW_NUMBER() OVER (ORDER BY `t2`.`c1` DESC) AS SIGNED) AS `c2` FROM `p1` AS `t2`), "
         "`p3` (`c0`, `c1`, `c2`) AS (SELECT `t3`.`c0` AS `c0`, `t3`.`c1` AS `c1`, `t3`.`c2` AS `c2` FROM `p2` AS `t3` WHERE (`t3`.`c2` <= CAST(? AS SIGNED))) "
         "SELECT `t4`.`c0` AS `k`, `t4`.`c1` AS `n`, `t4`.`c2` AS `r` FROM `p3` AS `t4`"
     ),
