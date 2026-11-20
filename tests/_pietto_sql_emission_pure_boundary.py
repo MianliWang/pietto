@@ -336,6 +336,28 @@ def parse_emission_observation(raw: bytes | str) -> Outcome:
         return Outcome(Status.INVALID_JSON, detail="JSON")
 
 
+def rendering_refusal(raw: bytes) -> str | None:
+    """The decode-only judgment of a well-formed document: the records-only
+    re-rendering alone, past _Check, as it stands if a _Check relation is
+    ever relaxed. Returns its failing subcheck, or None when the records
+    render to the SQL. Only tests ask it."""
+    value = json.loads(
+        raw,
+        object_pairs_hook=_pairs,
+        parse_int=_raw_int,
+        parse_float=_raw_float,
+        parse_constant=_raw_float,
+    )
+    _input_tree(value)
+    records, order, children, _ = _decode(value)
+    _canonical_order(records, order, children)
+    try:
+        _Render(_Doc(records)).run()
+    except _Mismatch as error:
+        return error.check
+    return None
+
+
 def _input_tree(root: object) -> None:
     """Bound a parsed builtin tree; never call user-defined methods."""
     pending: list[tuple[Any, int]] = [(root, 0)]
@@ -2017,7 +2039,8 @@ def _pg_decimal_parameters(realization):
 
 def _mysql_field_column(doc, column) -> bool:
     """A stage column that is a source field, as emission's mysql_field reads
-    it: never a let value, literal, aggregate or window result."""
+    it: a let value only when it copies a field read, never a literal,
+    aggregate or window result."""
 
     fields = doc[column]
     return (
@@ -2090,11 +2113,14 @@ _MYSQL_CELL_KINDS = frozenset(
 _MYSQL_SLOT_KINDS = frozenset({"fixed_value", "native_use", "sql_parameter"})
 
 
-def _mysql_cells(doc) -> tuple[frozenset, frozenset, frozenset, frozenset]:
-    """The S01 operations, S02 sum columns, S15 `%` and R08 `/` operations in
-    their MySQL cells, as emission derives them from the plan
+def _mysql_cells(
+    doc,
+) -> tuple[frozenset, frozenset, frozenset, frozenset, frozenset]:
+    """The S01 operations, S02 sum columns, S15 `%`, R08 `/` and MC E4 Float
+    operations in their MySQL cells, as emission derives them from the plan
     (mysql_checked_cell, mysql_sum_query, mysql_remainder_cells,
-    mysql_division_cells), here from the document alone; a
+    mysql_division_cells, mysql_float_arithmetic_cell), here from the
+    document alone; a
     relation alias or a
     window, read or not, and an imported source leave a direct read's
     document apart from source positions and the source digest, so only
@@ -2103,10 +2129,15 @@ def _mysql_cells(doc) -> tuple[frozenset, frozenset, frozenset, frozenset]:
     body stands over one aggregate body at most, over one WHERE body at
     most, over a source scan, with no window. An S01 operation is the whole
     value of a column of that body, named once, over reads of nullable
-    BIGINT source fields; an S02 sum reads a nullable BIGINT source field,
-    its aggregate has one non-null Int source field key at most and sums,
-    counts and mins only, and the final body only projects the aggregate's
-    columns. S15 cells need one projection body straight over the scan,
+    BIGINT source fields; an S02 sum reads a BIGINT or INT source field
+    (MC G1), its aggregate keeps S02's own law (one non-null Int source
+    field key at most, and sums, counts and mins only) or MC G2's (BIGINT,
+    INT or VARCHAR source field keys, and values that are sums, counts, mins
+    or a `count_distinct`, `max` or `avg` of one source field of its
+    _MYSQL_SUM_BESIDE storage), and the
+    final body only projects the aggregate's columns. Below a WHERE an S02
+    chain may start with one body per value `let` (_mysql_sum_lets). S15
+    cells need one projection body straight over the scan,
     each of whose columns is a read of a source field of its tag's carrier
     (_mysql_remainder_carrier) or a `%` named once over two such reads of
     its own tag; any other column closes them. R08 cells need the same body,
@@ -2114,10 +2145,14 @@ def _mysql_cells(doc) -> tuple[frozenset, frozenset, frozenset, frozenset]:
     or BIGINT storage or a `/` named once of an unsigned Int literal and one
     such read, the law restated here (_mysql_division_literal); a bind-safe
     parameter of any other literal closes them, and any parameter closes
-    every other cell. The bound of three bodies only ends the walk early: the
-    block kinds and the chain that holds every body imply it."""
+    every other cell. An E4 operation is, as an S01 one, the whole value of a
+    column of the final body, named once, over its WHERE body at most
+    (_mysql_float_operation). The bound of three bodies beside an
+    aggregate's row value columns only ends the walk early: the block kinds
+    and the chain that holds every body imply it."""
 
-    empty: tuple[frozenset, frozenset, frozenset, frozenset] = (
+    empty: tuple[frozenset, frozenset, frozenset, frozenset, frozenset] = (
+        frozenset(),
         frozenset(),
         frozenset(),
         frozenset(),
@@ -2127,7 +2162,10 @@ def _mysql_cells(doc) -> tuple[frozenset, frozenset, frozenset, frozenset]:
         return empty
     slotted = not _MYSQL_CELL_KINDS.issuperset(doc.kinds)
     bodies = doc.all("row_body")
-    if len(bodies) > 3:
+    # An S02 chain's `let` bodies each hold one row value column (MC G1).
+    if len(bodies) > 3 + (
+        len(doc.all("row_value_column")) if doc.all("aggregate_stage") else 0
+    ):
         return empty
     finals = [ref for ref in bodies if doc[ref]["final"] is True]
     if len(finals) != 1:
@@ -2140,6 +2178,9 @@ def _mysql_cells(doc) -> tuple[frozenset, frozenset, frozenset, frozenset]:
             return empty
         chain.append(inner)
     kinds = [doc[ref]["block_kind"] for ref in reversed(chain)]
+    lets = next(
+        (index for index, kind in enumerate(kinds) if kind != "let"), len(kinds)
+    )
     if (
         doc[chain[-1]]["scan"].kind != "row_scan"
         or len(chain) != len(bodies)
@@ -2147,7 +2188,10 @@ def _mysql_cells(doc) -> tuple[frozenset, frozenset, frozenset, frozenset]:
     ):
         return empty
     aggregate = None
-    if kinds in (["aggregate", "projection"], ["where", "aggregate", "projection"]):
+    if kinds[lets:] in (
+        ["aggregate", "projection"],
+        ["where", "aggregate", "projection"],
+    ):
         aggregate = chain[1]
     elif kinds not in (["projection"], ["where", "projection"]):
         return empty
@@ -2247,34 +2291,62 @@ def _mysql_cells(doc) -> tuple[frozenset, frozenset, frozenset, frozenset]:
         if not leaves.issuperset(doc.all("sql_parameter")):
             divisions.clear()
         if slotted:
-            return frozenset(), frozenset(), frozenset(), frozenset(divisions)
+            return (
+                frozenset(),
+                frozenset(),
+                frozenset(),
+                frozenset(divisions),
+                frozenset(),
+            )
+        floats = frozenset(
+            value
+            for column in final["columns"]
+            if column.kind == "row_value_column"
+            and type(value := doc[column]["value"]) is Ref
+            and value.kind == "sql_operation"
+            and named.get(column) == 1
+            and named.get(value) == 1
+            and _mysql_float_operation(doc, value)
+        )
         return (
             frozenset(operations),
             frozenset(),
             frozenset(remainders),
             frozenset(divisions),
+            floats,
         )
     stage = doc[doc[aggregate]["aggregation"]]
-    if (
-        len(stage["keys"]) > 1
-        or any(
-            column.kind != "aggregate_projection_column" for column in final["columns"]
+    if lets and not _mysql_sum_lets(doc, chain[:1:-1], stage):
+        return empty
+    reads = [doc[key]["read"] for key in stage["keys"]]
+    s02 = (
+        len(reads) <= 1
+        and all(
+            _mysql_field_column(doc, read)
+            and doc[doc[read]["realization"]]["tag"] == "Int"
+            and doc[doc[read]["realization"]]["nullable"] is False
+            for read in reads
         )
-        or any(
-            doc[value]["function"] not in ("sum", "count", "min")
+        and all(
+            doc[value]["function"] in ("sum", "count", "min")
             for value in stage["values"]
         )
+    )
+    g2 = all(
+        _mysql_field_column(doc, read)
+        and _mysql_storage_kind(doc, read) in _MYSQL_SUM_KEY_KINDS
+        for read in reads
+    ) and all(
+        doc[value]["function"] in ("sum", "count", "min")
+        or _mysql_field_read(doc, doc[value]["argument"])
+        and _mysql_storage_kind(doc, doc[value]["argument"])
+        in _MYSQL_SUM_BESIDE.get(doc[value]["function"], ())
+        for value in stage["values"]
+    )
+    if not (s02 or g2) or any(
+        column.kind != "aggregate_projection_column" for column in final["columns"]
     ):
         return empty
-    for key in stage["keys"]:
-        read = doc[key]["read"]
-        realization = doc[doc[read]["realization"]]
-        if not (
-            _mysql_field_column(doc, read)
-            and realization["tag"] == "Int"
-            and realization["nullable"] is False
-        ):
-            return empty
     return (
         frozenset(),
         frozenset(
@@ -2282,11 +2354,91 @@ def _mysql_cells(doc) -> tuple[frozenset, frozenset, frozenset, frozenset]:
             for value in stage["values"]
             if doc[value]["function"] == "sum"
             and _mysql_field_read(doc, doc[value]["argument"])
-            and _mysql_checked_carrier(doc, doc[value]["argument"])
+            and _mysql_sum_carrier(doc, doc[value]["argument"])
         ),
         frozenset(),
         frozenset(),
+        frozenset(),
     )
+
+
+def _mysql_sum_lets(doc, bodies, stage) -> bool:
+    """MC G1, from the document: below ``stage`` (``bodies``, from the scan
+    up), each `let` body carries its input's columns and adds one value
+    column last; each column that a `let` derives, its value or a carry of
+    one, is read only as an argument of a sum of ``stage``, never by its
+    key (a stage column, read outside sql_stage_reference), and each value
+    at least once so. Linear in the document."""
+
+    derived: dict[Any, Ref] = {}
+    values = set()
+    for body in bodies:
+        columns = doc[body]["columns"]
+        if doc[body]["block_kind"] == "let":
+            if not columns or columns[-1].kind != "row_value_column":
+                return False
+            values.add(columns[-1])
+            derived[doc[columns[-1]]["export"]] = columns[-1]
+            columns = columns[:-1]
+        for column in columns:
+            if column.kind != "row_carry_column":
+                return False
+            origin = derived.get(doc[doc[column]["read"]]["terminal"])
+            if origin is not None:
+                derived[doc[column]["export"]] = origin
+    if any(doc[doc[key]["read"]]["terminal"] in derived for key in stage["keys"]):
+        return False
+    summed = {
+        doc[value]["argument"]
+        for value in stage["values"]
+        if doc[value]["function"] == "sum"
+    }
+    used = set()
+    for ref in doc.all("sql_stage_reference"):
+        origin = derived.get(doc[doc[ref]["column"]]["terminal"])
+        if origin is not None:
+            if ref not in summed:
+                return False
+            used.add(origin)
+    return used == values
+
+
+def _mysql_float_operation(doc, ref) -> bool:
+    """MC E4, restated: a Float `+`, `-` or `*` of one read of a finite DOUBLE
+    source field (_mysql_remainder_carrier, _is_float) and one Float literal
+    written with one `-` at most, in either order, or a `-` of such a read."""
+
+    op = doc[ref]
+    operands = op["operands"]
+    reads = [
+        item
+        for item in operands
+        if _mysql_remainder_carrier(doc, item) == "Float"
+        and _is_float(doc[doc[item]["realization"]], "mysql")
+    ]
+    return (
+        doc[op["realization"]]["tag"] == "Float"
+        and (op["kind"], op["operator"], len(operands))
+        in {
+            ("arithmetic", "+", 2),
+            ("arithmetic", "-", 2),
+            ("arithmetic", "*", 2),
+            ("sign", "-", 1),
+        }
+        and len(reads) == 1
+        and all(item in reads or _mysql_float_token(doc, item) for item in operands)
+    )
+
+
+def _mysql_float_token(doc, ref) -> bool:
+    """A Float literal token's anchor, or one `-` over it; never a slot."""
+
+    if type(ref) is Ref and ref.kind == "sql_unary" and doc[ref]["operator"] == "-":
+        ref = doc[ref]["operand"]
+    if type(ref) is not Ref or ref.kind != "sql_anchor":
+        return False
+    leaf = doc[ref]["operand"]
+    return leaf.kind == "sql_literal" and doc[leaf]["value"].tag == "Float"
 
 
 def _mysql_division_read(doc, ref) -> bool:
@@ -2571,8 +2723,34 @@ def _mysql_s03(doc) -> frozenset:
     return frozenset(sums) if sum_forms.paired(levels, preserve) else frozenset()
 
 
+# MC G2, restated: the storage kinds of an S02 cell's GROUP BY key fields,
+# and of the one field each other aggregate beside its sums reads.
+_MYSQL_SUM_KEY_KINDS = frozenset({"my_bigint", "my_int", "my_varchar"})
+_MYSQL_SUM_BESIDE = {
+    "count_distinct": _MYSQL_SUM_KEY_KINDS,
+    "max": frozenset({"my_bigint", "my_int"}),
+    "avg": frozenset({"my_bigint", "my_int"}),
+}
+
+
+def _mysql_storage_kind(doc, ref) -> object:
+    """The storage kind of a stage column or reference's realization."""
+
+    return dict(doc[doc[ref]["realization"]]["storage"]).get("kind")
+
+
+def _mysql_sum_carrier(doc, ref) -> bool:
+    """MC G1: an S02 sum's argument carrier, a MySQL BIGINT or INT."""
+
+    realization = doc[doc[ref]["realization"]]
+    return realization["tag"] == "Int" and dict(realization["storage"]) in (
+        {"kind": "my_bigint"},
+        {"kind": "my_int"},
+    )
+
+
 def _mysql_checked_carrier(doc, ref) -> bool:
-    """The S01/S02 operand carrier: a nullable MySQL BIGINT."""
+    """The S01 operand carrier: a nullable MySQL BIGINT."""
 
     realization = doc[doc[ref]["realization"]]
     return (
@@ -3756,10 +3934,10 @@ class _Check:
             "MySQL Float block membership",
         )
         cells = _mysql_scalar_cells(doc) if family == "mysql" else {}
-        _, _, mysql_remainders, mysql_divisions = (
+        _, _, mysql_remainders, mysql_divisions, mysql_floats = (
             _mysql_cells(doc)
             if family == "mysql"
-            else (frozenset(), frozenset(), frozenset(), frozenset())
+            else (frozenset(), frozenset(), frozenset(), frozenset(), frozenset())
         )
         on_operations = _on_operations(doc)
         for ref in doc.all("sql_operation"):
@@ -3817,6 +3995,30 @@ class _Check:
                         )
                     ),
                     "MySQL remainder carrier",
+                )
+            if (
+                family == "mysql"
+                and result["tag"] == "Float"
+                and (
+                    op["kind"] == "sign"
+                    or op["kind"] == "arithmetic"
+                    and op["operator"] in {"+", "-", "*"}
+                )
+                and not all(_float_literal(doc, child) for child in op["operands"])
+            ):
+                # MC E4: a MySQL Float `+`, `-`, `*` or sign that no fold
+                # proves only in its cell, a finite DOUBLE of PostgreSQL's
+                # nullability: unknown, or a sign's operand's own.
+                _require(ref in mysql_floats, "MySQL Float arithmetic cell")
+                _require(
+                    _is_float(result, family)
+                    and result["nullable"]
+                    == (
+                        doc[doc[op["operands"][0]]["realization"]]["nullable"]
+                        if op["kind"] == "sign"
+                        else "unknown"
+                    ),
+                    "MySQL Float arithmetic carrier",
                 )
             if (op["kind"], op["operator"]) == ("scalar_call", "same_value") and (
                 ref in on_operations
@@ -6904,10 +7106,10 @@ class _ProvenIntRanges:
                         self.terminals[terminal] = (*producers, column)
         self.values: dict[Ref, tuple[int, int] | object] = {}
         self.visiting: set[Ref] = set()
-        self.mysql_checked, _, self.mysql_remainders, _ = (
+        self.mysql_checked, _, self.mysql_remainders, _, _ = (
             _mysql_cells(doc)
             if family == "mysql"
-            else (frozenset(), frozenset(), frozenset(), frozenset())
+            else (frozenset(), frozenset(), frozenset(), frozenset(), frozenset())
         )
 
     def value(self, ref: Ref) -> tuple[int, int] | object:
@@ -7349,14 +7551,14 @@ class _Requirements:
 
     def checked_evidence(self, evidence: Any, value: Ref) -> None:
         """Q2 evidence follows the independently rebuilt operand proof; E4
-        evidence marks a PostgreSQL Float `+`, `-` or `*` no fold proves."""
+        evidence marks a Float `+`, `-` or `*` no fold proves (on MySQL only
+        in an MC E4 cell, which the operation check requires)."""
         interval = self.ranges.target_checked(value)
         _require(interval is not self.ranges._UNKNOWN, "target checked proof")
         if interval is None:
             op = self.doc[value] if value.kind == "sql_operation" else None
             unfolded = (
                 op is not None
-                and self.family == "postgres"
                 and op["kind"] == "arithmetic"
                 and op["operator"] != "%"
                 and self.doc[op["realization"]]["tag"] == "Float"
@@ -8320,6 +8522,19 @@ _OPERATION_ARITY = {
 }
 # The aggregate branches that read the delimiter slot themselves.
 _DELIMITED = frozenset({"filtered_sum", *_ORDERED, *_QUANTILE})
+# MySQL's guarded Float `*` (MC.05), between the operands x, y, x, y, x, y.
+_MYSQL_PRODUCT_GUARD = tuple(
+    (role, " * " if role == "arithmetic_operator" else schema.SYNTAX[role])
+    for role in (
+        "product_guard_open",
+        "arithmetic_operator",
+        "product_guard_zero",
+        "product_guard_and",
+        "product_guard_then",
+        "arithmetic_operator",
+        "product_guard_close",
+    )
+)
 # MySQL's guarded SUM of an Int (S02, S03), between reads of its argument.
 _MYSQL_SUM_GUARD = tuple(
     (role, schema.SYNTAX[role])
@@ -9087,6 +9302,22 @@ class _Render:
                 "decimal_arithmetic_close",
                 reference,
             )
+            self.enclose("binary", reference, start)
+            return
+        if (
+            family == "mysql"
+            and op_kind == "arithmetic"
+            and operator == "*"
+            and tag == "Float"
+            and not all(_float_literal(self, operand) for operand in operands)
+        ):
+            # MC.05: the guarded product, each operand read three times.
+            if len(operands) != 2:
+                raise _Mismatch("binary operation")
+            for position, (role, text) in enumerate(_MYSQL_PRODUCT_GUARD):
+                if position:
+                    self.operand(value, (position - 1) % 2, alias)
+                syntax(text, role, reference)
             self.enclose("binary", reference, start)
             return
         roles = {

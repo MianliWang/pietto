@@ -188,6 +188,16 @@ _MYSQL_CELL_AUTHORED = frozenset(
 )
 # The aggregates an S02 cell's aggregation may hold beside its sums.
 MYSQL_SUM_STAGE_FUNCTIONS = frozenset({"sum", "count", "min"})
+# MC G1: the storages of an S02 cell sum's field, nullable or not.
+MYSQL_SUM_CARRIERS = ({"kind": "my_bigint"}, {"kind": "my_int"})
+# MC G2: the storage kinds of an S02 cell's GROUP BY key fields, and of the
+# one field that each other aggregate beside its sums reads, by function.
+MYSQL_SUM_KEY_KINDS = frozenset({"my_bigint", "my_int", "my_varchar"})
+MYSQL_SUM_BESIDE = {
+    "count_distinct": MYSQL_SUM_KEY_KINDS,
+    "max": frozenset({"my_bigint", "my_int"}),
+    "avg": frozenset({"my_bigint", "my_int"}),
+}
 
 
 def mysql_checked_operands(values) -> bool:
@@ -203,28 +213,42 @@ def mysql_checked_operands(values) -> bool:
     )
 
 
+def mysql_sum_operand(value) -> bool:
+    """MC G1: the argument carrier of an S02 cell's sum, a nullable or
+    non-null BIGINT or INT source field (MYSQL_SUM_CARRIERS)."""
+
+    return (
+        value.tag == "Int" and value.storage in MYSQL_SUM_CARRIERS and not value.binding
+    )
+
+
 def mysql_s03_operand(value) -> bool:
-    """The argument carrier of a MySQL guarded SUM: a BIGINT, of a source
-    field, a count or a guarded SUM, never per binding. S02 narrows it to
-    mysql_checked_operands; an S03 form pins each argument's own."""
+    """The argument carrier of a MySQL guarded SUM: a BIGINT or INT, of a
+    source field, a count or a guarded SUM, never per binding. S02 narrows it
+    to mysql_sum_operand; an S03 form pins each argument's own."""
 
     return (
         value.tag == "Int"
-        and value.storage in ({"kind": "my_bigint"}, {"kind": "my_signed_int"})
+        and value.storage in (*MYSQL_SUM_CARRIERS, {"kind": "my_signed_int"})
         and not value.binding
     )
 
 
-def mysql_checked_query(plan, *, aggregate: bool, slots: bool = False) -> bool:
+def mysql_checked_query(
+    plan, *, aggregate: bool, slots: bool = False, lets: bool = False
+) -> bool:
     """A cell's query, from the plan and its authored `query` or `table`:
     its non-empty tables are among _MYSQL_CELL_PLAN_TABLES (and, with
     ``slots``, _MYSQL_SLOT_PLAN_TABLES), it reads a
     source of its own module through one WHERE at most, then
-    (``aggregate``) one aggregation of one GROUP BY key at most, then its
-    projection, and as written it sets only _MYSQL_CELL_AUTHORED fields.
-    Every check is O(1) in the program: at most four blocks, one source and
-    one authored declaration are read. No query is one while emission
-    derives as main (AS_MAIN)."""
+    (``aggregate``) one aggregation, then its projection, and as written it
+    sets only _MYSQL_CELL_AUTHORED fields.
+    With ``lets`` (MC G1) a block of each of its value `let`s may come
+    first, and its authored names are those `let`s alone: a relation alias
+    leaves no value `let`. Every check is O(1) in the program beside its
+    `let`s: at most four more blocks, one source and one authored
+    declaration are read. No query is one while emission derives as main
+    (AS_MAIN)."""
 
     from pietto._project.module_catalog import authored_definitions
     from pietto._project.project_sql_plan import (
@@ -234,6 +258,7 @@ def mysql_checked_query(plan, *, aggregate: bool, slots: bool = False) -> bool:
 
     stage = row.ProjectSQLStageKind
     middle = (stage.AGGREGATE,) if aggregate else ()
+    named = (stage.LET,) * len(plan.let_values) if lets else ()
     owner = plan.scope.selected_owner
     module = plan.scope.completed.semantic_result.modules[owner.module_position]
     authored = authored_definitions(module)[owner.declaration_position]
@@ -244,11 +269,14 @@ def mysql_checked_query(plan, *, aggregate: bool, slots: bool = False) -> bool:
             and value
             and name not in _MYSQL_CELL_PLAN_TABLES
             and not (slots and name in _MYSQL_SLOT_PLAN_TABLES)
+            and not (lets and name == "let_values")
             for name in plan.__dataclass_fields__
         )
-        or len(plan.group_keys) > 1
-        or tuple(block.kind for block in plan.blocks[:4])
-        not in ((*middle, stage.PROJECTION), (stage.WHERE, *middle, stage.PROJECTION))
+        or tuple(block.kind for block in plan.blocks[: len(named) + 4])
+        not in (
+            (*named, *middle, stage.PROJECTION),
+            (*named, stage.WHERE, *middle, stage.PROJECTION),
+        )
         or any(
             type(block.boundary) is not ProjectSQLBoundary
             or block.boundary.reason is not ProjectSQLBoundaryReason.SOURCE_INPUT
@@ -265,13 +293,19 @@ def mysql_checked_query(plan, *, aggregate: bool, slots: bool = False) -> bool:
             getattr(authored, name) not in (None, ())
             for name in authored.__dataclass_fields__
             if name not in _MYSQL_CELL_AUTHORED
+            and not (
+                lets
+                and name == "naming_declarations"
+                and len(authored.naming_declarations) == len(plan.let_values)
+            )
         )
     )
 
 
 def mysql_field_column(column) -> bool:
     """A source field column, read directly or carried by the query's own
-    stages, never a let value, literal, aggregate or window result."""
+    stages, a let value only when it copies a field read, never a literal,
+    aggregate or window result."""
 
     return (
         type(column) is StageColumn
@@ -305,33 +339,111 @@ def mysql_checked_cell(plan, expression, values) -> bool:
     )
 
 
-def mysql_sum_query(plan, keys) -> bool:
+def mysql_sum_query(plan, keys, columns) -> bool:
     """S02: an aggregation that can hold a MySQL sum(Int) cell, asked once
-    per aggregation stage: the query is mysql_checked_query's, its aggregates
-    are sums, counts and mins (MYSQL_SUM_STAGE_FUNCTIONS), each GROUP BY key
-    column a non-null Int source field (mysql_field_column), and no SELECT
-    item computes over an aggregate result. The scans of the plan's
-    aggregates and expressions run only for a query with one aggregation."""
+    per aggregation stage: the query is mysql_checked_query's, no SELECT
+    item computes over an aggregate result, its value `let`s keep MC G1's
+    law (mysql_sum_lets), and S02's own law or MC G2's holds. S02's: one
+    GROUP BY key at most (``keys``), a non-null Int source field
+    (mysql_field_column) of any storage, beside sums, counts and mins only
+    (MYSQL_SUM_STAGE_FUNCTIONS). G2's: each key a source field of
+    MYSQL_SUM_KEY_KINDS storage, nullable or not, and each aggregate a sum,
+    count or min or a `count_distinct`, `max` or `avg` of one source field
+    read (its realized column in ``columns``) of its MYSQL_SUM_BESIDE
+    storage. The scans of the plan's aggregates and expressions run only for
+    a query with one aggregation."""
 
     from pietto._project.project_sql_emission_aggregation import function_name
 
-    return (
-        mysql_checked_query(plan, aggregate=True)
-        and all(
-            function_name(value.source) in MYSQL_SUM_STAGE_FUNCTIONS
+    def beside(value) -> bool:
+        arguments = value.arguments
+        expression = _planned(plan, arguments[0]) if len(arguments) == 1 else None
+        column = (
+            columns.get(expression.port)
+            if type(expression) is row.ProjectSQLReference
+            else None
+        )
+        return (
+            column is not None
+            and mysql_field_column(column)
+            and not column.realization.binding
+            and column.realization.storage.get("kind")
+            in MYSQL_SUM_BESIDE.get(function_name(value.source) or "", ())
+        )
+
+    def s02() -> bool:
+        return (
+            len(keys) <= 1
+            and all(
+                mysql_field_column(key)
+                and key.realization.tag == "Int"
+                and key.realization.nullable is False
+                for key in keys
+            )
+            and all(
+                function_name(value.source) in MYSQL_SUM_STAGE_FUNCTIONS
+                for value in plan.aggregates
+            )
+        )
+
+    def g2() -> bool:
+        return all(
+            mysql_field_column(key)
+            and not key.realization.binding
+            and key.realization.storage.get("kind") in MYSQL_SUM_KEY_KINDS
+            for key in keys
+        ) and all(
+            function_name(value.source) in MYSQL_SUM_STAGE_FUNCTIONS or beside(value)
             for value in plan.aggregates
         )
-        and all(
-            mysql_field_column(key)
-            and key.realization.tag == "Int"
-            and key.realization.nullable is False
-            for key in keys
-        )
+
+    return (
+        mysql_checked_query(plan, aggregate=True, lets=True)
+        and mysql_sum_lets(plan)
+        and (s02() or g2())
         and not any(
             getattr(getattr(item, "site", None), "role", None)
             is row.ProjectSQLExpressionRole.SELECT
             for item in plan.expressions
         )
+    )
+
+
+def mysql_sum_lets(plan) -> bool:
+    """MC G1: each value `let` of an S02 query is read at least once, and
+    every read of its name is the whole argument of a `sum` of the query: no
+    chain, no GROUP BY key (a key reads its input port, outside the plan's
+    expressions), no other reader. A sum's argument is then a source field
+    read (mysql_sum_cell) only when the `let` reads one as written. Linear
+    in the plan."""
+
+    from pietto._project.project_sql_emission_aggregation import function_name
+    from pietto.ast_nodes import LetBinding
+
+    if not plan.let_values:
+        return True
+    ports = {port.ref: port for port in plan.stage_ports}
+    if any(
+        type(getattr(ports.get(key.input), "key", None)) is LetBinding
+        for key in plan.group_keys
+    ):
+        return False
+    summed = {
+        id(argument)
+        for value in plan.aggregates
+        if function_name(value.source) == "sum"
+        for argument in value.arguments
+    }
+    read = set()
+    for expression in plan.expressions:
+        key = getattr(ports.get(getattr(expression, "port", None)), "key", None)
+        if type(expression) is row.ProjectSQLReference and type(key) is LetBinding:
+            if id(expression.ref) not in summed:
+                return False
+            read.add(id(key))
+    return all(
+        id(getattr(ports.get(value.port), "key", None)) in read
+        for value in plan.let_values
     )
 
 
@@ -603,6 +715,98 @@ def mysql_division_cells(plan, items, columns) -> frozenset:
     return frozenset(cells)
 
 
+# MC E4 (MC.04): the MySQL Float `+`, `-` and `*` of a finite DOUBLE source
+# field and a Float literal, in either order, and the unary `-` of such a
+# field, as the whole value of a SELECT item of S01's cell query. MySQL's
+# DOUBLE operators raise 1690 (SQLSTATE 22003) at overflow as PostgreSQL's
+# float8 ones raise 22003, and `*` renders MYSQL_PRODUCT_GUARD (MC.05).
+E4_OPERATORS = {"binary": ("+", "-", "*"), "unary": ("-",)}
+
+
+def mysql_float_literal(value) -> bool:
+    """An E4 literal operand: a finite Float literal token, or one `-` over
+    one; never a slot, a header parameter, a field or another sign."""
+    try:
+        nodes = parameters.value_nodes(value)
+        signs = nodes[:-2]
+        literal = (
+            type(nodes[-1]) is parameters.SQLLiteral
+            and parameters.tag_of(nodes[-1].original) == "Float"
+        )
+        signed = all(sign.original.expression.operator == "-" for sign in signs)
+    except (AttributeError, IndexError, TypeError, ValueError):
+        return False
+    return (
+        literal
+        and signed
+        and len(signs) <= 1
+        and _float_literal_value(value) is not None
+    )
+
+
+def mysql_float_operands(values) -> bool:
+    """The operand carriers of an E4 cell: finite MySQL DOUBLE values that no
+    binding proves, the carriers the qualification probed."""
+    return bool(values) and all(
+        float_carrier(value, "mysql") and not value.binding for value in values
+    )
+
+
+def mysql_float_arithmetic_cell(plan, expression, values) -> bool:
+    """E4: a MySQL Float `+`, `-` or `*` is in its cell when one operand is a
+    source field (mysql_field) and the other a Float literal
+    (mysql_float_literal), in either order, and a unary `-` when its operand
+    is a source field; the operation is the whole value of a SELECT item of
+    the emitted query, and the query is mysql_checked_query's (one WHERE at
+    most, no slot). Its carriers are mysql_float_operands'."""
+
+    site = getattr(expression, "site", None)
+    kind = {row.ProjectSQLBinary: "binary", row.ProjectSQLUnary: "unary"}.get(
+        type(expression)
+    )
+    return (
+        kind is not None
+        and expression.expression.operator in E4_OPERATORS[kind]
+        and len(values) == (2 if kind == "binary" else 1)
+        and sum(mysql_field(value) for value in values) == 1
+        and all(mysql_field(value) or mysql_float_literal(value) for value in values)
+        and type(site) is row.ProjectSQLExpressionSite
+        and site.role is row.ProjectSQLExpressionRole.SELECT
+        and site.occurrence.expression is expression.expression
+        and mysql_checked_query(plan, aggregate=False)
+    )
+
+
+# MC.05: MySQL's guarded Float `*`, as (role, text) between the operands x, y,
+# x, y, x, y in their written order. A product of two non-zero operands that
+# rounds to zero takes the BIGINT branch, which raises 1690 (SQLSTATE 22003)
+# where PostgreSQL's float8 `*` raises 22003; MySQL alone returns the zero.
+MYSQL_PRODUCT_GUARD = (
+    ("product_guard_open", "CASE WHEN ("),
+    ("arithmetic_operator", " * "),
+    ("product_guard_zero", ") = 0 AND "),
+    ("product_guard_and", " <> 0 AND "),
+    (
+        "product_guard_then",
+        " <> 0 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) ELSE (",
+    ),
+    ("arithmetic_operator", " * "),
+    ("product_guard_close", ") END"),
+)
+
+
+def mysql_guarded_product(family: str, operation) -> bool:
+    """Whether one realized operation renders MYSQL_PRODUCT_GUARD: a MySQL
+    Float `*` that no literal fold proves, which only an E4 cell admits."""
+    return (
+        family == "mysql"
+        and operation.kind == "arithmetic"
+        and operation.original.expression.operator == "*"
+        and operation.realization.tag == "Float"
+        and any(_float_literal_value(o) is None for o in operation.operands)
+    )
+
+
 # The compiled record kinds a cell's bundle may hold (D77.24 whitelist), the
 # source's metadata and any literal or WHERE predicate call included; any
 # other kind (a parameter, slot, native use, block, capture or ANY read,
@@ -639,6 +843,13 @@ _MYSQL_CELL_RECORDS = frozenset(
         "use",
     }
 )
+# MC E4: each compiled operator of an E4 cell and its operand count.
+_E4_COMPILED = {
+    ("binary", "+"): 2,
+    ("binary", "-"): 2,
+    ("binary", "*"): 2,
+    ("unary", "-"): 1,
+}
 _MYSQL_CHECKED_OPERATORS = frozenset(
     {
         ("binary", "+"),
@@ -653,11 +864,12 @@ _MYSQL_CHECKED_OPERATORS = frozenset(
 
 def mysql_compiled_cells(
     records, entry
-) -> tuple[frozenset, frozenset, frozenset, frozenset]:
-    """Compiled replay's S01 operations, S02 aggregate values, S15 `%` and R08
-    `/` operations in their cells, from the records alone, as emission
-    derives them from the plan (mysql_checked_cell, mysql_sum_query,
-    mysql_remainder_cells, mysql_division_cells). A relation alias or a window,
+) -> tuple[frozenset, frozenset, frozenset, frozenset, frozenset]:
+    """Compiled replay's S01 operations, S02 aggregate values, S15 `%`, R08
+    `/` and MC E4 Float operations in their cells, from the records alone, as
+    emission derives them from the plan (mysql_checked_cell, mysql_sum_query,
+    mysql_remainder_cells, mysql_division_cells, mysql_float_arithmetic_cell).
+    A relation alias or a window,
     read or not, and an imported source leave a direct read's records apart
     from source positions and the source digest, so only emission refuses
     them.
@@ -670,9 +882,17 @@ def mysql_compiled_cells(
     marked port. An S01 operation is a whole value of the terminal row that
     no other counted record names (a requirement only anchors it, a port
     repeats its row's value), over reads of marked ports. An S02 value is a
-    sum over a read of a marked port; its aggregate has one key at most, a
-    read of a marked non-null Int port, holds sums, counts and mins only
-    (MYSQL_SUM_STAGE_FUNCTIONS), and the terminal row only reads its ports.
+    sum over a read of a marked port; the terminal row only reads its
+    aggregate's ports, and S02's own law or MC G2's holds of the aggregate.
+    S02's: one key at most, a read of a marked non-null Int port, and sums,
+    counts and mins only (MYSQL_SUM_STAGE_FUNCTIONS). G2's: each key a read
+    of a marked port whose field's physical storage is of
+    MYSQL_SUM_KEY_KINDS, and each value a sum, count or min or a
+    `count_distinct`, `max` or `avg` of one such read of its
+    MYSQL_SUM_BESIDE storage.
+    Below its WHERE row, an S02 aggregate may stand over one `let` row of
+    its declaration per value `let`, whose ports are marked as the WHERE
+    row's are and which keeps MC G1's law (_mysql_compiled_lets).
     S15 cells need a terminal straight over the source, each of whose values
     is a read of a marked port whose field's physical storage is its tag's
     MYSQL_REMAINDER_CARRIERS one, or a `%` that no other counted record
@@ -682,9 +902,15 @@ def mysql_compiled_cells(
     MYSQL_DIVISION_CARRIERS, or a `/` that no other counted record names of an
     Int literal record (a sign over one is an operation) and one such read,
     in either order; any other value, or a bind-safe slot of another literal,
-    closes them. A slot or native use record closes every other cell."""
+    closes them. An E4 operation is, as an S01 one, a whole value of the
+    terminal row that no other counted record names: a Float `+`, `-` or `*`
+    of one read of a marked port whose field's physical storage is
+    `my_double` and one Float literal record (or a `-` operation over one),
+    in either order, or a `-` of such a read. A slot or native use record
+    closes every other cell."""
 
-    empty: tuple[frozenset, frozenset, frozenset, frozenset] = (
+    empty: tuple[frozenset, frozenset, frozenset, frozenset, frozenset] = (
+        frozenset(),
         frozenset(),
         frozenset(),
         frozenset(),
@@ -702,6 +928,16 @@ def mysql_compiled_cells(
     if current.address.kind == "row" and current.get("stage") == "where":
         chain.append(current)
         where = current.address
+        current = records[current.get("input")]
+    lets = []
+    while (
+        chain[1:2]
+        and chain[1].address.kind == "aggregate"
+        and current.address.kind == "row"
+        and current.get("stage") == "let"
+    ):
+        chain.append(current)
+        lets.append(current.address)
         current = records[current.get("input")]
     if current.address.kind != "source" or any(
         unit.get("owner") != owner for unit in chain
@@ -732,7 +968,7 @@ def mysql_compiled_cells(
         if kind == "port":
             port_owner, port_source = record.get("owner"), record.get("source")
             if port_owner.kind == "source" or (
-                port_owner == where
+                (port_owner == where or port_owner in lets)
                 and port_source is not None
                 and port_source.kind == "read"
                 and records[port_source].get("port") in marked
@@ -742,29 +978,59 @@ def mysql_compiled_cells(
     def field(address) -> bool:
         return address.kind == "read" and records[address].get("port") in marked
 
+    def storage_kind(address) -> object:
+        """MC G2: the physical storage kind of the source field that a read
+        of a marked port reads through the chain's carries (each marked
+        after the port it carries, so the walk ends)."""
+        port = records[address].get("port")
+        while records[port].get("owner").kind != "source":
+            port = records[records[port].get("source")].get("port")
+        try:
+            physical = records[records[port].get("source")].get("physical")
+            return json.loads(physical)["storage"]["kind"]
+        except (KeyError, TypeError, ValueError):
+            return None
+
+    def beside(value) -> bool:
+        """MC G2: a `count_distinct`, `max` or `avg` of one field read of
+        its MYSQL_SUM_BESIDE storage."""
+        arguments = value.get("arguments")
+        return (
+            len(arguments) == 1
+            and field(arguments[0])
+            and storage_kind(arguments[0])
+            in MYSQL_SUM_BESIDE.get(value.get("function"), ())
+        )
+
     if chain[1:2] and chain[1].address.kind == "aggregate":
-        if slotted:
-            return empty
         aggregate = chain[1]
-        keys = aggregate.get("keys")
-        if (
-            len(keys) > 1
-            or not all(
+        if slotted or lets and not _mysql_compiled_lets(records, chain[2:], aggregate):
+            return empty
+        keys, values = aggregate.get("keys"), aggregate.get("values")
+        s02 = (
+            len(keys) <= 1
+            and all(
                 field(key)
                 and records[records[key].get("port")].get("logical")
                 == ("Int", "non_null")
                 for key in keys
             )
-            or any(
-                records[value].get("function") not in MYSQL_SUM_STAGE_FUNCTIONS
-                for value in aggregate.get("values")
+            and all(
+                records[value].get("function") in MYSQL_SUM_STAGE_FUNCTIONS
+                for value in values
             )
-            or not all(
-                value.kind == "read"
-                and records[records[value].get("port")].get("owner")
-                == aggregate.address
-                for value in terminal.get("values")
-            )
+        )
+        g2 = all(
+            field(key) and storage_kind(key) in MYSQL_SUM_KEY_KINDS for key in keys
+        ) and all(
+            records[value].get("function") in MYSQL_SUM_STAGE_FUNCTIONS
+            or beside(records[value])
+            for value in values
+        )
+        if not (s02 or g2) or not all(
+            value.kind == "read"
+            and records[records[value].get("port")].get("owner") == aggregate.address
+            for value in terminal.get("values")
         ):
             return empty
         return (
@@ -776,6 +1042,7 @@ def mysql_compiled_cells(
                 and len(records[value].get("arguments")) == 1
                 and field(records[value].get("arguments")[0])
             ),
+            frozenset(),
             frozenset(),
             frozenset(),
         )
@@ -841,7 +1108,7 @@ def mysql_compiled_cells(
     if not slotted <= operands:
         divisions.clear()
     if slotted:
-        return frozenset(), frozenset(), frozenset(), frozenset(divisions)
+        return frozenset(), frozenset(), frozenset(), frozenset(divisions), frozenset()
 
     remainders = set()
     for value in terminal.get("values") if where is None else ():
@@ -859,6 +1126,50 @@ def mysql_compiled_cells(
             break
         if operation is not None:
             remainders.add(value)
+
+    def double(address) -> bool:
+        """E4: a read of a marked port of a `my_double` Float field, the
+        port a source port or a WHERE row's port that reads one."""
+        if not field(address):
+            return False
+        source = records[records[address].get("port")].get("source")
+        if source is not None and source.kind == "read":
+            source = records[records[source].get("port")].get("source")
+        if source is None or source.kind != "field":
+            return False
+        try:
+            storage = json.loads(records[source].get("physical"))["storage"]
+            tag = records[source].get("logical")[0]
+        except (KeyError, IndexError, TypeError, ValueError):
+            return False
+        return (tag, storage) == ("Float", {"kind": "my_double"})
+
+    def float_literal(address) -> bool:
+        """E4: a Float literal record, or a `-` operation over one."""
+        record = records[address]
+        if (
+            address.kind == "operation"
+            and record.get("operator") == ("unary", "-")
+            and len(record.get("operands")) == 1
+        ):
+            address = record.get("operands")[0]
+        return address.kind == "literal" and records[address].get("tag") == "Float"
+
+    floats = set()
+    for value in terminal.get("values"):
+        operation = records[value] if value.kind == "operation" else None
+        operator = None if operation is None else operation.get("operator")
+        operands = () if operation is None else operation.get("operands")
+        if (
+            operation is not None
+            and named.get(value) == [terminal.address]
+            and operation.get("logical")[0] == "Float"
+            and operator in _E4_COMPILED
+            and len(operands) == _E4_COMPILED[operator]
+            and sum(double(item) for item in operands) == 1
+            and all(double(item) or float_literal(item) for item in operands)
+        ):
+            floats.add(value)
     return (
         frozenset(
             value
@@ -871,7 +1182,66 @@ def mysql_compiled_cells(
         frozenset(),
         frozenset(remainders),
         frozenset(divisions),
+        frozenset(floats),
     )
+
+
+def _mysql_compiled_lets(records, rows, aggregate) -> bool:
+    """MC G1, from the records: below ``aggregate`` (``rows``, from it
+    down), the last port of each `let` row is its value and every other
+    port of a row carries its input's. The ports that a `let` derives, its
+    value or a carry of one, are found first from the source up, in chain
+    order and so in no record order or numbering. Then every reference to a
+    read of one, but a requirement's (which only anchors it), is the source
+    of the port that carries it (its row's values repeat its ports'
+    sources) or an argument of a sum of ``aggregate``, so a read shared
+    with another user counts too, and each value is read at least once so.
+    Linear in the records."""
+
+    from pietto._project.project_compiled_schema import Address
+
+    derived, carries, values = {}, set(), set()
+    for unit in reversed(rows):
+        outputs = unit.get("outputs")
+        if unit.get("stage") == "let":
+            values.update(outputs[-1:])
+            derived.update((value, value) for value in outputs[-1:])
+            outputs = outputs[:-1]
+        for port in outputs:
+            source = records[port].get("source")
+            origin = (
+                derived.get(records[source].get("port"))
+                if getattr(source, "kind", None) == "read"
+                else None
+            )
+            if origin is not None:
+                derived[port] = origin
+                carries.add(port)
+    sums = {
+        value
+        for value in aggregate.get("values")
+        if records[value].get("function") == "sum"
+    }
+    chain = {unit.address for unit in rows}
+    used = set()
+    for address, record in records.items():
+        if address.kind in ("read", "requirement"):
+            continue
+        pending = [record.get("predicate")] if address in chain else list(record.values)
+        while pending:
+            item = pending.pop()
+            if type(item) is tuple:
+                pending.extend(item)
+            elif (
+                type(item) is Address
+                and item.kind == "read"
+                and records[item].get("port") in derived
+            ):
+                if address in sums and item in record.get("arguments"):
+                    used.add(derived[records[item].get("port")])
+                elif not (address in carries and record.get("source") == item):
+                    return False
+    return used == values
 
 
 # The MySQL project cells of lpad and now() that the Phase77 native
@@ -3194,7 +3564,13 @@ def build_row_value(
                 expression, "sign", (operand,), replace(inner, nullable=nullable)
             ), None
         if tag == "Float":
-            checked = float_sign(family, inner, nullable)
+            checked = float_sign(
+                family,
+                inner,
+                nullable,
+                family == "mysql"
+                and mysql_float_arithmetic_cell(request.plan, expression, (operand,)),
+            )
             if checked is None:
                 return None, ("PIE-B1003", "unary_sign_requires_int_operand")
             return SQLOperation(expression, "sign", (operand,), checked), None
@@ -3472,13 +3848,13 @@ def target_checked(family: str, operation) -> bool:
 
 def checked_evidence(family: str, operation) -> tuple[str, ...]:
     """The overflow evidence of one realized operation: a checked bigint
-    range, or a PostgreSQL Float `+`, `-` or `*` that no literal fold proves
-    finite, bounded by the target's checked float8 operator (E4)."""
+    range, or a Float `+`, `-` or `*` that no literal fold proves finite,
+    bounded by the target's checked float8 or DOUBLE operator (E4; on MySQL
+    only in an MC E4 cell)."""
     if target_checked(family, operation):
         return (TARGET_CHECKED_SIGNED64,)
     if (
-        family == "postgres"
-        and operation.kind == "arithmetic"
+        operation.kind == "arithmetic"
         and operation.original.expression.operator != "%"
         and operation.realization.tag == "Float"
         and any(_float_literal_value(o) is None for o in operation.operands)
@@ -3519,12 +3895,25 @@ def int8_widened(family: str, operation) -> bool:
     )
 
 
-def float_sign(family, inner, nullable) -> Realization | None:
+def float_sign(family, inner, nullable, mysql_float=False) -> Realization | None:
     """E4: a PostgreSQL unary `-` or `+` of a finite float8 value flips or
-    keeps its sign bit exactly (float8um/float8up), so it never fails."""
-    if family != "postgres" or not float_carrier(inner, family):
+    keeps its sign bit exactly (float8um/float8up), so it never fails; so
+    does MySQL's unary `-` of a DOUBLE in an MC E4 cell (``mysql_float``,
+    whose caller derives it, mysql_float_arithmetic_cell)."""
+    if not (
+        family == "postgres"
+        and float_carrier(inner, family)
+        or family == "mysql"
+        and mysql_float
+        and mysql_float_operands((inner,))
+    ):
         return None
-    return Realization("Float", {"kind": "pg_float8"}, nullable, FINITE_FLOAT)
+    return Realization(
+        "Float",
+        {"kind": "pg_float8" if family == "postgres" else "my_double"},
+        nullable,
+        FINITE_FLOAT,
+    )
 
 
 def _unary_int(
@@ -3720,6 +4109,8 @@ def _binary(
         and mysql_checked_cell(request.plan, expression, values),
         mysql_remainder=cell,
         mysql_division=cell,
+        mysql_float=request.family == "mysql"
+        and mysql_float_arithmetic_cell(request.plan, expression, values),
         # This reader's own S17 pairing check.
         paired=tag == "Decimal" and pairing.project_form(request) is not None,
     )
@@ -3745,12 +4136,14 @@ def resolved_binary_realization(
     mysql_checked: bool = False,
     mysql_remainder: bool = False,
     mysql_division: bool = False,
+    mysql_float: bool = False,
     paired: bool = False,
 ):
     """Original range/domain law over resolved operands; no name resolution.
     ``mysql_checked`` marks an S01 cell (mysql_checked_cell),
-    ``mysql_remainder`` an S15 one (mysql_remainder_cells) and
-    ``mysql_division`` an R08 one (mysql_division_cells). MySQL takes
+    ``mysql_remainder`` an S15 one (mysql_remainder_cells),
+    ``mysql_division`` an R08 one (mysql_division_cells) and ``mysql_float``
+    an MC E4 one (mysql_float_arithmetic_cell). MySQL takes
     Decimal and Int, Decimal of another scale and Decimal times Int as
     PostgreSQL does only in a statement its reader pairs with an S17 form
     (``paired``, `project_sql_emission_paired`)."""
@@ -3911,10 +4304,14 @@ def resolved_binary_realization(
             family == "postgres"
             and float_carrier(left, family)
             and float_carrier(right, family)
+            or family == "mysql"
+            and mysql_float
+            and mysql_float_operands((left, right))
         ):
             return None, ("PIE-B1003", "float_literal_operands_required")
-        # Without a literal fold PostgreSQL's checked float8 operator bounds
-        # the result (SQLSTATE 22003, TARGET_CHECKED_BINARY64).
+        # Without a literal fold PostgreSQL's checked float8 operator, or in
+        # an E4 cell MySQL's DOUBLE one (`*` guarded), bounds the result
+        # (SQLSTATE 22003, TARGET_CHECKED_BINARY64).
         return (
             Realization(
                 "Float",

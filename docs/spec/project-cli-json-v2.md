@@ -418,7 +418,7 @@ the statement may fail while PostgreSQL plans or executes it and never returns
 a wrong value; whether and when it fails depends on the execution plan. A consumer that requires a
 statically proved range refuses a document with this evidence. Every other
 requirement's `evidence` is unchanged, and no MySQL document carries it
-outside the `0.1.12` cells below.
+outside the `0.1.12` cells below, as `0.2.2` (MC G1 and G2) widens them.
 
 The additive `ranges` roles for these PostgreSQL forms are
 `expression_range` role `int8_widen`, and `syntax` roles `int8_widen_open`,
@@ -430,7 +430,14 @@ the cells that the [language page](../language.md) states. A sign, `+`, `-`,
 `*` or `abs` over nullable `BIGINT` fields (kind `arithmetic` or
 `scalar_call`, rule R05) whose exact range leaves signed 64 bits ends its
 `evidence` with it, and a direct `sum` of such a field (kind `aggregate`, rule
-R13) has the `evidence` `[{"overflow": "target_checked_signed64_narrowing"}]`.
+R13) has the `evidence` `[{"overflow": "target_checked_signed64_narrowing"}]`;
+since `0.2.2` (MC G1) so does a `sum` of a `BIGINT` or `INT` field, nullable
+or not, or of the name of a value `let` that reads one, whose guard reads the
+field's column or the `let`'s, and (MC G2) each such `sum` of a statement in
+the cell as G2 widens it: beside any `count_distinct` of a `BIGINT`, `INT` or
+`VARCHAR` field and any `max` or `avg` of a `BIGINT` or `INT` field, each one
+direct field read, and grouped by any `BIGINT`, `INT` or `VARCHAR` keys,
+nullable or not.
 Their storage is `my_signed_int`, and an operation's `int_range` is the part
 of its exact range inside signed 64 bits; MySQL's `BIGINT` operators raise
 error 1690 (SQLSTATE 22003) outside it. The operation is written uncast, as
@@ -513,10 +520,29 @@ with SQLSTATE 22003, and also a non-zero product that rounds to zero; the
 statement may fail while PostgreSQL plans or executes it and never returns an
 infinity or a wrong value. A sign on a `Float` (`-price`, requirement kind
 `arithmetic` with the operator `-`) and arithmetic of two `Float` literals,
-which the compiler folds, carry none, and no MySQL document carries it. A
-consumer that requires a statically proved finite result refuses a document
-with this evidence. The emission observation lists the token in that
-requirement's `evidence`.
+which the compiler folds, carry none, and no MySQL document carries it
+outside the MC E4 cell below. A consumer that requires a statically proved
+finite result refuses a document with this evidence. The emission
+observation lists the token in that requirement's `evidence`.
+
+In MySQL's MC E4 cell, which the [language page](../language.md#mysql-float-arithmetic-cell)
+states, a `Float` `+`, `-` or `*` of a `DOUBLE` field and a `Float` literal
+carries the same evidence, since MySQL's `DOUBLE` operator raises error 1690
+(SQLSTATE 22003) where its result leaves binary64; the unary `-` of such a
+field carries none. Its result's storage is `my_double` with the domain
+`finite_float` `binary64`. `+` and `-` are written uncast, `(x + 2.0)` with
+each operand in its own spelling, and `*` is written `CASE WHEN (x * y) = 0
+AND x <> 0 AND y <> 0 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS
+SIGNED) ELSE (x * y) END`, `x` and `y` the operands in their written order,
+whose `BIGINT` branch raises 1690 where a product of two non-zero values
+rounds to zero. Its additive `ranges` roles are the `syntax` roles
+`product_guard_open` (`CASE WHEN (`), `product_guard_zero` (`) = 0 AND `),
+`product_guard_and` (` <> 0 AND `), `product_guard_then` (` <> 0 THEN
+CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) ELSE (`) and
+`product_guard_close` (`) END`), which open and close its `binary` range in
+place of `binary_open` and `binary_close`, with the operands read between
+them in the order `x`, `y`, `x`, `y`, `x`, `y` and each `x * y` written with
+the `arithmetic_operator` role (` * `).
 
 After `0.1.10`, a project `Float / Float` or `Float % Float` that is not
 emitted is BLOCKED with the additive PIE-B1003 detail
