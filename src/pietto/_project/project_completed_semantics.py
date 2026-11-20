@@ -3972,6 +3972,7 @@ def derive_compiled_semantics(root, values, parameters=None):
                             family,
                             paired=pairing.compiled_form(records) is not None,
                             mysql_s03=ref in mysql_s03,
+                            mysql_sum=ref in mysql_sums,
                         )
                         is not None
                     ):
@@ -5485,6 +5486,7 @@ def verify_compiled_semantics(value):
                             family,
                             paired=pairing.compiled_form(records) is not None,
                             mysql_s03=current in mysql_s03,
+                            mysql_sum=current in mysql_sums,
                         )
                         is None,
                         "SEMANTIC_AGGREGATE_ARGUMENT",

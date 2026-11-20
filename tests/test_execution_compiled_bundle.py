@@ -2973,7 +2973,6 @@ _NUMERIC_UNFORGEABLE = {
     "sum_argument": "PIE-B1004",
     "sum_composed": "PIE-B1003",
     "sum_coalesced": "PIE-B1003",
-    "sum_filtered": "PIE-B1004",
     "beside_literal_operand": "PIE-B1008",
     "beside_two_refusals": "PIE-B1008",
     "beside_division": "PIE-B1003",
@@ -2998,8 +2997,6 @@ _NUMERIC_UNFORGEABLE = {
     "G2_quantile": "PIE-B1003",
     "G2_any": "PIE-B1003",
     "G2_all": "PIE-B1003",
-    # A conditional sum outside S03's forms, which its own law refuses.
-    "G2_conditional_sum": "PIE-B1004",
     # MC G3's: a label too long, a sum outside every cell, and DISTINCT over
     # an `avg`'s DOUBLE, which MySQL refuses on its own.
     "G3_R1": "PIE-B1002",
@@ -3018,14 +3015,20 @@ _NUMERIC_UNFORGEABLE = {
     "G4_avg_avg": "PIE-B1004",
     "G4_avg_count_distinct": "PIE-B1003",
     "G4_upstream_union": "PIE-B1003",
-    # MC G5's: a label too long, a Date, Decimal, UUID or Timestamp
-    # parameter, and a bind-safe literal in a conditional sum.
+    # MC G5's: a label too long and a Date, Decimal, UUID or Timestamp
+    # parameter. G5's R9, a bind-safe literal beside a conditional sum, is
+    # forgeable since MC G7 counts a conditional sum as a sum of the cell
+    # (rows.mysql_filtered_sum_cell): with every cell law open its artifact
+    # exists,
+    # and each reader must refuse it by G7's guard (no bind-safe `?` beside
+    # a conditional sum). Its stand-in here is a conditional sum whose test
+    # G7's law refuses (`>=`, G7's X1), which no opened cell law admits.
     "G5_R1": "PIE-B1002",
     "G5_R2": "PIE-B1003",
     "G5_R3": "PIE-B1003",
     "G5_R4": "PIE-B1003",
     "G5_timestamp": "PIE-B1003",
-    "G5_R9": "PIE-B1004",
+    "G5_R9_ge": "PIE-B1004",
     # MC G6's: a label too long, a sum outside every cell, a FULL JOIN, and
     # sums that project semantics refuses first.
     "G6_R1": "PIE-B1002",
@@ -3052,17 +3055,31 @@ def _numeric_cells_opened(patch):
     patch.setattr(rows, "mysql_sum_cell", lambda aggregate, argument: True)
 
 
+# Forged-only controls outside the stage tables, each (world, body): G5's R9
+# with its conditional sum's test `o.c > 1` written `o.c >= 1`, an operator
+# MC G7's test law (rows.mysql_sum_test) refuses, so that body keeps the
+# conditional-sum refusal even while every cell law is open.
+_NUMERIC_FORGED_CONTROLS = {
+    "G5_R9_ge": (
+        _pietto_sql_emission.grouping_world,
+        _pietto_sql_emission.G5_REFUSALS["R9"].replace("o.c > 1", "o.c >= 1"),
+    ),
+}
+assert _NUMERIC_FORGED_CONTROLS["G5_R9_ge"][1] != _pietto_sql_emission.G5_REFUSALS["R9"]
+
+
 # Each refused S01/S02 body, the S01 WHERE cell whose literal a bind-safe
 # `?` replaces, each MC G1 to G6 (`G2_` to `G6_` before its name) neighbour
-# under a policy that refuses it, and each SMALLINT read that G1, G2, G4 and
-# G5 leave in S02's cell (`G1S_`, `G2K_`, `G4S_` and `G5S_` before its
-# name).
+# under a policy that refuses it, each SMALLINT read that G1, G2, G4 and G5
+# leave in S02's cell (`G1S_`, `G2K_`, `G4S_` and `G5S_` before its name),
+# and the forged-only controls under bind-safe literals.
 _NUMERIC_FORGED = [
     *(
         (shape, "preserve_literals")
         for shape in sorted(_pietto_sql_emission.NUMERIC_REFUSALS)
     ),
     ("s01_where", "bind_safe_literals"),
+    *((shape, "bind_safe_literals") for shape in sorted(_NUMERIC_FORGED_CONTROLS)),
     *(
         (
             shape,
@@ -3172,10 +3189,14 @@ _NUMERIC_ALIASES = {
 def _numeric_forged_world(shape):
     """The world, keywords and body of a forged numeric shape: a G2 to G5
     neighbour (`G2_` to `G5_` before its name) over grouping_world, a G6
-    one (`G6_`) over join_world (with G6_REFUSAL_WORLDS' keywords), or a
+    one (`G6_`) over join_world (with G6_REFUSAL_WORLDS' keywords) or a
     SMALLINT read beside G1, G2 or G3 (`G1S_`, `G2K_`) or under G4's
     organization or G5's placeholders (`G4S_`, `G5S_`) over division_world
-    (or G4_SMALLINT_WORLDS' world)."""
+    (or G4_SMALLINT_WORLDS' world); a forged-only control
+    (_NUMERIC_FORGED_CONTROLS) over its own world."""
+    if shape in _NUMERIC_FORGED_CONTROLS:
+        world, body = _NUMERIC_FORGED_CONTROLS[shape]
+        return world, {}, body
     if shape.startswith("G6_"):
         return (
             _pietto_sql_emission.join_world,
@@ -6582,10 +6603,11 @@ def test_forged_mysql_s03_sums_fail_every_reader(tmp_path, monkeypatch, shape):
     statement counts as a paired form, with its observation and compiled
     bundle exported under that law, fails plain verification and the live
     template (plan), the pure boundary (document) and compiled replay and
-    its template (records) once the law is back. A relation alias,
-    parentheses and an imported source fail the plan's readers only: the
-    document and records are the form's apart from source positions and
-    the source digest (S03_ALIASES)."""
+    its template (records) once the law is back. A relation alias and an
+    imported source fail the plan's readers only: the document and records
+    are the form's apart from source positions and the source digest
+    (S03_ALIASES). ORDER BY and an upstream beside a conditional sum stay
+    outside MC G7's cell (G3 and G4 do not open it) in every reader."""
     import _pietto_sql_emission_portable as portable
     import _pietto_sql_emission_pure_boundary as pure
     from pietto._project import project_sql_emission_rows as rows
@@ -6599,18 +6621,12 @@ def test_forged_mysql_s03_sums_fail_every_reader(tmp_path, monkeypatch, shape):
         verify_project_sql_emission,
     )
 
-    (policy,) = _pietto_sql_emission.S03_REFUSAL_POLICIES.get(
-        shape, ("preserve_literals",)
-    )
     with monkeypatch.context() as patch:
         patch.setattr(
             rows, "mysql_s03_statement", lambda request: request.family == "mysql"
         )
         _, outcome = _pietto_sql_emission.s03_world(
-            tmp_path / "forged",
-            "mysql",
-            _pietto_sql_emission.S03_REFUSALS[shape],
-            policy,
+            tmp_path / "forged", "mysql", _pietto_sql_emission.S03_REFUSALS[shape]
         )
         artifact = outcome.artifact
         if shape in _S03_UNFORGEABLE:
@@ -6679,19 +6695,19 @@ def _s03_document_edit(kind, name, change):
     return edit
 
 
-# Per tamper: the form, its records' and its document's edit, and the pure
-# boundary's detail.
+# Per tamper: the form's body, its records' and its document's edit, and the
+# pure boundary's detail.
 # A LEFT J1 and J2 with its ON operands reversed are MC G6's cells
 # (G6_S03_CELLS), so the JOIN tampers make a FULL J1 and a `>=` in J2's ON.
 _S03_TAMPERS = {
     "join_kind": (
-        "J1",
+        _pietto_sql_emission.S03_FORMS["J1"],
         _s03_record_edit("join", "kind", lambda value, record: "full"),
         _s03_document_edit("join_body", "join_kind", lambda value, fields: "full"),
         "sum result",
     ),
     "on_operator": (
-        "J2",
+        _pietto_sql_emission.S03_FORMS["J2"],
         _s03_record_edit(
             "operation",
             "operator",
@@ -6707,7 +6723,7 @@ _S03_TAMPERS = {
         "sum result",
     ),
     "test_operator": (
-        "C3",
+        _pietto_sql_emission.S03_FORMS["C3"],
         _s03_record_edit(
             "operation",
             "operator",
@@ -6722,25 +6738,97 @@ _S03_TAMPERS = {
         ),
         "conditional aggregate shape",
     ),
-    "key_carrier": (
-        "C1",
+    "null_test_negated": (
+        _pietto_sql_emission.S03_FORMS["C2"],
         _s03_record_edit(
-            "field",
-            "physical",
+            "operation",
+            "operator",
             lambda value, record: (
-                value.replace('"my_int"', '"my_bigint"')
-                if record.get("label") == "customer"
+                ("null_test", "is_not_null")
+                if value == ("null_test", "is_null")
                 else None
             ),
         ),
         _s03_document_edit(
-            "bound_field",
-            "representation",
-            lambda value, fields: (
-                value.replace('"my_int"', '"my_bigint"')
-                if fields["name"] == "customer"
+            "sql_operation",
+            "operator",
+            lambda value, fields: "is not null" if value == "is null" else None,
+        ),
+        "conditional aggregate shape",
+    ),
+    # MC G7: a test outside its law, deep in T1's `and` or T5's tree, or a
+    # sign other than `-` before T3's literal.
+    "g7_test_operator": (
+        _pietto_sql_emission.G7_FORMS["T1"],
+        _s03_record_edit(
+            "operation",
+            "operator",
+            lambda value, record: (
+                ("comparison", ">=") if value == ("comparison", ">") else None
+            ),
+        ),
+        _s03_document_edit(
+            "sql_operation",
+            "operator",
+            lambda value, fields: ">=" if value == ">" else None,
+        ),
+        "conditional aggregate shape",
+    ),
+    "g7_null_test_negated": (
+        _pietto_sql_emission.G7_FORMS["T5"],
+        _s03_record_edit(
+            "operation",
+            "operator",
+            lambda value, record: (
+                ("null_test", "is_not_null")
+                if value == ("null_test", "is_null")
                 else None
             ),
+        ),
+        _s03_document_edit(
+            "sql_operation",
+            "operator",
+            lambda value, fields: "is not null" if value == "is null" else None,
+        ),
+        "conditional aggregate shape",
+    ),
+    **{
+        name: (
+            body,
+            _s03_record_edit(
+                "literal",
+                "value",
+                lambda value, record: (
+                    wire.Scalar("Int", -value.value) if value.tag == "Int" else None
+                ),
+            ),
+            _s03_document_edit(
+                "sql_literal",
+                "value",
+                lambda value, fields: (
+                    {**value, "value": "-" + value["value"]}
+                    if value["tag"] == "Int"
+                    else None
+                ),
+            ),
+            "conditional aggregate shape",
+        )
+        for name, body in (
+            ("g7_negative_literal_under_minus", _pietto_sql_emission.G7_FORMS["T3"]),
+            ("s03_negative_literal", _pietto_sql_emission.S03_FORMS["C3"]),
+        )
+    },
+    "g7_literal_sign": (
+        _pietto_sql_emission.G7_FORMS["T3"],
+        _s03_record_edit(
+            "operation",
+            "operator",
+            lambda value, record: ("unary", "+") if value == ("unary", "-") else None,
+        ),
+        _s03_document_edit(
+            "sql_unary",
+            "operator",
+            lambda value, fields: "+" if value == "-" else None,
         ),
         "conditional aggregate shape",
     ),
@@ -6750,17 +6838,17 @@ _S03_TAMPERS = {
 @pytest.mark.parametrize("tamper", sorted(_S03_TAMPERS))
 def test_tampered_mysql_s03_forms_fail_compiled_and_pure_readers(tmp_path, tamper):
     """A forger who rewrites a native S03 bundle or observation so that the
-    JOIN's kind or its ON operator, C3's test operator or C1's key carrier
-    differ from the form, outside MC G6's cell too, gets compiled replay and
-    the pure boundary to refuse it; the untouched bytes pass."""
+    JOIN's kind or its ON operator, outside MC G6's cell too, C3's test
+    operator or C2's `is None` differ from the form, or a G7 form's test
+    leaves G7's law, gets compiled replay and the pure boundary to refuse
+    it; the untouched bytes pass. A key of another carrier is no tamper
+    since G2 and G7: C1 by a BIGINT key is in G7's cell."""
     import _pietto_sql_emission_portable as portable
     import _pietto_sql_emission_pure_boundary as pure
     from pietto._project.project_compiled_lowering import emit_compiled
 
-    form, records, document, detail = _S03_TAMPERS[tamper]
-    _, outcome = _pietto_sql_emission.s03_world(
-        tmp_path, "mysql", _pietto_sql_emission.S03_FORMS[form]
-    )
+    body, records, document, detail = _S03_TAMPERS[tamper]
+    _, outcome = _pietto_sql_emission.s03_world(tmp_path, "mysql", body)
     artifact = outcome.artifact
     assert artifact is not None
     observed = portable.export_emission_observation(artifact, artifact.request)
@@ -6778,6 +6866,122 @@ def test_tampered_mysql_s03_forms_fail_compiled_and_pure_readers(tmp_path, tampe
         _numeric_document(document(json.loads(observed.canonical_bytes)))
     )
     assert (refused.status, refused.detail) == (pure.Status.INVALID_RELATION, detail)
+
+
+# MC G7: refused shapes that no artifact holds even with G7's law open (a
+# label too long, a sum of an expression, which the guarded SUM's argument
+# law takes not, the conditional count, a composed sum, an Int literal
+# outside the range, a Bool literal, a SMALLINT argument, whose conditional
+# sum is no non-null Int then), and those whose
+# relation alias, unread window or imported source leaves the records and
+# document of the same body read directly.
+_G7_UNFORGEABLE = {
+    "any": "PIE-B1003",
+    "all": "PIE-B1003",
+    "R1": "PIE-B1002",
+    "R2": "PIE-B1004",
+    "X3": "PIE-B1003",
+    "X4": "PIE-B1003",
+    "X9": "PIE-B1002",
+    "X10": "PIE-B1003",
+    "smallint_argument": "PIE-B1002",
+}
+_G7_ALIASES = {
+    "R6": "query result:\n    from orders\n    group by customer\n    select:\n"
+    "        customer\n        paid = sum(o.amount for o in group if o.flag or o.id > 3)\n",
+    "R8": _pietto_sql_emission.G7_FORMS["T1"],
+    "window": _pietto_sql_emission.G7_FORMS["T1"],
+}
+
+
+@pytest.mark.parametrize("shape", sorted(_pietto_sql_emission.G7_REFUSALS))
+def test_forged_mysql_g7_sums_fail_every_reader(tmp_path, monkeypatch, shape):
+    """An artifact of each G7 neighbour, emitted while every MySQL sum and
+    conditional sum counts as in an S02 cell over any Int argument and any
+    test, with its observation and compiled bundle exported under that law,
+    fails plain verification and the live template (plan), the pure
+    boundary (document) and compiled replay and its template (records) once
+    the law is back. A relation alias, an unread window and an imported
+    source fail the plan's readers only (_G7_ALIASES); the pure boundary's
+    closed schema has no header parameter."""
+    import _pietto_sql_emission_portable as portable
+    import _pietto_sql_emission_pure_boundary as pure
+    from pietto._project import project_sql_emission_rows as rows
+    from pietto._project.project_compiled_lowering import emit_compiled
+    from pietto._project.project_execution_template import (
+        BindingError,
+        prepare_compiled_template,
+        prepare_live_template,
+    )
+    from pietto._project.project_sql_emission_verification import (
+        verify_project_sql_emission,
+    )
+
+    (policy,) = _pietto_sql_emission.G7_REFUSAL_POLICIES.get(
+        shape, ("preserve_literals",)
+    )
+    with monkeypatch.context() as patch:
+        _numeric_cells_opened(patch)
+        patch.setattr(rows, "mysql_sum_test", lambda value: True)
+        world = getattr(
+            _pietto_sql_emission,
+            _pietto_sql_emission.G7_WORLDS.get(shape, "s03_world"),
+        )
+        _, outcome = world(
+            tmp_path / "forged",
+            "mysql",
+            _pietto_sql_emission.G7_REFUSALS[shape],
+            policy,
+        )
+        artifact = outcome.artifact
+        if shape in _G7_UNFORGEABLE:
+            assert artifact is None
+            assert {
+                blocker["code"]
+                for blocker in json.loads(serialize_project_sql_emission(outcome))[
+                    "blockers"
+                ]
+            } == {_G7_UNFORGEABLE[shape]}
+            return
+        assert artifact is not None, outcome.blockers
+        observed = portable.export_emission_observation(artifact, artifact.request)
+        loaded = _numeric_loaded(artifact)
+    assert not verify_project_sql_emission(artifact, artifact.request).verified
+    with pytest.raises(BindingError, match="^BINDING_ARTIFACT$"):
+        prepare_live_template(artifact)
+    values = tuple(value.value for value in artifact.fixed_values)
+    if shape in _G7_ALIASES:
+        _, direct = _pietto_sql_emission.s03_world(
+            tmp_path / "direct", "mysql", _G7_ALIASES[shape]
+        )
+        assert direct.artifact is not None
+        assert artifact.rendered.sql == direct.artifact.rendered.sql
+        assert observed.canonical_bytes is not None
+        assert (
+            pure.parse_emission_observation(observed.canonical_bytes).status
+            is pure.Status.OK
+        )
+        assert emit_compiled(loaded, values).rendered.sql == artifact.rendered.sql
+        return
+    if artifact.request.plan.parameters:
+        assert observed.status is portable.ObservationStatus.OUTSIDE_SCHEMA
+    else:
+        assert observed.canonical_bytes is not None
+        refused = pure.parse_emission_observation(observed.canonical_bytes)
+        assert (refused.status, refused.detail) == (
+            pure.Status.INVALID_RELATION,
+            # The lower level's plain sum, or the `let` sum beside S02's own
+            # SMALLINT key, fails first.
+            "sum result"
+            if shape in ("lower", "smallint_key_let", "smallint_key_sum")
+            else "conditional aggregate shape",
+        )
+    for replay in (
+        lambda: emit_compiled(loaded, values),
+        lambda: prepare_compiled_template(loaded),
+    ):
+        with pytest.raises(wire.CompiledError, match="^COMPILED_AGGREGATE_ARGUMENT$"):
+            replay()
 
 
 # Phase77 S15: MySQL Int % and Float % cells (template T15-1).

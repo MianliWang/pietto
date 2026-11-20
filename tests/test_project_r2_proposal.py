@@ -1509,8 +1509,9 @@ _FIRST = (
 # Int and of a Float), S02 beside S01, R08's `Int /` over a literal
 # divisor, MC G1's INT and `let` carriers, MC G2's aggregates and keys,
 # MC G3's later clauses, MC G4's relation alias and aggregating upstream,
-# MC G5's header parameter, and MC G6's JOIN chains and `on` literal
-# comparisons.
+# MC G5's header parameter, MC G6's JOIN chains and `on` literal
+# comparisons, and MC G7's compound tests and conditional sums beside other
+# aggregates under a WHERE.
 PHASE77_MYSQL_FORMS = {
     "S05": ("agg", _STATISTIC),
     "S06_join": (
@@ -1615,6 +1616,17 @@ PHASE77_MYSQL_FORMS = {
         "    left join i on i.order_id == orders.id and i.units > 0\n"
         "    group by orders.id\n    select:\n        id = orders.id\n"
         "        qty = sum(i.qty)\n        m = count(i.id)\n",
+    ),
+    "G7_tests": (
+        "s03",
+        "query result:\n    from orders\n    select:\n        x = sum(o.amount"
+        " for o in group if (o.flag is None or o.customer > -2) and not o.flag)\n",
+    ),
+    "G7_beside": (
+        "s03",
+        "query result:\n    from orders\n    where nn > 0\n    group by customer\n"
+        "    select:\n        customer\n        x = sum(amount)\n"
+        "        y = sum(o.customer for o in group if o.flag)\n        c = count()\n",
     ),
     "S15": (
         "remainder",

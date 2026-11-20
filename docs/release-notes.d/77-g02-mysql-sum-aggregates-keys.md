@@ -39,7 +39,8 @@
   `sum_int_aggregate_range_proof_missing` where that is its blocker). Among
   them are another aggregate beside a `sum` (`stddev`, `variance`,
   `pvariance`, `pstdev`, `median`, `quantile`, `string_agg`, a conditional
-  `sum` or count, `any`, `all`, a `count_distinct` of two fields), a `max`,
+  count, a conditional `sum` outside the G7 note below, `any`, `all`, a
+  `count_distinct` of two fields), a `max`,
   `avg` or `count_distinct` of an expression (`avg(k * 2)`), of a `let`
   name or of a field of another storage, a GROUP BY key of another storage
   (a `Bool` included), HAVING, ORDER BY, LIMIT and DISTINCT other than

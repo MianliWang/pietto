@@ -52,10 +52,12 @@
   (`id > -lo`, `id > lo + 1`, which leave a binding obligation), a
   parameter or a placeholder beside a HAVING line that reads no `sum`, a
   nullable parameter on a HAVING line, a bind-safe literal in an
-  aggregating upstream's WHERE or in a conditional `sum`, and a header
-  parameter, read or not, or a placeholder beside S02's own `SMALLINT`
-  reads (a `SMALLINT` GROUP BY key, or a `count` or `min` of a `SMALLINT`
-  field), which keep S02's own cell as the G1 note states. R2
+  aggregating upstream's WHERE, a placeholder in a statement with a
+  conditional `sum` (whose test literals the G7 note below keeps inline
+  under `bind-safe`), and a header parameter, read or not, or a
+  placeholder beside S02's own `SMALLINT` reads (a `SMALLINT` GROUP BY
+  key, or a `count` or `min` of a `SMALLINT` field), which keep S02's own
+  cell as the G1 note states. R2
   `save_recoverable` and `recover` refuse a MySQL query of these forms with
   PIE-R1004 (`detail` `PUBLIC_R2_UNQUALIFIED_FORM`), as for the other forms
   that MySQL opened after `0.1.11`.

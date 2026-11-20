@@ -40,9 +40,9 @@
   alias other than the G4 note below opens, and shapes that the S02 cell
   excludes, such as a header parameter and a bind-safe `?` other than the
   G5 note below opens, an aggregate beside the `sum` other than
-  those the G2 note below opens, HAVING, ORDER BY, LIMIT and DISTINCT
-  other than the G3 note below opens, and a `sum` outside every cell
-  beside it.
+  those the G2 and G7 notes below open, HAVING, ORDER BY, LIMIT and
+  DISTINCT other than the G3 note below opens, and a `sum` outside every
+  cell beside it.
   R2 `save_recoverable` and `recover` refuse a MySQL query of these forms
   with PIE-R1004 (`detail` `PUBLIC_R2_UNQUALIFIED_FORM`), as for the other
   forms that MySQL opened after `0.1.11`.

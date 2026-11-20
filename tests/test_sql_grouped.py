@@ -3390,7 +3390,8 @@ def test_mysql_g2_sql_is_main_max_sql_but_the_guard(tmp_path, name):
 def test_mysql_g2_neighbours_keep_main_refusal(tmp_path, shape, policy):
     """Rule two (D77.37): a statement the G2 law matches beside another
     blocker (a label too long, a sum outside every cell) and one outside
-    it (`string_agg`, a conditional count or sum, a `count_distinct` of two
+    it (`string_agg`, a conditional count (a conditional sum is MC G7's
+    cell), a `count_distinct` of two
     fields, `stddev`, `variance`, `pvariance`, `pstdev`, `median`,
     `quantile`, `any` or `all`, an `avg` of an expression, a Bool key or
     `count_distinct`, a `max` of a `let`) keep main's blockers, object for
@@ -4163,16 +4164,13 @@ def _s03_blockers(outcome):
 @pytest.mark.parametrize("shape", sorted(probe.S03_REFUSALS))
 def test_mysql_sums_outside_the_s03_forms_keep_main_refusal(tmp_path, shape, policy):
     """D77.24: every MySQL statement that is not, names aside, one of the
-    nine paired forms keeps main's blockers, object for object, under each
-    policy it is refused with (rule two, D77.37): a test other than `F`,
-    `not F`, `F is None` or `I > L`, a negative literal, an INT argument,
-    a sum beside count() or a direct sum, WHERE, ORDER BY, a row alias, an
-    upstream query or a third level, an extra or a missing upstream item,
-    two fields under C2's tests, a qualified C key, parentheses, an imported
-    source, and a form beside a composed aggregate; MC G6 opens the JOIN
-    ones (G6_S03_CELLS). PostgreSQL emits each as main does."""
-    if policy not in probe.S03_REFUSAL_POLICIES.get(shape, (policy,)):
-        pytest.skip("refused under its own policy only")
+    nine paired forms, nor in the cells that MC G6 (G6_S03_CELLS) and MC G7
+    (G7_CELLS) open, keeps main's blockers, object for object, under both
+    policies (rule two, D77.37): a test outside G7's atoms, ORDER BY, a row
+    alias or an upstream query beside a conditional sum, a third level, an
+    extra or a missing upstream item, a second-level WHERE, an imported
+    source, and a form beside a composed aggregate. PostgreSQL emits each as
+    main does."""
     body = probe.S03_REFUSALS[shape]
     _, outcome = probe.s03_world(tmp_path / "mysql", "mysql", body, policy)
     assert outcome.status == "BLOCKED" and outcome.artifact is None

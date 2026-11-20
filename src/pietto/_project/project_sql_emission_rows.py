@@ -187,8 +187,9 @@ _MYSQL_SLOT_PLAN_TABLES = frozenset({"literal_slots", "bind_uses"})
 _MYSQL_CELL_AUTHORED = frozenset(
     {"span", "name", "from_clause", "where_clause", "group_by_clause", "select_items"}
 )
-# The aggregates an S02 cell's aggregation may hold beside its sums.
-MYSQL_SUM_STAGE_FUNCTIONS = frozenset({"sum", "count", "min"})
+# The aggregates an S02 cell's aggregation may hold beside its sums; MC G7
+# counts a conditional sum as a sum (mysql_filtered_sum_cell).
+MYSQL_SUM_STAGE_FUNCTIONS = frozenset({"sum", "filtered_sum", "count", "min"})
 # MC G1: the storages of an S02 cell sum's field, nullable or not.
 MYSQL_SUM_CARRIERS = ({"kind": "my_bigint"}, {"kind": "my_int"})
 # MC G2: the storage kinds of an S02 cell's GROUP BY key fields, and of the
@@ -730,9 +731,11 @@ def mysql_sum_query(plan, stage, keys, columns) -> bool:
     query reads upstream extremes and averages under _mysql_upstream_read,
     and the query has no WHERE and no HAVING, ORDER BY, LIMIT or DISTINCT.
     MC G5: the query may declare header parameters and hold bind-safe
-    slots, placed as mysql_sum_placeholders has them. The scans of the
-    plan's aggregates and expressions run only for a query with one or two
-    aggregations."""
+    slots, placed as mysql_sum_placeholders has them. MC G7: a conditional
+    sum counts as a sum (MYSQL_SUM_STAGE_FUNCTIONS), but its query takes none
+    of G3's clauses, G4's organization, G5's placeholders or G6's JOINs
+    (mysql_checked_query with ``lets`` alone). The scans of the plan's aggregates
+    and expressions run only for a query with one or two aggregations."""
 
     from pietto._project.project_sql_emission_aggregation import function_name
     from pietto.ast_nodes import LetBinding
@@ -747,6 +750,13 @@ def mysql_sum_query(plan, stage, keys, columns) -> bool:
         parameters=True,
         joins=True,
     ):
+        return False
+    # MC G7: a statement with a conditional sum takes none of G3's clauses,
+    # G4's organization, G5's placeholders or G6's JOINs, so each keeps its
+    # refusal beside one.
+    if any(
+        function_name(value.source) == "filtered_sum" for value in plan.aggregates
+    ) and not mysql_checked_query(plan, aggregate=True, lets=True):
         return False
     levels = _mysql_levels(plan)
     assert levels is not None
@@ -918,9 +928,9 @@ def mysql_sum_smallint(plan, keys, columns, own) -> bool:
     none of MC G4's organization, an upstream included, and no MC G5 header
     parameter or bind-safe slot (mysql_checked_query without MC G1's
     ``lets``, MC G3's ``clauses``, MC G4's ``organized`` and MC G5's
-    ``parameters`` and ``slots``), whose every sum reads a nullable BIGINT
-    source field (mysql_checked_operands). Linear in the aggregation's
-    values."""
+    ``parameters`` and ``slots``), whose every sum is an unconditional
+    sum of a nullable BIGINT source field
+    (mysql_checked_operands). Linear in the aggregation's values."""
 
     from pietto._project.project_sql_emission_aggregation import function_name
 
@@ -952,7 +962,7 @@ def mysql_sum_smallint(plan, keys, columns, own) -> bool:
         own
         and mysql_checked_query(plan, aggregate=True)
         and all(
-            function_name(value.source) != "sum"
+            function_name(value.source) not in ("sum", "filtered_sum")
             or (column := read(value)) is not None
             and mysql_field_column(column)
             and mysql_checked_operands((column.realization,))
@@ -1240,6 +1250,52 @@ def mysql_sum_cell(aggregate, argument) -> bool:
         or type(getattr(source, "fact", None)) is ProjectAggregateResultFact
         and type(argument) is SQLStageReference
         and mysql_carried_column(argument.column)
+    )
+
+
+def mysql_filtered_sum_cell(aggregate, argument, test) -> bool:
+    """MC G7: a conditional sum of a mysql_sum_query stage is in its cell as
+    a sum is (mysql_sum_cell), its test built by mysql_sum_test."""
+
+    return mysql_sum_cell(aggregate, argument) and mysql_sum_test(test)
+
+
+def mysql_sum_test(value) -> bool:
+    """MC G7: a conditional sum's test as realized, every `def` call inlined:
+    `not`, `and` and `or` over these atoms, to any depth: a read of a
+    source field (mysql_field) of MySQL Bool storage, its `is None`, and a
+    read of a BIGINT or INT source field `>` an Int literal, written `N` or
+    `-N`. Linear in the test."""
+
+    if type(value) is SQLStageReference:
+        return mysql_field(value) and value.realization.storage == {"kind": "my_bool01"}
+    if type(value) is not SQLOperation:
+        return False
+    operands = value.operands
+    if value.kind == "logical":
+        return value.original.expression.operator in LOGICAL and all(
+            mysql_sum_test(operand) for operand in operands
+        )
+    if value.kind == "not":
+        return mysql_sum_test(operands[0])
+    if value.kind == "null_test":
+        return (
+            value.original.expression.negated is False
+            and type(operands[0]) is SQLStageReference
+            and mysql_sum_test(operands[0])
+        )
+    if value.kind != "comparison" or value.original.expression.operator != ">":
+        return False
+    left, right = operands
+    if type(right) is parameters.SQLUnary and right.original.expression.operator == "-":
+        right = right.operand
+    return (
+        mysql_field(left)
+        and left.realization.storage in MYSQL_SUM_CARRIERS
+        and type(right) is parameters.SQLAnchor
+        and type(right.operand) is parameters.SQLLiteral
+        and type(right.operand.value) is int
+        and right.operand.value >= 0
     )
 
 
@@ -1678,7 +1734,12 @@ def mysql_compiled_cells(
     of a marked port whose field's physical storage is of
     MYSQL_SUM_KEY_KINDS, and each value a sum, count or min or a
     `count_distinct`, `max` or `avg` of one such read of its
-    MYSQL_SUM_BESIDE storage.
+    MYSQL_SUM_BESIDE storage. MC G7 counts a conditional sum as a sum: its
+    value is one when it reads a marked port and its test is
+    mysql_sum_test's, from the records (_mysql_compiled_test), and, as in
+    emission (mysql_sum_query), an aggregate beside one at either level
+    keeps G2's cell alone: no HAVING row, result record, upstream, JOIN,
+    header parameter or bind-safe slot.
     Below its WHERE row, an S02 aggregate may stand over one `let` row of
     its declaration per value `let`, whose ports are marked as the WHERE
     row's are and which keeps MC G1's law (_mysql_compiled_lets). MC G4:
@@ -1700,7 +1761,7 @@ def mysql_compiled_cells(
     carries), at the query's aggregate or an upstream's, S02's own law
     holds, the aggregate stands over no `let` row, upstream or JOIN, under
     no HAVING row or result, beside no header parameter or bind-safe slot,
-    and its every sum reads a nullable BIGINT field (mysql_sum_smallint).
+    and its every sum is an unconditional sum of a nullable BIGINT field (mysql_sum_smallint).
     S15 cells need a terminal straight over the source, each of whose values
     is a read of a marked port whose field's physical storage is its tag's
     MYSQL_REMAINDER_CARRIERS one, or a `%` that no other counted record
@@ -2272,6 +2333,15 @@ def mysql_compiled_cells(
             # MC G6: no header parameter or bind-safe slot over JOIN rows.
             or joins
             and (parameters or slotted)
+            # MC G7: beside a conditional sum, at either level, G2's cell
+            # alone: no clause, upstream, JOIN, parameter or slot.
+            or any(
+                records[value].get("function") == "filtered_sum"
+                for unit in (aggregate, inner)
+                if unit is not None
+                for value in unit.get("values")
+            )
+            and bool(clauses or upper or joins or parameters or reads or slotted)
         ):
             return empty
         below = aggregate if satisfying is None else satisfying
@@ -2291,7 +2361,7 @@ def mysql_compiled_cells(
         # count or min of one SMALLINT field read, of the query's aggregate
         # or an upstream's, S02's own law holds, no upstream, JOIN, `let`
         # row, HAVING row, result, header parameter or bind-safe slot stands
-        # and every sum reads one field of nullable BIGINT storage.
+        # and every sum is an unconditional sum of a nullable BIGINT field.
         items = [
             records[value]
             for unit in (aggregate, inner)
@@ -2320,18 +2390,35 @@ def mysql_compiled_cells(
             or slotted
             or not own_law(aggregate, field)
             or not all(
-                item.get("function") != "sum"
-                or len(item.get("arguments")) == 1
+                item.get("function") not in ("sum", "filtered_sum")
+                or item.get("function") == "sum"
+                and len(item.get("arguments")) == 1
                 and nullable_bigint(item.get("arguments")[0])
                 for item in items
             )
         ):
             return empty
+        tested: dict = {}
+
+        def kind(address) -> object:
+            return storage_kind(address) if field(address) else None
+
         return (
             frozenset(),
             frozenset(
                 summed(aggregate, carried)
                 | (summed(inner, field) if inner is not None else set())
+                # MC G7: a conditional sum of a field under a G7 test.
+                | {
+                    value
+                    for value in aggregate.get("values")
+                    if records[value].get("function") == "filtered_sum"
+                    and len(records[value].get("arguments")) == 2
+                    and field(records[value].get("arguments")[0])
+                    and _mysql_compiled_test(
+                        records, records[value].get("arguments")[1], kind, tested
+                    )
+                }
             ),
             frozenset(),
             frozenset(),
@@ -2549,6 +2636,51 @@ def _mysql_compiled_joins(records, joins) -> bool:
         if not linked:
             return False
     return True
+
+
+def _mysql_compiled_test(records, address, kind, tested) -> bool:
+    """MC G7, from the records: a conditional sum's test as mysql_sum_test
+    reads it, ``kind`` the physical storage kind of the field that a read
+    of a marked port reads (None for any other address). ``tested``
+    remembers each operation's verdict, False while it is being read, so a
+    shared operand is read once and a cycle is refused."""
+
+    if address.kind != "operation":
+        return kind(address) == "my_bool01"
+    if address in tested:
+        return tested[address]
+    tested[address] = False
+    operation = records[address]
+    operator, operands = operation.get("operator"), operation.get("operands")
+    if operator in (("binary", "and"), ("binary", "or")):
+        verdict = len(operands) == 2 and all(
+            _mysql_compiled_test(records, item, kind, tested) for item in operands
+        )
+    elif operator in (("not", "not"), ("null_test", "is_null")):
+        verdict = (
+            len(operands) == 1
+            and (operator[0] == "not" or operands[0].kind == "read")
+            and _mysql_compiled_test(records, operands[0], kind, tested)
+        )
+    elif operator == ("comparison", ">") and len(operands) == 2:
+        left, right = operands
+        if (
+            right.kind == "operation"
+            and records[right].get("operator") == ("unary", "-")
+            and len(records[right].get("operands")) == 1
+        ):
+            right = records[right].get("operands")[0]
+        verdict = (
+            kind(left) in ("my_bigint", "my_int")
+            and right.kind == "literal"
+            and records[right].get("tag") == "Int"
+            and type(getattr(records[right].get("value"), "value", None)) is int
+            and records[right].get("value").value >= 0
+        )
+    else:
+        verdict = False
+    tested[address] = verdict
+    return verdict
 
 
 def _mysql_compiled_lets(records, rows, aggregate) -> bool:
