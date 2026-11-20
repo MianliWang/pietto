@@ -1594,10 +1594,12 @@ ORIGIN_BLOCKED = (
 @pytest.mark.parametrize("body", (LITERAL, GROUPED))
 def test_admitted_literal_and_materialized_aggregate_window_carriers(target, body):
     outcome = _build(_widths_item(target, body))
+    # A MySQL max of a SMALLINT is a cast SIGNED BIGINT (OD-0118B(1)), so the
+    # window value over it is a my_bigint, as over a literal.
     kind = (
         ("pg_int8" if body == LITERAL else "pg_int2")
         if target == "postgres"
-        else ("my_bigint" if body == LITERAL else "my_int")
+        else "my_bigint"
     )
     domain = (1, 1) if body == LITERAL else (3, 7)
     assert _representations(outcome)["w"] == _int_representation(kind, *domain)
@@ -1984,14 +1986,20 @@ def test_materialized_aggregate_carrier_uses_its_result_field(target, function):
     body = GROUPED.replace("max(s)", function)
     outcome = _build(_widths_item(target, body))
     counting = function.startswith("count")
+    # A MySQL grouped min or max of the SMALLINT `s` is cast to SIGNED, a
+    # my_signed_int (OD-0118B(1)), so the window value over it is a
+    # my_bigint, as over a count; it keeps the field's own range 3..7. A
+    # PostgreSQL one stays an uncast int2.
     kind = (
-        ("pg_int8" if counting else "pg_int2")
-        if target == "postgres"
-        else ("my_bigint" if counting else "my_int")
+        ("pg_int8" if counting else "pg_int2") if target == "postgres" else "my_bigint"
     )
     assert _representations(outcome)["w"] == _int_representation(
         kind, *((0, I64_MAX) if counting else (3, 7))
     )
+    if not counting:
+        extreme = f"CAST({function[:3].upper()}("
+        sql = outcome.artifact.rendered.sql.decode()
+        assert (extreme in sql) is (target == "mysql")
     assert _pure(_observation(outcome.artifact))[0] is pure.Status.OK
 
 

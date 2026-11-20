@@ -2753,6 +2753,49 @@ def test_decimal_aggregate_composition_rejects_non_null_graft(
     assert _status(_encode(document))[0] is pure.Status.INVALID_RELATION
 
 
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+@pytest.mark.parametrize("field", ("storage", "domain"))
+def test_an_int_extreme_of_the_source_scan_has_its_target_carrier(
+    tmp_path, target, field
+):
+    """A `min` read straight from the source keeps its INT argument's range.
+    On PostgreSQL it keeps the argument's storage, uncast; on MySQL, as over a
+    stage (OD-0118B(1)), it is a my_signed_int cast to SIGNED. One that
+    declares another storage or range is refused."""
+    _, outcome = emission.numeric_world(
+        tmp_path,
+        target,
+        "query result:\n    from rows\n    group by k\n    select:\n"
+        "        lo = min(c)\n",
+    )
+    artifact = outcome.artifact
+    assert artifact is not None
+    data = portable.export_emission_observation(
+        artifact, artifact.request
+    ).canonical_bytes
+    assert data is not None and _status(data) == (OK, None)
+    document = json.loads(data)
+    (column,) = _records(document, "aggregate_value_column")
+    mysql = target == "mysql"
+    assert column["result_cast"] == ("SIGNED" if mysql else None)
+    realization = _record(document, _record(document, column["column"])["realization"])
+    assert realization["storage"] == {"kind": "my_signed_int" if mysql else "pg_int4"}
+    assert realization["domain"] == {
+        "kind": "int_range",
+        "min": str(-(1 << 31)),
+        "max": str((1 << 31) - 1),
+    }
+    realization[field] = {
+        # The argument's own carrier is no longer a MySQL extreme's.
+        "storage": {"kind": "my_int" if mysql else "pg_int8"},
+        "domain": {"kind": "int_range", "max": "1", "min": "-1"},
+    }[field]
+    assert _status(_encode(document)) == (
+        pure.Status.INVALID_RELATION,
+        "signed extreme result" if mysql else "extreme result",
+    )
+
+
 def test_pure_composition_rejects_external_scalar_read(tmp_path):
     item = emission.aggregate_fixture("postgres", "X_aggregate_global", "bag")
     source = item["source"].split("query result:", 1)[0] + (

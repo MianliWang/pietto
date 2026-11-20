@@ -28,12 +28,15 @@ original statement's signed values for each of the four. Single-file SQL
 writes the same cast around the same window call.
 
 So every MySQL statement, single-file or project, that reads one of these
-four functions has different stable SQL. No declared carrier changes: a set
-operation still takes its first operand's 64-bit carrier over the operands'
-merged range, so a `union all` of a rank, first, and an integer literal stays
-a `my_bigint` from 0 to 9223372036854775807, now sent as a signed `BIGINT`
-rather than a `DECIMAL`. A set of a rank beside a 16- or 32-bit operand, such
-as a `min` of an `INT` field, stays BLOCKED with `PIE-B1002`
+four functions has different stable SQL. The cast declares no new carrier:
+the rank stays a `my_bigint`, and a set operation of one merges the
+operands' ranges under R22, so a `union all` of a rank and an integer
+literal is a `my_signed_int` from 0 to 9223372036854775807, and of a rank
+and a `BIGINT` column a `my_bigint`, now sent as a signed `BIGINT` rather
+than a `DECIMAL`. A rank beside a grouped `min` of an `INT` field, now a
+cast `my_signed_int` as described above for MySQL `min` and `max`, is
+VERIFIED and runs; a rank beside a
+`SMALLINT` or `INT` column stays BLOCKED with `PIE-B1002`
 (`set_column_physical_representation_mismatch`), as no common type is taken.
 PostgreSQL's SQL and the `percent_rank` and `cume_dist` results are
 unchanged. No diagnostic code or detail is added, and no CLI JSON v1,

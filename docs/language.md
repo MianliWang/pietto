@@ -1513,7 +1513,23 @@ Float set form, a window `percent_rank` or `cume_dist` result included. On
 MySQL it keeps UNION ALL only for such a result, and it refuses Float INTERSECT
 and EXCEPT (MySQL compares `-0.0` and `0.0` as different values there) and
 UNION DISTINCT (MySQL kept them apart beside a wide key), and keeps UNION
-ALL.
+ALL. Project emission keeps an `Int` set column only when its operands have
+one physical width, and refuses one whose operands differ with PIE-B1002
+`set_column_physical_representation_mismatch`, with one MySQL exception: a
+`my_signed_int` operand, a computed signed 64-bit `Int` such as a grouped
+`min` or `max` of a `SMALLINT` or `INT` (see
+[Aggregates](#aggregates-and-grouping)), an `Int` operation or an integer
+literal, also joins `SMALLINT`, `INT` or `BIGINT` operands of one width,
+which MySQL types `BIGINT`. The column is then a `my_signed_int` over the
+operands' merged range, whatever the operand order. A `row_number`, `rank`,
+`dense_rank` or `ntile` result is a `my_bigint` cast to `SIGNED` (see
+[Windows](#windows)), so a rank beside such an extreme, such as a
+`union all` of `row_number()` and a `min` of an `INT` field, is a
+`my_signed_int` too. No other common type is inferred: an `INT` beside a
+`BIGINT` or `SMALLINT` column, a rank beside a `SMALLINT` or `INT` column,
+and a `my_signed_int` beside two other widths, stay refused. On PostgreSQL
+such an extreme keeps the field's width: one of it and a column of that
+width is admitted, and one of it and a `bigint` column is refused.
 PIE-S2342 covers unavailable inputs/width, PIE-S2343 exact types/Decimal, and
 PIE-S2344 required row equivalence. Failed sets keep their original admission
 causes; only successful exact owners retire PIE-S2334.
@@ -4476,7 +4492,19 @@ outside that cell,
 `-` it reads no query header parameter (PIE-S2355); `abs` of a `Float` or
 `Decimal` keeps its argument's carrier. It also admits `avg(Int)` for a direct
 Int input with `int_range` evidence, casting that input to the target Float
-carrier before aggregation. Empty and all-NULL inputs remain NULL. PostgreSQL
+carrier before aggregation. Empty and all-NULL inputs remain NULL. A project
+`min` or `max` keeps its argument's carrier, except that on MySQL a grouped
+one of a `SMALLINT` or `INT` is emitted as `CAST(MIN(x) AS SIGNED)` and is a
+`my_signed_int` with the argument's range, whatever its aggregation reads: a
+base table, a view or a stage (a WHERE, a `let`, another query or a JOIN).
+MySQL keeps such an extreme of a base-table column the column's type but
+returns one of a view's column, or over a stage it merges, as `BIGINT`, and
+keeps the column's type over a stage it materializes, such as a query that
+ends in `limit`; Pietto cannot tell a view from a table, and the cast makes
+each `BIGINT`. A set operation therefore reads it as a 64-bit `Int`, as the
+set operation rules above state. A `min` or `max` over a window, or of
+such an already cast extreme read from another query, keeps its argument's
+carrier and no second cast. PostgreSQL
 single-file and project SQL emission emit `sum(Int)` as
 `CAST(SUM(CAST(x AS pg_catalog.int8)) AS pg_catalog.int8)`: the
 sum accumulates exactly and its result is a nullable `Int` over the whole
@@ -5728,11 +5756,12 @@ project SQL, writes a `row_number`, `rank`, `dense_rank` or `ntile` result as
 fail with MySQL error 1690 below zero, and a set of one beside a signed
 operand would be `DECIMAL`. In a project the column stays a non-null
 `my_bigint` from 0 to 9223372036854775807 and an operation over it is a
-`my_signed_int`. A set column takes its first operand's 64-bit carrier over
-the operands' merged range, so a `union all` of a rank, first, and a literal
-or a `BIGINT` column is a `my_bigint`; a rank beside a 16- or 32-bit operand,
-such as a `min` of an `INT` field, is refused with PIE-B1002
-`set_column_physical_representation_mismatch`. PostgreSQL's SQL is unchanged.
+`my_signed_int`. A set column of a rank merges the operands' ranges: beside a
+`BIGINT` column it is a `my_bigint`, and beside a `my_signed_int`, such as a
+literal or a grouped `min` of an `INT` field, it is a `my_signed_int`, in
+either order; a rank beside a `SMALLINT` or `INT` column is refused with
+PIE-B1002 `set_column_physical_representation_mismatch`. PostgreSQL's SQL is
+unchanged.
 Partition and resolved order items preserve source order, duplicates,
 qualification, and direction. Each item names an input field or a `let`: an
 expression written there reports PIE-S2103 (`window partition expression must
