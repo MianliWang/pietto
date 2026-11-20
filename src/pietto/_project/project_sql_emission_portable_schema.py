@@ -1050,6 +1050,13 @@ SYNTAX = {
     "aggregate_guard_low": ") < -9223372036854775808 THEN "
     "CAST(-9223372036854775808 AS SIGNED) - CAST(1 AS SIGNED) ELSE CAST(SUM(",
     "aggregate_guard_close": ") AS SIGNED) END",
+    # MC.05: MySQL's guarded Float `*` (rows.MYSQL_PRODUCT_GUARD).
+    "product_guard_open": "CASE WHEN (",
+    "product_guard_zero": ") = 0 AND ",
+    "product_guard_and": " <> 0 AND ",
+    "product_guard_then": " <> 0 THEN CAST(9223372036854775807 AS SIGNED)"
+    " + CAST(1 AS SIGNED) ELSE (",
+    "product_guard_close": ") END",
     "window_partition": "PARTITION BY ",
     "window_partition_separator": ", ",
     "window_partition_qualifier": ".",
@@ -1139,8 +1146,18 @@ OVERLAYS = {
     "reference": (("value_scope",), ("value_column",)),
     "capture": (("capture_scope",), ("capture_column",)),
     "binary": (
-        ("binary_open", "float_remainder_open", "decimal_arithmetic_open"),
-        ("binary_close", "float_remainder_close", "decimal_arithmetic_close"),
+        (
+            "binary_open",
+            "float_remainder_open",
+            "decimal_arithmetic_open",
+            "product_guard_open",
+        ),
+        (
+            "binary_close",
+            "float_remainder_close",
+            "decimal_arithmetic_close",
+            "product_guard_close",
+        ),
     ),
     "comparison": (("comparison_open",), ("comparison_close",)),
     "between": (("between_open",), ("between_close",)),

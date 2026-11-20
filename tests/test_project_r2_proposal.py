@@ -1506,8 +1506,8 @@ _FIRST = (
 # One MySQL form of each slice that the unreleased Phase77 opened, with the
 # world its own tests build it in: S06 one that R2 executed refined and one
 # that failed at its first page, S06's `same_value` in a JOIN `on` (of an
-# Int and of a Float), S02 beside S01, and R08's `Int /` over a literal
-# divisor.
+# Int and of a Float), S02 beside S01, R08's `Int /` over a literal
+# divisor, MC G1's INT and `let` carriers, and MC G2's aggregates and keys.
 PHASE77_MYSQL_FORMS = {
     "S05": ("agg", _STATISTIC),
     "S06_join": (
@@ -1553,6 +1553,25 @@ PHASE77_MYSQL_FORMS = {
         "query result:\n    from orders\n    group by customer\n    select:\n"
         "        customer\n        paid = sum(o.amount for o in group if o.flag)\n",
     ),
+    "G1_int": (
+        "numeric",
+        "query result:\n    from rows\n    select:\n        x = sum(c)\n",
+    ),
+    "G1_let": (
+        "numeric",
+        "query result:\n    from rows\n    let t = n\n    select:\n        s = sum(t)\n",
+    ),
+    "G2_aggregates": (
+        "grouping",
+        "query result:\n    from rows\n    group by k\n    select:\n        k\n"
+        "        x = sum(n)\n        hi = max(c)\n        mean = avg(n)\n"
+        "        d = count_distinct(tag)\n",
+    ),
+    "G2_keys": (
+        "grouping",
+        "query result:\n    from rows\n    group by note, a\n    select:\n"
+        "        note\n        x = sum(n)\n",
+    ),
     "S15": (
         "remainder",
         "table result:\n    from nums\n    select:\n        id\n        r = a % b\n",
@@ -1565,6 +1584,17 @@ PHASE77_MYSQL_FORMS = {
         "r02",
         "table result:\n    from o\n    where not any(z.v == o.v for z in i)\n"
         "    select:\n        id\n        v\n",
+    ),
+    # MC E4 (D77.73): `+`, `-` and unary `-` beside each other under a WHERE,
+    # and the guarded `*`.
+    "E4": (
+        "float",
+        "query result:\n    from rows\n    where id > 1\n    select:\n"
+        "        id\n        a = x + 0.1\n        s = y - 0.5\n        n = -x\n",
+    ),
+    "E4_product": (
+        "float",
+        "table result:\n    from rows\n    select:\n        id\n        r = 0.5 * y\n",
     ),
 }
 # A neighbour of each that 0.1.11 already compiled, R2's cross JOIN of the
@@ -1608,6 +1638,18 @@ MYSQL_0111_FORMS = {
         "        customer\n        n = count()\n",
         _WORKSPACE,
     ),
+    "G1": (
+        "numeric",
+        "query result:\n    from rows\n    let t = n\n    group by k\n    select:\n"
+        "        k\n        m = count(t)\n",
+        _WORKSPACE,
+    ),
+    "G2": (
+        "grouping",
+        "query result:\n    from rows\n    group by note, a\n    select:\n"
+        "        note\n        hi = max(n)\n        mean = avg(c)\n",
+        _WORKSPACE,
+    ),
     "S15": (
         "remainder",
         "table result:\n    from nums\n    select:\n        id\n        r = a\n",
@@ -1622,6 +1664,12 @@ MYSQL_0111_FORMS = {
         "r02",
         "table result:\n    from o\n    where not any(z.id == o.id for z in i)\n"
         "    select:\n        id\n        v\n",
+        _WORKSPACE,
+    ),
+    "E4": (
+        "float",
+        "query result:\n    from rows\n    where id > 1\n    select:\n"
+        "        id\n        x\n        r = 0.5 * 2.0\n",
         _WORKSPACE,
     ),
     "cross": (

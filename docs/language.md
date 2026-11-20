@@ -839,13 +839,16 @@ value.
   a zero included (`0.0 * -2.0` and `-(0.0)` are `-0.0`, `x - x` is `0.0`). A
   result outside binary64 is not a value: project SQL on PostgreSQL fails the
   statement with SQLSTATE 22003 instead, and also fails it where a product of
-  two non-zero values rounds to zero, which Python gives as `0.0`. It never
-  returns an infinity or a wrong value. Project SQL folds `+`, `-` or `*` of
-  two Float literals when it is emitted, on both targets and under both
-  literal policies, and a folded result outside binary64, or a folded product
-  of two non-zero literals that rounds to zero, is BLOCKED with `PIE-B1002`
-  `float_result_not_finite`. A subnormal product, a product with a zero
-  factor and a sum or difference that is exactly zero keep their value.
+  two non-zero values rounds to zero, which Python gives as `0.0`. Project
+  SQL on MySQL fails the same statements in
+  [E4's cell](#mysql-float-arithmetic-cell), with error 1690 (SQLSTATE
+  22003). It never returns an infinity or a wrong value. Project SQL folds
+  `+`, `-` or `*` of two Float literals when it is emitted, on both targets
+  and under both literal policies, and a folded result outside binary64, or
+  a folded product of two non-zero literals that rounds to zero, is BLOCKED
+  with `PIE-B1002` `float_result_not_finite`. A subnormal product, a product
+  with a zero factor and a sum or difference that is exactly zero keep their
+  value.
 - **No later step can tell.** Every Float operation Pietto admits gives
   `==`-equal results for `==`-equal inputs. So no later filter, comparison,
   group key or set operation can tell which zero a merge kept; only the
@@ -944,6 +947,41 @@ DISTINCT (`set_row_equivalence_domain_unsupported`), `count_distinct` of a
 Float and a Float window key stay refused as well. A statement of these
 forms that emission refuses for another reason reports the blockers it has
 without the forms, this PIE-B1003 included.
+
+<a id="mysql-float-arithmetic-cell"></a>A MySQL project emits `Float` `+`,
+`-` and `*` of a field and a literal, and unary `-` of a field, in one MC E4
+cell only (MC.04). One operand is a nullable or non-null `DOUBLE` field of a
+source declared in the query's own module, read by name (`x` or `rows.x`),
+and the other, for `+`, `-` and `*`, a `Float` literal under one `-` at
+most, in either order (`x * 2.0`, `-2.0 * x`, `y + -0.0`). Each operand and
+the whole operation may also be written in parentheses (`(x) * (2.0)`,
+`y * -(2.0)`) or through a `def` call that inlines to it, a literal argument
+included (`x * two()`, `mul(x, 2.0)`, `same(-x)`); the cell is judged on
+what they inline to. The operation is the whole value of a SELECT item of
+the `query` or `table` that `emit-sql --project` emits; its other SELECT
+items may be any form the query emits otherwise. The query reads its source
+through one WHERE at most and, as written, holds no `let`, window, JOIN,
+GROUP BY or aggregate, HAVING, DISTINCT, ORDER BY, LIMIT, header parameter
+(read or not), set operand or read of another relation, and no bind-safe
+`?`: under `bind_safe_literals` a statement with a literal, a WHERE's
+included, stays refused. The SQL writes `+` and `-` as `(a + b)`, unary `-` as `(-a)`, a
+literal as `CAST(2.0e0 AS DOUBLE)`, and `*` under an underflow guard,
+`CASE WHEN (x * y) = 0 AND x <> 0 AND y <> 0 THEN
+CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) ELSE (x * y) END`,
+with `x` and `y` the two operands in their written order. MySQL's `DOUBLE`
+operators raise error 1690 (SQLSTATE 22003) where a result leaves binary64,
+and the guard's `BIGINT` branch raises it where a product of two non-zero
+values rounds to zero, which MySQL alone would return as `0.0`; PostgreSQL
+raises 22003 in both cases. The result is a `my_double` `finite_float` of
+the nullability PostgreSQL gives it, and each `+`, `-` and `*` carries the
+binary64 evidence of PostgreSQL's (a sign carries none). Every other MySQL
+`Float` arithmetic keeps its refusal: two fields (`x + y`, `x - x`), a
+nested operation (`(x * 2.0) + 1.0`, `-(-x)`), unary `+`, an `Int` literal,
+a literal under `+` or two signs, `/`, a header parameter, the same
+operation in a `let`, a WHERE, an ORDER BY key or an aggregate argument, and
+a cell's operation in a query that holds any of the clauses above; a
+statement still refused reports exactly the blockers it has without this
+cell.
 
 ## Sources and relations
 
@@ -4540,6 +4578,49 @@ nullable `Int`, NULL for no or only NULL values. A statement still refused
 reports exactly the blockers it has without either cell, a cell's own
 included, so `s = a + b` beside `t = a + 1` keeps both PIE-B1002.
 
+Since `0.2.2` (MC G1), the S02 cell also takes a `sum` of a non-null
+`BIGINT` field or of a nullable or non-null `INT` field, and a `sum` whose
+argument is the name of a value `let` of the query whose value, as written,
+is a read of one `BIGINT` or `INT` field, nullable or not (`let t = n`,
+`sum(t)`; parentheses and an identity `def`, in the `let` or around the
+name, count as above). Every `let` of the query must then be such a
+binding, read at least once, and every read of its name must be the whole
+argument of a `sum`; more than one is allowed. A `let` chain (`let u = t`),
+a `let` whose value is anything else, a `let` read in a WHERE, as the GROUP
+BY key, in a `count`, a `min` or anywhere else, a value `let` that nothing
+reads, a relation alias or window, a `SMALLINT` field and everything else
+the paragraph above excludes keep the blockers they have without G1,
+object for object: PIE-B1004 `sum_int_aggregate_range_proof_missing` where
+that is their blocker, as for `let t = c + 1`, while `let t = a + b` keeps
+only the PIE-B1002 `arithmetic_outside_physical_range` of `a + b`. The
+`sum` is the cell's guarded `SUM` over the field, read through the `let`'s
+stage where there is one, as the PostgreSQL SQL of the same query reads it,
+and its result is the same nullable `Int` whatever the field's width.
+
+Since `0.2.2` (MC G2), the S02 cell's aggregation may also hold any number
+of sums, the same argument more than once included, and beside them a
+`count_distinct` of one direct read of a `BIGINT`, `INT` or `VARCHAR` field
+and a `max` or `avg` of one direct read of a `BIGINT` or `INT` field, each
+the whole value of a SELECT item (parentheses and an identity `def` count as
+above); `count` and `min` stay as above, never of a `let` name. It may group
+by any number of fields of `BIGINT`, `INT` or `VARCHAR` storage, nullable or
+not, each selected under any names, more than once, or not at all. S02's own
+key stays as above: one non-null `Int` field of any storage, a `SMALLINT`
+one included, beside sums, counts and mins only. Another
+aggregate beside a sum (`stddev`, `variance`, `pvariance`, `pstdev`,
+`median`, `quantile`, `string_agg`, a conditional `sum` or count, `any`,
+`all`, a `count_distinct` of two fields), a `max`, `avg` or
+`count_distinct` of an expression, a `let` name or a field of another
+storage, a GROUP BY key of another storage (a `Bool` included) and
+everything the paragraphs above exclude keep the blockers they have
+without G2, object for object: `avg(k * 2)` beside a sum keeps the sum's
+PIE-B1004 `sum_int_aggregate_range_proof_missing`. Each `sum` is the cell's
+guarded `SUM`; the keys, the other aggregates, FROM, WHERE and GROUP BY are
+the MySQL SQL of the same query with each `sum` written `max`. A `min` or
+`max` of an `INT` field among them is the cast `my_signed_int` that the
+paragraph above on `min` and `max` states, whether it reads the source
+directly or through a stage.
+
 Since `0.1.12` (Phase77 S03), MySQL project SQL also emits each `sum` of an
 `Int` of a statement that is, names aside, one of nine forms its
 qualification ran on both databases, the selected definition's SELECT items
@@ -4766,7 +4847,8 @@ VERIFIED, without its sum blockers. `per_order`, which holds no sum,
 reports only the premise's blocker.
 
 Any other MySQL project `sum` of an `Int`, outside these forms and S02's
-cell, is BLOCKED with PIE-B1004 `sum_int_aggregate_range_proof_missing`.
+cell as G1 and G2 widen it, is BLOCKED with PIE-B1004
+`sum_int_aggregate_range_proof_missing`.
 This refusal is by design, not a defect: MySQL sums a `BIGINT` as a
 `DECIMAL`, which `CAST(... AS SIGNED)` would clamp, so a MySQL project emits
 only the guarded `SUM` of that cell and these forms. A plain `sum(amount)`

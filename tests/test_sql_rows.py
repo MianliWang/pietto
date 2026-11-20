@@ -2429,8 +2429,8 @@ def test_the_mysql_checked_operand_law_refuses_each_edited_carrier(tmp_path, edi
 
 
 def _key_edit(**changes):
-    def edit(plan, keys):
-        return plan, (replace(keys[0], **changes), *keys[1:])
+    def edit(plan, keys, columns):
+        return plan, (replace(keys[0], **changes), *keys[1:]), columns
 
     return edit
 
@@ -2448,11 +2448,19 @@ def _source_edit(**changes):
 # for.
 S02_QUERY_EDITS = {
     "key_not_field": _key_edit(field=None),
-    "key_not_int": lambda plan, keys: (
+    "key_storage": lambda plan, keys, columns: (
         plan,
-        (replace(keys[0], realization=replace(keys[0].realization, tag="Text")),),
+        (
+            replace(
+                keys[0],
+                realization=replace(
+                    keys[0].realization, storage={"kind": "my_smallint"}, nullable=True
+                ),
+            ),
+        ),
+        columns,
     ),
-    "select_expression": lambda plan, keys: (
+    "select_expression": lambda plan, keys, columns: (
         _plan_with(
             plan,
             expressions=(
@@ -2463,6 +2471,7 @@ S02_QUERY_EDITS = {
             ),
         ),
         keys,
+        columns,
     ),
 }
 S02_CELL_EDITS = {
@@ -2472,35 +2481,109 @@ S02_CELL_EDITS = {
 
 
 @pytest.mark.parametrize(
-    "edit", [*sorted(S02_QUERY_EDITS), *sorted(S02_CELL_EDITS), "result_carrier"]
+    "edit",
+    [
+        *sorted(S02_QUERY_EDITS),
+        *sorted(S02_CELL_EDITS),
+        "argument_carrier",
+        "result_carrier",
+    ],
 )
 def test_the_mysql_sum_cell_law_refuses_each_edited_input(tmp_path, edit):
     """The S02 laws emission asks of a MySQL aggregation and of each of its
     sums hold the native `group by k` cell and refuse it once one input
-    changes: a key that is no non-null Int source field, a SELECT item that
+    changes: a key that is no source field or a nullable SMALLINT one (S02
+    takes a non-null Int key of any storage, a SMALLINT one included, and
+    MC G2 a BIGINT, INT or VARCHAR one, nullable or not), a SELECT item that
     computes, a sum whose fact is no result fact, or a computed argument;
-    and the sum result law refuses an INT argument (S03 sums a non-null
-    BIGINT count, so the cell laws, not the result law, pin the carrier)."""
+    the cell's argument law takes a nullable or non-null BIGINT or INT
+    field (MC G1) and refuses a SMALLINT one; and the sum result law refuses
+    a SMALLINT argument too (S03 sums a non-null BIGINT count and MC G1 an
+    INT field, so the cell laws, not the result law, pin the carrier)."""
     seen = probe.numeric_law_inputs(tmp_path, probe.NUMERIC_CELLS["s02_grouped"])
-    plan, keys = seen["mysql_sum_query"]
+    plan, keys, columns = seen["mysql_sum_query"]
     aggregate, argument = seen["mysql_sum_cell"]
-    assert keys and rows.mysql_sum_query(plan, keys) is True
+    assert keys and rows.mysql_sum_query(plan, keys, columns) is True
+    small = replace(keys[0].realization, storage={"kind": "my_smallint"})
+    small_key = (replace(keys[0], realization=small),)
+    assert rows.mysql_sum_query(plan, small_key, columns) is True
     assert rows.mysql_sum_cell(aggregate, argument) is True
     if edit in S02_QUERY_EDITS:
-        assert rows.mysql_sum_query(*S02_QUERY_EDITS[edit](plan, keys)) is False
+        assert (
+            rows.mysql_sum_query(*S02_QUERY_EDITS[edit](plan, keys, columns)) is False
+        )
     elif edit in S02_CELL_EDITS:
         assert rows.mysql_sum_cell(*S02_CELL_EDITS[edit](aggregate, argument)) is (
             False
         )
+    elif edit == "argument_carrier":
+        for kind, nullable, problem in (
+            ("my_bigint", False, None),
+            ("my_int", True, None),
+            ("my_int", False, None),
+            (
+                "my_smallint",
+                True,
+                ("PIE-B1004", "sum_int_aggregate_range_proof_missing"),
+            ),
+        ):
+            realization = replace(
+                argument.realization, storage={"kind": kind}, nullable=nullable
+            )
+            assert (
+                grouping.resolved_argument_problem(
+                    "sum", True, realization, "mysql", True
+                )
+                == problem
+            )
     else:
         assert grouping.result_realization("mysql", "sum", argument, ("Int", True))[0]
         narrow = SimpleNamespace(
-            realization=replace(argument.realization, storage={"kind": "my_int"})
+            realization=replace(argument.realization, storage={"kind": "my_smallint"})
         )
         assert grouping.result_realization("mysql", "sum", narrow, ("Int", True)) == (
             None,
             ("PIE-B1002", "sum_result_logical_type_or_argument_drift"),
         )
+
+
+@pytest.mark.parametrize("function", ("max", "avg", "count_distinct"))
+def test_the_mysql_g2_beside_law_takes_its_storages_only(tmp_path, function):
+    """MC G2: emission's S02 law takes a `max`, `avg` or `count_distinct`
+    beside a sum when it reads one BIGINT or INT source field (a
+    `count_distinct` a VARCHAR one too), and refuses the stage once that
+    column is of another storage, per binding or no source field, or once
+    its key is a non-null SMALLINT field, which only S02's own law takes,
+    beside sums, counts and mins alone."""
+    seen = probe.numeric_law_inputs(
+        tmp_path,
+        "query result:\n    from rows\n    group by k\n    select:\n"
+        "        k\n        x = sum(a)\n        y = %s(c)\n" % function,
+    )
+    plan, keys, columns = seen["mysql_sum_query"]
+    assert rows.mysql_sum_query(plan, keys, columns) is True
+    ((port, column),) = (
+        (expression.port, columns[expression.port])
+        for value in plan.aggregates
+        if value.arguments and value is not plan.aggregates[0]
+        for expression in (rows._planned(plan, value.arguments[0]),)
+        if expression is not None
+    )
+    text = {"kind": "my_varchar", "length": 64}
+    for edited, law in (
+        (replace(column.realization, storage={"kind": "my_bigint"}), True),
+        (replace(column.realization, storage=text), function == "count_distinct"),
+        (replace(column.realization, storage={"kind": "my_smallint"}), False),
+        (replace(column.realization, storage={"kind": "my_double"}), False),
+        (replace(column.realization, binding=True), False),
+    ):
+        changed = {**columns, port: replace(column, realization=edited)}
+        assert rows.mysql_sum_query(plan, keys, changed) is law
+    unread = {**columns, port: replace(column, field=None)}
+    assert rows.mysql_sum_query(plan, keys, unread) is False
+    small = replace(keys[0].realization, storage={"kind": "my_smallint"})
+    small_key = (replace(keys[0], realization=small),)
+    assert rows.mysql_sum_query(plan, small_key, columns) is False
 
 
 # --------------------------------------------------------------------------
@@ -2777,3 +2860,281 @@ def test_mysql_division_cells_are_derived_once_per_projection(tmp_path, monkeypa
     assert counts[1][1][0] == counts[40][1][0] > 0
     assert counts[40][0][1] == 2 * counts[20][0][1] > 0
     assert counts[40][1][1] == 2 * counts[20][1][1] > 0
+
+
+# --------------------------------------------------------------------------
+# MC E4: MySQL Float +, -, * and unary - in their cell (MC.04, MC.05)
+# --------------------------------------------------------------------------
+
+E4_ALL = {**probe.E4_FORMS, **probe.E4_STANDBY}
+BINARY64 = {"overflow": "target_checked_binary64_overflow"}
+
+
+def _e4_items(body):
+    """Each E4 item of a form body after `id`, as (name, expression)."""
+    lines = body.split("    select:\n", 1)[1].splitlines()
+    return [tuple(line.strip().split(" = ", 1)) for line in lines[1:]]
+
+
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+@pytest.mark.parametrize("form", sorted(E4_ALL))
+def test_mysql_float_arithmetic_cells_emit_and_every_reader_accepts(
+    tmp_path, form, target
+):
+    """MC E4: a MySQL project emits `+`, `-` and `*` of a nullable or
+    non-null DOUBLE field and a Float literal, in either order, and unary `-`
+    of such a field, as the whole value of a SELECT item of a `query` or
+    `table` that reads its source through one WHERE at most. Each result is
+    a finite `my_double` of PostgreSQL's nullability, and each `+`, `-` and
+    `*` carries the binary64 evidence on both targets (a sign none). Both
+    families emit the pinned SQL, PostgreSQL's main's byte for byte and
+    MySQL's `*` under MC.05's guard, and every reader accepts it."""
+    checked, outcome = probe.float_world(tmp_path, target, E4_ALL[form])
+    assert checked.verified
+    probe.numeric_readers_accept(outcome)
+    assert outcome.artifact is not None
+    sql = outcome.artifact.rendered.sql.decode()
+    assert sql == probe.E4_FORM_SQL[form, target]
+    items = _e4_items(E4_ALL[form])
+    assert sql.count(" * ") == sum(
+        (2 if target == "mysql" else 1) * (" * " in item) for _, item in items
+    )
+    document = json.loads(serialize_project_sql_emission(outcome))
+    double = {
+        "storage": {"kind": "pg_float8" if target == "postgres" else "my_double"},
+        "nullable": None,
+        "domain": {"kind": "finite_float", "format": "binary64"},
+    }
+    assert [
+        (c["label"], c["nullable"], {**c["representation"], "nullable": None})
+        for c in document["columns"][1:]
+    ] == [
+        (
+            name,
+            "unknown" if item[0] != "-" or " " in item else item == "-x",
+            double,
+        )
+        for name, item in items
+    ]
+    assert sorted(
+        json.dumps(r["evidence"])
+        for r in document["requirements"]
+        if r["kind"] == "arithmetic"
+    ) == sorted(
+        json.dumps(
+            [{"operator": "-"}]
+            if " " not in item
+            else [{"operator": item.split(" ")[1]}, BINARY64]
+        )
+        for _, item in items
+    )
+
+
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+@pytest.mark.parametrize("spelling", sorted(probe.E4_SPELLINGS))
+def test_mysql_float_arithmetic_spellings_emit_the_form_sql(tmp_path, spelling, target):
+    """A read qualified by the source's name, parentheses, a `def` that
+    inlines to the field, the literal, the sign or the whole operation, a
+    literal as a `def` argument, and a `table` for the form's `query` each
+    emit the form's SQL byte for byte on both targets, and every reader
+    accepts it."""
+    form, body = probe.E4_SPELLINGS[spelling]
+    _, outcome = probe.float_world(tmp_path, target, body)
+    probe.numeric_readers_accept(outcome)
+    assert outcome.artifact is not None
+    assert outcome.artifact.rendered.sql.decode() == probe.E4_FORM_SQL[form, target]
+
+
+def _e4_blockers(outcome):
+    """The public blockers as (code, detail, line, column), a blocker without
+    a location (an unrepresentable label) as None, None."""
+    return [
+        (
+            blocker["code"],
+            blocker["subject"]["detail"],
+            *(
+                (None, None)
+                if blocker["location"] is None
+                else (blocker["location"]["line"], blocker["location"]["column"])
+            ),
+        )
+        for blocker in json.loads(serialize_project_sql_emission(outcome))["blockers"]
+    ]
+
+
+# The refused bodies that PostgreSQL refuses too, each for its own reason,
+# with the blockers main reports there under both literal policies (observed
+# on main at this slice's base).
+E4_POSTGRES_BLOCKERS = {
+    "r01_long_label": [("PIE-B1002", "output_label_unrepresentable", None, None)],
+    "r07_order_by": [("PIE-B1003", "order", 11, 5)],
+    "r09_aggregate": [
+        ("PIE-B1003", "semantic_result_unsuccessful", 6, 1),
+        ("PIE-B1003", "active_output_unavailable", 6, 1),
+        ("PIE-B1003", "group", 8, 5),
+    ],
+    "int_literal": [("PIE-B1003", "arithmetic_requires_signed_int_operands", 10, 9)],
+}
+
+
+@pytest.mark.parametrize("policy", ("preserve_literals", "bind_safe_literals"))
+@pytest.mark.parametrize("shape", sorted(probe.E4_REFUSALS))
+def test_mysql_float_arithmetic_outside_its_cell_keeps_its_refusal(
+    tmp_path, shape, policy
+):
+    """Every other MySQL Float arithmetic keeps the blockers main reports,
+    object for object (rule two): two Float fields, a nested operation, a
+    `let`, WHERE or aggregate use, ORDER BY, LIMIT, DISTINCT, `/`, unary
+    `+`, a header parameter or a bind-safe `?` operand, a JOIN, a window, an
+    imported source, an upstream query, a relation alias or unread window, a
+    literal under `+` or two signs, an `Int` literal, a negated or coalesced
+    product, a sign of a sign, a cell beside a refused item or under a label
+    MySQL cannot carry. PostgreSQL emits each as before, or keeps main's
+    blockers where it refuses the body too."""
+    if policy not in probe.E4_REFUSAL_POLICIES.get(shape, (policy,)):
+        pytest.skip("this body emits under this policy")
+    body = probe.E4_REFUSALS[shape]
+    _, outcome = probe.float_world(tmp_path / "mysql", "mysql", body, policy)
+    assert outcome.status == "BLOCKED" and outcome.artifact is None
+    assert _e4_blockers(outcome) == probe.E4_REFUSAL_BLOCKERS[shape]
+    _, postgres = probe.float_world(tmp_path / "postgres", "postgres", body, policy)
+    expected = E4_POSTGRES_BLOCKERS.get(shape)
+    assert postgres.status == ("VERIFIED" if expected is None else "BLOCKED")
+    assert expected is None or _e4_blockers(postgres) == expected
+
+
+@pytest.mark.parametrize("form", sorted(E4_ALL))
+def test_a_bind_safe_literal_leaves_the_mysql_float_arithmetic_cell(tmp_path, form):
+    """Under bind_safe_literals every literal of the statement, a WHERE's
+    included, is a bind-safe `?`, which no E4 cell holds: the statement keeps
+    main's blockers, one per E4 item. A sign of a field in a statement
+    without literals has no slot and emits its preserved SQL."""
+    body = E4_ALL[form]
+    _, outcome = probe.float_world(tmp_path, "mysql", body, "bind_safe_literals")
+    if form in {"EN1", "EN2"}:
+        assert outcome.artifact is not None
+        assert (
+            outcome.artifact.rendered.sql.decode() == probe.E4_FORM_SQL[form, "mysql"]
+        )
+        return
+    first = probe.FLOAT_HEADER.count("\n") + body.splitlines().index("        id") + 2
+    assert numeric_blockers(outcome) == [
+        (
+            "PIE-B1003",
+            "float_literal_operands_required"
+            if " " in item
+            else "unary_sign_requires_int_operand",
+            line,
+            9,
+        )
+        for line, (_, item) in enumerate(_e4_items(body), first)
+    ]
+
+
+def _e4_select(sql):
+    """The statement's CTE, its final SELECT's items after `id` and its FROM."""
+    head, tail = sql.rsplit(" FROM ", 1)
+    cte, items = head.rsplit("SELECT ", 1)
+    return cte, items.split(", ", 1)[1], tail
+
+
+def test_mysql_float_arithmetic_cells_hold_two_byte_arguments(tmp_path):
+    """The preregistration's byte arguments: a `query` and a `table` of one
+    body emit the same SQL (E4_SPELLINGS), and an item's SQL does not depend
+    on the other items of its SELECT: each of EPQ's items alone, under the
+    same WHERE, writes the same CTE, FROM and item text. A WHERE does not only
+    add its clause: main reads the source through one CTE and writes each
+    item as without the WHERE, over the CTE's column."""
+    for target in ("postgres", "mysql"):
+        cte, items, tail = _e4_select(probe.E4_FORM_SQL["EPQ", target])
+        alone = []
+        for name, item in _e4_items(probe.E4_FORMS["EPQ"]):
+            body = probe._e4_body("query", [f"{name} = {item}"], "id > 1")
+            _, outcome = probe.float_world(tmp_path / name / target, target, body)
+            assert outcome.artifact is not None
+            one = _e4_select(outcome.artifact.rendered.sql.decode())
+            assert (one[0], one[2]) == (cte, tail)
+            alone.append(one[1])
+        assert items == ", ".join(alone)
+        quote = '"' if target == "postgres" else "`"
+        flat = _e4_select(probe.E4_FORM_SQL["EM1", target])[1]
+        where = _e4_select(probe.E4_FORM_SQL["EMT", target])[1]
+        assert where == flat.replace(
+            "{0}s0{0}.{0}fx{0}".format(quote), "{0}t1{0}.{0}c1{0}".format(quote)
+        )
+
+
+def test_two_mysql_wheres_do_not_parse(tmp_path):
+    """A second `where` line is outside the clause shape (R16): the project
+    does not parse, on either target."""
+    body = probe._e4_body("query", ["r = x * 2.0"], "id > 1").replace(
+        "    where id > 1\n", "    where id > 1\n    where id < 9\n"
+    )
+    for target in ("postgres", "mysql"):
+        with pytest.raises(ValueError, match="^probe source failed parsing$"):
+            probe.float_world(tmp_path / target, target, body)
+
+
+def test_a_mysql_float_abs_is_emitted_as_before(tmp_path):
+    """`abs` of a Float field keeps its argument's carrier and emits as on
+    main, outside E4's four operations (R11)."""
+    _, outcome = probe.float_world(
+        tmp_path, "mysql", probe._e4_body("query", ["r = abs(x)"])
+    )
+    assert outcome.artifact is not None
+    assert outcome.artifact.rendered.sql.decode() == (
+        "SELECT `s0`.`id` AS `id`, ABS(`s0`.`fx`) AS `r` FROM `phase66`.`e4 source é`"
+        " AS `s0`"
+    )
+
+
+def test_the_mysql_float_arithmetic_laws_refuse_each_edited_carrier():
+    """E4's operands are finite MySQL DOUBLE values no binding proves: another
+    storage, domain, tag or a binding leaves the law. The shared realization
+    law and plain and compiled verification's own admit a MySQL Float `+`,
+    `-`, `*` or `-` sign only when the caller marks its cell, and never a
+    unary `+`; the guard is the emitter's, restated by the public decoder."""
+    double = rows.Realization("Float", {"kind": "my_double"}, True, rows.FINITE_FLOAT)
+    assert rows.mysql_float_operands((double, replace(double, nullable=False)))
+    assert not rows.mysql_float_operands(())
+    for edit in (
+        {"storage": {"kind": "pg_float8"}},
+        {"domain": {"kind": "float64"}},
+        {"tag": "Int"},
+        {"binding": True},
+    ):
+        assert not rows.mysql_float_operands((replace(double, **edit),))
+        assert rows.float_sign("mysql", replace(double, **edit), True, True) is None
+    for operator in "+-*":
+        assert rows.resolved_binary_realization(
+            "mysql", operator, "Float", "unknown", double, double
+        ) == (None, ("PIE-B1003", "float_literal_operands_required"))
+        realized, problem = rows.resolved_binary_realization(
+            "mysql", operator, "Float", "unknown", double, double, mysql_float=True
+        )
+        assert problem is None and realized is not None
+        assert realized.storage == {"kind": "my_double"}
+        assert (
+            resolved_row_realization(
+                "mysql",
+                "binary",
+                operator,
+                "Float",
+                "unknown",
+                (double, double),
+                mysql_float=True,
+            ).domain
+            == rows.FINITE_FLOAT
+        )
+        with pytest.raises(ValueError, match="^float literal operands$"):
+            resolved_row_realization(
+                "mysql", "binary", operator, "Float", "unknown", (double, double)
+            )
+    assert rows.float_sign("mysql", double, True) is None
+    signed = rows.float_sign("mysql", double, True, True)
+    assert signed is not None and signed.storage == {"kind": "my_double"}
+    with pytest.raises(ValueError, match="^float literal operands$"):
+        resolved_row_realization(
+            "mysql", "unary", "+", "Float", True, (double,), mysql_float=True
+        )
+    assert probe.MYSQL_PRODUCT_GUARD == rows.MYSQL_PRODUCT_GUARD

@@ -1543,14 +1543,14 @@ def resolved_argument_problem(
     if function == "sum" and realization.tag == "Int":
         # PostgreSQL sums exactly and narrows to bigint with its checked CAST;
         # MySQL's CAST(DECIMAL AS SIGNED) would clamp an out-of-range sum, so
-        # only an S02 cell's guarded SUM over a nullable BIGINT field
-        # (MYSQL_SUM_GUARD) is admitted there, or an S03 one, whose form pins
+        # only an S02 cell's guarded SUM over a BIGINT or INT field (MC G1,
+        # MYSQL_SUM_GUARD) is admitted there, or an S03 one, whose form pins
         # each argument's carrier (project_sql_emission_sum_forms).
         if (
             family == "postgres"
             or mysql_sum
             and direct_reference
-            and rows.mysql_checked_operands((realization,))
+            and rows.mysql_sum_operand(realization)
             or mysql_s03
             and direct_reference
             and rows.mysql_s03_operand(realization)
@@ -1699,7 +1699,7 @@ MYSQL_SUM_GUARD = (
 
 def mysql_sum_guarded(family: str, column) -> bool:
     """Whether one aggregate column renders as MYSQL_SUM_GUARD: a MySQL sum
-    of an Int, which only an S02 cell admits."""
+    of an Int, which only an S02 cell or an S03 form admits."""
     return (
         family == "mysql"
         and column.function == "sum"
@@ -1922,7 +1922,7 @@ def build_stage(
     value_columns: list[AggregateValueColumn] = []
     # S02: whether this stage can hold a MySQL sum(Int) cell, asked once.
     mysql_sums = family == "mysql" and rows.mysql_sum_query(
-        request.plan, tuple(available.get(key.input) for key in keys)
+        request.plan, tuple(available.get(key.input) for key in keys), available
     )
     # S03: whether the statement is a paired sum form, whose every sum and
     # conditional sum is in its cell, asked once.

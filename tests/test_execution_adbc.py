@@ -454,3 +454,27 @@ def test_mysql_division_cells_decode_a_zero_divisor_null(tmp_path):
     metadata[1][1] = 246
     with pytest.raises(ResultError):
         bind_native_output(output, "mysql_rows", metadata)
+
+
+def test_mysql_float_arithmetic_cells_decode_double_rows(tmp_path):
+    """MC E4: a native MySQL row of an E4 cell, DOUBLE for its guarded `*`,
+    decodes each value's bits, a negative zero and a subnormal included, and
+    NULL as None, as its nullability is unknown; a LONGLONG type code, what
+    the guard's BIGINT branch alone would give, is refused."""
+    import math
+
+    import _pietto_sql_emission as emission
+
+    _, outcome = emission.float_world(tmp_path, "mysql", emission.E4_FORMS["EM7"])
+    output = prepare_output(outcome.artifact)
+    metadata = [
+        [column.label, code, None, None, None, None, int(bool(index)), 0, 63]
+        for index, (column, code) in enumerate(zip(output.columns, (8, 5)))
+    ]
+    metadata[0][7] = 4097
+    rows = [(1, -0.0), (2, None), (3, 5e-324)]
+    decoded = decode_native_rows(output, "mysql_rows", metadata, rows)[1]
+    assert decoded == tuple(rows) and math.copysign(1.0, decoded[0][1]) == -1.0
+    metadata[1][1] = 8
+    with pytest.raises(ResultError):
+        bind_native_output(output, "mysql_rows", metadata)

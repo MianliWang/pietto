@@ -2843,7 +2843,7 @@ def test_an_operation_is_as_nullable_as_its_operands_make_it(
     realization["nullable"] = forged
     forgery = _encode(document)
     assert _status(forgery) == (pure.Status.INVALID_RELATION, "operation nullability")
-    assert _rendering(forgery) is None
+    assert pure.rendering_refusal(forgery) is None
 
 
 def test_pure_composition_rejects_external_scalar_read(tmp_path):
@@ -2889,27 +2889,6 @@ def test_pure_composition_rejects_external_scalar_read(tmp_path):
     )
 
 
-def _rendering(data: bytes) -> str | None:
-    """The decode-only judgment: the records-only re-rendering alone, past
-    _Check, as it stands if a _Check relation is ever relaxed. Returns its
-    failing subcheck, or None when the records render to the SQL."""
-    value = json.loads(
-        data,
-        object_pairs_hook=pure._pairs,
-        parse_int=pure._raw_int,
-        parse_float=pure._raw_float,
-        parse_constant=pure._raw_float,
-    )
-    pure._input_tree(value)
-    records, order, children, _ = pure._decode(value)
-    pure._canonical_order(records, order, children)
-    try:
-        pure._Render(pure._Doc(records)).run()
-    except pure._Mismatch as error:
-        return error.check
-    return None
-
-
 def _built(directory, target, query):
     """One VERIFIED observation of the window fixture's head and ``query``."""
     item = emission.window_fixture(target, "A_window_ranking", "peers")
@@ -2924,7 +2903,7 @@ def _built(directory, target, query):
         artifact, artifact.request
     ).canonical_bytes
     assert data is not None and _status(data) == (OK, None)
-    assert _rendering(data) is None
+    assert pure.rendering_refusal(data) is None
     return data
 
 
@@ -2965,7 +2944,7 @@ def test_a_chain_is_anchored_to_its_definition_and_places(tmp_path, target):
     ):
         forged = _mutated(data, edit)
         assert _status(forged)[0] is not OK
-        assert _rendering(forged) == "chain reads"
+        assert pure.rendering_refusal(forged) == "chain reads"
 
     def relabeled(d):
         for record in d["records"]:
@@ -2973,7 +2952,7 @@ def test_a_chain_is_anchored_to_its_definition_and_places(tmp_path, target):
                 if record["fields"]["definition"] == own:
                     record["fields"]["definition"] = other
 
-    assert _rendering(_mutated(data, relabeled)) is None
+    assert pure.rendering_refusal(_mutated(data, relabeled)) is None
 
 
 def _as_carries(document, body, count):
@@ -3049,7 +3028,7 @@ def test_a_result_reads_only_a_projection(tmp_path, target):
     projection["fields"]["block_kind"] = "let"
     forged = _encode(_recanonical(document))
     assert _status(forged)[0] is not OK
-    assert _rendering(forged) == "result projection"
+    assert pure.rendering_refusal(forged) == "result projection"
 
 
 def test_a_mysql_float_null_safe_join_on_renders_from_its_records(tmp_path):
@@ -3064,7 +3043,7 @@ def test_a_mysql_float_null_safe_join_on_renders_from_its_records(tmp_path):
     ).canonical_bytes
     assert data is not None and b" <=> " in data
     assert _status(data) == (OK, None)
-    assert _rendering(data) is None
+    assert pure.rendering_refusal(data) is None
 
 
 def test_the_rendering_tables_restate_the_emitter():
@@ -3076,6 +3055,107 @@ def test_the_rendering_tables_restate_the_emitter():
             for function in aggregating.SPELLING
         }
     assert pure._MYSQL_SUM_GUARD == aggregating.MYSQL_SUM_GUARD
+    from pietto._project import project_sql_emission_rows as rows
+
+    assert pure._MYSQL_PRODUCT_GUARD == rows.MYSQL_PRODUCT_GUARD
+
+
+@pytest.mark.parametrize("form", ("EM1", "EM3", "EMQ"))
+def test_a_mysql_float_product_renders_its_guard_from_its_records(tmp_path, form):
+    """MC.05: a MySQL Float `*` in its E4 cell renders from its records under
+    the underflow guard, its operands in written order, with the binary64
+    evidence. Each forgery is refused end to end: the evidence dropped and
+    the result declared non-null, which the SQL does not show, by _Check
+    alone; the operands swapped under unchanged SQL, a guard token's text
+    changed, its role relabelled and the guard dropped for a bare `(x * y)`
+    also by the re-rendering alone."""
+    _, outcome = emission.float_world(tmp_path, "mysql", emission.E4_FORMS[form])
+    artifact = outcome.artifact
+    assert outcome.status == "VERIFIED" and artifact is not None
+    data = portable.export_emission_observation(
+        artifact, artifact.request
+    ).canonical_bytes
+    assert data is not None and b"CASE WHEN (" in data
+    assert _status(data) == (OK, None)
+    assert pure.rendering_refusal(data) is None
+
+    def dropped(document):
+        for requirement in _records(document, "generated_requirement"):
+            if requirement["kind"] == "arithmetic":
+                assert requirement["evidence"][-1] == BINARY64
+                requirement["evidence"] = requirement["evidence"][:-1]
+
+    def swapped(document):
+        for row in document["records"]:
+            if row["ref"][0] == "sql_operation" and row["fields"]["operator"] == "*":
+                row["fields"]["operands"].reverse()
+
+    def retexted(document):
+        (event,) = [e for e in _events(document) if e["role"] == "product_guard_then"]
+        _retexted(document, event, event_text(document, event).replace("<> 0", "<> 1"))
+
+    def relabelled(document):
+        (event,) = [e for e in _events(document) if e["role"] == "product_guard_zero"]
+        event["role"] = "binary_close"
+
+    def unguarded(document):
+        events = {e["role"]: e for e in _events(document) if "guard" in e["role"]}
+        opened, closed = events["product_guard_open"], events["product_guard_close"]
+        _cut(document, events["product_guard_zero"]["start"], closed["start"])
+        for event, role, text in (
+            (opened, "binary_open", "("),
+            (closed, "binary_close", ")"),
+        ):
+            _retexted(document, event, text)
+            event["role"] = role
+
+    def non_null(document):
+        for row in document["records"]:
+            if row["ref"][0] == "sql_operation" and row["fields"]["operator"] == "*":
+                _record(document, row["fields"]["realization"])["nullable"] = False
+
+    def event_text(document, event):
+        raw = _records(document, "rendered")[0]["sql"].encode("utf-8")
+        return raw[event["start"] : event["end"]].decode("utf-8")
+
+    assert _status(_mutated(data, dropped)) == (
+        pure.Status.INVALID_RELATION,
+        "target checked evidence",
+    )
+    assert pure.rendering_refusal(_mutated(data, dropped)) is None
+    forged = _mutated(data, non_null, recanonical=True)
+    assert _status(forged) == (
+        pure.Status.INVALID_RELATION,
+        "MySQL Float arithmetic carrier",
+    )
+    assert pure.rendering_refusal(forged) is None
+    for forgery, detail, recanonical in (
+        (swapped, "generated inventory entry", True),
+        (retexted, "syntax spelling", False),
+        (relabelled, "syntax spelling", False),
+        (unguarded, "rendering", True),
+    ):
+        forged = _mutated(data, forgery, recanonical=recanonical)
+        assert _status(forged) == (pure.Status.INVALID_RELATION, detail)
+        assert pure.rendering_refusal(forged) == "token"
+
+
+def _cut(document, start, end):
+    """Delete the SQL bytes from start to end and the tokens and ranges
+    within them, moving every later offset."""
+    rendered = _records(document, "rendered")[0]
+    raw = rendered["sql"].encode("utf-8")
+    rendered["sql"] = (raw[:start] + raw[end:]).decode("utf-8")
+    for key in ("events", "expression_ranges"):
+        kept = []
+        for ref in rendered[key]:
+            row = _record(document, ref)
+            if start <= row["start"] and row["end"] <= end:
+                continue
+            for name in ("start", "end"):
+                row[name] -= end - start if row[name] >= end else 0
+            kept.append(ref)
+        rendered[key] = kept
 
 
 def _retexted(document, event, text):
@@ -3113,7 +3193,7 @@ def test_a_copied_aggregate_spelling_is_not_rendered(tmp_path_factory):
     _retexted(document, event, column["spelling"] + "(")
     forged = _encode(document)
     assert _status(forged) == (pure.Status.INVALID_RELATION, "aggregate spelling")
-    assert _rendering(forged) == "token"
+    assert pure.rendering_refusal(forged) == "token"
 
 
 def _spliced(document, first, last, tokens=()):
@@ -3171,7 +3251,7 @@ def _refused(document, check):
     """Both judgments refuse the forgery; the re-rendering by ``check``."""
     forged = _encode(_recanonical(document))
     assert _status(forged)[0] is not OK
-    assert _rendering(forged) == check
+    assert pure.rendering_refusal(forged) == check
 
 
 def _ordered(document, position, column):
@@ -3282,7 +3362,7 @@ def test_a_hidden_order_key_needs_an_order_without_distinct(tmp_path, target):
     _ordered(computed, 1, 1)
     forged = _encode(_recanonical(computed))
     assert _status(forged) == (pure.Status.INVALID_RELATION, "rendering")
-    assert _rendering(forged) == "result hidden"
+    assert pure.rendering_refusal(forged) == "result hidden"
     # Under DISTINCT an item reads its exported key (text, id); moved onto
     # u = lower(text) or k = 1 it orders by what PIE-B1003 keeps a DISTINCT
     # from ordering by.
@@ -3301,7 +3381,7 @@ def test_a_hidden_order_key_needs_an_order_without_distinct(tmp_path, target):
         _ordered(document, 0, column)
         forged = _encode(_recanonical(document))
         assert _status(forged) == (pure.Status.INVALID_RELATION, "rendering")
-        assert _rendering(forged) == "result hidden"
+        assert pure.rendering_refusal(forged) == "result hidden"
     if target == "postgres":
         for name, select in (
             ("composition", "select"),
@@ -3707,4 +3787,4 @@ def test_kept_forgeries_are_refused_by_their_own_subcheck():
         data = (_KEPT / entry["file"]).read_bytes()
         expected = (pure.Status(entry["status"]), entry["detail"])
         assert _status(data) == expected, entry["file"]
-        assert _rendering(data) == entry["check"], entry["file"]
+        assert pure.rendering_refusal(data) == entry["check"], entry["file"]

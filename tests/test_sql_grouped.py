@@ -2864,8 +2864,11 @@ def _numeric_blockers(outcome):
         (
             blocker["code"],
             blocker["subject"]["detail"],
-            blocker["location"]["line"],
-            blocker["location"]["column"],
+            *(
+                (None, None)
+                if blocker["location"] is None
+                else (blocker["location"]["line"], blocker["location"]["column"])
+            ),
         )
         for blocker in json.loads(serialize_project_sql_emission(outcome))["blockers"]
     ]
@@ -2877,11 +2880,10 @@ def _numeric_blockers(outcome):
 )
 def test_mysql_sum_int_outside_its_cells_keeps_its_refusal(tmp_path, shape, policy):
     """Every other MySQL `sum(Int)` keeps the refusal main reports, object for
-    object: a non-null or narrow argument, a computed or `let` argument, a
+    object: a computed argument, a
     relation alias (`let x = rows` before `from x`), its chains and one
     that nothing reads, a window nothing reads, an imported source, a
-    nullable or second key, an aggregate other than sum, count and min
-    beside it, a composed or conditional sum, HAVING, ORDER BY, LIMIT, a
+    composed or conditional sum, HAVING, ORDER BY, LIMIT, a
     header parameter read or not, or an upstream query; a cell sum beside
     another refused sum keeps its own refusal too (owner
     2026-11-13T00:20Z). PostgreSQL emits each as before."""
@@ -2953,7 +2955,9 @@ def test_mysql_sum_cells_are_derived_once_per_aggregation(tmp_path, monkeypatch)
             patch.setattr(
                 rows,
                 "mysql_sum_query",
-                lambda plan, keys: calls.append(plan) or original(plan, keys),
+                lambda plan, keys, columns: (
+                    calls.append(plan) or original(plan, keys, columns)
+                ),
             )
             sums = "".join(f"        x{index} = sum(a)\n" for index in range(count))
             _, outcome = probe.numeric_world(
@@ -2965,6 +2969,430 @@ def test_mysql_sum_cells_are_derived_once_per_aggregation(tmp_path, monkeypatch)
         assert outcome.status == "VERIFIED", outcome.blockers
         counts.append(len(calls))
     assert counts[0] == counts[1] > 0
+
+
+# MC G1 (Carrier): the public nullability of each form's columns, which only
+# a non-null GROUP BY key and a count leave non-null.
+G1_NON_NULL = {
+    "N1": set(),
+    "N2": {"k"},
+    "N3": set(),
+    "N4": {"k", "m"},
+    "I1": set(),
+    "I2": {"k"},
+    "I3": set(),
+    "I4": {"n"},
+    "I5": {"k"},
+    "I6": {"m"},
+    "L1": {"k"},
+    "L2": set(),
+    "L3": {"k"},
+    "L4": {"g"},
+}
+# The storage of each form's `min` or `max` column on (PostgreSQL, MySQL):
+# a BIGINT one keeps its field's carrier, an INT one is MySQL's cast
+# my_signed_int over any source (PL.67, PL.73) and PostgreSQL's int4.
+_EXTREME_BIGINT = ("pg_int8", "my_bigint")
+_EXTREME_INT = ("pg_int4", "my_signed_int")
+G1_EXTREMES = {"N4": {"lo": _EXTREME_BIGINT}, "I6": {"lo": _EXTREME_INT}}
+
+
+def _assert_extreme_carriers(document, target, extremes):
+    """Each named extreme column's storage on ``target``."""
+    position = 0 if target == "postgres" else 1
+    storages = {
+        column["label"]: column["representation"]["storage"]
+        for column in document["columns"]
+    }
+    for label, kinds in extremes.items():
+        assert storages[label] == {"kind": kinds[position]}, label
+
+
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+@pytest.mark.parametrize("form", sorted(probe.G1_FORMS))
+def test_mysql_g1_forms_emit_the_guarded_sum(tmp_path, form, target):
+    """MC G1: a MySQL project emits S02's guarded SUM of a nullable or
+    non-null BIGINT or INT source field, or of a `let` name whose value is
+    one, in an S02 cell otherwise: a nullable Int, NULL for no or only NULL
+    values, 1690 (SQLSTATE 22003) outside signed 64 bits. Both families emit
+    the pinned SQL, pairwise distinct per family and PostgreSQL's
+    unchanged, and every reader accepts it."""
+    checked, outcome = probe.numeric_world(tmp_path, target, probe.G1_FORMS[form])
+    assert checked.verified
+    probe.numeric_readers_accept(outcome)
+    assert outcome.artifact is not None
+    assert outcome.artifact.rendered.sql.decode() == probe.G1_FORM_SQL[form, target]
+    document = json.loads(serialize_project_sql_emission(outcome))
+    assert {
+        column["label"] for column in document["columns"] if not column["nullable"]
+    } == G1_NON_NULL[form]
+    _assert_extreme_carriers(document, target, G1_EXTREMES.get(form, {}))
+    texts = [probe.G1_FORM_SQL[name, target] for name in probe.G1_FORMS]
+    assert len(set(texts)) == len(texts)
+
+
+@pytest.mark.parametrize("spelling", sorted(probe.G1_SPELLINGS))
+def test_mysql_g1_spellings_emit_their_form_sql(tmp_path, spelling):
+    """A read qualified by the source's name, parentheses, an identity `def`,
+    a `table` declaration and a `group by:` block, in a sum or in its
+    `let`, and parentheses or an identity `def` around a `let` name in its
+    sum, emit the form's bytes."""
+    form, body = probe.G1_SPELLINGS[spelling]
+    _, outcome = probe.numeric_world(tmp_path, "mysql", body)
+    probe.numeric_readers_accept(outcome)
+    assert outcome.artifact is not None
+    assert outcome.artifact.rendered.sql.decode() == probe.G1_FORM_SQL[form, "mysql"]
+
+
+def _mysql_spelling(sql, body):
+    """PostgreSQL SQL over NUMERIC_HEADER's source in MySQL's spelling, each
+    checked bigint SUM replaced by S02's guarded SUM of its argument, each
+    float8 cast of an `avg` argument a DOUBLE one and each grouped MIN or
+    MAX of an INT field (`k` or `c`, also through a `let` name) cast to
+    SIGNED, whether ``body`` reads it straight from the source or through a
+    `let` or WHERE stage, as main's MySQL SQL casts it (PL.73)."""
+    import re
+
+    guard = grouping.MYSQL_SUM_GUARD
+    lets = dict(re.findall(r"^    let (\w+) = (.+)$", body, re.M))
+    widened = [
+        re.findall(r"\w+", lets.get(name, name))[-1] in {"k", "c"}
+        for name in (
+            re.findall(r"\w+", argument)[-1]
+            for argument in re.findall(r"= (?:min|max)\((.+)\)$", body, re.M)
+        )
+    ]
+    extremes = re.compile(r"(?:MIN|MAX)\([^()]+\)")
+    assert len(widened) == len(extremes.findall(sql))
+    marks = iter(widened)
+    sql = extremes.sub(
+        lambda found: (
+            f"CAST({found.group(0)} AS SIGNED)" if next(marks) else found.group(0)
+        ),
+        sql,
+    )
+    return (
+        re.sub(
+            r"CAST\(SUM\(CAST\((\S+) AS pg_catalog\.int8\)\) AS pg_catalog\.int8\)",
+            lambda found: "".join(
+                (found.group(1) if position else "") + text
+                for position, (_, text) in enumerate(guard)
+            ),
+            sql,
+        )
+        .replace("AS pg_catalog.int8)", "AS SIGNED)")
+        .replace("AS pg_catalog.float8)", "AS DOUBLE)")
+        .replace('"', "`")
+        .replace("`public`.", "`phase66`.")
+    )
+
+
+@pytest.mark.parametrize(
+    "name", sorted({*probe.G1_FORMS, *probe.G1_CELLS, *probe.G1_SPELLINGS})
+)
+def test_mysql_g1_sql_is_main_postgresql_sql_but_the_guard(tmp_path, name):
+    """Each G1 body's MySQL SQL is main's PostgreSQL SQL of it, `let` stages
+    included, in MySQL's spelling with each sum S02's guarded SUM and each
+    `min` of an INT field cast to SIGNED, from the source or through a stage
+    (I6's `lo`, `let_beside_count`'s `lo`),
+    and every reader accepts it: so a combination the forms do not run (a `let` sum
+    beside `count`, one `let` read by two sums) rests on the forms' parts."""
+    body = (
+        probe.G1_SPELLINGS.get(name, (None, None))[1]
+        or {
+            **probe.G1_FORMS,
+            **probe.G1_CELLS,
+        }[name]
+    )
+    _, postgres = probe.numeric_world(tmp_path / "postgres", "postgres", body)
+    _, mysql = probe.numeric_world(tmp_path / "mysql", "mysql", body)
+    probe.numeric_readers_accept(mysql)
+    assert postgres.artifact is not None and mysql.artifact is not None
+    assert mysql.artifact.rendered.sql.decode() == _mysql_spelling(
+        postgres.artifact.rendered.sql.decode(), body
+    )
+
+
+@pytest.mark.parametrize("field", ("n", "c"))
+@pytest.mark.parametrize(
+    "cell", sorted(name for name in probe.NUMERIC_CELLS if name.startswith("s02"))
+)
+def test_mysql_g1_argument_changes_only_the_guarded_sum(tmp_path, cell, field):
+    """An S02 cell body whose `sum(a)` sums a non-null BIGINT or a nullable
+    INT field instead emits the S02 SQL with only that guarded SUM's
+    argument changed."""
+    column = {"n": ("nn", "c4"), "c": ("narrow", "c5")}[field]
+    _, outcome = probe.numeric_world(
+        tmp_path,
+        "mysql",
+        probe.NUMERIC_CELLS[cell].replace("sum(a)", "sum(%s)" % field),
+    )
+    probe.numeric_readers_accept(outcome)
+    assert outcome.artifact is not None
+    expected = (
+        probe.NUMERIC_CELL_SQL[cell, "mysql"]
+        .replace("SUM(`s0`.`left_value`)", "SUM(`s0`.`%s`)" % column[0])
+        .replace("SUM(`t1`.`c1`)", "SUM(`t1`.`%s`)" % column[1])
+    )
+    assert outcome.artifact.rendered.sql.decode() == expected
+
+
+@pytest.mark.parametrize("policy", ("preserve_literals", "bind_safe_literals"))
+@pytest.mark.parametrize("shape", sorted(probe.G1_REFUSALS))
+def test_mysql_g1_neighbours_keep_main_refusal(tmp_path, shape, policy):
+    """Rule two (D77.37): a statement the G1 law matches beside another
+    blocker (a label too long, a sum outside every cell, ORDER BY, a header
+    parameter, a bind-safe `?`) and one outside the law (a SMALLINT
+    field, a `let` chain, a `let` value other than one field read, a `let`
+    read outside a sum argument, its GROUP BY key included, a value `let`
+    that nothing reads, a relation alias) keep main's blockers, object for
+    object, under each policy they are refused with; PostgreSQL emits each
+    but the long label as main does."""
+    if policy not in probe.G1_REFUSAL_POLICIES.get(shape, (policy,)):
+        pytest.skip("refused under its own policy only")
+    body = probe.G1_REFUSALS[shape]
+    world = probe.G1_REFUSAL_WORLDS.get(shape, {})
+    _, outcome = probe.numeric_world(tmp_path / "mysql", "mysql", body, policy, **world)
+    assert outcome.status == "BLOCKED" and outcome.artifact is None
+    assert _numeric_blockers(outcome) == probe.G1_REFUSAL_BLOCKERS[shape]
+    _, postgres = probe.numeric_world(
+        tmp_path / "postgres", "postgres", body, policy, **world
+    )
+    if shape in probe.G1_POSTGRES_BLOCKERS:
+        assert _numeric_blockers(postgres) == probe.G1_POSTGRES_BLOCKERS[shape]
+    else:
+        assert postgres.status == "VERIFIED", postgres.blockers
+
+
+# MC G2 (Aggregates and grouping): the public nullability of each form's
+# columns, which only a non-null GROUP BY key and a count leave non-null.
+G2_NON_NULL = {
+    "A1": set(),
+    "A2": {"k"},
+    "A3": {"g", "r", "d", "m"},
+    "A4": {"d"},
+    "K1": set(),
+    "K2": {"r"},
+    "K3": {"k", "n"},
+    "K4": {"tag"},
+    "K5": set(),
+    "K6": set(),
+    "K7": {"kk", "m"},
+    "M1": {"tag", "m"},
+    "M2": {"r"},
+}
+# A3's `max(c)` reads its INT field straight from the base table, A4's,
+# M1's and M2's through `let` and WHERE stages: each is a my_signed_int.
+G2_EXTREMES = {
+    "A1": {"hi": _EXTREME_BIGINT},
+    "A2": {"lo": _EXTREME_BIGINT, "hi": _EXTREME_BIGINT},
+    "A3": {"hc": _EXTREME_INT},
+    "A4": {"hi": _EXTREME_INT},
+    "K5": {"hi": _EXTREME_BIGINT},
+    "M1": {"hi": _EXTREME_BIGINT, "lo": _EXTREME_INT},
+    "M2": {"hi": _EXTREME_INT},
+}
+
+
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+@pytest.mark.parametrize("form", sorted(probe.G2_FORMS))
+def test_mysql_g2_forms_emit_the_guarded_sum(tmp_path, form, target):
+    """MC G2: a MySQL project emits S02's guarded SUM beside `count`,
+    `count()`, `min`, a `count_distinct` of a BIGINT, INT or VARCHAR field
+    and a `max` or `avg` of a BIGINT or INT field, by any number of BIGINT,
+    INT or VARCHAR keys, nullable or not, in G1's cell otherwise. Both
+    families emit the pinned SQL, pairwise distinct per family and
+    PostgreSQL's unchanged; every reader accepts it, the pure boundary's
+    re-rendering included."""
+    import _pietto_sql_emission_portable as portable
+    import _pietto_sql_emission_pure_boundary as pure
+
+    checked, outcome = probe.grouping_world(tmp_path, target, probe.G2_FORMS[form])
+    assert checked.verified
+    probe.numeric_readers_accept(outcome)
+    assert outcome.artifact is not None
+    assert outcome.artifact.rendered.sql.decode() == probe.G2_FORM_SQL[form, target]
+    observed = portable.export_emission_observation(
+        outcome.artifact, outcome.artifact.request
+    ).canonical_bytes
+    assert observed is not None and pure.rendering_refusal(observed) is None
+    document = json.loads(serialize_project_sql_emission(outcome))
+    assert {
+        column["label"] for column in document["columns"] if not column["nullable"]
+    } == G2_NON_NULL[form]
+    _assert_extreme_carriers(document, target, G2_EXTREMES.get(form, {}))
+    texts = [probe.G2_FORM_SQL[name, target] for name in probe.G2_FORMS]
+    assert len(set(texts)) == len(texts)
+
+
+@pytest.mark.parametrize("spelling", sorted(probe.G2_SPELLINGS))
+def test_mysql_g2_spellings_emit_their_form_sql(tmp_path, spelling):
+    """A read qualified by the source's name in a sum, a count or a `let`,
+    parentheses around a `max` argument, an identity `def` around an `avg`
+    argument, a `table` declaration and a `group by:` block of two keys emit
+    the form's bytes."""
+    form, body = probe.G2_SPELLINGS[spelling]
+    _, outcome = probe.grouping_world(tmp_path, "mysql", body)
+    probe.numeric_readers_accept(outcome)
+    assert outcome.artifact is not None
+    assert outcome.artifact.rendered.sql.decode() == probe.G2_FORM_SQL[form, "mysql"]
+
+
+def _guarded_maxima(sql, summed):
+    """MySQL SQL whose n-th MAX(arg) is S02's guarded SUM of arg wherever
+    ``summed``[n] holds; where main's MySQL SQL casts that MAX to SIGNED
+    (a grouped MAX of an INT, over any source), the whole cast is replaced,
+    so no cast wraps a guard."""
+    import re
+
+    marks = iter(summed)
+    return re.sub(
+        r"CAST\(MAX\(([^()]+)\) AS SIGNED\)|MAX\(([^()]+)\)",
+        lambda found: (
+            "".join(
+                (found.group(1) or found.group(2) if position else "") + text
+                for position, (_, text) in enumerate(grouping.MYSQL_SUM_GUARD)
+            )
+            if next(marks)
+            else found.group(0)
+        ),
+        sql,
+    )
+
+
+@pytest.mark.parametrize(
+    "name",
+    sorted(
+        {*probe.G2_FORMS, *probe.G2_CELLS, *probe.G2_SPELLINGS, *probe.G2_ORDERS_CELLS}
+    ),
+)
+def test_mysql_g2_sql_is_main_max_sql_but_the_guard(tmp_path, name):
+    """B2: each G2 body's MySQL SQL, `let` stages kept as G1 keeps them, is
+    main's MySQL SQL of the same body with every `sum(x)` written `max(x)`,
+    each such MAX(x), or the whole CAST(MAX(x) AS SIGNED) where main casts
+    it (a grouped MAX of an INT, over any source), S02's guarded SUM of x:
+    so every key,
+    every other aggregate, FROM, WHERE and GROUP BY are main's verified
+    MySQL emission, and a combination the forms do not run (four keys, a key
+    selected twice, a `count` of a Bool beside `max`) rests on the forms'
+    parts. As for G1, it is also main's PostgreSQL SQL of the body, `let`
+    stages included, in MySQL's spelling with each sum S02's guarded SUM and
+    each `min` or `max` of an INT field cast to SIGNED, from the source or
+    through a stage."""
+    import re
+
+    body = (
+        probe.G2_SPELLINGS.get(name, (None, None))[1]
+        or {**probe.G2_FORMS, **probe.G2_CELLS, **probe.G2_ORDERS_CELLS}[name]
+    )
+    world = probe.s03_world if name in probe.G2_ORDERS_CELLS else probe.grouping_world
+    _, maxima = world(tmp_path / "max", "mysql", body.replace("sum(", "max("))
+    _, outcome = world(tmp_path / "sum", "mysql", body)
+    probe.numeric_readers_accept(outcome)
+    assert maxima.artifact is not None and outcome.artifact is not None
+    summed = [found == "sum" for found in re.findall(r"= (sum|max)\(", body)]
+    assert outcome.artifact.rendered.sql.decode() == _guarded_maxima(
+        maxima.artifact.rendered.sql.decode(), summed
+    )
+    _, postgres = world(tmp_path / "postgres", "postgres", body)
+    assert postgres.artifact is not None, postgres.blockers
+    assert outcome.artifact.rendered.sql.decode() == _mysql_spelling(
+        postgres.artifact.rendered.sql.decode(), body
+    )
+
+
+@pytest.mark.parametrize("policy", ("preserve_literals", "bind_safe_literals"))
+@pytest.mark.parametrize("shape", sorted(probe.G2_REFUSALS))
+def test_mysql_g2_neighbours_keep_main_refusal(tmp_path, shape, policy):
+    """Rule two (D77.37): a statement the G2 law matches beside another
+    blocker (a label too long, a sum outside every cell, ORDER BY, a header
+    parameter, a bind-safe `?`, a relation alias, HAVING) and one outside
+    it (`string_agg`, a conditional count, a `count_distinct` of two
+    fields, `stddev`, an `avg` of an expression, a Bool key or
+    `count_distinct`, a `max` of a `let`) keep main's blockers, object for
+    object, under each policy they are refused with; PostgreSQL emits each
+    but the long label as main does."""
+    if policy not in probe.G2_REFUSAL_POLICIES.get(shape, (policy,)):
+        pytest.skip("refused under its own policy only")
+    body = probe.G2_REFUSALS[shape]
+    world = probe.G2_REFUSAL_WORLDS.get(shape, {})
+    _, outcome = probe.grouping_world(
+        tmp_path / "mysql", "mysql", body, policy, **world
+    )
+    assert outcome.status == "BLOCKED" and outcome.artifact is None
+    assert _numeric_blockers(outcome) == probe.G2_REFUSAL_BLOCKERS[shape]
+    _, postgres = probe.grouping_world(
+        tmp_path / "postgres", "postgres", body, policy, **world
+    )
+    if shape in probe.G2_POSTGRES_BLOCKERS:
+        assert _numeric_blockers(postgres) == probe.G2_POSTGRES_BLOCKERS[shape]
+    else:
+        assert postgres.status == "VERIFIED", postgres.blockers
+
+
+@pytest.mark.parametrize("policy", ("preserve_literals", "bind_safe_literals"))
+def test_a_refused_g2_neighbour_with_an_int_extreme_keeps_main_refusal(
+    tmp_path, policy
+):
+    """Rule two under PL.73: a statement outside G2's law (ORDER BY) whose
+    `max` of an INT field reads the base table directly keeps exactly the
+    sum's blocker; the extreme's cast adds none. Without the ORDER BY the
+    same body emits that `max` cast to SIGNED as a my_signed_int."""
+    grouped = (
+        "query result:\n    from rows\n    group by k\n    select:\n        k\n"
+        "        x = sum(n)\n        hc = max(c)\n"
+    )
+    _, refused = probe.grouping_world(
+        tmp_path / "mysql", "mysql", grouped + "    order by:\n        k\n", policy
+    )
+    assert refused.status == "BLOCKED" and refused.artifact is None
+    assert _numeric_blockers(refused) == [
+        ("PIE-B1004", "sum_int_aggregate_range_proof_missing", 16, 9)
+    ]
+    _, postgres = probe.grouping_world(
+        tmp_path / "postgres",
+        "postgres",
+        grouped + "    order by:\n        k\n",
+        policy,
+    )
+    assert postgres.status == "VERIFIED", postgres.blockers
+    _, opened = probe.grouping_world(tmp_path / "open", "mysql", grouped, policy)
+    probe.numeric_readers_accept(opened)
+    assert opened.artifact is not None
+    assert "CAST(MAX(`s0`.`narrow`) AS SIGNED)" in opened.artifact.rendered.sql.decode()
+    _assert_extreme_carriers(
+        json.loads(serialize_project_sql_emission(opened)),
+        "mysql",
+        {"hc": _EXTREME_INT},
+    )
+
+
+@pytest.mark.parametrize("policy", ("preserve_literals", "bind_safe_literals"))
+def test_mysql_s02_smallint_key_keeps_its_cell_beside_g2(tmp_path, policy):
+    """G2 keeps S02's own law beside its own: a non-null SMALLINT key beside
+    a sum, a count and a min stays in the cell with main's bytes, every
+    reader accepting them, while beside a `max`, nullable, or beside a
+    second key it keeps main's blockers; PostgreSQL emits each."""
+    _, outcome = probe.division_world(
+        tmp_path / "cell", "mysql", probe.G2_S02_KEY, policy
+    )
+    probe.numeric_readers_accept(outcome)
+    assert outcome.artifact is not None
+    assert outcome.artifact.rendered.sql.decode() == probe.G2_S02_KEY_SQL
+    # `min(i)` of a nullable INT straight from the base table (PL.73).
+    _assert_extreme_carriers(
+        json.loads(serialize_project_sql_emission(outcome)),
+        "mysql",
+        {"lo": _EXTREME_INT},
+    )
+    for name, (body, blockers) in probe.G2_S02_KEY_REFUSALS.items():
+        _, refused = probe.division_world(tmp_path / name, "mysql", body, policy)
+        assert refused.status == "BLOCKED" and refused.artifact is None
+        assert _numeric_blockers(refused) == blockers
+        _, postgres = probe.division_world(
+            tmp_path / f"{name}-postgres", "postgres", body, policy
+        )
+        assert postgres.status == "VERIFIED", postgres.blockers
 
 
 _GROUP_FORMS = {
