@@ -862,6 +862,41 @@ def _value_realization(doc, value):
     return None
 
 
+def _operation_nullable(doc, op):
+    """The nullability semantic.expressions gives an arithmetic, sign, cast or
+    scalar call result over its operands, which the emitter keeps: arithmetic
+    is unknown, nullable over a NULL operand (resolved_binary_value_type,
+    _binary_value_type); a sign or cast keeps its operand's; `same_value` is
+    non-null; `nullif` its first argument's, nullable for a non-null one;
+    `coalesce` non-null with one non-null argument, else unknown with an
+    unknown one, else nullable; any other call is nullable with a nullable
+    argument, else unknown with an unknown one, else non-null. A literal is
+    non-null and a NULL nullable."""
+    kind, operator = op["kind"], op["operator"]
+    operands = op["operands"]
+    if kind == "arithmetic":
+        return True if any(c.kind == "sql_null" for c in operands) else "unknown"
+    states = tuple(
+        True
+        if child.kind == "sql_null"
+        else False
+        if child.kind in ("sql_anchor", "sql_unary")
+        else doc[doc[child]["realization"]]["nullable"]
+        for child in operands
+    )
+    if kind != "scalar_call":
+        return states[0]
+    if operator == "same_value":
+        return False
+    if operator == "nullif":
+        return True if states[0] is False else states[0]
+    # One non-null argument makes a coalesce non-null; one nullable, a call.
+    decisive = operator != "coalesce"
+    if decisive in states:
+        return decisive
+    return "unknown" if "unknown" in states else not decisive
+
+
 def _literal_provenance(doc, value):
     """A direct literal or the retained literal origin of a materialized let."""
 
@@ -4173,6 +4208,12 @@ class _Check:
                         result["nullable"] == temporal["nullable"],
                         "date_trunc timestamp",
                     )
+            # After this operation's relations, so one they refuse keeps its detail.
+            if op["kind"] in ("arithmetic", "sign", "cast", "scalar_call"):
+                _require(
+                    result["nullable"] == _operation_nullable(doc, op),
+                    "operation nullability",
+                )
         spread = _mysql_spread_cell(doc) if family == "mysql" else None
         mysql_sums = _mysql_cells(doc)[1] if family == "mysql" else frozenset()
         # A MySQL `first` or `last` only in the S13 statement class.
