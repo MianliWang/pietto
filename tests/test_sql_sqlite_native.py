@@ -13,8 +13,9 @@ SQLite class decides (`--pietto-sqlite-class` or `PIETTO_SQLITE_CLASS`):
 program, while `qualified` fails and `report` skips with a counted
 `PIETTO_NOT_RUN sqlite-native` line in the module fixture, before a cell
 emits anything. There only the coverage laws (SQLite) and the PostgreSQL
-replay binding (PostgreSQL, the golden's statements too) emit programs, those
-of every cell except the premise controls, and the self-tests still run.
+replay bindings (PostgreSQL, the golden's statements too) emit programs, the
+laws those of every cell except the first tier's premise controls, the
+bindings only those of the cells they replayed, and the self-tests still run.
 """
 
 from __future__ import annotations
@@ -64,6 +65,8 @@ SQL_GOLDEN = REPO_ROOT / "tests/fixtures/golden/emit_sqlite_single_file.sql"
 # and golden statement (D78.08); the file states its source and regeneration.
 POSTGRES_REPLAY = REPO_ROOT / "tests/fixtures/sqlite/postgres_replay_v1.json"
 POSTGRES_REPLAY_R1 = REPO_ROOT / "tests/fixtures/sqlite/postgres_replay_r1.json"
+POSTGRES_REPLAY_R2 = REPO_ROOT / "tests/fixtures/sqlite/postgres_replay_r2.json"
+POSTGRES_REPLAY_R3 = REPO_ROOT / "tests/fixtures/sqlite/postgres_replay_r3.json"
 INT_MIN = -9_223_372_036_854_775_808
 INT_MAX = 9_223_372_036_854_775_807
 _RecordProperty = Callable[[str, object], None]
@@ -206,8 +209,32 @@ _T2_FIXTURES: dict[str, tuple[str, str, tuple[tuple[object, ...], ...]]] = {
     "sum-mixed": ("t", _SCHEMA, _n_rows((INT_MAX, 1), (1, 1), (-1, 1))),
     "sum-mixed-reversed": ("t", _SCHEMA, _n_rows((-1, 1), (1, 1), (INT_MAX, 1))),
 }
+# The T4 fixtures (S14): `n` at and inside the bounds of its declared range,
+# so each arithmetic result reaches signed 64 bits; the `broken` tables break
+# that range on purpose, and `square-over` sums squares past the maximum.
+_ROOT = 3_037_000_499  # the largest Int whose square fits signed 64 bits
+_T4_FIXTURES: dict[str, tuple[str, str, tuple[tuple[object, ...], ...]]] = {
+    "arith-edges": (
+        "t",
+        _SCHEMA,
+        _n_rows((INT_MAX - 1, 1), (INT_MIN + 1, 0), (0, None), (None, 1), (7, 0)),
+    ),
+    "arith-broken": ("t", _SCHEMA, _n_rows((INT_MAX, 1), (INT_MIN, 0))),
+    "arith-square": (
+        "t",
+        _SCHEMA,
+        _n_rows((_ROOT, 1), (2, 1), (0, 0), (None, 0), (1, None)),
+    ),
+    "arith-square-broken": ("t", _SCHEMA, _n_rows((INT_MAX, 1), (1, 1))),
+    "arith-square-over": ("t", _SCHEMA, _n_rows((_ROOT, 1), (_ROOT, 1))),
+}
 # The `int_range` of `n` that a project contract declares for a fixture.
 _N_RANGES = {
+    "arith-edges": (INT_MIN + 1, INT_MAX - 1),
+    "arith-broken": (INT_MIN + 1, INT_MAX - 1),
+    "arith-square": (0, _ROOT),
+    "arith-square-broken": (0, _ROOT),
+    "arith-square-over": (0, _ROOT),
     "sum-up": (0, INT_MAX),
     "sum-over": (0, INT_MAX),
     "sum-mixed": (0, INT_MAX),
@@ -217,6 +244,7 @@ _N_RANGES = {
 }
 _FIXTURES: dict[str, tuple[str, str, tuple[tuple[object, ...], ...]]] = {
     **_T2_FIXTURES,
+    **_T4_FIXTURES,
     "rows": ("t", _SCHEMA, _ROWS),
     "bool-pairs": ("t", _PAIR_SCHEMA, _PAIRS),
     "nocase": ("t", _SCHEMA.replace("`s` TEXT", "`s` TEXT COLLATE NOCASE"), _ROWS),
@@ -1325,6 +1353,438 @@ _PROJECT_T2_CELLS = (
     ),
 )
 
+
+def _computed(
+    fixture: str, *values: Callable[[int], int]
+) -> tuple[tuple[object, ...], ...]:
+    """Each row's `id` and Python's exact value of each function of its `n`,
+    None where `n` is NULL."""
+
+    rows = _FIXTURES[fixture][2]
+    return tuple(
+        (
+            row[0],
+            *(value(row[1]) if isinstance(row[1], int) else None for value in values),
+        )
+        for row in rows
+    )
+
+
+# The T4 forms (S14, Q2 T4 b), project mode only: range-proved `Int` `+`,
+# `-`, `*`, unary `-` and `abs` in `select` and `where`, and in the argument
+# of `avg` and `sum`. Each result is Python's exact `int`, so a REAL would
+# fail the judge. They stay out of `_PROJECT_CELLS`, whose PostgreSQL replay
+# R1 binds; R2's `postgres_replay_r2.json` binds each that PostgreSQL project
+# emission writes, all but the minimum written as one signed literal (D78.15,
+# D78.16). The `premise` cells break the declared range and show the harm
+# the proof prevents: SQLite answers a REAL, with no error, for a `+`, `-`,
+# `*` or unary `-` past signed 64 bits, and so does a `sum` of one.
+_PROJECT_T4_CELLS: tuple[_Cell, ...] = (
+    _Cell(
+        "project-t4-select-at-the-bounds",
+        _q(
+            _b(
+                "select",
+                "id",
+                "p = n + 1",
+                "m = n - 1",
+                "g = -n",
+                "a = abs(n)",
+                "z = -9223372036854775807 - 1",
+                "k = -7 * 3",
+            )
+        ),
+        ("id", "p", "m", "g", "a", "z", "k"),
+        tuple(
+            (*row, INT_MIN, -21)
+            for row in _computed(
+                "arith-edges",
+                lambda n: n + 1,
+                lambda n: n - 1,
+                lambda n: -n,
+                abs,
+            )
+        ),
+        False,
+        "arith-edges",
+        arguments=(),
+    ),
+    _Cell(
+        "project-t4-where",
+        _q(
+            "where n + 1 > 1 and -n < 0 and n * 1 != 0"
+            " or abs(n) == 7 and n - 1 == 6 or n > -9223372036854775807 - 1 + 5",
+            _b("select", "id"),
+        ),
+        ("id",),
+        _ids(1, 3, 5),
+        False,
+        "arith-edges",
+        arguments=(),
+    ),
+    _Cell(
+        "project-t4-the-minimum-literal",
+        _q(
+            "where n > -9223372036854775808",
+            _b("select", "id", "z = -9223372036854775808"),
+        ),
+        ("id", "z"),
+        ((1, INT_MIN), (2, INT_MIN), (3, INT_MIN), (5, INT_MIN)),
+        False,
+        "arith-edges",
+        arguments=(),
+    ),
+    _Cell(
+        "project-t4-avg-at-the-bounds",
+        _q(_b("group by", "b"), _b("select", "b", "a = avg(n - 1)")),
+        ("b", "a"),
+        tuple(
+            (
+                b,
+                _avg(
+                    [
+                        v - 1
+                        for v in _values("arith-edges", "n", b)
+                        if isinstance(v, int)
+                    ]
+                ),
+            )
+            for b in (1, 0, None)
+        ),
+        False,
+        "arith-edges",
+        arguments=(),
+    ),
+    _Cell(
+        "project-t4-sums-of-arithmetic",
+        _q(
+            _b("group by", "b"),
+            _b(
+                "select",
+                "b",
+                "s = sum(n * n)",
+                "t = sum(n + 1)",
+                "u = sum(-n)",
+                "a = avg(n * 2)",
+            ),
+        ),
+        ("b", "s", "t", "u", "a"),
+        (
+            (1, _ROOT**2 + 4, _ROOT + 4, -_ROOT - 2, _avg([2 * _ROOT, 4])),
+            (0, 0, 1, 0, 0.0),
+            (None, 1, 2, -1, 2.0),
+        ),
+        False,
+        "arith-square",
+        arguments=(),
+    ),
+    _Cell(
+        "project-t4-select-squares",
+        _q(_b("select", "id", "q = n * n", "r = -(n * n)")),
+        ("id", "q", "r"),
+        _computed("arith-square", lambda n: n * n, lambda n: -(n * n)),
+        False,
+        "arith-square",
+        arguments=(),
+    ),
+    _Cell(
+        "project-t4-premise-broken-range-gives-a-real",
+        _q(_b("select", "id", "p = n + 1", "g = -n", "m = n - 1")),
+        ("id", "p", "g", "m"),
+        (
+            (1, float(INT_MAX) + 1.0, -INT_MAX, INT_MAX - 1),
+            (2, INT_MIN + 1, -float(INT_MIN), float(INT_MIN) - 1.0),
+        ),
+        False,
+        "arith-broken",
+        arguments=(),
+    ),
+    _Cell(
+        "project-t4-premise-broken-range-squares-to-a-real",
+        _q(_b("select", "id", "q = n * n")),
+        ("id", "q"),
+        ((1, float(INT_MAX) * float(INT_MAX)), (2, 1)),
+        False,
+        "arith-square-broken",
+        arguments=(),
+    ),
+    _Cell(
+        "project-t4-premise-broken-range-sums-a-real",
+        _q(_b("select", "s = sum(n * n)")),
+        ("s",),
+        ((float(INT_MAX) * float(INT_MAX),),),
+        False,
+        "arith-square-broken",
+        arguments=(),
+    ),
+)
+
+# The window cells: rankings over ties and NULL keys, `Text` partition and
+# order keys (again on the `nocase` fixture, where a key without `COLLATE
+# BINARY` would tie `a` with `A`), count, min and max over each frame unit
+# and bound kind, and `sum` over each monotone frame up to the signed 64-bit
+# bounds. They stay out of `_PROJECT_CELLS`, whose R1 replay binds; R2's
+# `postgres_replay_r2.json` binds each that PostgreSQL project emission
+# writes.
+_W = "window"
+_WINDOW_BASE: tuple[_Cell, ...] = (
+    _Cell(
+        "project-window-rankings-over-ties-and-null-keys",
+        _q(
+            _b(
+                "select",
+                "id",
+                f"r = rank() {_W}(order by n desc)",
+                f"d = dense_rank() {_W}(order by n desc)",
+                f"k = row_number() {_W}(order by n desc, id)",
+            )
+        ),
+        ("id", "r", "d", "k"),
+        (
+            (1, 9, 6, 9),
+            (2, 3, 2, 3),
+            (3, 8, 5, 8),
+            (4, 1, 1, 1),
+            (5, 4, 3, 4),
+            (6, 4, 3, 5),
+            (7, 4, 3, 6),
+            (8, 1, 1, 2),
+            (9, 7, 4, 7),
+        ),
+        False,
+        arguments=(),
+    ),
+    _Cell(
+        "project-window-text-keys-by-their-bytes",
+        _q(
+            _b(
+                "select",
+                "id",
+                f"r = rank() {_W}(partition by b order by s)",
+                f"d = dense_rank() {_W}(partition by b order by s desc)",
+                f"c = count() {_W}(partition by s)",
+                f"k = rank() {_W}(order by s)",
+                f"g = count() {_W}(order by s groups between current row"
+                " and current row)",
+            )
+        ),
+        ("id", "r", "d", "c", "k", "g"),
+        (
+            (1, 1, 3, 1, 3, 1),
+            (2, 2, 2, 1, 2, 1),
+            (3, 1, 2, 1, 5, 1),
+            (4, 2, 2, 1, 4, 1),
+            (5, 3, 1, 1, 9, 1),
+            (6, 3, 1, 2, 6, 2),
+            (7, 3, 1, 2, 6, 2),
+            (8, 2, 1, 1, 8, 1),
+            (9, 1, 3, 1, 1, 1),
+        ),
+        False,
+        arguments=(),
+    ),
+    _Cell(
+        "project-window-rows-offsets",
+        _q(
+            _b(
+                "select",
+                "id",
+                f"k = count(n) {_W}(order by id rows between 1 preceding"
+                " and 1 following)",
+                f"lo = min(n) {_W}(order by id rows between 2 preceding"
+                " and current row)",
+                f"hi = max(n) {_W}(order by id rows between current row"
+                " and 2 following)",
+            )
+        ),
+        ("id", "k", "lo", "hi"),
+        (
+            (1, 2, INT_MIN, INT_MAX),
+            (2, 3, INT_MIN, INT_MAX),
+            (3, 2, INT_MIN, 7),
+            (4, 2, 0, 7),
+            (5, 2, 0, 7),
+            (6, 3, 7, 7),
+            (7, 2, 7, 7),
+            (8, 2, 7, 1),
+            (9, 1, 1, 1),
+        ),
+        False,
+        arguments=(),
+    ),
+    _Cell(
+        "project-window-groups-and-range-frames",
+        _q(
+            _b(
+                "select",
+                "id",
+                f"g = count() {_W}(order by b groups between 1 preceding"
+                " and current row)",
+                f"t = min(n) {_W}(order by b desc range between current row"
+                " and unbounded following)",
+                f"m = min(n) {_W}(order by b rows between unbounded preceding"
+                " and unbounded following)",
+            )
+        ),
+        ("id", "g", "t", "m"),
+        (
+            (1, 7, INT_MIN, INT_MIN),
+            (2, 3, 1, INT_MIN),
+            (3, 6, INT_MIN, INT_MIN),
+            (4, 7, INT_MIN, INT_MIN),
+            (5, 3, 1, INT_MIN),
+            (6, 7, INT_MIN, INT_MIN),
+            (7, 7, INT_MIN, INT_MIN),
+            (8, 6, INT_MIN, INT_MIN),
+            (9, 3, 1, INT_MIN),
+        ),
+        False,
+        arguments=(),
+    ),
+    _Cell(
+        "project-window-float-and-int-keys-and-following-offsets",
+        _q(
+            _b(
+                "select",
+                "id",
+                f"a = count(n) {_W}(order by x, id rows between 1 following"
+                " and 2 following)",
+                f"z = count() {_W}(partition by x order by id rows between"
+                " 1 preceding and 1 preceding)",
+                f"p = rank() {_W}(partition by n order by x desc)",
+            )
+        ),
+        ("id", "a", "z", "p"),
+        (
+            (1, 1, 0, 1),
+            (2, 1, 0, 1),
+            (3, 1, 0, 1),
+            (4, 2, 1, 2),
+            (5, 0, 0, 1),
+            (6, 2, 0, 2),
+            (7, 2, 1, 2),
+            (8, 0, 1, 1),
+            (9, 2, 0, 1),
+        ),
+        False,
+        arguments=(),
+    ),
+    # PostgreSQL project emission writes neither a window over a `Float`
+    # argument nor `count()` over an empty window (D78.15).
+    _Cell(
+        "project-window-float-arguments-and-an-empty-window",
+        _q(
+            _b(
+                "select",
+                "id",
+                f"a = count(x) {_W}(order by x, id rows between 1 following"
+                " and 2 following)",
+                f"m = min(x) {_W}(order by b rows between unbounded preceding"
+                " and unbounded following)",
+                f"hi = max(x) {_W}(order by id rows between current row"
+                " and 2 following)",
+                f"c = count() {_W}()",
+            )
+        ),
+        ("id", "a", "m", "hi", "c"),
+        (
+            (1, 2, -0.5, 1e300, 9),
+            (2, 0, -0.5, 1e300, 9),
+            (3, 2, -0.5, 0.0, 9),
+            (4, 2, -0.5, 2.5, 9),
+            (5, 0, -0.5, 2.5, 9),
+            (6, 2, -0.5, 2.5, 9),
+            (7, 1, -0.5, 2.5, 9),
+            (8, 0, -0.5, 1.0, 9),
+            (9, 2, -0.5, 1.0, 9),
+        ),
+        False,
+        arguments=(),
+    ),
+    _Cell(
+        "project-window-where-order-limit-around-windows",
+        _q(
+            "where n is not None",
+            _b("select", "id", f"c = count(n) {_W}()", f"hi = max(n) {_W}()"),
+            _b("order by", "id desc"),
+            "limit 2",
+        ),
+        ("id", "c", "hi"),
+        ((9, 7, INT_MAX), (7, 7, INT_MAX)),
+        True,
+        arguments=(),
+    ),
+    # Every monotone frame sums one sign up to the bound exactly.
+    _Cell(
+        "project-window-sum-up-to-the-bound-in-each-monotone-frame",
+        _q(
+            _b(
+                "select",
+                "id",
+                f"a = sum(n) {_W}(partition by b order by id)",
+                f"w = sum(n) {_W}(partition by b)",
+                f"r = sum(n) {_W}(partition by b order by id rows between"
+                " unbounded preceding and current row)",
+                f"u = sum(n) {_W}(partition by b order by id rows between"
+                " unbounded preceding and unbounded following)",
+                f"g = sum(n) {_W}(partition by b order by id groups between"
+                " unbounded preceding and current row)",
+                f"h = sum(n) {_W}(partition by b order by id range between"
+                " unbounded preceding and unbounded following)",
+                f"q = sum(n) {_W}(partition by b order by id groups between"
+                " unbounded preceding and unbounded following)",
+            )
+        ),
+        ("id", "a", "w", "r", "u", "g", "h", "q"),
+        tuple(
+            (i, a, w, a, w, a, w, w)
+            for i, a, w in (
+                (1, INT_MAX - 7, INT_MAX),
+                (2, INT_MAX - 4, INT_MAX),
+                (3, INT_MAX, INT_MAX),
+                (4, INT_MAX, INT_MAX),
+                (5, 0, 5),
+                (6, 5, 5),
+                (7, None, None),
+            )
+        ),
+        False,
+        "sum-up",
+        arguments=(),
+    ),
+    _Cell(
+        "project-window-sum-down-to-the-bound",
+        _q(
+            _b(
+                "select",
+                "id",
+                f"a = sum(n) {_W}(partition by b order by id)",
+                f"w = sum(n) {_W}(partition by b)",
+            )
+        ),
+        ("id", "a", "w"),
+        (
+            (1, INT_MIN + 7, INT_MIN),
+            (2, INT_MIN + 4, INT_MIN),
+            (3, INT_MIN, INT_MIN),
+            (4, INT_MIN, INT_MIN),
+            (5, 0, 0),
+        ),
+        False,
+        "sum-down",
+        arguments=(),
+    ),
+)
+_WINDOW_CELLS = (
+    *_WINDOW_BASE,
+    *(
+        replace(cell, name=f"{cell.name}-nocase", fixture="nocase")
+        for cell in _WINDOW_BASE
+        if cell.fixture == "rows"
+        and re.search(r"\bs\b", cell.program.split("\nquery q", 1)[1])
+    ),
+)
+
 # Project cells (PL.47): each single-file law and T2 cell's program as a
 # project module, with the same oracle, and the parameter cells. Project SQL writes
 # `COLLATE BINARY` where single files assume it, so each of these that reads
@@ -1352,6 +1812,309 @@ _PROJECT_CELLS = (
         if cell.fixture != "nocase"
     ),
     *_ALIASED_CELLS,
+)
+
+
+# The JOIN cells (S13a): INNER and LEFT JOINs of `t` with a second table `u`
+# on an `Int`, `Text` or `Bool` key, NULL keys, a self-join, a LEFT JOIN's
+# NULLs under a later `where`, grouping and aggregates over joined rows, and
+# a chain of three inputs, and S14's arithmetic over joined rows (fixture
+# `join-arith`). Each that compares `Text` runs again on the `join-nocase`
+# fixture, whose key columns are `COLLATE NOCASE` with indexes of another
+# collation, with the same oracle. They stay out of `_PROJECT_CELLS`, whose
+# R1 replay binds; R3's `postgres_replay_r3.json` binds each that PostgreSQL
+# project emission writes, all but the JOINs on a `Bool` key (D78.17).
+_U_SCHEMA = (
+    "CREATE TABLE `u` (`k` INTEGER NOT NULL, `w` TEXT, `c` INTEGER, `v` INTEGER) STRICT"
+)
+_U_ROWS: tuple[tuple[object, ...], ...] = (
+    (7, "a", 1, 10),
+    (0, "A", 0, 20),
+    (1, "\u00e9", None, 30),
+    (99, None, 1, 40),
+    (-1, "", 0, None),
+)
+_U_TYPES = {"k": "Int", "w": "Text", "c": "Bool", "v": "Int"}
+_JOIN_FIXTURES: dict[str, tuple[tuple[tuple[str, str, Any], ...], tuple[str, ...]]] = {
+    "join": ((("t", _SCHEMA, _ROWS), ("u", _U_SCHEMA, _U_ROWS)), ()),
+    "join-nocase": (
+        (
+            ("t", _SCHEMA.replace("`s` TEXT", "`s` TEXT COLLATE NOCASE"), _ROWS),
+            ("u", _U_SCHEMA.replace("`w` TEXT", "`w` TEXT COLLATE NOCASE"), _U_ROWS),
+        ),
+        (
+            "CREATE INDEX `t_s` ON `t` (`s`)",
+            "CREATE INDEX `u_w` ON `u` (`w` COLLATE BINARY)",
+            "CREATE INDEX `u_w_nocase` ON `u` (`w`)",
+        ),
+    ),
+}
+# The `join` tables under a contract whose `int_range`s bound `t.id`, `u.k`
+# and `u.v` (S14 over joined rows; each value of the tables lies inside).
+_JOIN_FIXTURES["join-arith"] = _JOIN_FIXTURES["join"]
+_JOIN_RANGES = {"join-arith": {"id": (1, 9), "k": (-1, 99), "v": (0, 100)}}
+_JOIN_HEADER = (
+    _HEADER
+    + """shape Ref:
+    k: Int
+    w: Text | None
+    c: Bool | None
+    v: Int | None
+    by_k = unique(k)
+    by_w = unique(w)
+
+source u: Ref = sqlite.table("u")
+
+"""
+)
+
+
+def _jq(*clauses: str, lets: tuple[str, ...] = ("r = u",)) -> str:
+    head = "query q:\n    from t\n" + "".join(f"    let {let}\n" for let in lets)
+    return _JOIN_HEADER + head + "".join(f"    {c}\n" for c in clauses)
+
+
+def _join_cell(name: str, program: str, columns: tuple[str, ...], *rows: Any) -> _Cell:
+    return _Cell(
+        f"project-join-{name}", program, columns, rows, False, "join", arguments=()
+    )
+
+
+_JOIN_BASE = (
+    _join_cell(
+        "inner-int-with-null-keys",
+        _jq("inner join r on t.n == r.k", _b("select", "t.id", "r.v")),
+        ("id", "v"),
+        (3, 20),
+        (5, 10),
+        (6, 10),
+        (7, 10),
+        (9, 30),
+    ),
+    _join_cell(
+        "left-text-by-its-bytes",
+        _jq("left join r on t.s == r.w", _b("select", "t.id", "r.v")),
+        ("id", "v"),
+        (1, 10),
+        (2, 20),
+        (3, 30),
+        (4, None),
+        (5, None),
+        (6, None),
+        (7, None),
+        (8, None),
+        (9, None),
+    ),
+    _join_cell(
+        "inner-bool-fans-out",
+        _jq("inner join r on t.b == r.c", _b("select", "t.id", "r.k")),
+        ("id", "k"),
+        *((i, k) for i in (1, 4, 6, 7) for k in (7, 99)),
+        *((i, k) for i in (2, 5, 9) for k in (0, -1)),
+    ),
+    _join_cell(
+        "self-join",
+        _jq(
+            "inner join p on t.n == p.n",
+            _b("select", "t.id", "pid = p.id"),
+            lets=("p = t",),
+        ),
+        ("id", "pid"),
+        (1, 1),
+        (2, 2),
+        (3, 3),
+        *((i, j) for i in (5, 6, 7) for j in (5, 6, 7)),
+        (9, 9),
+    ),
+    _join_cell(
+        "left-nulls-under-where",
+        _jq(
+            "left join r on t.n == r.k",
+            "where r.v is None or r.v > 15",
+            _b("select", "t.id"),
+        ),
+        ("id",),
+        *_ids(1, 2, 3, 4, 8, 9),
+    ),
+    # A LEFT JOIN's NULLs fall in one group with the right table's own.
+    _join_cell(
+        "left-nulls-group-with-right-nulls",
+        _jq(
+            "left join r on t.n == r.k",
+            _b("group by", "r.c"),
+            _b("select", "c = r.c", "n = count()"),
+        ),
+        ("c", "n"),
+        (0, 1),
+        (1, 3),
+        (None, 5),
+    ),
+    _join_cell(
+        "inner-text-grouped",
+        _jq(
+            "inner join r on t.s == r.w",
+            _b("group by", "r.c"),
+            _b("select", "c = r.c", "n = count()", "hi = max(t.n)"),
+        ),
+        ("c", "n", "hi"),
+        (1, 1, INT_MIN),
+        (0, 2, INT_MAX),
+        (None, 1, 0),
+    ),
+    replace(
+        _join_cell(
+            "left-grouped-having-order",
+            _jq(
+                "left join r on t.n == r.k",
+                "where r.v is None or r.v < 25",
+                _b("group by", "t.b"),
+                _b("select", "b = t.b", "n = count()", "m = count(t.x)"),
+                "having n > 1",
+                _b("order by", "b"),
+            ),
+            ("b", "n", "m"),
+            (0, 2, 1),
+            (1, 4, 4),
+            (None, 2, 1),
+        ),
+        ordered=True,
+    ),
+    _join_cell(
+        "chain-of-three",
+        _jq(
+            "inner join r on t.n == r.k",
+            "left join p on p.s == r.w and p.b == r.c",
+            _b("select", "t.id", "r.v", "pid = p.id"),
+            lets=("r = u", "p = t"),
+        ),
+        ("id", "v", "pid"),
+        (3, 20, 2),
+        (5, 10, 1),
+        (6, 10, 1),
+        (7, 10, 1),
+        (9, 30, None),
+    ),
+    # The chain on `Text` keys alone, since PostgreSQL project emission
+    # refuses a `Bool` comparison and so cannot replay the chain above.
+    _join_cell(
+        "chain-of-three-on-text",
+        _jq(
+            "inner join r on t.n == r.k",
+            "left join p on p.s == r.w",
+            _b("select", "t.id", "r.v", "pid = p.id"),
+            lets=("r = u", "p = t"),
+        ),
+        ("id", "v", "pid"),
+        (3, 20, 2),
+        (5, 10, 1),
+        (6, 10, 1),
+        (7, 10, 1),
+        (9, 30, 3),
+    ),
+    # A LEFT self-join on an `Int` and a `Text` key joined with `and`, whose
+    # rows, the joined side's NULLs among them, are ordered and cut.
+    replace(
+        _join_cell(
+            "left-self-join-on-int-and-text-limited",
+            _jq(
+                "left join p on t.n == p.n and t.s == p.s",
+                _b("select", "t.id", "pid = p.id"),
+                _b("order by", "p.id", "t.id"),
+                "limit 10",
+                lets=("p = t",),
+            ),
+            ("id", "pid"),
+            (1, 1),
+            (2, 2),
+            (3, 3),
+            (6, 6),
+            (7, 6),
+            (6, 7),
+            (7, 7),
+            (9, 9),
+            (4, None),
+            (5, None),
+        ),
+        ordered=True,
+    ),
+    # S14's arithmetic over joined rows, its bounds from each input's
+    # contract: in `select` and `where`, over a LEFT JOIN's NULLs, in the
+    # one-sided `sum` and the `avg` of a grouped JOIN, and over a self-join,
+    # whose two reads of `id` are bounded apart.
+    replace(
+        _join_cell(
+            "inner-arithmetic",
+            _jq(
+                "inner join r on t.n == r.k",
+                "where r.v - t.id > 5",
+                _b("select", "t.id", "s = r.v * 2 + r.k", "d = t.id - r.v"),
+            ),
+            ("id", "s", "d"),
+            (3, 40, -17),
+            (9, 61, -21),
+        ),
+        fixture="join-arith",
+    ),
+    replace(
+        _join_cell(
+            "left-arithmetic-over-nulls",
+            _jq(
+                "left join r on t.n == r.k",
+                _b("select", "t.id", "w = r.v + 1", "g = -r.k", "a = abs(r.k - t.id)"),
+            ),
+            ("id", "w", "g", "a"),
+            (1, None, None, None),
+            (2, None, None, None),
+            (3, 21, 0, 3),
+            (4, None, None, None),
+            (5, 11, -7, 2),
+            (6, 11, -7, 1),
+            (7, 11, -7, 0),
+            (8, None, None, None),
+            (9, 31, -1, 8),
+        ),
+        fixture="join-arith",
+    ),
+    replace(
+        _join_cell(
+            "inner-grouped-sum-and-avg-of-arithmetic",
+            _jq(
+                "inner join r on t.n == r.k",
+                _b("group by", "r.k"),
+                _b("select", "k = r.k", "s = sum(r.v * t.id)", "a = avg(r.v + t.id)"),
+            ),
+            ("k", "s", "a"),
+            (0, 60, 23.0),
+            (7, 180, 16.0),
+            (1, 270, 39.0),
+        ),
+        fixture="join-arith",
+    ),
+    replace(
+        _join_cell(
+            "self-join-arithmetic",
+            _jq(
+                "inner join p on t.n == p.n",
+                _b("select", "t.id", "s = t.id + p.id"),
+                lets=("p = t",),
+            ),
+            ("id", "s"),
+            (1, 2),
+            (2, 4),
+            (3, 6),
+            *((i, i + j) for i in (5, 6, 7) for j in (5, 6, 7)),
+            (9, 18),
+        ),
+        fixture="join-arith",
+    ),
+)
+_JOIN_CELLS = (
+    *_JOIN_BASE,
+    *(
+        replace(cell, name=f"{cell.name}-nocase", fixture="join-nocase")
+        for cell in _JOIN_BASE
+        if re.search(r"\.[sw]\b", cell.program.split("\nquery q", 1)[1])
+    ),
 )
 
 
@@ -1518,7 +2281,11 @@ def test_each_cell_matches_its_prewritten_oracle(cell: _Cell, native: _Native) -
     _judge(cell, sql, record)
 
 
-@pytest.mark.parametrize("cell", _PROJECT_CELLS, ids=lambda cell: cell.name)
+@pytest.mark.parametrize(
+    "cell",
+    (*_PROJECT_CELLS, *_PROJECT_T4_CELLS, *_WINDOW_CELLS),
+    ids=lambda cell: cell.name,
+)
 def test_each_project_cell_matches_its_prewritten_oracle(
     cell: _Cell,
     native: _Native,
@@ -1537,19 +2304,130 @@ def test_each_project_cell_matches_its_prewritten_oracle(
     _judge(cell, sql, record, parameters)
 
 
+def _join_run(fixture: str, sql: str) -> _Record:
+    tables, indexes = _JOIN_FIXTURES[fixture]
+    with closing(sqlite3.connect(":memory:")) as connection:
+        for table, schema, rows in tables:
+            connection.execute(schema)
+            marks = ", ".join("?" * len(rows[0]))
+            connection.executemany(f"INSERT INTO `{table}` VALUES ({marks})", rows)
+        for index in indexes:
+            connection.execute(index)
+        cursor = connection.execute(sql)
+        columns = tuple(item[0] for item in cursor.description)
+        return _Record(sql, columns, tuple(cursor.fetchall()))
+
+
+def _join_sources(fixture: str) -> tuple[dict[str, Any], dict[str, Any]]:
+    """The contract entries of a JOIN fixture's tables `t` and `u`, with the
+    fixture's `int_range`s."""
+
+    fields = tuple((c, t, c != "k") for c, t in _U_TYPES.items())
+    sources = (_project_source("rows"), project_files.source_entry("u", fields))
+    ranges = _JOIN_RANGES.get(fixture, {})
+    for field in (f for source in sources for f in source["fields"]):
+        if field["name"] in ranges:
+            low, high = ranges[field["name"]]
+            field["representation"]["domain"].update(min=str(low), max=str(high))
+    return sources
+
+
+def _join_emit(cell: _Cell, root: Path) -> adapter.SQLiteArtifact:
+    document = project_files.contract(*_join_sources(cell.fixture))
+    project_files.write(root, cell.program, document, "")
+    outcome, _ = emission_cli.emit_project(
+        root,
+        "main.pietto",
+        "query",
+        "q",
+        "sqlite",
+        "contract.json",
+        emission_cli.POLICIES["preserve"],
+    )
+    assert type(outcome) is adapter.SQLiteEmission, (cell.name, outcome.diagnostics)
+    assert outcome.artifact is not None, (cell.name, outcome.blockers)
+    return outcome.artifact
+
+
+@pytest.mark.parametrize("cell", _JOIN_CELLS, ids=lambda cell: cell.name)
+def test_each_join_cell_matches_its_prewritten_oracle(
+    cell: _Cell, native: _Native, tmp_path: Path
+) -> None:
+    sql = _join_emit(cell, tmp_path / "project").sql.decode("utf-8")
+    if not native.qualified:
+        return
+    record = _join_run(cell.fixture, sql)
+    native.observe("join_cell", [cell.program, cell.fixture, sql, repr(record.rows)])
+    _judge(cell, sql, record)
+
+
+def test_every_join_form_has_a_native_cell(tmp_path: Path) -> None:
+    """Each JOIN kind on each key type of rule 5a, read from the SQL AST."""
+    types = {"t": _COLUMN_TYPES, "u": _U_TYPES}
+    forms: set[str] = set()
+    for position, cell in enumerate(_JOIN_BASE):
+        ast = _join_emit(cell, tmp_path / str(position)).ast
+        tables = (ast.table, *(join.table for join in ast.joins))
+        inputs = ast.inputs()
+        for join in ast.joins:
+            pending = [join.on]
+            while pending:
+                node = pending.pop()
+                if type(node) is adapter_sql.SQLiteLogical:
+                    pending.extend((node.left, node.right))
+                    continue
+                assert type(node) is adapter_sql.SQLiteComparison, node
+                columns = (node.left, node.right)
+                assert all(type(c) is adapter_sql.SQLiteColumn for c in columns)
+                kinds = {
+                    types[tables[c.input]][inputs[c.input][c.field]]
+                    for c in columns
+                    if type(c) is adapter_sql.SQLiteColumn
+                }
+                assert len(kinds) == 1 and node.collate is (kinds == {"Text"}), node
+                forms.add(f"join {join.kind} {kinds.pop()}")
+    assert forms == {
+        f"join {kind} {key}" for kind in ("INNER", "LEFT") for key in adapter._KEYS
+    }
+
+
 _OVERFLOW = ("OperationalError", 1, "SQLITE_ERROR", "integer overflow")
 
 
+_SUM = _q(_b("select", "s = sum(n)"))
+_WINDOW_SUM = _q(_b("select", f"s = sum(n) {_W}(order by id)"))
+
+
 @pytest.mark.parametrize(
-    ("fixture", "expected"),
+    ("program", "fixture", "expected"),
     [
-        ("sum-over", _OVERFLOW),
-        ("sum-under", _OVERFLOW),
-        ("sum-mixed", _OVERFLOW),
-        ("sum-mixed-reversed", ("rows", repr(((INT_MAX,),)))),
+        pytest.param(_SUM, "sum-over", _OVERFLOW, id="sum-over"),
+        pytest.param(_SUM, "sum-under", _OVERFLOW, id="sum-under"),
+        pytest.param(_SUM, "sum-mixed", _OVERFLOW, id="sum-mixed"),
+        pytest.param(
+            _SUM,
+            "sum-mixed-reversed",
+            ("rows", repr(((INT_MAX,),))),
+            id="sum-mixed-reversed",
+        ),
+        pytest.param(
+            _q(_b("select", "s = sum(n * n)")),
+            "arith-square-over",
+            _OVERFLOW,
+            id="arith-square-over",
+        ),
+        pytest.param(
+            _q(_b("select", "s = abs(n)")),
+            "arith-broken",
+            _OVERFLOW,
+            id="arith-abs-of-the-minimum",
+        ),
+        pytest.param(_WINDOW_SUM, "sum-over", _OVERFLOW, id="window-sum-over"),
+        pytest.param(_WINDOW_SUM, "sum-under", _OVERFLOW, id="window-sum-under"),
     ],
 )
-def test_a_one_sided_sum_fails_exactly_outside_signed_64_bits(
+def test_a_one_sided_sum_or_abs_fails_exactly_outside_signed_64_bits(
+    program: str,
     fixture: str,
     expected: tuple[object, ...],
     native: _Native,
@@ -1557,11 +2435,13 @@ def test_a_one_sided_sum_fails_exactly_outside_signed_64_bits(
 ) -> None:
     """Rule 35's `sum` cells (PL.47): over one sign SQLite fails exactly
     when the result leaves signed 64 bits, where PostgreSQL's exact sum
-    raises SQLSTATE 22003. The `sum-mixed` premise controls break the declared
-    non-negative range: the exact sum fits in both scan orders, yet SQLite
-    fails in one and not in the other, so a mixed range stays refused."""
+    raises SQLSTATE 22003, grouped or over a monotone window frame.
+    The `sum-mixed` premise controls break the declared non-negative range:
+    the exact sum fits in both scan orders, yet SQLite fails in one and not
+    in the other, so a mixed range stays refused. A sum of arithmetic (S14)
+    fails as a sum of a field does, and `abs` of the minimum, which a broken
+    range lets in, fails too."""
 
-    program = _q(_b("select", "s = sum(n)"))
     cell = _Cell(
         f"project-t2-{fixture}", program, ("s",), (), False, fixture, arguments=()
     )
@@ -1579,6 +2459,35 @@ def test_a_one_sided_sum_fails_exactly_outside_signed_64_bits(
         )
     native.observe("sum_order", [program, fixture, sql, list(observed)])
     assert observed == expected
+
+
+def test_a_sliding_window_sum_can_fail_where_every_frame_fits(
+    native: _Native,
+) -> None:
+    """Rule 5c's control: over values of one sign, a frame that starts
+    after the current row fails although every frame's exact sum fits, so a
+    window `sum` keeps the monotone frames, where every partial sum lies
+    between zero and the largest frame's sum."""
+
+    values = (-606, 0, INT_MIN + 2)
+    frames = [values[i + 1 : i + 4] for i in range(len(values))]
+    assert all(INT_MIN <= sum(frame) <= INT_MAX for frame in frames)
+    sql = (
+        "SELECT `id`, SUM(`n`) OVER (ORDER BY `id` ASC NULLS LAST ROWS BETWEEN"
+        " 1 FOLLOWING AND 3 FOLLOWING) FROM `main`.`t`"
+    )
+    if not native.qualified:
+        return
+    with closing(sqlite3.connect(":memory:")) as connection:
+        connection.execute(_SCHEMA)
+        rows = [(i, n, None, None, None) for i, n in enumerate(values, 1)]
+        connection.executemany("INSERT INTO `t` VALUES (?, ?, ?, ?, ?)", rows)
+        try:
+            observed: object = connection.execute(sql).fetchall()
+        except sqlite3.OperationalError as error:
+            observed = str(error)
+    native.observe("sliding_sum", [sql, list(values), repr(observed)])
+    assert observed == "integer overflow"
 
 
 _GOLDEN = {
@@ -1856,16 +2765,27 @@ def _pg_contract(fixture: str) -> dict[str, Any]:
     with each storage and text domain restated for PostgreSQL, in schema
     `public`; selector, names, nullability, ranges and premises unchanged."""
 
-    entry = _project_source(fixture)
-    entry["relation"]["namespace"] = "public"
-    for field in entry["fields"]:
-        representation = field["representation"]
-        storage = representation["storage"]["kind"]
-        representation["storage"] = {"kind": _PG_STORAGE[storage]}
-        domain = representation["domain"]
-        if domain["kind"] == "text":
-            assert (domain["encoding"], domain["collation"]) == ("UTF-8", "BINARY")
-            domain.update(encoding="UTF8", collation="C")
+    return _pg_document(_project_source(fixture))
+
+
+def _pg_join_contract(fixture: str) -> dict[str, Any]:
+    """A JOIN fixture's PostgreSQL 18.6 contract (R3): R1's rule on each of
+    its two sources."""
+
+    return _pg_document(*_join_sources(fixture))
+
+
+def _pg_document(*entries: dict[str, Any]) -> dict[str, Any]:
+    for entry in entries:
+        entry["relation"]["namespace"] = "public"
+        for field in entry["fields"]:
+            representation = field["representation"]
+            storage = representation["storage"]["kind"]
+            representation["storage"] = {"kind": _PG_STORAGE[storage]}
+            domain = representation["domain"]
+            if domain["kind"] == "text":
+                assert (domain["encoding"], domain["collation"]) == ("UTF-8", "BINARY")
+                domain.update(encoding="UTF8", collation="C")
     settings = (
         ("client_encoding", "UTF8"),
         ("operator_environment", "builtin_only"),
@@ -1875,7 +2795,7 @@ def _pg_contract(fixture: str) -> dict[str, Any]:
     return {
         "format": "pietto.emission-contract.v1",
         "target": {"family": "postgres", "release": "18.6"},
-        "sources": [entry],
+        "sources": list(entries),
         "environment": [project_files.statement(*item) for item in settings],
     }
 
@@ -1895,40 +2815,51 @@ def _pg_sent(kind: str, sent: object) -> object:
     return read(raw)
 
 
-def test_each_r1_postgres_replay_binds_the_bytes_it_ran(tmp_path: Path) -> None:
-    """R1's saved PostgreSQL result counts for a T2 or project cell only while
-    the tree emits the bytes and arguments that ran, over the fixture rows and
-    the PostgreSQL contract the run loaded, while each argument was sent in
-    its physical type's form, and while it meets the cell's prewritten oracle
-    under the replay judge; a project cell that PostgreSQL refuses stays
-    listed, so one that starts to emit has no saved run. No database opens."""
+_PgSubject = tuple[_Cell, dict[str, tuple[str, bool]], str, list[Any]]
 
-    replay = json.loads(POSTGRES_REPLAY_R1.read_text(encoding="utf-8"))
-    assert replay["format"] == "pietto.phase78.b2-r1.postgres-replay.v1"
+
+def _pg_bind(
+    replay: dict[str, Any],
+    subjects: list[_PgSubject],
+    cells: Sequence[_Cell],
+    tmp_path: Path,
+    contract_of: Callable[[str], dict[str, Any]] = _pg_contract,
+) -> list[list[Any]]:
+    """Binds a saved replay (R1, R2, R3) to the tree: the fixture rows it
+    loaded, table by table; then, after `subjects`, each of `cells` that the
+    PostgreSQL project pipeline emits over `contract_of` its fixture, with the
+    arguments it binds; one saved run per subject, in that order, holding its
+    bytes, arguments and sent forms, its rows judged against the prewritten
+    oracle. Premise controls (a name holding `-premise-`) and `-nocase`
+    variants are SQLite-only premises. Returns each refused cell with its
+    blockers' codes and details."""
+
     assert set(replay["fixtures"]) == {entry["fixture"] for entry in replay["entries"]}
     for name, saved in replay["fixtures"].items():
-        table, _schema, rows = _FIXTURES[name]
-        assert saved["table"] == table, name
-        assert len(saved["rows"]) == len(rows), name
-        for row, saved_row in zip(rows, saved["rows"]):
-            pairs = zip(row, saved_row, strict=True)
-            assert all(_loaded(value, item) for value, item in pairs), (name, row)
-    subjects: list[tuple[_Cell, dict[str, tuple[str, bool]], str, list[Any]]] = []
-    for cell in _T2_CELLS:
-        ((sql, columns),) = _postgres(cell.program).values()
-        subjects.append((cell, columns, sql, []))
+        if "tables" in saved:
+            tables, saved_tables = _JOIN_FIXTURES[name][0], saved["tables"]
+        else:
+            tables, saved_tables = (_FIXTURES[name],), (saved,)
+        for (table, _schema, rows), saved_table in zip(
+            tables, saved_tables, strict=True
+        ):
+            assert saved_table["table"] == table, name
+            assert len(saved_table["rows"]) == len(rows), name
+            for row, saved_row in zip(rows, saved_table["rows"]):
+                pairs = zip(row, saved_row, strict=True)
+                assert all(_loaded(value, item) for value, item in pairs), (name, row)
     refused: list[list[Any]] = []
-    for index, cell in enumerate(_PROJECT_CELLS):
-        if cell.name.startswith("project-premise-"):
+    for index, cell in enumerate(cells):
+        if "-premise-" in cell.name:
             continue  # SQLite-only premises
         if cell.fixture.endswith("nocase"):
             # Same program and PostgreSQL contract as its base cell.
             base_name = cell.name.removesuffix("-nocase")
-            base = next(c for c in _PROJECT_CELLS if c.name == base_name)
+            base = next(c for c in cells if c.name == base_name)
             assert cell.program == base.program, cell.name
-            assert _pg_contract(cell.fixture) == _pg_contract(base.fixture)
+            assert contract_of(cell.fixture) == contract_of(base.fixture)
             continue
-        contract = _pg_contract(cell.fixture)
+        contract = contract_of(cell.fixture)
         if cell.fixture in replay["fixtures"]:
             assert replay["fixtures"][cell.fixture]["postgres_contract"] == contract
         program = cell.program.replace('sqlite.table("', 'postgres.table("')
@@ -1943,7 +2874,8 @@ def test_each_r1_postgres_replay_binds_the_bytes_it_ran(tmp_path: Path) -> None:
             emission_cli.POLICIES["preserve"],
         )
         if outcome.artifact is None:
-            refused.append([cell.name, [blocker.code for blocker in outcome.blockers]])
+            blockers = [[blocker.code, blocker.detail] for blocker in outcome.blockers]
+            refused.append([cell.name, blockers])
             continue
         document = json.loads(emission_cli.serialize_emission(outcome))
         bound: dict[int, list[Any]] = {}
@@ -1962,7 +2894,6 @@ def test_each_r1_postgres_replay_binds_the_bytes_it_ran(tmp_path: Path) -> None:
         }
         sql = outcome.artifact.rendered.sql.decode("utf-8")
         subjects.append((cell, columns, sql, [bound[i] for i in sorted(bound)]))
-    assert replay["postgres_refused"] == refused
     # One saved run per emitted cell, in that order, and no other.
     assert [entry["id"] for entry in replay["entries"]] == [s[0].name for s in subjects]
     for entry, (cell, columns, sql, parameters) in zip(replay["entries"], subjects):
@@ -1993,6 +2924,85 @@ def test_each_r1_postgres_replay_binds_the_bytes_it_ran(tmp_path: Path) -> None:
                 candidates.append(options)
             assert difference["candidates"] == candidates, name
         _pg_judge(name, cell, columns, entry)
+    return refused
+
+
+def test_each_r1_postgres_replay_binds_the_bytes_it_ran(tmp_path: Path) -> None:
+    """R1's saved PostgreSQL result counts for a T2 or project cell only while
+    the tree emits the bytes and arguments that ran, over the fixture rows and
+    the PostgreSQL contract the run loaded, while each argument was sent in
+    its physical type's form, and while it meets the cell's prewritten oracle
+    under the replay judge; a project cell that PostgreSQL refuses stays
+    listed, so one that starts to emit has no saved run. No database opens."""
+
+    replay = json.loads(POSTGRES_REPLAY_R1.read_text(encoding="utf-8"))
+    assert replay["format"] == "pietto.phase78.b2-r1.postgres-replay.v1"
+    subjects: list[_PgSubject] = []
+    for cell in _T2_CELLS:
+        ((sql, columns),) = _postgres(cell.program).values()
+        subjects.append((cell, columns, sql, []))
+    refused = _pg_bind(replay, subjects, _PROJECT_CELLS, tmp_path)
+    codes = [[name, [code for code, _ in blockers]] for name, blockers in refused]
+    assert replay["postgres_refused"] == codes
+
+
+def test_each_r2_postgres_replay_binds_the_bytes_it_ran(tmp_path: Path) -> None:
+    """R2's saved PostgreSQL result counts for an S14 or S15 cell only under
+    R1's rule: the bytes that ran, over the fixture rows and the PostgreSQL
+    contract the run loaded, meeting the cell's prewritten oracle under the
+    replay judge, with no declared divergence (no `AVG_ORDER`); a cell that
+    PostgreSQL refuses stays listed with the blockers it had (D78.15 (2), its
+    native cells only, D78.16). No database opens."""
+
+    replay = json.loads(POSTGRES_REPLAY_R2.read_text(encoding="utf-8"))
+    assert replay["format"] == "pietto.phase78.b2-r2.postgres-replay.v1"
+    cells = (*_PROJECT_T4_CELLS, *_WINDOW_CELLS)
+    assert replay["postgres_refused"] == _pg_bind(replay, [], cells, tmp_path)
+
+
+def test_each_r2_row_number_entry_has_no_peers(
+    native: _Native,
+    project_emit: Callable[[_Cell], adapter.SQLiteArtifact],
+) -> None:
+    """A saved `row_number` result counts only while no two rows of its window
+    tie in the window's order (R2's D4): with `ROW_NUMBER()` read as `RANK()`
+    the SQLite statement gives the same rows, so the numbers do not depend on
+    how peers are ordered."""
+
+    replay = json.loads(POSTGRES_REPLAY_R2.read_text(encoding="utf-8"))
+    cells = {cell.name: cell for cell in (*_PROJECT_T4_CELLS, *_WINDOW_CELLS)}
+    checked = []
+    for entry in replay["entries"]:
+        cell = cells[entry["id"]]
+        sql = project_emit(cell).sql.decode("utf-8")
+        if "ROW_NUMBER()" not in sql:
+            continue
+        ranked = sql.replace("ROW_NUMBER() OVER", "RANK() OVER")
+        assert "ROW_NUMBER()" not in ranked, cell.name
+        checked.append(cell.name)
+        if native.qualified:
+            numbered, by_rank = (
+                _run(cell.fixture, text).rows for text in (sql, ranked)
+            )
+            assert Counter(numbered) == Counter(by_rank), cell.name
+    assert checked
+    if native.qualified:
+        native.observe("r2_no_peers", checked)
+
+
+def test_each_r3_postgres_replay_binds_the_bytes_it_ran(tmp_path: Path) -> None:
+    """R3's saved PostgreSQL result counts for a JOIN cell, S14's arithmetic
+    over joined rows among them, only under R1's rule: the bytes that ran,
+    over the two tables and the two-source PostgreSQL contract the run
+    loaded, meeting the cell's prewritten oracle under the replay judge, with
+    no declared divergence (no `AVG_ORDER`); a cell that PostgreSQL refuses
+    stays listed with the blockers it had (a `Bool` key, its native cells
+    only, D78.17). No database opens."""
+
+    replay = json.loads(POSTGRES_REPLAY_R3.read_text(encoding="utf-8"))
+    assert replay["format"] == "pietto.phase78.b2-r3.postgres-replay.v1"
+    refused = _pg_bind(replay, [], _JOIN_CELLS, tmp_path, _pg_join_contract)
+    assert replay["postgres_refused"] == refused
 
 
 _WIDE = """shape Wide:
@@ -2480,6 +3490,11 @@ _PREDICATES = (
     adapter_sql.SQLiteNot,
     adapter_sql.SQLiteIsNull,
 )
+_ARITHMETIC = (
+    adapter_sql.SQLiteArithmetic,
+    adapter_sql.SQLiteNegative,
+    adapter_sql.SQLiteAbs,
+)
 
 
 def _project_forms(artifact: adapter.SQLiteArtifact) -> set[str]:
@@ -2497,6 +3512,8 @@ def _project_forms(artifact: adapter.SQLiteArtifact) -> set[str]:
     def kind(node: object) -> str:
         if isinstance(node, _PREDICATES):
             return "Bool"
+        if isinstance(node, _ARITHMETIC):
+            return "Int"
         if type(node) is adapter_sql.SQLiteAggregate:
             results = {"count": "Int", "count_distinct": "Int", "avg": "Float"}
             return results.get(node.function) or kind(node.argument)
@@ -2507,7 +3524,28 @@ def _project_forms(artifact: adapter.SQLiteArtifact) -> set[str]:
         assert type(node) is adapter_sql.SQLiteLiteral, node
         return _VALUE_KINDS[type(node.value)]
 
+    def window(node: adapter_sql.SQLiteWindow) -> None:
+        argument = "" if node.argument is None else f" {kind(node.argument)}"
+        if node.function == "count" and node.argument is None:
+            argument = " *"
+        forms.add(f"window {node.function}{argument}")
+        for name, keys in (("partition", node.partition_by), ("order", node.order_by)):
+            for key in keys:
+                assert key.collate is (kind(key.value) == "Text"), key
+                direction = {None: "", False: " asc", True: " desc"}[key.descending]
+                forms.add(f"window {name} {kind(key.value)}{direction}")
+        frame = node.frame
+        if frame is not None:
+            forms.add(f"window frame {frame.unit}")
+            forms.add(f"window frame start {frame.start[0]}")
+            forms.add(f"window frame end {frame.end[0]}")
+            if node.function == "sum":
+                forms.add(f"window sum frame {frame.unit} {frame.end[0]}")
+
     def walk(node: object, clause: str) -> None:
+        if type(node) is adapter_sql.SQLiteWindow:
+            window(node)
+            return
         if type(node) is adapter_sql.SQLiteAggregate:
             argument = "*" if node.argument is None else kind(node.argument)
             text = node.function == "count_distinct" and argument == "Text"
@@ -2515,6 +3553,9 @@ def _project_forms(artifact: adapter.SQLiteArtifact) -> set[str]:
             forms.add(f"{node.function} {argument}")
             if clause == "having":
                 forms.add("having aggregate")
+            if isinstance(node.argument, _ARITHMETIC):
+                forms.add(f"{node.function} Int arithmetic")
+                walk(node.argument, "aggregate")
             return
         if type(node) is adapter_sql.SQLiteLiteral:
             forms.add(f"literal {kind(node)}")
@@ -2532,6 +3573,15 @@ def _project_forms(artifact: adapter.SQLiteArtifact) -> set[str]:
             forms.add(f"{clause} {kind(node.operand)} {test}")
         elif type(node) is adapter_sql.SQLiteLogical:
             forms.add(f"{clause} Bool {node.operator}")
+        elif type(node) is adapter_sql.SQLiteArithmetic:
+            forms.add(f"{clause} Int {node.operator}")
+        elif type(node) is adapter_sql.SQLiteNegative:
+            forms.add(f"{clause} Int unary -")
+            operand = node.operand
+            if type(operand) is adapter_sql.SQLiteLiteral and operand.value == 2**63:
+                forms.add("literal Int minimum")
+        elif type(node) is adapter_sql.SQLiteAbs:
+            forms.add(f"{clause} Int ABS")
         else:
             assert type(node) is adapter_sql.SQLiteNot, node
             forms.add(f"{clause} Bool NOT")
@@ -2608,6 +3658,48 @@ _PROJECT_FORMS = {
         for kind in adapter.TYPES
         for direction in ("asc", "desc")
     ),
+    # S14: range-proved `Int` arithmetic in `select` and `where` and in the
+    # argument of `avg` and `sum`, which `check` refuses `abs` in (PIE-S2315),
+    # and the minimum written as one signed literal.
+    *(
+        f"{clause} Int {operator}"
+        for clause in ("select", "where")
+        for operator in (*adapter_sql.ARITHMETIC, "unary -", "ABS")
+    ),
+    *(f"aggregate Int {operator}" for operator in (*adapter_sql.ARITHMETIC, "unary -")),
+    *(f"{function} Int arithmetic" for function in ("avg", "sum")),
+    "literal Int minimum",
+    # Windows: each function over each type it reads, each key type and
+    # direction, each frame unit and bound kind, and `sum` over each unit of
+    # the monotone frames.
+    *(f"window {function}" for function in sorted(adapter_sql.RANKING)),
+    "window count *",
+    *(
+        f"window {function} {kind}"
+        for function, kinds in adapter._WINDOW_ARGUMENTS.items()
+        for kind in sorted(kinds)
+    ),
+    *(f"window partition {kind}" for kind in adapter.TYPES),
+    *(
+        f"window order {kind} {direction}"
+        for kind in adapter.TYPES
+        for direction in ("asc", "desc")
+    ),
+    *(f"window frame {unit}" for unit in adapter_sql.UNITS),
+    *(
+        f"window frame {side} {kind}"
+        for side, excluded in (
+            ("start", "unbounded_following"),
+            ("end", "unbounded_preceding"),
+        )
+        for kind in adapter_sql.BOUNDS
+        if kind != excluded
+    ),
+    *(
+        f"window sum frame {unit} {end}"
+        for unit in adapter_sql.UNITS
+        for end in ("current_row", "unbounded_following")
+    ),
 }
 
 
@@ -2615,10 +3707,12 @@ def test_every_emitted_form_has_a_native_cell(
     project_emit: Callable[[_Cell], adapter.SQLiteArtifact],
 ) -> None:
     assert _missing_forms((*_LAW_CELLS, *_T2_CELLS)) == set()
-    artifacts = (project_emit(cell) for cell in _PROJECT_LAW_CELLS)
+    cells = (*_PROJECT_LAW_CELLS, *_PROJECT_T4_CELLS, *_WINDOW_CELLS)
+    artifacts = (project_emit(cell) for cell in cells)
     assert _PROJECT_FORMS - set().union(*map(_project_forms, artifacts)) == set()
     for cell in _ALIASED_CELLS:
         ast = project_emit(cell).ast
         assert (ast.table, ast.columns) == (_ALIASED_TABLE, _ALIASED_COLUMNS)
-    names = [cell.name for cell in (*_CELLS, *_PROJECT_CELLS)]
+    cells = (*_CELLS, *_PROJECT_CELLS, *_PROJECT_T4_CELLS, *_WINDOW_CELLS)
+    names = [cell.name for cell in cells]
     assert len(names) == len(set(names))

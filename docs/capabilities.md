@@ -144,7 +144,24 @@ refused alike for every target.
   header parameters, `COLLATE BINARY` at each `Text` comparison, key and
   `count_distinct` argument, and `sum` of an `Int` field whose contract
   `int_range` lies on one side of zero; a mixed-sign range is PIE-B1004
-  `sum_int_aggregate_range_proof_missing`
+  `sum_int_aggregate_range_proof_missing`. `Int` `+`, `-`, `*`, unary `-`
+  and `abs` over `Int` fields and literals are admitted in `select` and
+  `where`, and all but `abs` in the argument of `avg` and `sum` (`check`
+  refuses `abs` there, PIE-S2315), when the contract's `int_range` bounds
+  keep every result inside signed 64 bits, else PIE-B1004
+  `int_arithmetic_range_proof_missing`. Over one source read without
+  `group by` or an aggregate, they also write the windows `row_number`,
+  `rank`, `dense_rank` and `count()`, `count`, `min` and `max` of an `Int`
+  or `Float` field, and the one-sided `sum` of an `Int` field in a frame
+  from `unbounded preceding` to `current row` or `unbounded following`,
+  keyed by fields of the source, with no `range` offset and no `exclude`
+  other than `exclude no others`; other windows are PIE-B1003
+  `sqlite_window_not_admitted` or `sqlite_window_sum_frame_not_admitted`,
+  and a window `sum` over a mixed-sign `int_range` is PIE-B1004
+  `sum_int_aggregate_range_proof_missing`. They also write INNER and LEFT
+  JOINs of `sqlite.table` sources on equalities of two `Int`, `Text` or
+  `Bool` fields joined with `and`, other JOINs being PIE-B1003
+  `sqlite_join_not_admitted`
   ([SQLite projects](language.md#sqlite-projects), alpha). PostgreSQL, MySQL
   and DuckDB emission refuse such a source with PIE-B1001
   `source_family_mismatch`.
@@ -152,7 +169,8 @@ refused alike for every target.
   compiles such a project query, and the `sqlite_file` route runs it
   read-only over one caller's file of `STRICT` tables, only on Linux x86-64
   with the measured build ([SQLite file route](execution.md#sqlite-file-route),
-  alpha). A single file is never run.
+  alpha); before a statement that joins sources and aggregates, it checks
+  each source's declared keys. A single file is never run.
 - **Support.** The SQL text and its goldens are tested wherever CI runs
   (CPython 3.12 and 3.13). The native cells qualify the SQL in process on one
   measured SQLite library only: release `3.53.1`, source id `2026-05-05

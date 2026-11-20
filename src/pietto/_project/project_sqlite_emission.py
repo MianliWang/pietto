@@ -17,12 +17,21 @@ from dataclasses import asdict, dataclass
 import json
 from typing import Any
 
-from pietto.ast_nodes import QueryDef, SourceDef, TableDef
+from pietto.ast_nodes import AuthoredJoinKind, QueryDef, SourceDef, TableDef
 from pietto._project import project_sql_plan as plans
 from pietto._project import project_sql_plan_aggregation as aggregation
 from pietto._project import project_sql_plan_expressions as expressions
 from pietto._project import project_sql_plan_target_assessment as targets
+from pietto._project import project_sql_plan_windows as windowing
 from pietto._project.aggregate_grouped_schema import ProjectGroupKeyFact
+from pietto._project.project_joined_aggregation import (
+    ProjectJoinedAggregateOccurrence,
+    ProjectJoinedGroupKeyOccurrence,
+)
+from pietto._project.project_sql_plan_joins import (
+    ProjectSQLJoinPortKind,
+    ProjectSQLJoinRows,
+)
 from pietto._project.model import ProjectResolvedTypeKind
 from pietto._project.project_sql_emission_contract import (
     CODES,
@@ -36,6 +45,7 @@ from pietto._project.project_sql_emission_contract import (
 from pietto._project.project_sql_emission_scopes import reference_source_ports
 from pietto._project.project_sql_emission_suggestions import blocker_suggestion
 from pietto._project.project_sql_plan_inspection import inspect_project_sql_plan
+from pietto._project import project_sqlite_range as ranges
 from pietto._project.project_sqlite_contract import (
     FAMILY,
     RELEASE,
@@ -44,22 +54,33 @@ from pietto._project.project_sqlite_contract import (
     read_sqlite_contract,
 )
 from pietto._project.project_sqlite_sql import (
+    ARITHMETIC,
     FUNCTIONS,
     LOGICAL,
     MAX_INT,
     OPERATORS,
+    RANKING,
+    UNITS,
+    WHOLE,
+    WINDOWS,
+    SQLiteAbs,
     SQLiteAggregate,
+    SQLiteArithmetic,
     SQLiteColumn,
     SQLiteComparison,
+    SQLiteFrame,
     SQLiteIsNull,
+    SQLiteJoin,
     SQLiteKey,
     SQLiteLimit,
     SQLiteLiteral,
     SQLiteLogical,
+    SQLiteNegative,
     SQLiteNot,
     SQLiteParameter,
     SQLiteResult,
     SQLiteSelect,
+    SQLiteWindow,
     Token,
     ast_rules_hold,
     literal_text,
@@ -92,13 +113,8 @@ NOT_ADMITTED = ("identifier_case", "session_sql_mode", "session_time_zone")
 # Every plan collection that a tier 1 statement leaves empty.
 _EMPTY = (
     "let_values",
-    "joins",
-    "join_inputs",
     "relationship_matches",
     "single_matches",
-    "windows",
-    "window_arguments",
-    "window_projections",
     "distincts",
     "set_bodies",
     "values_bodies",
@@ -121,13 +137,40 @@ _SHAPES = (
         ("result_filter",),
         ("final_projection",),
     ),
+    (("relation_input", "window_evaluation"), ("final_projection",)),
+    (("relation_input", "row_filter"), ("window_evaluation",), ("final_projection",)),
 )
+# The same shapes after a JOIN, whose first stage reads the joined rows.
+_JOINED_SHAPES = (
+    (("final_projection",),),
+    (("row_filter",), ("final_projection",)),
+    (("group_aggregate",), ("final_projection",)),
+    (("row_filter",), ("group_aggregate",), ("final_projection",)),
+    (("group_aggregate",), ("result_filter",), ("final_projection",)),
+    (("row_filter",), ("group_aggregate",), ("result_filter",), ("final_projection",)),
+)
+# The JOINs rule 5a admits, with the rows the plan keeps for each, and the
+# types of the fields an `on` equality compares.
+_JOINS = {
+    AuthoredJoinKind.INNER: ("INNER", ProjectSQLJoinRows.MATCHED_PAIRS),
+    AuthoredJoinKind.LEFT: ("LEFT", ProjectSQLJoinRows.LEFT_PRESERVED),
+}
+_KEYS = ("Int", "Text", "Bool")
+# SQLite joins at most 64 tables in one statement.
+_INPUTS = 64
 # The field types each aggregate reads (rule 10); `count` reads any.
 _ARGUMENTS = {
     "count_distinct": {"Int", "Text", "Bool"},
     "min": {"Int", "Float"},
     "max": {"Int", "Float"},
     "avg": {"Int"},
+    "sum": {"Int"},
+}
+# The field types each window function reads (rule 5b); `count()` reads none.
+_WINDOW_ARGUMENTS = {
+    "count": {"Int", "Float"},
+    "min": {"Int", "Float"},
+    "max": {"Int", "Float"},
     "sum": {"Int"},
 }
 _RESULTS = ((), ("relation_ordering",), ("limit",), ("relation_ordering", "limit"))
@@ -144,12 +187,31 @@ _SUGGESTIONS = {
         "remove this premise; SQLite project SQL does not use it"
     ),
     "sqlite_relation_shape_not_admitted": (
-        "SQLite emission admits one source read with where, group by, having,"
-        " order by, limit and select; JOINs, windows, qualify, distinct, set"
+        "SQLite emission admits one source read, or INNER and LEFT JOINs of"
+        " sources, with where, group by, having, order by, limit and select, and"
+        " windows over one source read without group by; qualify, distinct, set"
         " operations, relation lets and reads of another table or query are not"
         " available on SQLite"
     ),
-    "sqlite_source_count_not_admitted": "read exactly one sqlite.table source",
+    "sqlite_window_not_admitted": (
+        "use row_number, rank or dense_rank, count(), or count, min or max of"
+        " an Int or Float field, or sum of an Int field, over fields of the"
+        " source, with an inline window, no RANGE offset and no exclude"
+    ),
+    "sqlite_window_sum_frame_not_admitted": (
+        "write a window sum over the frame from unbounded preceding to current"
+        " row or unbounded following, or omit the frame: SQLite can fail a"
+        " sliding sum whose every frame fits"
+    ),
+    "sqlite_join_not_admitted": (
+        "join sqlite.table sources with inner join or left join on equalities of"
+        " two fields of one type, Int, Text or Bool, one of the joined source and"
+        " one of an earlier input, joined with and; right, full, cross and asof"
+        " JOINs, any reads and relationship matches are not available on SQLite"
+    ),
+    "sqlite_source_count_not_admitted": (
+        "read one sqlite.table source, or join sqlite.table sources"
+    ),
     "sqlite_field_type_not_admitted": (
         "SQLite emission reads Int, Text, Bool and Float fields"
     ),
@@ -158,13 +220,20 @@ _SUGGESTIONS = {
     ),
     "sqlite_expression_not_admitted": (
         "use fields, literals, parameters, comparisons of two values of one type,"
-        " and, or, not and is None; arithmetic, signs, in, ranges, conditionals,"
-        " casts and function calls are not available on SQLite"
+        " and, or, not, is None, and Int +, -, *, unary - and abs of fields and Int"
+        " literals; Float arithmetic, /, %, arithmetic on parameters or"
+        " aggregates, in, ranges, conditionals, casts and other function calls"
+        " are not available on SQLite"
+    ),
+    "int_arithmetic_range_proof_missing": (
+        "declare int_range bounds that keep every operand and result inside"
+        " signed 64 bits, or keep this expression in check/plan: SQLite turns an"
+        " Int overflow into a REAL without an error"
     ),
     "sqlite_aggregate_not_admitted": (
         "use count, count_distinct of an Int, Text or Bool field, min or max of an"
-        " Int or Float field, or avg or sum of an Int field, each over one field"
-        " of the source"
+        " Int or Float field, or avg or sum of an Int field or of Int arithmetic,"
+        " each over the fields of the source"
     ),
     "sqlite_projection_not_admitted": (
         "in a relation with group by or an aggregate, select group by keys,"
@@ -300,9 +369,11 @@ def _tag(expression: Any) -> str | None:
 
 def _function(aggregate: Any) -> str | None:
     source = aggregate.source
-    if type(source) is not aggregation.ProjectAggregateExpressionAnalysis:
-        return None
-    return aggregation.filtered_function(source.call) or source.fact.function
+    if type(source) is aggregation.ProjectAggregateExpressionAnalysis:
+        return aggregation.filtered_function(source.call) or source.fact.function
+    if type(source) is ProjectJoinedAggregateOccurrence:
+        return aggregation.filtered_function(source.call) or source.function_name
+    return None
 
 
 def _fits(name: str | None, representation: dict[str, Any]) -> bool:
@@ -328,9 +399,48 @@ def _fits(name: str | None, representation: dict[str, Any]) -> bool:
     return name in expected and (storage, domain["kind"]) == expected[name]
 
 
+@dataclass(frozen=True, slots=True)
+class _Window:
+    """One admitted window (rule 5b): each use with the source field it reads,
+    each order use with `descending`, and the frame as (unit, start, end),
+    each bound as (kind, offset)."""
+
+    function: str
+    argument: tuple[Any, int] | None
+    partitions: tuple[tuple[Any, int], ...]
+    orders: tuple[tuple[Any, int, bool], ...]
+    frame: tuple[str, tuple[str, int | None], tuple[str, int | None]] | None
+
+    def uses(self) -> tuple[Any, ...]:
+        """The argument's use, then each partition and order use: the columns
+        the window renders, in order."""
+        argument = () if self.argument is None else (self.argument[0],)
+        keys = (*self.partitions, *self.orders)
+        return (*argument, *(key[0] for key in keys))
+
+    def monotone(self) -> bool:
+        """The frame starts at UNBOUNDED PRECEDING and ends at CURRENT ROW or
+        UNBOUNDED FOLLOWING, so it only grows."""
+        return self.frame is not None and (
+            self.frame[1][0] == "unbounded_preceding"
+            and self.frame[2][0] in ("current_row", "unbounded_following")
+        )
+
+
+def _window_site(window: Any) -> Any:
+    return getattr(getattr(window.source, "item", None), "span", None)
+
+
 class _View:
     """The plan seen as one SQLite statement: what each port carries, and the
-    source field, group key or aggregate it ends at."""
+    source field, group key or aggregate it ends at.
+
+    The statement's inputs are its one source, or the source each JOIN input
+    reads, in input order, which is alias order. Their fields are numbered
+    together, input after input: `ports` holds each one's source port,
+    `places` its (input, field) pair and `ends` the plan ref that a read of
+    it ends at, the source port or, after a JOIN, the input's match port,
+    which tells the inputs of a self-join apart."""
 
     def __init__(self, plan: Any) -> None:
         self.plan = plan
@@ -347,18 +457,147 @@ class _View:
             {p.ref: p.source_port for p in plan.projections if p.source_port}
         )
         self.carried.update({p.ref: p.input for p in plan.aggregate_projections})
-        source = plan.sources[0] if len(plan.sources) == 1 else None
-        self.ports = () if source is None else _ports(plan, source)
-        self.index = {port.ref: k for k, port in enumerate(self.ports)}
+        self.carried.update(
+            {
+                p.ref: p.source
+                for p in plan.join_ports
+                if p.kind is ProjectSQLJoinPortKind.OUTPUT
+            }
+        )
+        self.joins = tuple(sorted(plan.joins, key=lambda join: join.position))
+        self.join_inputs = {item.ref: item for item in plan.join_inputs}
+        found = self._inputs()
+        # The leading inputs that read a source; rule 5a reads their fields
+        # when a later input does not, and the statement has no inputs then.
+        self.leading = tuple(source for source, _ends in found)
+        whole = len(self.leading) == len(self.joins) + 1
+        self.inputs: tuple[Any, ...] = self.leading if whole else ()
+        ports: list[Any] = []
+        self.places: list[tuple[int, int]] = []
+        self.ends: list[Any] = []
+        for alias, (source, ends) in enumerate(found):
+            for field, (end, port) in enumerate(
+                zip(ends, _ports(plan, source), strict=True)
+            ):
+                ports.append(port)
+                self.places.append((alias, field))
+                self.ends.append(end)
+        self.ports = tuple(ports)
+        self.index = {end: k for k, end in enumerate(self.ends)}
+        self.positions = {place: k for k, place in enumerate(self.places)}
+        # A later JOIN's left input is the joined rows so far: its match
+        # ports carry the earlier JOIN's outputs.
+        self.carried.update(
+            {
+                p.ref: p.source
+                for p in plan.join_ports
+                if p.kind is ProjectSQLJoinPortKind.MATCH and p.ref not in self.index
+            }
+        )
         self.projections = {p.export: p for p in plan.projections}
         self.grouped = {p.export: p for p in plan.aggregate_projections}
         self.group_keys = {k.ref: k for k in plan.group_keys}
         self.aggregates = {a.ref: a for a in plan.aggregates}
         self.order_uses = {u.ref: u for u in plan.order_uses}
+        self.windowed = {p.export: p for p in plan.window_projections}
+        self.windows = {w.ref: w for w in plan.windows}
         self.aggregated = bool(plan.aggregations)
         self.selected = {id(self.end(p.input)) for p in plan.aggregate_projections} - {
             id(None)
         }
+        # Each literal right after a unary `-`, which may be 2**63 (rule 9).
+        self.negated = {
+            id(self.expression(e.operand))
+            for e in plan.expressions
+            if type(e) is expressions.ProjectSQLUnary and e.expression.operator == "-"
+        }
+
+    def _inputs(self) -> list[tuple[Any, tuple[Any, ...]]]:
+        """Each input's source binding and the refs its fields end at, in
+        alias order, up to the first input that reads no source of the plan
+        or whose match ports are not the source's fields in order (rule 5a)."""
+        plan = self.plan
+        if not self.joins:
+            source = plan.sources[0] if len(plan.sources) == 1 else None
+            if source is None:
+                return []
+            return [(source, tuple(port.ref for port in _ports(plan, source)))]
+        sources = {source.ref: source for source in plan.sources}
+        matches = {port.ref: port for port in plan.join_ports}
+        found: list[tuple[Any, tuple[Any, ...]]] = []
+        for position, join in enumerate(self.joins):
+            items: list[Any] = [self.join_inputs.get(ref) for ref in join.inputs]
+            for item in items if position == 0 else items[1:]:
+                source = None if item is None else sources.get(item.producer)
+                if (
+                    item is None
+                    or source is None
+                    or tuple(
+                        getattr(matches.get(ref), "source", None) for ref in item.ports
+                    )
+                    != tuple(port.ref for port in _ports(plan, source))
+                ):
+                    return found
+                found.append((source, tuple(item.ports)))
+        return found
+
+    def column(self, position: int, subject: Any) -> SQLiteColumn:
+        """The column of the field numbered `position`."""
+        alias, field = self.places[position]
+        return SQLiteColumn(field, subject, alias)
+
+    def join_admitted(self, join: Any, position: int) -> bool:
+        """Rule 5a at the JOIN at `position`: an INNER or LEFT JOIN, of the
+        joined rows so far and one more source read, on `on` alone, which
+        calls no relationship."""
+        if len(self.leading) < position + 2 or len(join.inputs) != 2:
+            return False
+        left = self.join_inputs.get(join.inputs[0])
+        if (
+            left is None
+            or join.kind not in _JOINS
+            or join.rows is not _JOINS[join.kind][1]
+            or join.equalities
+            or join.on is None
+            or join.site is None
+            or (left.predecessor is None) is not (position == 0)
+            or (position and left.predecessor is not self.joins[position - 1].ref)
+        ):
+            return False
+        # The plan writes a relationship call out as its body's equalities;
+        # a relationship-driven match stays refused.
+        predicate = join.site.evidence.environment.predicate_expression
+        return (predicate is None or not predicate.calls) and self.on_admitted(
+            self.expression(join.on), position + 1
+        )
+
+    def on_admitted(self, node: Any, alias: int) -> bool:
+        """A conjunction of `==` of two fields of one type of `_KEYS`, one of
+        the input `alias` and one of an earlier input."""
+        kind = type(node)
+        if kind is expressions.ProjectSQLBinary:
+            return node.expression.operator == "and" and all(
+                self.on_admitted(child, alias) for child in self.children(node)
+            )
+        if kind is not expressions.ProjectSQLComparison:
+            return False
+        operands = self.children(node)
+        fields = [
+            field
+            for operand in operands
+            if type(operand) is expressions.ProjectSQLMatchReference
+            and (field := self.field(operand.port)) is not None
+        ]
+        if node.expression.operator != "==" or len(fields) != 2:
+            return False
+        types = {_type_name(self.ports[field]) for field in fields}
+        aliases = sorted(self.places[field][0] for field in fields)
+        return (
+            len(types) == 1
+            and types <= set(_KEYS)
+            and _tag(operands[0]) == _tag(operands[1])
+            and aliases[0] < aliases[1] == alias
+        )
 
     def filter(self, role: str) -> Any:
         """The predicate of the `where` or of the `having`, else None."""
@@ -385,6 +624,11 @@ class _View:
 
     def direct(self, expression: Any) -> int | None:
         """The source field that `expression` reads directly, else None."""
+        if type(expression) in (
+            expressions.ProjectSQLJoinedReference,
+            expressions.ProjectSQLMatchReference,
+        ):
+            return self.field(expression.port)
         if type(expression) is not expressions.ProjectSQLReference:
             return None
         found = self.refs.get(expression.ref)
@@ -401,12 +645,41 @@ class _View:
             return (self.expression(node.operand),)
         if kind is expressions.ProjectSQLIsNull:
             return (self.expression(node.value),)
+        if kind is expressions.ProjectSQLScalarCall:
+            return tuple(self.expression(a) for a in node.arguments)
         return ()
+
+    def arithmetic(self, node: Any) -> str | None:
+        """The operator of `+`, `-`, `*`, unary `-` or `abs`, else None."""
+        kind = type(node)
+        if kind is expressions.ProjectSQLBinary:
+            operator = node.expression.operator
+            return operator if operator in ARITHMETIC else None
+        if kind is expressions.ProjectSQLUnary:
+            return "-" if node.expression.operator == "-" else None
+        if (
+            kind is expressions.ProjectSQLScalarCall
+            and node.callee_symbol.name == "abs"
+            and len(node.arguments) == 1
+        ):
+            return "abs"
+        return None
+
+    def operand(self, node: Any) -> bool:
+        """An `Int` field of the source, `Int` literal or arithmetic."""
+        return _tag(node) == "Int" and (
+            self.direct(node) is not None
+            or type(node) in _LITERALS
+            or self.arithmetic(node) is not None
+        )
 
     def admitted(self, node: Any) -> bool:
         """Rule 9 at one node of a `select`, `where` or aggregate argument."""
         kind = type(node)
-        if kind is expressions.ProjectSQLReference:
+        if kind in (
+            expressions.ProjectSQLReference,
+            expressions.ProjectSQLJoinedReference,
+        ):
             return self.direct(node) is not None
         if kind is aggregation.ProjectSQLResultReference:
             # A `having` or composed output read of a group key or aggregate;
@@ -416,7 +689,10 @@ class _View:
                 aggregation.ProjectSQLAggregate,
             )
         if kind in _LITERALS:
-            return literal_text(node.expression.value) is not None
+            negated = id(node) in self.negated
+            return literal_text(node.expression.value, negated) is not None
+        if self.arithmetic(node) is not None:
+            return _tag(node) == "Int" and all(map(self.operand, self.children(node)))
         if kind is expressions.ProjectSQLComparison:
             left, right = self.children(node)
             return (
@@ -451,6 +727,102 @@ class _View:
             return found if found in self.index else None
         return found if id(found) in self.selected else None
 
+    def window(self, window: Any) -> _Window | None:
+        """Rule 5b at one window: a selected window over ungrouped rows, of an
+        admitted function and argument, whose partition and order keys are
+        fields of the source and whose frame has no RANGE offset and no
+        EXCLUDE other than NO OTHERS, which excludes nothing, and is WHOLE
+        for `count()` with no key; else None."""
+        plan, function = self.plan, window.function.name
+        policies = [p for p in plan.window_policies if p.window is window.ref]
+        if (
+            self.aggregated
+            or window.function.namespace
+            or function not in WINDOWS
+            or window.selected is None
+            or len(policies) != 1
+            or policies[0].named_use is not None
+            or policies[0].modifiers is not None
+        ):
+            return None
+        policy = policies[0]
+        uses = {u.ref: u for u in plan.window_uses if u.window is window.ref}
+        read = {
+            ref: self.field(u.input) for ref, u in uses.items() if u.input is not None
+        }
+        fields = {ref: field for ref, field in read.items() if field is not None}
+        if len(fields) != len(read):
+            return None
+        roles: dict[str, list[Any]] = {}
+        for use in sorted(uses.values(), key=lambda u: u.role_position):
+            roles.setdefault(use.role.value, []).append(use)
+        partitions = roles.pop("window_partition", [])
+        orders = roles.pop("window_order", [])
+        roles.pop("relation_input", None)
+        arguments = sorted(
+            (a for a in plan.window_arguments if a.window is window.ref),
+            key=lambda a: a.position,
+        )
+        used = roles.pop("window_argument", [])
+        if (
+            roles
+            or len(partitions) != len(policy.partitions)
+            or len(orders) != len(policy.orders)
+            or len(arguments) != len(window.arguments)
+            or len(arguments) > (function not in RANKING)
+            or (not arguments and function not in RANKING | {"count"})
+            or [a.use for a in arguments] != [u.ref for u in used]
+            or any(a.parameter is not None for a in arguments)
+        ):
+            return None
+        argument = None
+        if used:
+            argument = (used[0].ref, fields[used[0].ref])
+            if _type_name(self.ports[argument[1]]) not in _WINDOW_ARGUMENTS[function]:
+                return None
+        directions = [
+            policy.orders[u.role_position].effective_direction for u in orders
+        ]
+        if not set(directions) <= {"asc", "desc"}:
+            return None
+        resolved = getattr(policy.specification.frame, "resolved", None)
+        unit = getattr(resolved, "unit", None)
+        frame = None
+        if (unit is None) is not (function in RANKING):
+            return None
+        if resolved is not None and unit is not None:
+            # SQLite recomputes an EXCLUDE frame row by row: S15 measured one
+            # past the route's default 20 s deadline over 1,048,576 rows.
+            # EXCLUDE NO OTHERS excludes nothing and is left out.
+            if unit.value not in UNITS or resolved.exclusion not in (None, "no_others"):
+                return None
+            bounds = []
+            for bound in (resolved.start, resolved.end):
+                if bound is None:
+                    return None
+                kind, offset = bound.kind.value, None
+                if kind.startswith("offset_"):
+                    offset = getattr(bound.offset, "value", None)
+                    if unit.value == "range" or not (
+                        type(offset) is int and 0 <= offset <= MAX_INT
+                    ):
+                        return None
+                bounds.append((kind, offset))
+            frame = (unit.value, bounds[0], bounds[1])
+        if function == "count" and not (arguments or partitions or orders):
+            if frame != WHOLE:
+                return None
+        return _Window(
+            function,
+            argument,
+            tuple((u.ref, fields[u.ref]) for u in partitions),
+            tuple(
+                (u.ref, fields[u.ref], direction == "desc")
+                for u, direction in zip(orders, directions, strict=True)
+            ),
+            frame,
+        )
+
     def roots(self) -> list[Any]:
         """Each plan value the statement renders: the results, the `where` and
         `having` filters, then each `group by` and `order by` key."""
@@ -460,8 +832,11 @@ class _View:
             grouped = self.grouped.get(export.ref)
             if grouped is not None:
                 found.append(self.end(grouped.input))
+            elif export.ref in self.windowed:
+                found.append(self.windows[self.windowed[export.ref].window])
             elif export.ref in self.projections:
                 found.append(self.expression(self.projections[export.ref].expression))
+        found.extend(self.expression(j.on) for j in self.joins if j.on is not None)
         found.extend(self.expression(f.predicate) for f in plan.filters)
         found.extend(plan.group_keys)
         found.extend(self.key(item) for item in plan.order_items)
@@ -470,8 +845,8 @@ class _View:
     def planned(self) -> tuple[int, int]:
         """`size` of the statement the plan admits, counted from the plan."""
         plan = self.plan
-        nodes = 2 + len(plan.exports) + len(plan.group_keys) + len(plan.order_items)
-        nodes += bool(plan.result_limits)
+        nodes = 2 + len(self.joins) + len(plan.exports) + len(plan.group_keys)
+        nodes += len(plan.order_items) + bool(plan.result_limits)
         depth = 0
         pending = [(root, 1) for root in self.roots()]
         while pending:
@@ -481,7 +856,12 @@ class _View:
             if type(node) is aggregation.ProjectSQLResultReference:
                 node = self.end(node.port)  # rendered as the key or aggregate
             if type(node) is aggregation.ProjectSQLAggregate:
-                children: tuple[Any, ...] = node.arguments[:1]
+                children: tuple[Any, ...] = tuple(
+                    self.expression(a) for a in node.arguments[:1]
+                )
+            elif type(node) is windowing.ProjectSQLWindow:
+                window = self.window(node)  # each key and argument is a column
+                children = () if window is None else window.uses()
             else:
                 children = self.children(node)
             pending.extend((child, level + 1) for child in children)
@@ -489,10 +869,12 @@ class _View:
 
 
 class _Rules:
-    """Rules 1-35: at most one blocker per rule, at its first failing site."""
+    """Rules 1-35: at most one blocker per rule, at its first failing site.
+    A lettered rule sorts after its number: rule 5a is 5.1, 5b is 5.2, 5c
+    is 5.3 and 9b is 9.2."""
 
     def __init__(self, checked: Any, contract: SQLiteContract, policy: Any) -> None:
-        self.found: dict[int, Blocker] = {}
+        self.found: dict[float, Blocker] = {}
         self.checked, self.contract = checked, contract
         self.statement = checked.selected_owner.definition.span
         premises = contract.premises
@@ -524,21 +906,39 @@ class _Rules:
             for e in plan.expressions
             if type(e) is expressions.ProjectSQLParameterRead
         )
+        self.entries = tuple(
+            next(iter(entries)) if len(entries) == 1 else None
+            for entries in (
+                [s for s in contract.sources if s.owner is source.source.owner]
+                for source in self.view.inputs
+            )
+        )
+        self.bounds: dict[Any, ranges.Bounds | None] = {}
         self.shape()
+        self.windows()
+        self.joins()
         self.fields()
-        self.values()
-        self.aggregates()
-        self.projections()
-        self.keys()
+        # Rule 5 refuses a JOIN to a table or query, and the view then has
+        # only the fields of the inputs before it: rules 9, 9b, 10-13 and 35,
+        # which read fields, are not checked.
+        if self.view.inputs or not self.view.joins:
+            for node in reversed(plan.expressions):  # an operand after its node
+                self.bounds[node.ref] = self.interval(node)
+            self.values()
+            self.overflows()
+            self.aggregates()
+            self.projections()
+            self.keys()
+            self.sums()
+        self.result_limits()
         self.environment(_limits(premises))
         self.evidence()
         for source in self.ordered:
             self.source(source)
-        self.sums()
 
     def fail(
         self,
-        rule: int,
+        rule: float,
         code: str,
         detail: str,
         subject: object = None,
@@ -553,7 +953,7 @@ class _Rules:
         )
 
     def first(
-        self, rule: int, code: str, detail: str, sites: list[tuple[Any, Any]]
+        self, rule: float, code: str, detail: str, sites: list[tuple[Any, Any]]
     ) -> None:
         """One blocker at the first of `sites`, (subject, span) pairs, in source
         order."""
@@ -576,19 +976,26 @@ class _Rules:
         )
         flat = sum(operators, ())
         results = tuple(b.kind.value for b in plan.result_boundaries)
+        joined = bool(plan.joins)
         if not (
             len(named) == 1
-            and len(plan.sources) == 1
-            and len(plan.input_uses) == 1
-            and operators in _SHAPES
+            and (joined or len(plan.sources) == 1)
+            and len(plan.input_uses) == len(plan.joins) + 1
+            and operators in (_JOINED_SHAPES if joined else _SHAPES)
             and len(plan.filters) == ("row_filter" in flat) + ("result_filter" in flat)
             and len(plan.aggregations) == ("group_aggregate" in flat)
+            and bool(plan.windows) == ("window_evaluation" in flat)
             and results in _RESULTS
             and len(plan.orders) == ("relation_ordering" in results)
             and len(plan.result_limits) == ("limit" in results)
             and not any(getattr(plan, name) for name in _EMPTY)
         ):
             definition = self.checked.selected_owner.definition
+            sources = [
+                self.join_site(join, position)
+                for position, join in enumerate(self.view.joins)
+                if position + 2 <= len(self.view.leading)
+            ]
             clauses = ()
             if type(definition) in (QueryDef, TableDef):
                 clauses = tuple(
@@ -597,7 +1004,12 @@ class _Rules:
                         definition.let_clause,
                         definition.qualify_clause,
                         definition.distinct_clause,
-                        *definition.join_clauses,
+                        # Rule 5a reports a JOIN of sources.
+                        *(
+                            c
+                            for c in definition.join_clauses
+                            if not any(c.span is site for site in sources)
+                        ),
                         *definition.join_filters,
                         *definition.named_windows,
                         *definition.naming_declarations,
@@ -619,7 +1031,7 @@ class _Rules:
         )
         if not self.ordered:
             self.fail(6, "PIE-B1003", "sqlite_source_count_not_admitted", at=True)
-        elif len(self.ordered) > 1:
+        elif len(self.ordered) > 1 and not joined:
             second = self.ordered[1]
             self.fail(
                 6,
@@ -628,6 +1040,52 @@ class _Rules:
                 second.ref,
                 second.declaration.span,
             )
+
+    def windows(self) -> None:
+        """Rules 5b and 5c: each window is admitted (`_View.window`), and a
+        `sum` has a monotone frame."""
+        refused, frames = [], []
+        for window in self.plan.windows:
+            site = (window.ref, _window_site(window) or self.statement)
+            found = self.view.window(window)
+            if found is None:
+                refused.append(site)
+            elif found.function == "sum" and not found.monotone():
+                frames.append(site)
+        self.first(5.2, "PIE-B1003", "sqlite_window_not_admitted", refused)
+        self.first(5.3, "PIE-B1003", "sqlite_window_sum_frame_not_admitted", frames)
+
+    def joins(self) -> None:
+        """Rule 5a: each JOIN is admitted (`_View.join_admitted`), at its
+        clause."""
+        self.first(
+            5.1,
+            "PIE-B1003",
+            "sqlite_join_not_admitted",
+            [
+                (join.ref, self.join_site(join, position))
+                for position, join in enumerate(self.view.joins)
+                if not self.view.join_admitted(join, position)
+            ],
+        )
+
+    def join_site(self, join: Any, position: int) -> Any:
+        """The clause that holds the JOIN's `on`, else the statement."""
+        definition = self.checked.selected_owner.definition
+        clauses = sorted(
+            (c.span for c in getattr(definition, "join_clauses", ())), key=_key
+        )
+        on = getattr(getattr(join.site, "occurrence", None), "span", None)
+        within = [
+            span
+            for span in clauses
+            if on is not None
+            and (span.line, span.column) <= (on.line, on.column)
+            and (on.end_line, on.end_column) <= (span.end_line, span.end_column)
+        ]
+        if not within and len(clauses) == len(self.view.joins):
+            within = [clauses[position]]  # a JOIN without `on`
+        return within[-1] if within else self.statement
 
     def fields(self) -> None:
         plan = self.plan
@@ -657,16 +1115,88 @@ class _Rules:
         for node in self.plan.expressions:
             if type(node.site) in (
                 expressions.ProjectSQLExpressionSite,
+                expressions.ProjectSQLJoinedSite,
                 aggregation.ProjectSQLAggregateSite,
             ):
                 admitted = view.admitted(node)
-            else:  # a joined, match or qualify site, which rule 5 refuses
+            else:  # a match site, which rule 5a checks, or a qualify site
                 admitted = type(node) not in _LITERALS or (
                     literal_text(node.expression.value) is not None
                 )
             if not admitted:
                 sites.append((node.ref, node.expression.span))
         self.first(9, "PIE-B1003", "sqlite_expression_not_admitted", sites)
+
+    def interval(self, node: Any) -> ranges.Bounds | None:
+        """The bounds of an `Int` field, literal or arithmetic, each field
+        read on its own, or None where a field has no `int_range` that passes
+        rule 33, which rules 24, 25 and 33 refuse, or an operand is no such
+        value or a literal that rule 9 refuses."""
+        view = self.view
+        field = view.direct(node)
+        if field is not None:
+            return self.field_bounds(field)
+        if type(node) in _LITERALS:
+            value = node.expression.value
+            admitted = literal_text(value, id(node) in view.negated) is not None
+            return (value, value) if type(value) is int and admitted else None
+        operator = view.arithmetic(node)
+        if operator is None:
+            return None
+        operands = []
+        for child in view.children(node):
+            if child.ref not in self.bounds:  # the plan lists a node first
+                self.bounds[child.ref] = self.interval(child)
+            bounds = self.bounds[child.ref]
+            if bounds is None:
+                return None
+            operands.append(bounds)
+        return ranges.combine(operator, tuple(operands))
+
+    def field_bounds(self, position: int) -> ranges.Bounds | None:
+        """The `int_range` of the `Int` field numbered `position` that passes
+        rule 33, or None."""
+        alias, field = self.view.places[position]
+        entry = self.entries[alias]
+        found = (
+            None if entry is None else {f.ordinal: f for f in entry.fields}.get(field)
+        )
+        if (
+            found is None
+            or _type_name(self.view.ports[position]) != "Int"
+            or not _fits("Int", found.representation)
+        ):
+            return None
+        domain = found.representation["domain"]
+        return int(domain["min"]), int(domain["max"])
+
+    def proved(self, node: Any) -> bool:
+        """Rule 9b holds at `node` and at each operation under it."""
+        pending = [node]
+        while pending:
+            node = pending.pop()
+            bounds = self.bounds[node.ref]
+            if bounds is None or (
+                self.view.arithmetic(node) is not None and not ranges.inside(bounds)
+            ):
+                return False
+            pending.extend(self.view.children(node))
+        return True
+
+    def overflows(self) -> None:
+        """Rule 9b: the bounds of every result of `Int` arithmetic, in each
+        clause and in an aggregate's argument row by row, lie inside signed
+        64 bits, since SQLite turns one outside them into a REAL."""
+        sites = []
+        for node in self.plan.expressions:
+            bounds = self.bounds[node.ref]
+            if (
+                self.view.arithmetic(node) is not None
+                and bounds is not None
+                and not ranges.inside(bounds)
+            ):
+                sites.append((node.ref, node.expression.span))
+        self.first(9.2, "PIE-B1004", "int_arithmetic_range_proof_missing", sites)
 
     def aggregates(self) -> None:
         view, sites = self.view, []
@@ -675,17 +1205,23 @@ class _Rules:
             function = _function(aggregate)
             arguments = tuple(view.expression(a) for a in aggregate.arguments)
             fields = tuple(view.direct(a) for a in arguments)
+            # `avg` and `sum` may read arithmetic, whose operands rule 9 checks.
+            computed = (
+                function in ("avg", "sum")
+                and len(arguments) == 1
+                and view.arithmetic(arguments[0]) is not None
+            )
+            types = {_type_name(view.ports[f]) for f in fields if f is not None}
             if not (
                 function in FUNCTIONS
                 and not aggregate.order_by
                 and (
                     len(arguments) <= 1 if function == "count" else len(arguments) == 1
                 )
-                and None not in fields
+                and (None not in fields or computed)
                 and (
                     function == "count"
-                    or {_type_name(view.ports[f]) for f in fields if f is not None}
-                    <= _ARGUMENTS[str(function)]
+                    or (types or {_tag(arguments[0])}) <= _ARGUMENTS[str(function)]
                 )
                 and id(aggregate) in whole
             ):
@@ -721,7 +1257,8 @@ class _Rules:
             [
                 (key.ref, getattr(getattr(key.source, "item", None), "span", None))
                 for key in plan.group_keys
-                if type(key.source) is not ProjectGroupKeyFact
+                if type(key.source)
+                not in (ProjectGroupKeyFact, ProjectJoinedGroupKeyOccurrence)
                 or view.field(key.input) is None
             ],
         )
@@ -738,7 +1275,9 @@ class _Rules:
                 if view.key(item) is None
             ],
         )
-        for limit in plan.result_limits:
+
+    def result_limits(self) -> None:
+        for limit in self.plan.result_limits:
             if not (
                 type(limit.literal.value) is int
                 and type(limit.value) is int
@@ -763,8 +1302,10 @@ class _Rules:
                 17,
                 "operator_environment",
                 bool(
-                    plan.filters
+                    plan.joins
+                    or plan.filters
                     or plan.aggregations
+                    or plan.windows
                     or plan.orders
                     or plan.result_limits
                     or computed
@@ -786,6 +1327,7 @@ class _Rules:
         if (
             any(len(_ports(plan, s)) > limits["columns"] for s in plan.sources)
             or len(plan.exports) > limits["columns"]
+            or len(plan.joins) >= _INPUTS
             or nodes > limits["nodes"]
             or depth > DEPTH
         ):
@@ -930,56 +1472,64 @@ class _Rules:
                     self.fail(34, "PIE-B1005", "field_domain_premise_mismatch", *place)
 
     def sums(self) -> None:
-        """Rule 35: a `sum` reads an `Int` field whose `int_range` lies on one
-        side of zero, so SQLite fails exactly where the exact sum leaves
-        signed 64 bits, and never on a partial sum alone."""
-        if len(self.plan.sources) != 1:
-            return  # rule 6
-        view, sites = self.view, []
-        (source,) = self.plan.sources
-        entries = [s for s in self.contract.sources if s.owner is source.source.owner]
-        fields = {} if len(entries) != 1 else {f.ordinal: f for f in entries[0].fields}
+        """Rule 35: a `sum`, grouped or over a window, reads an `Int` field
+        or arithmetic whose bounds lie on one side of zero, so SQLite fails
+        exactly where the exact sum leaves signed 64 bits, and never on a
+        partial sum alone."""
+        sites = []
         for aggregate in self.plan.aggregates:
             arguments = aggregate.arguments
-            field = None
-            if _function(aggregate) == "sum" and len(arguments) == 1:
-                field = view.direct(view.expression(arguments[0]))
-            if field not in fields:
+            if _function(aggregate) != "sum" or len(arguments) != 1:
                 continue
-            representation = fields[field].representation
-            domain = representation["domain"]
+            # Unknown, or rule 9b fails in it: rule 9, 9b or 33 refuses it.
+            argument = self.view.expression(arguments[0])
+            bounds = self.bounds[argument.ref]
             if (
-                _type_name(view.ports[field]) == "Int"
-                and _fits("Int", representation)  # rule 33 holds
-                and int(domain["min"]) < 0 < int(domain["max"])
+                bounds is not None
+                and self.proved(argument)
+                and bounds[0] < 0 < bounds[1]
             ):
                 call = getattr(aggregate.source, "call", None)
                 sites.append(
                     (aggregate.ref, self.statement if call is None else call.span)
                 )
+        for window in self.plan.windows:
+            found = self.view.window(window)
+            if found is None or found.function != "sum":
+                continue
+            assert found.argument is not None  # rule 5b: one field
+            bounds = self.field_bounds(found.argument[1])
+            if bounds is not None and bounds[0] < 0 < bounds[1]:
+                sites.append((window.ref, _window_site(window) or self.statement))
         self.first(35, "PIE-B1004", "sum_int_aggregate_range_proof_missing", sites)
 
 
-def _entry(artifact_contract: SQLiteContract, plan: Any) -> Any:
-    (source,) = plan.sources
-    (entry,) = (s for s in artifact_contract.sources if s.owner is source.source.owner)
-    return entry
+def _entries(contract: SQLiteContract, view: _View) -> tuple[Any, ...]:
+    """The contract entry of each input, in alias order."""
+    found = []
+    for source in view.inputs:
+        (entry,) = (s for s in contract.sources if s.owner is source.source.owner)
+        found.append(entry)
+    return tuple(found)
+
+
+def _columns_of(entry: Any) -> tuple[str, ...]:
+    return tuple(f.column for f in sorted(entry.fields, key=lambda f: f.ordinal))
 
 
 def _expected_ast(plan: Any, contract: SQLiteContract) -> SQLiteSelect:
     """The statement the plan admits; parameters are numbered by first read in
     rendering order, which is the order the AST is built in."""
-    view, entry = _View(plan), _entry(contract, plan)
+    view = _View(plan)
+    entries = _entries(contract, view)
     numbers: dict[int, int] = {}
 
     def aggregate(found: Any, subject: Any) -> SQLiteAggregate:
         function, argument = str(_function(found)), None
         assert function in FUNCTIONS
         if found.arguments:
-            read = view.expression(found.arguments[0])
-            field = view.direct(read)
-            assert field is not None
-            argument = SQLiteColumn(field, read.ref)
+            argument = value(view.expression(found.arguments[0]))
+            assert type(argument) is SQLiteColumn or function in ("avg", "sum")
         collate = function == "count_distinct" and text(argument)
         return SQLiteAggregate(function, argument, collate, subject)
 
@@ -996,21 +1546,33 @@ def _expected_ast(plan: Any, contract: SQLiteContract) -> SQLiteSelect:
             assert type(found) is aggregation.ProjectSQLGroupKey
             field = view.field(found.input)
             assert field is not None
-            return SQLiteColumn(field, node.ref)
+            return view.column(field, node.ref)
         if kind is aggregation.ProjectSQLGroupKey:
             field = view.field(node.input)
             assert field is not None
-            return SQLiteColumn(field, node.ref)
-        if kind is expressions.ProjectSQLReference:
+            return view.column(field, node.ref)
+        if kind in (
+            expressions.ProjectSQLReference,
+            expressions.ProjectSQLJoinedReference,
+            expressions.ProjectSQLMatchReference,
+        ):
             field = view.direct(node)
             assert field is not None
-            return SQLiteColumn(field, node.ref)
+            return view.column(field, node.ref)
         if kind is expressions.ProjectSQLLiteral:
             return SQLiteLiteral(node.expression.value, node.ref)
         if kind is expressions.ProjectSQLParameterRead:
             number = numbers.setdefault(node.parameter.ordinal, len(numbers) + 1)
             return SQLiteParameter(number, node.ref)
         children = view.children(node)
+        operator = view.arithmetic(node)
+        if operator in ARITHMETIC and len(children) == 2:
+            left, right = children
+            return SQLiteArithmetic(operator, value(left), value(right), node.ref)
+        if operator is not None:
+            (operand,) = children
+            unary = SQLiteAbs if operator == "abs" else SQLiteNegative
+            return unary(value(operand), node.ref)
         if kind is expressions.ProjectSQLComparison:
             left, right = children
             return SQLiteComparison(
@@ -1031,21 +1593,46 @@ def _expected_ast(plan: Any, contract: SQLiteContract) -> SQLiteSelect:
         return SQLiteIsNull(value(operand), node.expression.negated, node.ref)
 
     def text(column: Any) -> bool:
-        return type(column) is SQLiteColumn and (
-            _type_name(view.ports[column.field]) == "Text"
+        if type(column) is not SQLiteColumn:
+            return False
+        position = view.positions[(column.input, column.field)]
+        return _type_name(view.ports[position]) == "Text"
+
+    def window(found: Any) -> SQLiteWindow:
+        admitted = view.window(found)
+        assert admitted is not None
+        argument = admitted.argument
+        partition_by = []
+        for use, field in admitted.partitions:
+            column = view.column(field, use)
+            partition_by.append(SQLiteKey(column, text(column), None, use))
+        order_by = []
+        for use, field, descending in admitted.orders:
+            column = view.column(field, use)
+            order_by.append(SQLiteKey(column, text(column), descending, use))
+        frame = admitted.frame
+        return SQLiteWindow(
+            admitted.function,
+            None if argument is None else view.column(argument[1], argument[0]),
+            tuple(partition_by),
+            tuple(order_by),
+            None if frame is None else SQLiteFrame(*frame, found.policy),
+            found.ref,
         )
 
     results = []
     for export in plan.exports:
         grouped = view.grouped.get(export.ref)
+        windowed = view.windowed.get(export.ref)
         if grouped is not None:
-            subject, node = grouped.ref, view.end(grouped.input)
+            subject, built = grouped.ref, value(view.end(grouped.input))
+        elif windowed is not None:
+            subject, built = windowed.ref, window(view.windows[windowed.window])
         else:
             projection = view.projections[export.ref]
-            subject, node = projection.ref, view.expression(projection.expression)
-        results.append(
-            SQLiteResult(value(node), export.identity.name, subject, export.ref)
-        )
+            subject = projection.ref
+            built = value(view.expression(projection.expression))
+        results.append(SQLiteResult(built, export.identity.name, subject, export.ref))
     where = view.filter("where")
     where = None if where is None else value(where)
     group_by = []
@@ -1058,7 +1645,7 @@ def _expected_ast(plan: Any, contract: SQLiteContract) -> SQLiteSelect:
     for item in plan.order_items:
         found = view.key(item)
         column = (
-            SQLiteColumn(view.index[found], item.ref)
+            view.column(view.index[found], item.ref)
             if found in view.index
             else value(found)
         )
@@ -1068,10 +1655,18 @@ def _expected_ast(plan: Any, contract: SQLiteContract) -> SQLiteSelect:
     if plan.result_limits:
         found = plan.result_limits[0]
         limit = SQLiteLimit(found.value, found.ref)
-    (source,) = plan.sources
+    joins = []
+    for alias, join in enumerate(view.joins, 1):
+        on = value(view.expression(join.on))
+        joined = entries[alias]
+        kind = _JOINS[join.kind][0]
+        source = view.inputs[alias].ref
+        joins.append(
+            SQLiteJoin(kind, joined.name, _columns_of(joined), on, join.ref, source)
+        )
     return SQLiteSelect(
-        entry.name,
-        tuple(f.column for f in sorted(entry.fields, key=lambda f: f.ordinal)),
+        entries[0].name,
+        _columns_of(entries[0]),
         tuple(results),
         where,
         tuple(group_by),
@@ -1079,7 +1674,8 @@ def _expected_ast(plan: Any, contract: SQLiteContract) -> SQLiteSelect:
         tuple(order_by),
         limit,
         plan.scope,
-        source.ref,
+        view.inputs[0].ref,
+        tuple(joins),
     )
 
 
@@ -1092,7 +1688,9 @@ def _holds(ast: SQLiteSelect, plan: Any) -> bool:
     and its size as counted from the plan."""
     view = _View(plan)
     fields = frozenset(
-        k for k, port in enumerate(view.ports) if _type_name(port) == "Text"
+        view.places[k]
+        for k, port in enumerate(view.ports)
+        if _type_name(port) == "Text"
     )
     reads = {e.ref: e for e in plan.expressions}
     texts = frozenset(
@@ -1165,8 +1763,9 @@ def _domain(tag: str, value: object = None, width: int | None = None) -> Any:
 def _columns(artifact: SQLiteArtifact) -> list[dict[str, Any]]:
     """Each result column: its type, representation and correspondence."""
     plan = artifact.checked.plan
-    view, entry = _View(plan), _entry(artifact.contract, plan)
-    fields = {f.ordinal: f for f in entry.fields}
+    view = _View(plan)
+    entries = _entries(artifact.contract, view)
+    joined = bool(view.joins)
     columns = []
     for position, (result, export) in enumerate(
         zip(artifact.ast.results, plan.exports, strict=True)
@@ -1178,17 +1777,22 @@ def _columns(artifact: SQLiteArtifact) -> list[dict[str, Any]]:
         nullable = export.field.effective_nullability.value != "non_null"
         correspondence: dict[str, Any] = {}
         if type(value) is SQLiteColumn:
-            field = fields[value.field]
+            entry = entries[value.input]
+            field = {f.ordinal: f for f in entry.fields}[value.field]
             representation = field.representation
-            port = view.ports[value.field]
+            place = view.positions[(value.input, value.field)]
             correspondence = {
                 "source": entry.selector,
                 "field": value.field,
-                "source_port": _ref(port.ref),
+                "source_port": _ref(view.ports[place].ref),
             }
+            if joined:
+                # A LEFT JOIN's right fields are nullable in the result.
+                representation = representation | {"nullable": nullable}
+                correspondence["join_port"] = _ref(view.ends[place])
             if view.aggregated:
                 correspondence["group_key"] = _ref(value.subject)
-            else:
+            elif not joined:
                 projection = view.projections[export.ref]
                 correspondence["input_port"] = _ref(projection.input_port)
         elif type(value) is SQLiteAggregate:
@@ -1196,8 +1800,11 @@ def _columns(artifact: SQLiteArtifact) -> list[dict[str, Any]]:
             if value.function in ("count", "count_distinct"):
                 storage, domain = "sqlite_integer", _int_range(0, MAX_INT)
             elif value.function in ("min", "max"):
-                assert value.argument is not None
-                read = fields[value.argument.field].representation
+                assert type(value.argument) is SQLiteColumn
+                argument = entries[value.argument.input]
+                read = {f.ordinal: f for f in argument.fields}[
+                    value.argument.field
+                ].representation
                 storage, domain = read["storage"]["kind"], read["domain"]
             else:  # avg is a Float and sum an Int over the widest domain
                 storage, domain = STORAGES[tag], _domain(tag)
@@ -1207,6 +1814,27 @@ def _columns(artifact: SQLiteArtifact) -> list[dict[str, Any]]:
                 "domain": domain,
             }
             correspondence = {"aggregate": _ref(value.subject)}
+        elif type(value) is SQLiteWindow:
+            assert tag is not None
+            if value.function in ("min", "max"):
+                assert type(value.argument) is SQLiteColumn
+                argument = entries[value.argument.input]
+                read = {f.ordinal: f for f in argument.fields}[
+                    value.argument.field
+                ].representation
+                storage, domain = read["storage"]["kind"], read["domain"]
+            else:  # a ranking or count from 1 or 0, a sum over the widest
+                storage = STORAGES[tag]
+                domain = {
+                    "sum": _domain(tag),
+                    "count": _int_range(0, MAX_INT),
+                }.get(value.function, _int_range(1, MAX_INT))
+            representation = {
+                "storage": {"kind": storage},
+                "nullable": nullable,
+                "domain": domain,
+            }
+            correspondence = {"window": _ref(value.subject)}
         else:
             assert tag is not None
             literal = value.value if type(value) is SQLiteLiteral else None
@@ -1385,7 +2013,8 @@ def verify_artifact(artifact: object) -> bool:
 def emit_sqlite_sql(
     checked: Any, data: bytes, policy: Any, *, read_sources_only: bool = False
 ) -> SQLiteEmission:
-    """Rules 1-39 over one verified plan and the contract bytes."""
+    """Rules 1-39, 9b included, over one verified plan and the contract
+    bytes."""
     diagnostics = checked.completed.diagnostics
     contract = read_sqlite_contract(checked, data, read_sources_only=read_sources_only)
     if isinstance(contract, tuple):

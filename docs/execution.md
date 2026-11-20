@@ -87,7 +87,7 @@ Linux-only (see [Known limitations](#known-limitations)).
 | `mysql_rows` | MySQL 8.4.12; `mysql-connector-python==26.10.0`; `pyarrow==26.0.1` (the published `0.1.10` selects `26.0.0`) | One TCP host, `MySQLAccess`, `MySQLDeploymentPremise`, and caller-supplied CA with certificate and server-identity verification. | Linux x86-64, CPython 3.13.13 with 26.0.0; the new pin passed the maintenance runs listed above. | Windows native execution; another MySQL release, connector version or provider profile. |
 | `postgres_adbc` | PostgreSQL 18.6; `adbc-driver-postgresql==1.13.0`; `adbc-driver-manager==1.13.0`; `pyarrow==26.0.1` (the published `0.1.10` selects `26.0.0`) | PostgreSQL TCP access, deployment premise, SCRAM profile with the same two TLS profiles as `postgres_rows`, and the selected driver closure. | Linux x86-64, CPython 3.13.13 with 26.0.0; the new pin passed the maintenance runs listed above. | Windows native execution; another ADBC/libpq closure, PostgreSQL release, TLS profile or platform. |
 | `duckdb_arrow` | DuckDB `2.0.0` in process; `duckdb==2.0.0`; `pyarrow==26.0.1` | A query compiled with `--dialect duckdb` from one or more `duckdb.arrow` sources, a `DuckDBArrowInput(name, table)` or a tuple of them, one for each key, and `premise=None`. | Linux x86-64, CPython 3.13.13 and 3.12.13 with the locked closure: the in-process native matrices of Phase79 S06 for B1, T06 for B2's first tier and U06 for its second tier, every unit accepted on its first attempt on 2026-11-14 (D79.07), 2026-11-16 (PL.47) and 2026-11-18; and the `arrow-ready` cell of natural CI on CPython 3.12 and 3.13. | Any form beyond the [DuckDB Arrow route](spec/duckdb-arrow-route-v1.md); another DuckDB release, Windows, macOS and platforms other than Linux x86-64 with glibc 2.28 or later. |
-| `sqlite_file` | SQLite `3.53.1` with the measured source id and compile options, in process through the standard library's `sqlite3`; `pyarrow==26.0.1` | A query compiled with `--dialect sqlite` from one `sqlite.table` source, `SQLiteFileInput(path)` naming a file of `STRICT` tables and `premise=None`. | Linux x86-64 under CPython 3.13.13 and 3.12.13, qualified by the route's native cells ([SQLite project mode](spec/sqlite-project-v1.md#qualification)). | Any other SQLite build or platform, which `execute()` refuses; the library's memory safety on a malformed file; any form beyond [SQLite project mode](spec/sqlite-project-v1.md). |
+| `sqlite_file` | SQLite `3.53.1` with the measured source id and compile options, in process through the standard library's `sqlite3`; `pyarrow==26.0.1` | A query compiled with `--dialect sqlite` from one `sqlite.table` source or INNER and LEFT JOINs of them, `SQLiteFileInput(path)` naming a file of `STRICT` tables and `premise=None`. | Linux x86-64 under CPython 3.13.13 and 3.12.13, qualified by the route's native cells ([SQLite project mode](spec/sqlite-project-v1.md#qualification)). | Any other SQLite build or platform, which `execute()` refuses; the library's memory safety on a malformed file; any form beyond [SQLite project mode](spec/sqlite-project-v1.md). |
 
 The qualified profile is the integration host with the lock's exact artifacts.
 Installing an extra selects no route, grants no execution, opens no source and
@@ -1498,7 +1498,8 @@ states every rule; in short:
   route needs no database driver. It runs only on Linux x86-64 with the
   measured build: elsewhere, and with any other SQLite library, `execute()`
   refuses (`PIE-R2002` `SQLITE_BUILD`) before any file opens.
-- **Query.** One `sqlite.table("name")` source read by the forms of
+- **Query.** One `sqlite.table("name")` source read, or INNER and LEFT
+  JOINs of such sources, by the forms of
   [admission](spec/sqlite-project-v1.md#admission), compiled with
   `--dialect sqlite`. `compile_query(dialect="sqlite")` compiles it.
 - **Input.** `access=SQLiteFileInput(path)` and `premise=None`;
@@ -1518,23 +1519,35 @@ states every rule; in short:
   table `ok`; at most 1,048,576 rows; and every value in its field's
   domain: no NULL in a non-null field, an `Int` within its `int_range`, a
   `Bool` of 0 or 1, a finite `Float`, and `Text` that is valid UTF-8
-  without NUL and within `max_characters`. A failed check is `PIE-R2007`
-  (`SQLITE_*` details) or, for the limits, `PIE-R3004`; a missing or
-  irregular file is `PIE-R2004`.
+  without NUL and within `max_characters`. A statement that joins sources
+  checks each of its source tables so, and when it also aggregates, it then
+  checks each `unique(...)` key that the verified plan keeps for each
+  source (the smallest declaration that supports it) with one bounded
+  scan, comparing as Pietto's `==` does (`Text` by its bytes, `-0.0` equal
+  to `0.0`): a duplicate key would make a JOIN repeat rows that an
+  aggregate then counts twice. A failed check is `PIE-R2007` (`SQLITE_*`
+  details, `SQLITE_SOURCE_UNIQUE` for a duplicate key) or, for the limits,
+  `PIE-R3004`; a missing or irregular file is `PIE-R2004`.
 - **Failures.** An error that SQLite raises is `PIE-R2004` before the first
   read and `PIE-R3003` after it, with the detail `SQLITE_ERRORCODE_<n>` of
   its extended result code, or `SQLITE_INTEGER_OVERFLOW` for a `sum` past
-  signed 64 bits, and no SQLite message. A deadline or `cancel()` interrupts
+  signed 64 bits, and no SQLite message. A result value that does not fit
+  its compiled column is `PIE-R3005` `SQLITE_RESULT_CHECK`, in the phase
+  `result`, or `query` for a statement that joins sources, which checks
+  each row as it reads it. A deadline or `cancel()` interrupts
   the running statement (`PIE-R3001`, `PIE-R3009`); a lock that your writer
   holds until the deadline ends the attempt there (`PIE-R3001`), and while
   the attempt waits for that lock `cancel()` takes effect only at the
   deadline (`PIE-R3009`).
 - **Effects.** The whole result is read, the transaction committed and the
-  file closed before the first batch. Until then the attempt holds SQLite's
-  read lock: in rollback-journal mode your writers fail with
-  `database is locked` meanwhile. On a WAL file SQLite writes the `-shm`
-  file on every read: it creates missing `-wal` and `-shm` files and leaves
-  them, and rebuilds an existing `-shm` file in place when no other
+  file closed before the first batch; a statement that joins sources reads
+  its result only up to the first batch that crosses `max_rows`,
+  `max_bytes` or `batch_bytes`, which delivery then refuses (`PIE-R3004`),
+  so an error that a later row would raise may not be seen. Until then the
+  attempt holds SQLite's read lock: in rollback-journal mode your writers
+  fail with `database is locked` meanwhile. On a WAL file SQLite writes the
+  `-shm` file on every read: it creates missing `-wal` and `-shm` files and
+  leaves them, and rebuilds an existing `-shm` file in place when no other
   connection has the file open; in a directory that cannot be written, a
   WAL file whose `-wal` and `-shm` files are missing cannot be read
   (`PIE-R2004`). When a sort, a grouping or `count_distinct` outgrows its

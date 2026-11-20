@@ -704,7 +704,9 @@ the limited forms of the [DuckDB Arrow route](spec/duckdb-arrow-route-v1.md).
 A SQLite source has the `scan` `"relation_rows"` and the `relation`
 `{"namespace": "main", "name": NAME}`, whose name is its `sqlite.table`
 string, and SQLite emission admits only the forms of
-[SQLite project mode](spec/sqlite-project-v1.md) (alpha).
+[SQLite project mode](spec/sqlite-project-v1.md) (alpha). A statement that
+joins sources needs one entry for each source it reads, a self-join's
+source once, and each entry is checked as a single source's is.
 Each source field's `representation` gives its
 `storage`, its `nullable` (`false` for a non-null field, `true` for an optional
 one) and its `domain`:
