@@ -1769,7 +1769,15 @@ def resolved_row_realization(
                 "-": left_value - right_value,
                 "*": left_value * right_value,
             }.get(operator)
-            if result is None or not math.isfinite(result):
+            # PostgreSQL's float8 `*` also fails a product of two non-zero
+            # values that rounds to zero (22003 underflow); MySQL returns 0.0.
+            if (
+                result is None
+                or not math.isfinite(result)
+                or operator == "*"
+                and result == 0.0
+                and 0.0 not in float_values
+            ):
                 raise ValueError("float result outside finite range")
         return rows.Realization(
             "Float",

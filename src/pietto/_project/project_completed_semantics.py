@@ -2660,6 +2660,19 @@ def _compiled_reads_row(records, address) -> bool:
     return any(_compiled_reads_row(records, child) for child in record.get("operands"))
 
 
+def _compiled_float_literal(records, address) -> bool:
+    """The operand a static Float fold reads, as emission and plain
+    verification read it: a direct, possibly signed, literal, never a let or
+    port read, whose fact carries its literal's origin and value."""
+    record = records[address]
+    while record.address.kind == "operation" and record.get("operator") in {
+        ("unary", "+"),
+        ("unary", "-"),
+    }:
+        record = records[record.get("operands")[0]]
+    return record.address.kind == "literal"
+
+
 def _compiled_float_membership(records, use, value_type) -> bool:
     """R01 from the bundle's records (emission: rows.mysql_float_memberships):
     the relation membership read ``use`` of a ``value_type`` value is a Float
@@ -4526,10 +4539,10 @@ def derive_compiled_semantics(root, values, parameters=None):
                             float_values=(
                                 tuple(item.value for item in input_facts)
                                 if all(
-                                    item.origin == "literal"
+                                    _compiled_float_literal(records, child)
                                     and type(item.value) is float
                                     and math.isfinite(item.value)
-                                    for item in input_facts
+                                    for child, item in zip(operands, input_facts)
                                 )
                                 else None
                             ),
@@ -6068,10 +6081,10 @@ def verify_compiled_semantics(value):
                             float_values=(
                                 tuple(item.value for item in inputs)
                                 if all(
-                                    item.origin == "literal"
+                                    _compiled_float_literal(records, child)
                                     and type(item.value) is float
                                     and math.isfinite(item.value)
-                                    for item in inputs
+                                    for child, item in zip(children, inputs)
                                 )
                                 else None
                             ),
