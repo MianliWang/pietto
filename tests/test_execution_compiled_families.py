@@ -593,6 +593,850 @@ def test_a_compiled_aggregate_that_reads_no_row_stays_refused(
         emit_compiled(root, ())
 
 
+def _forged_field(built, record, field, value):
+    """``built``'s description with one field of ``record`` replaced."""
+    values = list(record.values)
+    values[compiled_schema.FIELDS[record.address.kind].index(field)] = value
+    return _replaced(built.root.description, {record.address: tuple(values)})
+
+
+def _argument_refused(built, description, detail="COMPILED_AGGREGATE_ARGUMENT"):
+    with pytest.raises(compiled_schema.CompiledError, match=f"^{detail}$"):
+        emit_compiled(_loaded(built, description), ())
+    public = replace(built, compatibility=built.compatibility[-1])
+    assert _load_refusal(public, compiled_schema.encode(description)) == (
+        "PIE-R1004",
+        detail,
+    )
+
+
+def _aggregate(built, function):
+    (value,) = (
+        r
+        for r in built.root.description.records
+        if r.address.kind == "aggregate_value" and r.get("function") == function
+    )
+    return value
+
+
+@pytest.mark.parametrize(
+    "function,field,value",
+    (
+        ("sum", "function", "min"),
+        ("sum", "function", "max"),
+        ("count", "function", "count_distinct"),
+        *(
+            ("avg", "function", name)
+            for name in ("median", "stddev", "variance", "pstdev")
+        ),
+        ("sum", "operator", ("binary", "%")),
+        ("sum", "operator", ("binary", "/")),
+    ),
+)
+def test_a_compiled_aggregate_argument_keeps_the_source_law(
+    inline_arguments_bundle, function, field, value
+):
+    """A row expression argument loads only in a form compile_query admits
+    for its aggregate: renamed to one that reads only a field (or, for
+    `count_distinct`, a Text field's `lower`/`trim` chain), or with `%` or
+    `/` under `sum`, the replay and load_bundle refuse it."""
+    built = inline_arguments_bundle
+    record = _aggregate(built, function)
+    if field == "operator":
+        record = built.root.records[record.get("arguments")[0]]
+    _argument_refused(built, _forged_field(built, record, field, value))
+
+
+def test_the_compiled_semantic_verifier_keeps_the_argument_law_on_its_own(
+    inline_arguments_bundle, monkeypatch
+):
+    """With the derivation made to admit any argument, the independent
+    semantic verifier still refuses a `min` of a row expression."""
+    from pietto._project import project_completed_semantics as semantics
+
+    built = inline_arguments_bundle
+    forged = _forged_field(built, _aggregate(built, "sum"), "function", "min")
+    with monkeypatch.context() as patch:
+        patch.setattr(semantics, "_source_argument", lambda *args: True)
+        completed = semantics.derive_compiled_semantics(_loaded(built, forged), ())
+    with pytest.raises(
+        compiled_schema.CompiledError,
+        match="^COMPILED_SEMANTIC_AGGREGATE_ARGUMENT$",
+    ):
+        semantics.verify_compiled_semantics(completed)
+
+
+@pytest.mark.parametrize(
+    "item",
+    (
+        "s = sum(id * 2)",
+        "c = count(id + 1)",
+        'g = string_agg(text if id > 2 else "-", ",", order by id)',
+        "n = sum(1 for o in group if o.id > 2)",
+    ),
+)
+def test_a_compiled_aggregate_argument_never_reads_a_query_parameter(
+    tmp_path, monkeypatch, item
+):
+    """compile_query refuses a query parameter in every aggregate argument
+    (PIE-S2355). With the WHERE's parameter read and the argument's Int
+    literal swapped, the replay and load_bundle refuse the bundle, and so
+    does the independent semantic verifier after a derivation made to admit
+    it."""
+    from _pietto_sql_query_parameters import parameterized_case
+    from pietto._project import project_completed_semantics as semantics
+
+    body = (
+        "query result(low: Int):\n    from rows\n    where id > low\n"
+        f"    group by flag\n    select:\n        flag\n        {item}\n"
+    )
+    _, outcome = parameterized_case(tmp_path, "postgres", body)
+    assert outcome.status == "VERIFIED", outcome.blockers
+    built = build_compiled(outcome.artifact)
+    records = built.root.description.records
+    operations = tuple(r for r in records if r.address.kind == "operation")
+    (parameter,) = (r.address for r in records if r.address.kind == "parameter_read")
+    (where,) = (r for r in operations if parameter in r.get("operands"))
+    ((holder, literal),) = (
+        (r, o)
+        for r in operations
+        if r is not where
+        for o in r.get("operands")
+        if o.kind == "literal" and built.root.records[o].get("tag") == "Int"
+    )
+
+    def swapped(record, old, new):
+        values = list(record.values)
+        values[compiled_schema.FIELDS["operation"].index("operands")] = tuple(
+            new if o == old else o for o in record.get("operands")
+        )
+        return tuple(values)
+
+    forged = _replaced(
+        built.root.description,
+        {
+            where.address: swapped(where, parameter, literal),
+            holder.address: swapped(holder, literal, parameter),
+        },
+    )
+    _argument_refused(built, forged)
+    with monkeypatch.context() as patch:
+        patch.setattr(semantics, "_reads_a_parameter", lambda *args: False)
+        patch.setattr(semantics, "_source_argument", lambda *args: True)
+        completed = semantics.derive_compiled_semantics(_loaded(built, forged), ())
+    with pytest.raises(
+        compiled_schema.CompiledError,
+        match="^COMPILED_SEMANTIC_AGGREGATE_ARGUMENT$",
+    ):
+        semantics.verify_compiled_semantics(completed)
+
+
+def _agg_build(directory, target, body):
+    """The `inline_arguments` declarations with ``body`` as the query."""
+    item = emission.fixture(target, "V_aggregate_blocked", "inline_arguments")
+    head = item["source"].split("query result:")[0]
+    _, original = emission.build_case(directory, head + body, item["contract"])
+    assert original.status == "VERIFIED", original.blockers
+    return original
+
+
+_AGG_QUERY = "query result:\n    from agg\n"
+_TEXT_COUNTS = (
+    _AGG_QUERY + "    select:\n        c = count(lower(label))\n"
+    "        d = count_distinct(lower(trim(label)))\n"
+)
+
+
+@pytest.mark.parametrize(
+    "target,body",
+    (
+        ("postgres", _TEXT_COUNTS),
+        ("mysql", _TEXT_COUNTS),
+        (
+            "postgres",
+            _AGG_QUERY
+            + '    select:\n        g = string_agg(lower(label), ",", order by rid)\n',
+        ),
+        *(
+            (
+                "postgres",
+                _AGG_QUERY + f"    let t = {let}\n    select:\n        v = {item}\n",
+            )
+            for let, item in (
+                ("value * 2", "min(t)"),
+                ("value + 1", "max(t)"),
+                ("value % 2", "min(t)"),
+                ("5", "max(t)"),
+                ("value * 2", "sum(t)"),
+                ("value % 2", "count(t)"),
+                ("lower(label)", "count_distinct(t)"),
+                ("value", "count_distinct(t, key)"),
+                ("upper(label)", 'string_agg(t, ",", order by rid)'),
+                ("trim(label)", "string_agg(label, t, order by rid)"),
+                ("value", "first(t, order by rid)"),
+                ("value", "sum(t) window(order by rid)"),
+                ("value", "lag(t) window(order by rid)"),
+            )
+        ),
+        *(
+            ("postgres", _AGG_QUERY + body)
+            for body in (
+                "    let a = value * 2\n    let t = a + 1\n    select:\n        v = sum(t)\n",
+                "    let t = value * 2\n    where t > 0\n    select:\n        v = sum(t)\n",
+                "    let t = value % 2\n    group by flag\n    select:\n        flag\n"
+                "        v = max(t)\n",
+                "    let t = value * 2\n    group by flag\n    select:\n        flag\n"
+                "        v = avg(t)\n",
+                "    let t = value % 2\n    select:\n        t\n"
+                "        v = sum(value) window(order by rid)\n",
+                "    let t = value % 2\n    select:\n        m = max(t)\n"
+                "        n = sum(1 for o in group if o.rid > 0)\n"
+                "        s = sum(o.value for o in group if o.rid > 0)\n"
+                "        a = any(o.rid > 0 for o in group)\n"
+                "        b = all(o.flag for o in group)\n"
+                "        g = string_agg(label, lower(label), order by rid)\n",
+            )
+        ),
+        *(
+            (
+                "mysql",
+                _AGG_QUERY
+                + f"    let t = lower(label)\n    select:\n        v = {f}(t)\n",
+            )
+            for f in ("count", "count_distinct")
+        ),
+        *(
+            (target, _AGG_QUERY + f"    select:\n        v = {argument}\n")
+            for target, argument in (
+                *(
+                    ("postgres", argument)
+                    for argument in (
+                        "sum(value + key)",
+                        "sum(+value)",
+                        "sum(-value)",
+                        "avg(ratio * 1.5)",
+                        "count(value % 2)",
+                        "count(value - key)",
+                        "count(value * key)",
+                        "count(-value)",
+                        "count(flag and flag)",
+                        "count(flag or flag)",
+                        "count(len(label) % 2)",
+                        'string_agg(trim(label), ",", order by rid)',
+                        'string_agg(label, ",", order by rid + 1)',
+                    )
+                ),
+                ("mysql", "count(flag or flag)"),
+            )
+        ),
+        *(
+            (
+                "postgres",
+                "query a:\n    from agg\n    let t = value % 2\n    select:\n"
+                "        t\n        rid\n"
+                f"query result:\n    from a\n    select:\n        v = {item}\n",
+            )
+            for item in ("sum(t)", "sum(t) window(order by rid)")
+        ),
+    ),
+)
+def test_a_compiled_aggregate_argument_of_the_source_law_replays(
+    tmp_path, target, body
+):
+    """Arguments compile_query admits replay as they were emitted: a Text
+    field's `lower`/`trim` chain under `count` and `count_distinct`, any Text
+    expression under `string_agg`, field arithmetic, signs and a Float
+    literal under `sum` and `avg`, and arithmetic, signs, `and`, `or` and
+    `len` under `count`, and an expression `order by` key of `string_agg`; a
+    `let:` name of any value under `min` and `max`, of a value its law
+    admits under the aggregates that read the value (through a chain of
+    names, a WHERE and a GROUP BY too, and on MySQL), of any Text value as a
+    whole `string_agg` delimiter, and of a field under a window; beside a
+    computed `let:`, conditional counts and sums, tests of the group and a
+    `string_agg` delimiter's operation over fields; a field that an earlier
+    declaration computed with `let:`; with `upper`, which compile_query
+    refuses there, the Text counts stay refused on both targets."""
+    original = _agg_build(tmp_path, target, body)
+    built = build_compiled(original.artifact)
+    _compare(original.artifact, refinement=False, built=built)
+    if body != _TEXT_COUNTS:
+        return
+    for function in ("count", "count_distinct"):
+        call = built.root.records[_aggregate(built, function).get("arguments")[0]]
+        _argument_refused(
+            built, _forged_field(built, call, "operator", ("scalar_call", "upper"))
+        )
+
+
+def _let_port(built):
+    """The one port of ``built`` that holds a computed `let:` value."""
+    records = built.root.records
+    (port,) = (
+        r.address
+        for r in built.root.description.records
+        if r.address.kind == "port"
+        and r.get("owner").kind == "row"
+        and records[r.get("owner")].get("stage") == "let"
+        and r.get("source").kind != "read"
+    )
+    return port
+
+
+def _verifier_refuses(built, description, detail):
+    """With the derivation made to read no `let:` value, the independent
+    semantic verifier still refuses ``description``."""
+    from pietto._project import project_completed_semantics as semantics
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(semantics, "_let_value", lambda records, address: address)
+        completed = semantics.derive_compiled_semantics(_loaded(built, description), ())
+    with pytest.raises(
+        compiled_schema.CompiledError, match=f"^COMPILED_SEMANTIC_{detail}$"
+    ):
+        semantics.verify_compiled_semantics(completed)
+
+
+_LET_SUM = _AGG_QUERY + "    let t = value * 2\n    select:\n        v = sum(t)\n"
+
+
+@pytest.mark.parametrize(
+    "target,body,old,new",
+    (
+        ("postgres", _LET_SUM, "*", "%"),
+        ("postgres", _LET_SUM.replace("sum", "avg"), "*", "/"),
+        (
+            "postgres",
+            _LET_SUM.replace("    select", "    let u = t\n    select").replace(
+                "(t)", "(u)"
+            ),
+            "*",
+            "%",
+        ),
+        (
+            "postgres",
+            _LET_SUM.replace("t = value * 2", "a = value * 2\n    let t = a + 1"),
+            "*",
+            "%",
+        ),
+        (
+            "postgres",
+            _LET_SUM.replace("    select", "    where t > 0\n    select"),
+            "*",
+            "%",
+        ),
+        (
+            "postgres",
+            _LET_SUM.replace("select:\n", "group by flag\n    select:\n        flag\n"),
+            "*",
+            "%",
+        ),
+        *(
+            (
+                target,
+                _AGG_QUERY
+                + f"    let t = lower(label)\n    select:\n        v = {f}(t)\n",
+                "lower",
+                "upper",
+            )
+            for target in ("postgres", "mysql")
+            for f in ("count", "count_distinct")
+        ),
+    ),
+)
+def test_a_compiled_let_value_keeps_the_aggregate_argument_law(
+    tmp_path, target, body, old, new
+):
+    """An aggregate that reads a `let:` name's value judges that value by its
+    argument law: with the value edited into a form compile_query refuses
+    there (PIE-S2315), such as `sum(t)` with `let t = value % 2`, the replay,
+    load_bundle and the independent semantic verifier refuse the bundle,
+    through a chain of names, a value that reads another `let:` value, a
+    WHERE and a GROUP BY, and on MySQL."""
+    built = build_compiled(_agg_build(tmp_path, target, body).artifact)
+    (operation,) = (
+        r
+        for r in built.root.description.records
+        if r.address.kind == "operation" and r.get("operator")[1] == old
+    )
+    role = operation.get("operator")[0]
+    forged = _forged_field(built, operation, "operator", (role, new))
+    _argument_refused(built, forged)
+    _verifier_refuses(built, forged, "AGGREGATE_ARGUMENT")
+
+
+@pytest.fixture(scope="module")
+def let_extremum_bundle(tmp_path_factory):
+    """`min(t)` with `let t = value % 2`: `min` and `max` read a `let:` name
+    as a field, whatever its value."""
+    body = _AGG_QUERY + "    let t = value % 2\n    select:\n        v = min(t)\n"
+    original = _agg_build(tmp_path_factory.mktemp("let-extremum"), "postgres", body)
+    return build_compiled(original.artifact)
+
+
+@pytest.mark.parametrize(
+    "function",
+    ("sum", "avg", "count_distinct", "median", "stddev", "variance", "pstdev"),
+)
+def test_a_compiled_let_name_is_a_field_only_for_min_and_max(
+    let_extremum_bundle, function
+):
+    """Renamed from `min`, an aggregate that reads the `let:` name's value,
+    or reads only a field, refuses `value % 2`, as compile_query does."""
+    built = let_extremum_bundle
+    _argument_refused(
+        built, _forged_field(built, _aggregate(built, "min"), "function", function)
+    )
+
+
+@pytest.mark.parametrize(
+    "let,item,function,index",
+    (
+        ("value % 2", "s = sum(value + 1)", "sum", 0),
+        ("value * 2", "s = sum(value + 1)", "sum", 0),
+        ("value * 2", "s = avg(value * 2)", "avg", 0),
+        ("trim(label)", "s = count_distinct(lower(label))", "count_distinct", 0),
+        ("value % 2", "f = first(value, order by rid)", "first", 0),
+        ("value % 2", "n = count_distinct(key, rid)", "count_distinct_tuple", 0),
+        ("value % 2", "n = count_distinct(key, rid)", "count_distinct_tuple", 1),
+        ("value % 2", "f = first(value, order by rid)", "first", "order"),
+        ("rid * 2", "f = last(value, order by rid)", "last", "order"),
+        (
+            "value % 2",
+            's = string_agg(label, ",", order by rid)',
+            "string_agg",
+            "order",
+        ),
+        ("value % 2", "n = sum(1 for o in group if o.rid > 0)", "filtered_count", 0),
+        *(
+            (
+                "value % 2",
+                "n = sum(o.value for o in group if o.rid > 0)",
+                "filtered_sum",
+                i,
+            )
+            for i in (0, 1)
+        ),
+        *(
+            ("value % 2", f"n = {f}(o.rid > 0 for o in group)", "group_" + f, 0)
+            for f in ("any", "all")
+        ),
+        (
+            "trim(label)",
+            "s = string_agg(label, lower(label), order by rid)",
+            "string_agg",
+            1,
+        ),
+    ),
+)
+def test_a_compiled_read_of_a_computed_let_port_is_refused(
+    tmp_path, let, item, function, index
+):
+    """A field read edited to read the port of a computed `let d = ...` is
+    refused by the replay, load_bundle and the independent semantic verifier,
+    as compile_query refuses each source form: inside the argument's own
+    operation whatever `d` holds (`sum(d + 1)` and `avg(d * 2)` with
+    `let d = value * 2`, `count_distinct(lower(d))` with
+    `let d = trim(label)`; PIE-S2333), as the whole argument by the law for
+    `d`'s value (`first(d, ...)`, either column of `count_distinct(key, d)`
+    with `let d = value % 2`), as the `order by` key of `first`, `last` or
+    `string_agg` (PIE-S2104, PIE-S2333), in the test or the summed field of
+    a conditional count or sum and in the test of `any` or `all` over a
+    group, whose generator reads only fields of its member (PIE-S2102,
+    PIE-S2334), and inside a `string_agg` delimiter's operation
+    (`lower(d)`; PIE-S2333)."""
+    body = _AGG_QUERY + (
+        f"    let d = {let}\n    select:\n        c = count(d)\n        {item}\n"
+    )
+    built = build_compiled(_agg_build(tmp_path, "postgres", body).artifact)
+    forged = _forged_field(
+        built, _field_read(built, function, index), "port", _let_port(built)
+    )
+    _argument_refused(built, forged)
+    _verifier_refuses(built, forged, "AGGREGATE_ARGUMENT")
+
+
+def _field_read(built, function, index):
+    """The read of ``function``'s argument ``index`` or of its one
+    `order by` key, or the one read below that operation."""
+    aggregate = _aggregate(built, function)
+    if index == "order":
+        (order,) = aggregate.get("order_by")
+        argument = built.root.records[order].get("value")
+    else:
+        argument = aggregate.get("arguments")[index]
+    if argument.kind == "operation":
+        (argument,) = (
+            o for o in built.root.records[argument].get("operands") if o.kind == "read"
+        )
+    return built.root.records[argument]
+
+
+@pytest.mark.parametrize(
+    "let,item,function,index",
+    (
+        ("rid", "n = sum(1 for o in group if o.rid > 0)", "filtered_count", 0),
+        *(
+            (
+                "value",
+                "n = sum(o.value for o in group if o.value > 0)",
+                "filtered_sum",
+                i,
+            )
+            for i in (0, 1)
+        ),
+        ("rid", "n = all(o.rid > 0 for o in group)", "group_all", 0),
+        ("label", "s = string_agg(label, lower(label), order by rid)", "string_agg", 1),
+    ),
+)
+def test_a_compiled_read_of_an_alias_let_port_loads(
+    tmp_path, let, item, function, index
+):
+    """compile_query reads no `let:` name in a generator (PIE-S2102,
+    PIE-S2334) or inside a `string_agg` delimiter's operation (PIE-S2333),
+    but the port of an alias `let d = <field>` carries that field's value as
+    the stage's own port of the field does: a read of the field edited to
+    read it still loads through load_bundle and emits."""
+    from pietto.execution import load_bundle
+
+    body = _AGG_QUERY + (
+        f"    let d = {let}\n    select:\n        c = count(d)\n        {item}\n"
+    )
+    built = build_compiled(_agg_build(tmp_path, "postgres", body).artifact)
+    records = built.root.records
+    (stage,) = (
+        r
+        for r in built.root.description.records
+        if r.address.kind == "row" and r.get("stage") == "let"
+    )
+    alias = stage.get("outputs")[-1]
+    read = _field_read(built, function, index)
+    # The alias is a second port of the field that the read reads.
+    field = records[records[read.get("port")].get("source")].get("port")
+    assert read.get("port") != alias
+    assert records[records[alias].get("source")].get("port") == field
+    forged = _forged_field(built, read, "port", alias)
+    emit_compiled(_loaded(built, forged), ())
+    payload = compiled_schema.encode(forged)
+    load_bundle(
+        payload,
+        expected_pin=compiled_schema.content_pin(payload),
+        accepted_producer=built.producer,
+        accepted_compatibility=built.compatibility[-1],
+    )
+
+
+_GROUPED_LET = (
+    "    let d = value % 2\n    group by d, rid\n    select:\n        d\n"
+    "        rid\n        s = sum(value)\n"
+)
+
+
+@pytest.mark.parametrize(
+    "call",
+    (
+        "sum(value)",
+        "min(value)",
+        "lag(value)",
+        "first_value(value)",
+        *(f"{f}(s)" for f in ("sum", "lag", "first_value")),
+    ),
+)
+def test_a_compiled_window_value_never_reads_a_let_value(tmp_path, call):
+    """compile_query reads a window's value only from a field (PIE-S2103,
+    PIE-S2104), or a `let:` name of one except under `min` and `max`, and
+    the replay reads it only from a field, or an alias `let:` name, which
+    reads as the field it renames. Edited to read the port of
+    `let d = value % 2`, or from an aggregate output `s` to the GROUP BY key
+    that carries that value on (`lag(d)` with `group by d` is PIE-S2104,
+    `sum(d)` PIE-S2102), the window is refused by the replay, load_bundle and
+    the independent semantic verifier."""
+    grouped = call.endswith("(s)")
+    head = (
+        _GROUPED_LET if grouped else "    let d = value % 2\n    select:\n        d\n"
+    )
+    body = _AGG_QUERY + head + f"        v = {call} window(order by rid)\n"
+    built = build_compiled(_agg_build(tmp_path, "postgres", body).artifact)
+    records = built.root.records
+    (window,) = (
+        r for r in built.root.description.records if r.address.kind == "window_value"
+    )
+    ((_, argument),) = (a for a in window.get("arguments") if a[0] == "value")
+    read = records[argument]
+    port = _let_port(built)
+    if grouped:
+        (port,) = (
+            key
+            for key in records[read.get("use")].get("ports")
+            if records[key].get("source").kind == "read"
+            and records[records[key].get("source")].get("port") == port
+        )
+    forged = _forged_field(built, read, "port", port)
+    _argument_refused(built, forged, "COMPILED_WINDOW_ARGUMENT")
+    _verifier_refuses(built, forged, "WINDOW_ARGUMENT")
+
+
+@pytest.mark.parametrize(
+    "body",
+    (
+        "    group by key, rid\n    select:\n        key\n        rid\n"
+        "        s = sum(value)\n"
+        "        w = lag(key) window(partition by key order by rid)\n"
+        "        x = sum(key) window(order by key, rid)\n",
+        _GROUPED_LET + "        w = lag(s) window(order by rid)\n"
+        "        x = sum(s) window(order by rid)\n"
+        "        y = first_value(s) window(order by rid)\n",
+        "    let d = value % 2\n    group by d, key, rid\n    select:\n        d\n"
+        "        key\n        rid\n        s = sum(value)\n"
+        "        w = lag(key) window(partition by key order by rid)\n"
+        "        x = sum(s) window(order by key, rid)\n    order by:\n        d\n",
+    ),
+)
+def test_a_compiled_window_beside_a_group_key_replays(tmp_path, body):
+    """compile_query admits a window that reads a field GROUP BY key or an
+    aggregate output, in its value, partition or order, also in a statement
+    grouped and ordered by a computed `let:` value, which it reads in no
+    window (PIE-S2102, PIE-S2103, PIE-S2104): each replays as it was emitted
+    and loads through load_bundle."""
+    from pietto.execution import load_bundle
+
+    original = _agg_build(tmp_path, "postgres", _AGG_QUERY + body)
+    assert original.artifact is not None
+    built = build_compiled(original.artifact)
+    replayed = emit_compiled(_loaded(built), ())
+    assert replayed.rendered.sql == original.artifact.rendered.sql
+    load_bundle(
+        built.payload,
+        expected_pin=built.pin,
+        accepted_producer=built.producer,
+        accepted_compatibility=built.compatibility[-1],
+    )
+
+
+@pytest.mark.parametrize("item", ("count(t)", "avg(t)", "min(t)", "max(t)"))
+def test_a_compiled_let_of_a_query_parameter_keeps_its_aggregates(tmp_path, item):
+    """compile_query admits a `let:` value that reads a query parameter only
+    as the whole argument of `count`, `avg`, `min` or `max` (PIE-S2355): each
+    replays as it was emitted, and renamed `sum` it is refused by the replay,
+    load_bundle and the independent semantic verifier."""
+    from _pietto_sql_query_parameters import parameterized_case
+
+    body = (
+        "query result(low: Int):\n    from rows\n    let t = id * low\n"
+        f"    select:\n        v = {item}\n"
+    )
+    _, outcome = parameterized_case(tmp_path, "postgres", body)
+    assert outcome.status == "VERIFIED", outcome.blockers
+    built = build_compiled(outcome.artifact)
+    _compare(outcome.artifact, refinement=False, built=built)
+    if item == "min(t)":
+        forged = _forged_field(built, _aggregate(built, "min"), "function", "sum")
+        _argument_refused(built, forged)
+        _verifier_refuses(built, forged, "AGGREGATE_ARGUMENT")
+
+
+def test_the_compiled_argument_law_is_the_semantic_one():
+    """`_source_argument` restates
+    `is_supported_semantic_aggregate_argument_expression` form by form. For
+    each aggregate the records name (the filtered ones and the distinct-tuple
+    count aside), each argument type that aggregate takes from a field, and
+    each form up to depth two over a field, an Int, Float, Text and Bool
+    literal, `None` and an Int, Float and Text query parameter, with signs,
+    `not`, arithmetic, `and`, `or`, a comparison and calls, the two laws
+    agree on the form written as the argument and, under the aggregates that
+    read a `let:` name's value and `min` and `max`, which read the name as a
+    field, on the form as the value of a `let:` name. Where a parameter may
+    be read at all is PIE-S2355's law (`_reads_a_parameter`), not this one."""
+    from types import SimpleNamespace
+
+    from pietto import ast_nodes as ast
+    from pietto._project import project_completed_semantics as semantics
+    from pietto._project import project_sql_emission_aggregation as grouping
+    from pietto.semantic.aggregates import (
+        LET_EXPANDABLE_AGGREGATE_ARGUMENT_NAMES,
+        is_supported_semantic_aggregate_argument,
+        is_supported_semantic_aggregate_argument_expression,
+    )
+    from pietto.semantic.model import (
+        EffectiveNullability,
+        ResolvedType,
+        TypeKind,
+        ValueType,
+    )
+
+    Address, Record = compiled_schema.Address, compiled_schema.Record
+    span = ast.Span(path=None, line=1, column=1, end_line=1, end_column=2)
+    field = ast.NameExpr(name="x", span=span)
+    leaves = (
+        field,
+        *(ast.LiteralExpr(value=v, span=span) for v in (2, 1.5, "a", True, None)),
+        *(
+            ast.ParameterRefExpr(
+                name="p",
+                ordinal=0,
+                type_name=tag,
+                nullability=ast.Nullability.NULLABLE,
+                span=span,
+            )
+            for tag in ("Int", "Float", "Text")
+        ),
+    )
+
+    def call(name, *arguments):
+        return ast.CallExpr(
+            callee=ast.NameExpr(name=name, span=span), arguments=arguments, span=span
+        )
+
+    def binary(left, operator, right):
+        kind = ast.ComparisonExpr if operator == "==" else ast.BinaryExpr
+        return kind(left=left, operator=operator, right=right, span=span)
+
+    depth_one = (
+        *(
+            ast.UnaryExpr(operator=o, operand=leaf, span=span)
+            for o in ("+", "-", "not")
+            for leaf in leaves
+        ),
+        *(
+            binary(left, o, right)
+            for o in ("+", "-", "*", "/", "%", "and", "or", "==")
+            for left in leaves
+            for right in leaves
+        ),
+        *(
+            call(n, leaf)
+            for n in ("lower", "trim", "len", "upper", "abs")
+            for leaf in leaves
+        ),
+        call("lower", field, field),
+    )
+    forms = (
+        *leaves,
+        *depth_one,
+        *(
+            wrapped
+            for form in depth_one
+            for wrapped in (
+                ast.UnaryExpr(operator="-", operand=form, span=span),
+                binary(field, "*", form),
+                binary(form, "%", leaves[1]),
+                call("len", form),
+            )
+        ),
+    )
+
+    declaration, row = Address("declaration", 0), Address("row", 0)
+    aggregate, use = Address("aggregate", 0), Address("use", 0)
+    port, let_port = Address("port", 0), Address("port", 1)
+    tags = {int: "Int", float: "Float", str: "Text", bool: "Bool"}
+
+    def records_of(expression, records):
+        """The address of ``expression`` in ``records``, which it extends."""
+        if isinstance(expression, ast.NameExpr):
+            kind, values = "read", (port, use, "value")
+        elif isinstance(expression, ast.ParameterRefExpr):
+            parameter = Address("parameter", len(records))
+            records[parameter] = Record(
+                parameter, (declaration, 0, "p", expression.type_name, True, None)
+            )
+            kind, values = "parameter_read", (parameter,)
+        elif isinstance(expression, ast.LiteralExpr) and expression.value is None:
+            kind, values = "null_literal", (None,)
+        elif isinstance(expression, ast.LiteralExpr):
+            value: Any = expression.value
+            tag = tags[type(value)]
+            kind, values = "literal", (tag, compiled_schema.Scalar(tag, value), None)
+        else:
+            if isinstance(expression, ast.UnaryExpr):
+                operator = (
+                    ("not", "not")
+                    if expression.operator == "not"
+                    else ("unary", expression.operator)
+                )
+                children = (expression.operand,)
+            elif isinstance(expression, ast.CallExpr):
+                assert isinstance(expression.callee, ast.NameExpr)
+                operator = ("scalar_call", expression.callee.name)
+                children = expression.arguments
+            else:
+                assert isinstance(expression, (ast.BinaryExpr, ast.ComparisonExpr))
+                role = "comparison" if expression.operator == "==" else "binary"
+                operator = (role, expression.operator)
+                children = (expression.left, expression.right)
+            operands = tuple(records_of(child, records) for child in children)
+            kind, values = "operation", (operator, operands, None, None)
+        address = Address(kind, len(records))
+        records[address] = Record(address, values)
+        return address
+
+    def argument(function, form, value_type, *, let):
+        records = {
+            aggregate: Record(aggregate, (declaration, *(None,) * 8)),
+            use: Record(use, (aggregate, row, 0, ())),
+            port: Record(port, (Address("source", 0), 0, "x", None, None)),
+            row: Record(row, (declaration, None, None, "let", (), None, (), None)),
+        }
+        address = records_of(form, records)
+        if let:
+            records[let_port] = Record(let_port, (row, 0, "t", address, None))
+            address = Address("read", len(records))
+            records[address] = Record(address, (let_port, use, "value"))
+        fact = SimpleNamespace(address=address, value_type=value_type)
+        return semantics._source_argument(records, function, fact)
+
+    functions = sorted(
+        set(grouping.SPELLING) - grouping.FILTERED_FUNCTIONS - {"count_distinct_tuple"}
+    )
+    value_types = tuple(
+        ValueType(ResolvedType(name, TypeKind.BUILTIN), EffectiveNullability.NULLABLE)
+        for name in ("Int", "Float", "Decimal", "Text", "Bool", "Date")
+    )
+    let_name = ast.NameExpr(name="t", span=span)
+    differences = []
+    for function in functions:
+        for value_type in value_types:
+            if not is_supported_semantic_aggregate_argument(function, value_type):
+                continue
+            for form in forms:
+                cases = [
+                    (
+                        False,
+                        is_supported_semantic_aggregate_argument_expression(
+                            function, form, value_type
+                        ),
+                    )
+                ]
+                if function in LET_EXPANDABLE_AGGREGATE_ARGUMENT_NAMES | {"min", "max"}:
+                    cases.append(
+                        (
+                            True,
+                            is_supported_semantic_aggregate_argument_expression(
+                                function,
+                                let_name,
+                                value_type,
+                                let_expansions={"t": form},
+                            ),
+                        )
+                    )
+                for let, expected in cases:
+                    if argument(function, form, value_type, let=let) != expected:
+                        name = value_type.resolved_type.name
+                        differences.append((function, name, let, form))
+    assert not differences, differences[:5]
+    assert len(forms) > 3000
+
+
+def test_a_compiled_source_without_fields_is_refused(inline_arguments_bundle):
+    """A source with no field, whose stages would render an empty column
+    list, is refused before any rendering."""
+    built = inline_arguments_bundle
+    (source,) = (
+        r for r in built.root.description.records if r.address.kind == "source"
+    )
+    payload = compiled_schema.encode(_forged_field(built, source, "fields", ()))
+    public = replace(built, compatibility=built.compatibility[-1])
+    assert _load_refusal(public, payload) == ("PIE-R1008", "COMPILED_SOURCE_FIELDS")
+
+
 _CONDITIONAL_BODY = (
     "table result:\n    from rows\n    group by flag\n    select:\n"
     "        flag\n        n = sum(1 for o in group if o.id > 2)\n"
@@ -1388,11 +2232,11 @@ def test_a_compiled_null_safe_join_outside_its_cell_is_refused(
 
 # Forms compile_query refuses in a statement with a JOIN (sited_admitted),
 # over `labelled_join_witness` sources: an inclusive comparison chain, a
-# conditional, a scalar call and a cast in the WHERE of a definition with its
-# own JOIN, a membership test in its `on`, a chain in the QUALIFY of that
-# definition or of one reading its rows, and on MySQL also a chain and a
-# membership test in a definition with no JOIN of its own. MySQL refuses the
-# call for another reason.
+# conditional, a scalar call and a cast in the WHERE or a `let:` of a
+# definition with its own JOIN, a membership test in its `on` or a `let:`, a
+# chain in the QUALIFY of that definition or of one reading its rows, and on
+# MySQL also a chain and a membership test in a definition with no JOIN of
+# its own. MySQL refuses the call for another reason.
 _JOINED = (
     "query result:\n    from lhs\n    let r = rhs\n    inner join r on lhs.id == r.id"
 )
@@ -1411,6 +2255,16 @@ _JOINED_SITES = {
     "where_call": _JOINED + "\n    where abs(lhs.id) > 2\n" + _SELECT,
     "where_cast": _JOINED + "\n    where Float(lhs.id) > 1.5\n" + _SELECT,
     "on_membership": _JOINED + " and lhs.id in (1, 2)\n" + _SELECT,
+    **{
+        name: _JOINED + f"\n    let t = {let}\n" + _SELECT + "        t\n"
+        for name, let in (
+            ("let_chain", "1 <= lhs.id <= 3"),
+            ("let_conditional", "1 if lhs.id > 2 else 0"),
+            ("let_call", "abs(lhs.id)"),
+            ("let_cast", "Float(lhs.id)"),
+            ("let_membership", "lhs.id in (1, 2)"),
+        )
+    },
     "joined_qualify": _JOINED
     + "\n"
     + _SELECT
@@ -1433,7 +2287,7 @@ _MYSQL_ONLY = ("reader_where_chain", "reader_let_membership")
         (target, name)
         for target in nullsafe.TARGETS
         for name in ("joined_where", "joined_let", *_JOINED_SITES)
-        if (target, name) != ("mysql", "where_call")
+        if (target, name) not in {("mysql", "where_call"), ("mysql", "let_call")}
         and (target == "mysql" or name not in _MYSQL_ONLY)
     ),
 )
