@@ -33,15 +33,18 @@
   a `let` whose value is anything but one field read, a `let` read in a
   WHERE, as the GROUP BY key, in a `count`, a `min` or anywhere else
   outside a `sum` argument, a value `let` that nothing reads, a relation
-  alias, and shapes that the S02 cell excludes, such as ORDER BY, a header
-  parameter, a bind-safe `?`, an aggregate beside the `sum` other than
-  those the G2 note below opens, and a `sum` outside every cell beside it.
+  alias other than the G4 note below opens, and shapes that the S02 cell
+  excludes, such as a header parameter and a bind-safe `?` other than the
+  G5 note below opens, an aggregate beside the `sum` other than
+  those the G2 and G7 notes below open, HAVING, ORDER BY, LIMIT and
+  DISTINCT other than the G3 note below opens, and a `sum` outside every
+  cell beside it.
   R2 `save_recoverable` and `recover` refuse a MySQL query of these forms
   with PIE-R1004 (`detail` `PUBLIC_R2_UNQUALIFIED_FORM`), as for the other
   forms that MySQL opened after `0.1.11`.
 - Under J12 (3), the MySQL project `sum` of an `Int` outside the forms
-  that `0.1.12`, this note and the G2 note below open stays beyond the
-  MySQL cadence, with the MySQL catch-up work package as its target.
+  that `0.1.12`, this note and the G2 to G8 notes below open stays beyond
+  the MySQL cadence, with the MySQL catch-up work package as its target.
 
 Changed diagnostics: a MySQL statement whose only blockers in `0.2.1` were
 PIE-B1004 `sum_int_aggregate_range_proof_missing` at sums of these forms is

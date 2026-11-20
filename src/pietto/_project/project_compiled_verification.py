@@ -6209,6 +6209,7 @@ def _verify_compiled_emission(artifact, request):
                                 request.family,
                                 paired=pairing.compiled_form(records) is not None,
                                 mysql_s03=expression in mysql_s03,
+                                mysql_sum=expression in mysql_sums,
                             )
                             is None
                             if function in grouping.FILTERED_FUNCTIONS
