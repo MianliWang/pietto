@@ -3323,37 +3323,50 @@ def test_mysql_g2_neighbours_keep_main_refusal(tmp_path, shape, policy):
 def test_a_refused_g2_neighbour_with_an_int_extreme_keeps_main_refusal(
     tmp_path, policy
 ):
-    """Rule two under PL.73: a statement outside G2's law (ORDER BY) whose
-    `max` of an INT field reads the base table directly keeps exactly the
-    sum's blocker; the extreme's cast adds none. Without the ORDER BY the
-    same body emits that `max` cast to SIGNED as a my_signed_int."""
+    """Rule two under PL.73: a statement outside the law, here MC G3's
+    (ORDER BY on its INT key `k` then `limit 2`, G3's X2: a LIMIT after a
+    key first), whose `max` of an INT field reads the base table directly
+    keeps exactly the sum's blocker; the extreme's cast adds none, and
+    PostgreSQL emits it. G3 opens the same body ordered by `k` alone (an
+    ORDER BY key that is an INT key) and G2 the body with no clause: each
+    emits that `max` cast to SIGNED as a my_signed_int, its sum S02's
+    guarded SUM (main's MySQL SQL of the body with the sum written `max`),
+    every reader accepting it."""
+    import re
+
     grouped = (
         "query result:\n    from rows\n    group by k\n    select:\n        k\n"
         "        x = sum(n)\n        hc = max(c)\n"
     )
-    _, refused = probe.grouping_world(
-        tmp_path / "mysql", "mysql", grouped + "    order by:\n        k\n", policy
-    )
+    ordered = grouped + "    order by:\n        k\n"
+    limited = ordered + "    limit 2\n"
+    _, refused = probe.grouping_world(tmp_path / "mysql", "mysql", limited, policy)
     assert refused.status == "BLOCKED" and refused.artifact is None
     assert _numeric_blockers(refused) == [
         ("PIE-B1004", "sum_int_aggregate_range_proof_missing", 16, 9)
     ]
     _, postgres = probe.grouping_world(
-        tmp_path / "postgres",
-        "postgres",
-        grouped + "    order by:\n        k\n",
-        policy,
+        tmp_path / "postgres", "postgres", limited, policy
     )
     assert postgres.status == "VERIFIED", postgres.blockers
-    _, opened = probe.grouping_world(tmp_path / "open", "mysql", grouped, policy)
-    probe.numeric_readers_accept(opened)
-    assert opened.artifact is not None
-    assert "CAST(MAX(`s0`.`narrow`) AS SIGNED)" in opened.artifact.rendered.sql.decode()
-    _assert_extreme_carriers(
-        json.loads(serialize_project_sql_emission(opened)),
-        "mysql",
-        {"hc": _EXTREME_INT},
-    )
+    for name, body in (("open", grouped), ("ordered", ordered)):
+        _, opened = probe.grouping_world(tmp_path / name, "mysql", body, policy)
+        probe.numeric_readers_accept(opened)
+        assert opened.artifact is not None, opened.blockers
+        sql = opened.artifact.rendered.sql.decode()
+        assert "CAST(MAX(`s0`.`narrow`) AS SIGNED)" in sql
+        assert "CAST(CASE WHEN SUM(" not in sql
+        _assert_extreme_carriers(
+            json.loads(serialize_project_sql_emission(opened)),
+            "mysql",
+            {"hc": _EXTREME_INT},
+        )
+        _, maxima = probe.grouping_world(
+            tmp_path / (name + "max"), "mysql", body.replace("sum(", "max("), policy
+        )
+        assert maxima.artifact is not None, maxima.blockers
+        summed = [found == "sum" for found in re.findall(r"= (sum|max)\(", body)]
+        assert sql == _guarded_maxima(maxima.artifact.rendered.sql.decode(), summed)
 
 
 @pytest.mark.parametrize("policy", ("preserve_literals", "bind_safe_literals"))
