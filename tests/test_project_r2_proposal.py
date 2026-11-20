@@ -1507,7 +1507,12 @@ _FIRST = (
 # world its own tests build it in: S06 one that R2 executed refined and one
 # that failed at its first page, S06's `same_value` in a JOIN `on` (of an
 # Int and of a Float), S02 beside S01, R08's `Int /` over a literal
-# divisor, MC G1's INT and `let` carriers, and MC G2's aggregates and keys.
+# divisor, MC G1's INT and `let` carriers, MC G2's aggregates and keys,
+# MC G3's later clauses, MC G4's relation alias and aggregating upstream,
+# MC G5's header parameter, MC G6's JOIN chains and `on` literal
+# comparisons, MC G7's compound tests and conditional sums beside other
+# aggregates under a WHERE, and MC G8's chains of levels over a source and
+# over the per-order level.
 PHASE77_MYSQL_FORMS = {
     "S05": ("agg", _STATISTIC),
     "S06_join": (
@@ -1571,6 +1576,76 @@ PHASE77_MYSQL_FORMS = {
         "grouping",
         "query result:\n    from rows\n    group by note, a\n    select:\n"
         "        note\n        x = sum(n)\n",
+    ),
+    "G3_having": (
+        "grouping",
+        "query result:\n    from rows\n    group by c\n    select:\n        g = c\n"
+        "        x = sum(a)\n        r = count()\n    having:\n        r <= 3\n",
+    ),
+    "G3_ordered": (
+        "grouping",
+        "query result:\n    from rows\n    group by k, note\n    select distinct:\n"
+        "        kk = k\n        z = sum(n)\n    order by:\n        z desc\n"
+        "        kk\n    limit 2\n",
+    ),
+    "G4_alias": (
+        "grouping",
+        "query result:\n    let r = rows\n    from r\n    group by r.tag\n"
+        "    select:\n        tag = r.tag\n        x = sum(r.c)\n",
+    ),
+    "G4_upstream": (
+        "grouping",
+        "query base:\n    from rows\n    group by note\n    select:\n"
+        "        note\n        s = sum(n)\nquery result:\n    from base\n"
+        "    select:\n        x = sum(s)\n",
+    ),
+    "G5_parameter": (
+        "grouping",
+        "query result(lo: Int):\n    from rows\n    where id > lo\n    group by k\n"
+        "    select:\n        k\n        x = sum(n)\n",
+    ),
+    "G6_chain": (
+        "join",
+        "query result:\n    from items\n    let o = orders\n"
+        "    left join o on o.id == items.order_id\n    let c = customers\n"
+        "    right join c on c.id == o.customer\n    group by c.id\n"
+        "    select:\n        id = c.id\n        qty = sum(items.qty)\n",
+    ),
+    "G6_on": (
+        "join",
+        "query result:\n    from orders\n    let i = items\n"
+        "    left join i on i.order_id == orders.id and i.units > 0\n"
+        "    group by orders.id\n    select:\n        id = orders.id\n"
+        "        qty = sum(i.qty)\n        m = count(i.id)\n",
+    ),
+    "G7_tests": (
+        "s03",
+        "query result:\n    from orders\n    select:\n        x = sum(o.amount"
+        " for o in group if (o.flag is None or o.customer > -2) and not o.flag)\n",
+    ),
+    "G7_beside": (
+        "s03",
+        "query result:\n    from orders\n    where nn > 0\n    group by customer\n"
+        "    select:\n        customer\n        x = sum(amount)\n"
+        "        y = sum(o.customer for o in group if o.flag)\n        c = count()\n",
+    ),
+    "G8_levels": (
+        "levels",
+        "query base:\n    from rows\n    select:\n        k\n        a\n"
+        "query mid:\n    from base\n    group by k\n    select:\n        k\n"
+        "        s = sum(a)\nquery result:\n    from mid\n    select:\n"
+        "        x = sum(s)\n",
+    ),
+    "G8_route": (
+        "levels",
+        "query per_order:\n    from orders\n    let item = items\n"
+        "    left join item on item.order_id == orders.id\n"
+        "    group by orders.id, orders.customer_id, orders.amount\n"
+        "    select:\n        id = orders.id\n"
+        "        customer_id = orders.customer_id\n        amount = orders.amount\n"
+        "        lines = count(item.id)\nquery result:\n    from per_order\n"
+        "    group by customer_id\n    select:\n        customer_id\n"
+        "        revenue = sum(amount)\n",
     ),
     "S15": (
         "remainder",
@@ -1648,6 +1723,41 @@ MYSQL_0111_FORMS = {
         "grouping",
         "query result:\n    from rows\n    group by note, a\n    select:\n"
         "        note\n        hi = max(n)\n        mean = avg(c)\n",
+        _WORKSPACE,
+    ),
+    "G3": (
+        "grouping",
+        "query result:\n    from rows\n    group by k, note\n    select distinct:\n"
+        "        kk = k\n        z = max(n)\n    order by:\n        z desc\n"
+        "        kk\n    limit 2\n",
+        _WORKSPACE,
+    ),
+    "G4": (
+        "grouping",
+        "query base:\n    from rows\n    select:\n        k\n        a\n"
+        "query result:\n    let b = base\n    from b\n    group by k\n"
+        "    select:\n        k\n        hi = max(b.a)\n",
+        _WORKSPACE,
+    ),
+    "G5": (
+        "grouping",
+        "query result(lo: Int):\n    from rows\n    where id > lo\n    group by k\n"
+        "    select:\n        k\n        hi = max(n)\n",
+        _WORKSPACE,
+    ),
+    "G6": (
+        "join",
+        "query result:\n    from orders\n    let i = items\n"
+        "    inner join i on i.order_id == orders.id\n    group by orders.id\n"
+        "    select:\n        id = orders.id\n        qty = max(i.qty)\n",
+        _WORKSPACE,
+    ),
+    "G8": (
+        "levels",
+        "query base:\n    from rows\n    select:\n        k\n        a\n"
+        "query mid:\n    from base\n    group by k\n    select:\n        k\n"
+        "        s = max(a)\nquery result:\n    from mid\n    select:\n"
+        "        x = max(s)\n",
         _WORKSPACE,
     ),
     "S15": (

@@ -2429,8 +2429,8 @@ def test_the_mysql_checked_operand_law_refuses_each_edited_carrier(tmp_path, edi
 
 
 def _key_edit(**changes):
-    def edit(plan, keys, columns):
-        return plan, (replace(keys[0], **changes), *keys[1:]), columns
+    def edit(plan, stage, keys, columns):
+        return plan, stage, (replace(keys[0], **changes), *keys[1:]), columns
 
     return edit
 
@@ -2448,8 +2448,9 @@ def _source_edit(**changes):
 # for.
 S02_QUERY_EDITS = {
     "key_not_field": _key_edit(field=None),
-    "key_storage": lambda plan, keys, columns: (
+    "key_storage": lambda plan, stage, keys, columns: (
         plan,
+        stage,
         (
             replace(
                 keys[0],
@@ -2460,16 +2461,19 @@ S02_QUERY_EDITS = {
         ),
         columns,
     ),
-    "select_expression": lambda plan, keys, columns: (
+    "select_expression": lambda plan, stage, keys, columns: (
         _plan_with(
             plan,
             expressions=(
                 *plan.expressions,
                 SimpleNamespace(
-                    site=SimpleNamespace(role=ProjectSQLExpressionRole.SELECT)
+                    site=SimpleNamespace(
+                        role=ProjectSQLExpressionRole.SELECT, block=stage.block
+                    )
                 ),
             ),
         ),
+        stage,
         keys,
         columns,
     ),
@@ -2501,16 +2505,17 @@ def test_the_mysql_sum_cell_law_refuses_each_edited_input(tmp_path, edit):
     a SMALLINT argument too (S03 sums a non-null BIGINT count and MC G1 an
     INT field, so the cell laws, not the result law, pin the carrier)."""
     seen = probe.numeric_law_inputs(tmp_path, probe.NUMERIC_CELLS["s02_grouped"])
-    plan, keys, columns = seen["mysql_sum_query"]
+    plan, stage, keys, columns = seen["mysql_sum_query"]
     aggregate, argument = seen["mysql_sum_cell"]
-    assert keys and rows.mysql_sum_query(plan, keys, columns) is True
+    assert keys and rows.mysql_sum_query(plan, stage, keys, columns) is True
     small = replace(keys[0].realization, storage={"kind": "my_smallint"})
     small_key = (replace(keys[0], realization=small),)
-    assert rows.mysql_sum_query(plan, small_key, columns) is True
+    assert rows.mysql_sum_query(plan, stage, small_key, columns) is True
     assert rows.mysql_sum_cell(aggregate, argument) is True
     if edit in S02_QUERY_EDITS:
         assert (
-            rows.mysql_sum_query(*S02_QUERY_EDITS[edit](plan, keys, columns)) is False
+            rows.mysql_sum_query(*S02_QUERY_EDITS[edit](plan, stage, keys, columns))
+            is False
         )
     elif edit in S02_CELL_EDITS:
         assert rows.mysql_sum_cell(*S02_CELL_EDITS[edit](aggregate, argument)) is (
@@ -2560,8 +2565,8 @@ def test_the_mysql_g2_beside_law_takes_its_storages_only(tmp_path, function):
         "query result:\n    from rows\n    group by k\n    select:\n"
         "        k\n        x = sum(a)\n        y = %s(c)\n" % function,
     )
-    plan, keys, columns = seen["mysql_sum_query"]
-    assert rows.mysql_sum_query(plan, keys, columns) is True
+    plan, stage, keys, columns = seen["mysql_sum_query"]
+    assert rows.mysql_sum_query(plan, stage, keys, columns) is True
     ((port, column),) = (
         (expression.port, columns[expression.port])
         for value in plan.aggregates
@@ -2578,12 +2583,165 @@ def test_the_mysql_g2_beside_law_takes_its_storages_only(tmp_path, function):
         (replace(column.realization, binding=True), False),
     ):
         changed = {**columns, port: replace(column, realization=edited)}
-        assert rows.mysql_sum_query(plan, keys, changed) is law
+        assert rows.mysql_sum_query(plan, stage, keys, changed) is law
     unread = {**columns, port: replace(column, field=None)}
-    assert rows.mysql_sum_query(plan, keys, unread) is False
+    assert rows.mysql_sum_query(plan, stage, keys, unread) is False
     small = replace(keys[0].realization, storage={"kind": "my_smallint"})
     small_key = (replace(keys[0], realization=small),)
-    assert rows.mysql_sum_query(plan, small_key, columns) is False
+    assert rows.mysql_sum_query(plan, stage, small_key, columns) is False
+
+
+def test_the_mysql_g3_clause_law_refuses_each_edited_input(tmp_path):
+    """MC G3: emission's clause law takes a HAVING line on a BIGINT or INT
+    key and on a count, an ORDER BY whose first key is a sum and a LIMIT of
+    at least 1, and refuses once one input changes: the key's storage
+    another (a VARCHAR or SMALLINT one, which no HAVING line reads), a LIMIT
+    of 0, an ORDER BY whose first key is the key, or no GROUP BY key. An
+    ORDER BY key that no HAVING line reads takes a VARCHAR storage, but not
+    a SMALLINT one, which S02's own key law admits."""
+    seen = probe.numeric_law_inputs(
+        tmp_path,
+        "query result:\n    from rows\n    group by k\n    select:\n        k\n"
+        "        x = sum(a)\n        r = count()\n    having:\n        k > 1\n"
+        "        r >= 1\n    order by:\n        x desc\n        k\n    limit 2\n",
+    )
+    plan, _, _, columns = seen["mysql_sum_query"]
+    assert rows.mysql_sum_clauses(plan, columns) is True
+    (key,) = plan.group_keys
+    column = columns[key.input]
+    for storage, law in (
+        ({"kind": "my_bigint"}, True),
+        ({"kind": "my_varchar", "length": 64}, False),
+        ({"kind": "my_smallint"}, False),
+    ):
+        realization = replace(column.realization, storage=storage)
+        changed = {**columns, key.input: replace(column, realization=realization)}
+        assert rows.mysql_sum_clauses(plan, changed) is law
+    (limit,) = plan.result_limits
+    zero = _plan_with(plan, result_limits=(replace(limit, value=0),))
+    assert rows.mysql_sum_clauses(zero, columns) is False
+    first, second = sorted(plan.order_items, key=lambda item: item.position)
+    swapped = _plan_with(
+        plan,
+        order_items=(replace(first, position=1), replace(second, position=0)),
+    )
+    assert rows.mysql_sum_clauses(swapped, columns) is False
+    assert rows.mysql_sum_clauses(_plan_with(plan, group_keys=()), columns) is False
+    seen = probe.numeric_law_inputs(
+        tmp_path / "ordered",
+        "query result:\n    from rows\n    group by k\n    select:\n        k\n"
+        "        x = sum(a)\n    order by:\n        k\n",
+    )
+    plan, _, _, columns = seen["mysql_sum_query"]
+    (key,) = plan.group_keys
+    column = columns[key.input]
+    for storage, law in (
+        ({"kind": "my_varchar", "length": 64}, True),
+        ({"kind": "my_smallint"}, False),
+    ):
+        realization = replace(column.realization, storage=storage)
+        changed = {**columns, key.input: replace(column, realization=realization)}
+        assert rows.mysql_sum_clauses(plan, changed) is law
+
+
+def test_the_mysql_g4_upstream_law_refuses_each_edited_input(tmp_path, monkeypatch):
+    """MC G4: emission asks the S02 law at both aggregations of A1, an
+    upstream by `k, n` with a sum and a count read by the query's sums, and
+    holds it; the query's aggregation refuses once one input changes: an
+    input column that is a literal, the upstream sum as its key, or an
+    upstream sum that none of its aggregates reads; the upstream's refuses
+    with no key."""
+    calls = []
+    law = rows.mysql_sum_query
+    monkeypatch.setattr(
+        rows,
+        "mysql_sum_query",
+        lambda *args: calls.append(args) or law(*args),
+    )
+    _, outcome = probe.grouping_world(tmp_path, "mysql", probe.G4_FORMS["A1"])
+    assert outcome.status == "VERIFIED", outcome.blockers
+    monkeypatch.undo()
+    upstream = calls[0]
+    query = next(call for call in calls if call[1] is not upstream[1])
+    plan, stage, keys, columns = query
+    assert rows.mysql_sum_query(*upstream) is True
+    assert rows.mysql_sum_query(plan, stage, keys, columns) is True
+    total = next(
+        column
+        for column in columns.values()
+        if getattr(column.aggregate, "function", None) == "sum"
+    )
+    port, column = next(iter(columns.items()))
+    literal = {**columns, port: replace(column, literal=object())}
+    assert rows.mysql_sum_query(plan, stage, keys, literal) is False
+    assert rows.mysql_sum_query(plan, stage, (total,), columns) is False
+    unread = {**columns, object(): total}
+    assert rows.mysql_sum_query(plan, stage, keys, unread) is False
+    assert rows.mysql_sum_query(upstream[0], upstream[1], (), upstream[3]) is False
+
+
+def test_the_mysql_g5_placeholder_law_refuses_each_edited_input(tmp_path, monkeypatch):
+    """MC G5: emission's placeholder law takes P1's Int parameter read in its
+    WHERE and S2's bind-safe literal in a plain upstream's WHERE, and
+    refuses once one input changes: the read of a Float parameter, a Date
+    parameter declared, the read in a `let` or under an Int value, a slot
+    that no use binds, or one in an upstream that aggregates."""
+    from pietto._project.project_sql_plan_expressions import (
+        ProjectSQLParameterRead,
+        ProjectSQLStageKind,
+    )
+
+    calls = []
+    law = rows.mysql_sum_placeholders
+    monkeypatch.setattr(
+        rows,
+        "mysql_sum_placeholders",
+        lambda *args: calls.append(args) or law(*args),
+    )
+    for name in ("P1", "S2"):
+        _, outcome = probe.grouping_world(
+            tmp_path / name,
+            "mysql",
+            probe.G5_FORMS[name],
+            probe.G5_FORM_POLICY[name],
+        )
+        assert outcome.status == "VERIFIED", outcome.blockers
+    monkeypatch.undo()
+    (plan, levels), (upstream, organized) = calls[0], calls[-1]
+    assert law(plan, levels) is True and law(upstream, organized) is True
+    (read,) = (e for e in plan.expressions if type(e) is ProjectSQLParameterRead)
+
+    def reading(edited):
+        return _plan_with(
+            plan,
+            expressions=tuple(
+                edited if item is read else item for item in plan.expressions
+            ),
+        )
+
+    floated = replace(read.parameter, tag="Float")
+    assert law(reading(replace(read, parameter=floated)), levels) is False
+    dated = (replace(plan.parameters[0], tag="Date"),)
+    assert law(_plan_with(plan, parameters=dated), levels) is False
+    in_let = replace(read.site, role=ProjectSQLExpressionRole.LET)
+    assert law(reading(replace(read, site=in_let)), levels) is False
+    field = next(
+        item
+        for item in plan.expressions
+        if rows.value_tag(item) == "Int" and item is not read
+    )
+    under = tuple(
+        replace(item, parent=field.ref) if item.child is read.ref else item
+        for item in plan.operands
+    )
+    assert law(_plan_with(plan, operands=under), levels) is False
+    assert law(_plan_with(upstream, bind_uses=()), organized) is False
+    ref, owner, blocks = organized[0]
+    aggregating = (
+        (ref, owner, (*blocks, SimpleNamespace(kind=ProjectSQLStageKind.AGGREGATE))),
+        *organized[1:],
+    )
+    assert law(upstream, aggregating) is False
 
 
 # --------------------------------------------------------------------------

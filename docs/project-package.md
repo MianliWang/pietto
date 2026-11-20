@@ -873,7 +873,8 @@ MySQL keeps project `sum(Int)` BLOCKED with `PIE-B1004`,
 as its `CAST(DECIMAL AS SIGNED)` would clamp an out-of-range sum, and Int
 arithmetic not proved to fit signed 64 bits BLOCKED with `PIE-B1002`,
 outside the `0.1.12` (Phase77 S01/S02) cells, the S02 cell as `0.2.2` (MC G1
-and G2) widens it, and S03 forms that the [language page](language.md) states.
+to G7) widens it, the chains of levels of MC G8, and S03 forms that the
+[language page](language.md) states.
 PostgreSQL admits exact Decimal/Int addition and subtraction and addition
 or subtraction of Decimals with different scales. Let `s = max(s1, s2)`;
 the result has precision `max(p1 - s1, p2 - s2) + 1 + s`. A physical Int
@@ -1022,7 +1023,14 @@ the one shape below, `stddev` of a `Float`
 `let` that reads one (MC G2: also beside any `count_distinct` of a `BIGINT`,
 `INT` or `VARCHAR` field and any `max` or `avg` of a `BIGINT` or `INT` field,
 each one direct field read, and grouped by any `BIGINT`, `INT` or `VARCHAR`
-keys, nullable or not), and outside the S03 JOIN and two-level forms that the [language page](language.md) states,
+keys, nullable or not; MC G3: also with HAVING, ORDER BY, LIMIT and DISTINCT
+as the language page states them; MC G4: also through relation aliases,
+unread windows, qualified reads, imported sources and one plain or
+aggregating upstream as it states them; MC G5: also with header parameters
+and bind-safe literals as it states them; MC G6: also over INNER, LEFT and
+RIGHT JOINs of sources whose `on` links an `Int` field of each side as it
+states them; MC G8: also at every level of a chain of levels as it states
+them), and outside the S03 JOIN and two-level forms that the [language page](language.md) states,
 and an `Int` row expression not proved
 to fit signed 64 bits (`PIE-B1002`) outside its `0.1.12` (Phase77 S01)
 cell there.
@@ -1105,7 +1113,8 @@ with only its names changed
 ([0.1.12](release-notes.md#conditional-counts-and-tests-of-a-group-in-three-mysql-project-forms)): the count with
 `PIE-B1003` (`conditional_count_not_admitted_on_target`), the sum with
 `PIE-B1004` (`sum_int_aggregate_range_proof_missing`), outside the `0.1.12`
-(Phase77 S03) conditional sum forms that the [language page](language.md)
+(Phase77 S03) conditional sum forms and the S02 cell as `0.2.2` (MC G7)
+widens it to conditional sums that the [language page](language.md)
 states, where it is a non-null `my_signed_int` from S02's guarded `SUM`
 under `COALESCE(..., 0)` with the same R13 evidence. Compiled bundles and live
 templates carry them unchanged: the compiled `aggregate_value` function is
