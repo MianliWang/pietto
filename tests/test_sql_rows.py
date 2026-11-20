@@ -474,9 +474,6 @@ def test_a_mysql_r01_read_yields_to_a_stage_over_rows_without_fields(tmp_path):
         ),
         # Branch B: a MySQL Float `==` whose operands both read rows.
         ("mysql", "float_comparison", "PIE-B1003", "comparison_type_pair_not_admitted"),
-        # E4: PostgreSQL emits Float field arithmetic (test_sql_project_scalar_
-        # expressions); MySQL keeps it refused.
-        ("mysql", "float_arithmetic", "PIE-B1003", "float_literal_operands_required"),
         *(
             (target, variant, code, detail)
             for target in ("postgres", "mysql")
@@ -2983,14 +2980,13 @@ def test_mysql_float_arithmetic_outside_its_cell_keeps_its_refusal(
     tmp_path, shape, policy
 ):
     """Every other MySQL Float arithmetic keeps the blockers main reports,
-    object for object (rule two): two Float fields, a nested operation, a
-    `let`, WHERE or aggregate use, ORDER BY, LIMIT, DISTINCT, `/`, unary
-    `+`, a header parameter or a bind-safe `?` operand, a JOIN, a window, an
-    imported source, an upstream query, a relation alias or unread window, a
-    literal under `+` or two signs, an `Int` literal, a negated or coalesced
-    product, a sign of a sign, a cell beside a refused item or under a label
-    MySQL cannot carry. PostgreSQL emits each as before, or keeps main's
-    blockers where it refuses the body too."""
+    object for object (rule two): an aggregate use, ORDER BY, LIMIT,
+    DISTINCT, `/`, unary `+`, a header parameter or a bind-safe `?` operand,
+    a JOIN, a window, an imported source, an upstream query, a relation
+    alias or unread window, a literal under `+` or two signs, an `Int`
+    literal, a coalesced product, or a cell under a label MySQL cannot
+    carry. PostgreSQL emits each as before, or keeps main's blockers where
+    it refuses the body too."""
     if policy not in probe.E4_REFUSAL_POLICIES.get(shape, (policy,)):
         pytest.skip("this body emits under this policy")
     body = probe.E4_REFUSALS[shape]
@@ -3138,3 +3134,408 @@ def test_the_mysql_float_arithmetic_laws_refuse_each_edited_carrier():
             "mysql", "unary", "+", "Float", True, (double,), mysql_float=True
         )
     assert probe.MYSQL_PRODUCT_GUARD == rows.MYSQL_PRODUCT_GUARD
+
+
+# --------------------------------------------------------------------------
+# MC E4B: E4's wider positions on MySQL, chain B (P1-P3)
+# --------------------------------------------------------------------------
+
+
+def _e4b_double(document, label):
+    """A result column's (nullable, representation without nullability)."""
+    (column,) = [c for c in document["columns"] if c["label"] == label]
+    return column["nullable"], {**column["representation"], "nullable": None}
+
+
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+@pytest.mark.parametrize("form", sorted(probe.E4B_FORMS))
+def test_mysql_e4b_chain_b_forms_emit_and_every_reader_accepts(tmp_path, form, target):
+    """E4B's P1-P3: a narrow operation as a `let` value read by the select
+    list, a WHERE or ORDER BY key, or as one side of a whole WHERE comparison
+    with a Float literal (or its `not`), emits on MySQL. Both families emit
+    the pinned SQL, PostgreSQL's main's byte for byte and MySQL's each `*`
+    under MC.05's guard, every reader accepts it, and each `let` value keeps
+    the finite binary64 carrier and nullability of PostgreSQL's."""
+    checked, outcome = probe.e4b_world(tmp_path, target, probe.E4B_FORMS[form])
+    assert checked.verified
+    probe.numeric_readers_accept(outcome)
+    assert outcome.artifact is not None
+    assert outcome.artifact.rendered.sql.decode() == probe.E4B_FORM_SQL[form, target]
+    document = json.loads(serialize_project_sql_emission(outcome))
+    double = {
+        "storage": {"kind": "pg_float8" if target == "postgres" else "my_double"},
+        "nullable": None,
+        "domain": {"kind": "finite_float", "format": "binary64"},
+    }
+    body = probe.E4B_FORMS[form]
+    for label, let in (("r", "t"), ("s", "u")):
+        if f"        {label} = {let}\n" in body:
+            value = body.split(f"    let {let} = ", 1)[1].split("\n", 1)[0]
+            nullable = (
+                value == "-x" if value[0] == "-" and " " not in value else "unknown"
+            )
+            assert _e4b_double(document, label) == (nullable, double)
+
+
+def test_mysql_e4b_operations_carry_postgres_evidence(tmp_path):
+    """Each `+`, `-` and `*` of the chain B forms carries the binary64
+    evidence on MySQL as on PostgreSQL, and a sign none."""
+    for form, body in probe.E4B_FORMS.items():
+        evidence = {}
+        for target in ("postgres", "mysql"):
+            _, outcome = probe.e4b_world(tmp_path / form / target, target, body)
+            document = json.loads(serialize_project_sql_emission(outcome))
+            evidence[target] = sorted(
+                json.dumps(r["evidence"])
+                for r in document["requirements"]
+                if r["kind"] == "arithmetic"
+            )
+        assert evidence["mysql"] == evidence["postgres"], form
+        assert any(BINARY64 == json.loads(e)[-1] for e in evidence["mysql"]) == any(
+            f" {op} " in body.split("result", 1)[1] for op in "+-*"
+        ), form
+
+
+@pytest.mark.parametrize("policy", ("preserve_literals", "bind_safe_literals"))
+@pytest.mark.parametrize("shape", sorted(probe.E4B_REFUSALS))
+def test_mysql_e4b_neighbours_keep_their_refusal(tmp_path, shape, policy):
+    """Every statement beside chain B's positions that the law refuses or no
+    list holds keeps main's blockers, object for object, under both literal
+    policies (rule two); PostgreSQL emits it, or keeps main's blockers where
+    it refuses it too."""
+    body = probe.E4B_REFUSALS[shape]
+    _, outcome = probe.e4b_world(tmp_path / "mysql", "mysql", body, policy)
+    assert outcome.status == "BLOCKED" and outcome.artifact is None
+    assert _e4_blockers(outcome) == probe.E4B_REFUSAL_BLOCKERS[shape]
+    _, postgres = probe.e4b_world(tmp_path / "postgres", "postgres", body, policy)
+    expected = probe.E4B_POSTGRES_BLOCKERS.get(shape)
+    assert postgres.status == ("VERIFIED" if expected is None else "BLOCKED")
+    assert expected is None or _e4_blockers(postgres) == expected
+
+
+@pytest.mark.parametrize("shape", sorted(probe.E4B_SUBSTITUTED))
+def test_mysql_e4b_refuses_a_shape_main_emits_once_substituted(tmp_path, shape):
+    """The JOIN, grouped and window neighbours emit on MySQL once each
+    operation is its field, so the statement law, not the substitution,
+    keeps them refused."""
+    _, outcome = probe.e4b_world(tmp_path, "mysql", probe.E4B_SUBSTITUTED[shape])
+    assert outcome.status == "VERIFIED"
+
+
+def test_a_bind_safe_literal_leaves_the_mysql_e4b_cells(tmp_path):
+    """The control: under bind_safe_literals EB1A's literal is a bind-safe
+    `?`, which no E4B cell holds, so it keeps main's blocker."""
+    body = probe.E4B_FORMS["EB1A"]
+    _, outcome = probe.e4b_world(tmp_path, "mysql", body, "bind_safe_literals")
+    assert outcome.artifact is None
+    assert _e4_blockers(outcome) == [
+        ("PIE-B1003", "float_literal_operands_required", 8, 5)
+    ]
+
+
+@pytest.mark.parametrize("shape", sorted(probe.E4_OPENED))
+def test_e4s_refusals_that_e4b_opens_emit(tmp_path, shape):
+    """E4's R5 and R6, a cell's operation as a `let` value or compared in a
+    WHERE, and its two fields, nestings and the cell beside two fields, now
+    emit on MySQL as on PostgreSQL, every reader accepting them, each `*`
+    under its guard."""
+    sql = {}
+    for target in ("postgres", "mysql"):
+        _, outcome = probe.float_world(
+            tmp_path / target, target, probe.E4_OPENED[shape]
+        )
+        probe.numeric_readers_accept(outcome)
+        assert outcome.artifact is not None
+        sql[target] = outcome.artifact.rendered.sql.decode()
+    assert sql["mysql"].count("CASE WHEN (") == sql["postgres"].count(" * ")
+    assert sql["mysql"].count(" * ") == 2 * sql["postgres"].count(" * ")
+
+
+# --------------------------------------------------------------------------
+# MC E4B: chain C's two fields, nesting and `count` argument (P4-P6)
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+@pytest.mark.parametrize("form", sorted(probe.E4BC_FORMS))
+def test_mysql_e4b_chain_c_forms_emit_and_every_reader_accepts(tmp_path, form, target):
+    """E4B's P4-P8: two DOUBLE fields, one level of nesting and a Float
+    header parameter beside a field as a whole item, a `let` value, a WHERE
+    comparison or an ORDER BY key; `count` of a nullable operation, grouped
+    by fields or under a WHERE; and computed `let` GROUP BY keys in S07's
+    shape, emit on MySQL. Both families emit the pinned SQL, every reader
+    accepts it (a template bound to several values), and the operations'
+    evidence is PostgreSQL's."""
+    body = probe.E4BC_FORMS[form]
+    checked, outcome = probe.e4bc_world(tmp_path, target, body)
+    assert checked.verified
+    if "result(" in body:
+        values = [(0.5,), (-0.0,), (5e-324,), (1e308,)]
+        probe.parameter_readers_accept(outcome, values + [(None,)] * ("| None" in body))
+    else:
+        probe.numeric_readers_accept(outcome)
+    assert outcome.artifact is not None
+    assert outcome.artifact.rendered.sql.decode() == probe.E4BC_FORM_SQL[form, target]
+    document = json.loads(serialize_project_sql_emission(outcome))
+    _, postgres = probe.e4bc_world(
+        tmp_path / "postgres", "postgres", probe.E4BC_FORMS[form]
+    )
+    assert sorted(
+        json.dumps(r["evidence"])
+        for r in document["requirements"]
+        if r["kind"] == "arithmetic"
+    ) == sorted(
+        json.dumps(r["evidence"])
+        for r in json.loads(serialize_project_sql_emission(postgres))["requirements"]
+        if r["kind"] == "arithmetic"
+    )
+    assert [c["nullable"] for c in document["columns"]] == [
+        c["nullable"]
+        for c in json.loads(serialize_project_sql_emission(postgres))["columns"]
+    ]
+
+
+@pytest.mark.parametrize("policy", ("preserve_literals", "bind_safe_literals"))
+@pytest.mark.parametrize("shape", sorted(probe.E4BC_REFUSALS))
+def test_mysql_e4b_chain_c_neighbours_keep_their_refusal(tmp_path, shape, policy):
+    """Two fields or a nesting outside the item, `let`, WHERE and ORDER BY
+    shapes, two levels of nesting, two inner operations, and every `count`
+    the law refuses keep main's blockers, object for object, under both
+    literal policies (rule two); PostgreSQL emits each, or keeps main's
+    blockers where it refuses it too."""
+    body = probe.E4BC_REFUSALS[shape]
+    _, outcome = probe.e4bc_world(tmp_path / "mysql", "mysql", body, policy)
+    assert outcome.status == "BLOCKED" and outcome.artifact is None
+    assert _e4_blockers(outcome) == probe.E4BC_REFUSAL_BLOCKERS[shape]
+    _, postgres = probe.e4bc_world(tmp_path / "postgres", "postgres", body, policy)
+    expected = probe.E4BC_POSTGRES_BLOCKERS.get(shape)
+    assert postgres.status == ("VERIFIED" if expected is None else "BLOCKED")
+    assert expected is None or _e4_blockers(postgres) == expected
+
+
+def test_a_bind_safe_literal_leaves_the_mysql_e4b_chain_c_cells(tmp_path):
+    """The control: under bind_safe_literals EC5A's literals are bind-safe
+    `?`, which no E4B cell holds, so it keeps main's blocker."""
+    body = probe.E4BC_FORMS["EC5A"]
+    _, outcome = probe.e4bc_world(tmp_path, "mysql", body, "bind_safe_literals")
+    assert outcome.artifact is None
+    assert _e4_blockers(outcome) == [
+        ("PIE-B1003", "float_literal_operands_required", 15, 9)
+    ]
+
+
+@pytest.mark.parametrize(
+    "lines",
+    (
+        ("select:", "    id", "    r = y - x"),
+        ("group by g", "select:", "    g", "    n = count(y + x)"),
+        (
+            "group by g",
+            "select:",
+            "    g",
+            "    n = count(x * 2.0)",
+            "    m = count(w + 1.0)",
+        ),
+    ),
+)
+def test_mysql_e4b_law_forms_no_list_holds_emit(tmp_path, lines):
+    """Law item 4 reads `y - x` and `count(y + x)` as `x`, the first field of
+    the value's nullability, not the first written (`y`), and two such
+    `count`s stand side by side: each emits on MySQL, every reader accepting
+    it."""
+    _, outcome = probe.e4bc_world(
+        tmp_path, "mysql", probe._e4b("query", "csrc", *lines)
+    )
+    probe.numeric_readers_accept(outcome)
+
+
+def test_a_mysql_e4b_count_argument_keeps_its_literals_under_bind_safe(tmp_path):
+    """A `count` argument's literal is never a bind-safe `?`, so P6 emits the
+    same SQL under both literal policies and plain verification accepts it.
+    Every reader's agreement on P6 is witnessed under preserve_literals: the
+    helper's public decoder refuses an aggregate argument's literal under
+    bind_safe_literals."""
+    body = probe._e4b("query", "csrc", "select:", "    n = count(x + 1.0)")
+    sql = {}
+    for policy in ("preserve_literals", "bind_safe_literals"):
+        _, outcome = probe.e4bc_world(tmp_path / policy, "mysql", body, policy)
+        assert outcome.status == "VERIFIED", outcome.blockers
+        artifact = outcome.artifact
+        assert artifact is not None
+        assert verify_project_sql_emission(artifact, artifact.request).verified
+        sql[policy] = artifact.rendered.sql
+    assert sql["preserve_literals"] == sql["bind_safe_literals"]
+
+
+@pytest.mark.parametrize("form", sorted(f for f in probe.E4BC_FORMS if "EC8" in f))
+def test_mysql_e4b_computed_keys_are_s07_cells_of_their_fields(tmp_path, form):
+    """P8: each computed `let` key stands for its operation's field (PREREG
+    Law, item 4), so the statement is the S07 cell of its substituted keys,
+    as emission, compiled replay and the pure boundary each derive it."""
+    import _pietto_sql_emission_portable as portable
+    from pietto._project.project_compiled_build import build_compiled
+    from pietto._project.project_completed_semantics import _compiled_float_key_cell
+    from pietto._project import project_compiled_schema as wire
+
+    body = probe.E4BC_FORMS[form]
+    _, outcome = probe.e4bc_world(tmp_path, "mysql", body)
+    artifact = outcome.artifact
+    assert artifact is not None
+    keys = body.split("    group by ", 1)[1].split("\n", 1)[0].split(", ")
+    carriers = {"x": "F", "w": "F", "u": "F", "y": "H", "v": "H", "kn": "N"}
+    lets = dict(
+        line.strip()[4:].split(" = ", 1)
+        for line in body.splitlines()
+        if line.startswith("    let ")
+    )
+    expected = (
+        "group",
+        tuple(
+            carriers[
+                key
+                if key not in lets
+                else next(f for f in ("x", "y", "w", "v", "u") if f in lets[key])
+            ]
+            for key in keys
+        ),
+    )
+    assert rows.mysql_float_key_cell(artifact.request) == expected
+    records = {
+        record.address: record
+        for record in wire.decode(build_compiled(artifact).payload).records
+    }
+    assert _compiled_float_key_cell(records) == expected
+    exported = portable.export_emission_observation(artifact, artifact.request)
+    assert exported.canonical_bytes is not None
+    view = pure.parse_emission_observation(exported.canonical_bytes).view
+    assert view is not None
+    assert pure._mysql_float_key_cell(pure._Doc(dict(view.records))) == expected
+
+
+# --------------------------------------------------------------------------
+# MC E4B: chain J, an operation as a whole item on a JOIN row (P9)
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+@pytest.mark.parametrize("form", sorted(probe.E4BJ_FORMS))
+def test_mysql_e4b_chain_j_forms_emit_and_every_reader_accepts(tmp_path, form, target):
+    """E4B's P9: a narrow operation, or with no WHERE a `+` or `*` of two
+    fields, as a whole SELECT item over the row of an S06 Float-keyed JOIN or
+    of a plain JOIN on an Int or Text key, under a WHERE beside the latter,
+    emits on MySQL, computed above the JOIN. Both families emit the pinned
+    SQL, every reader accepts it, and each operation's evidence and
+    nullability are PostgreSQL's."""
+    checked, outcome = probe.e4bj_world(tmp_path, target, probe.E4BJ_FORMS[form])
+    assert checked.verified
+    probe.numeric_readers_accept(outcome)
+    assert outcome.artifact is not None
+    assert outcome.artifact.rendered.sql.decode() == probe.E4BJ_FORM_SQL[form, target]
+    document = json.loads(serialize_project_sql_emission(outcome))
+    _, postgres = probe.e4bj_world(
+        tmp_path / "postgres", "postgres", probe.E4BJ_FORMS[form]
+    )
+    other = json.loads(serialize_project_sql_emission(postgres))
+    assert [c["nullable"] for c in document["columns"]] == [
+        c["nullable"] for c in other["columns"]
+    ]
+    assert sorted(
+        json.dumps(r["evidence"])
+        for r in document["requirements"]
+        if r["kind"] == "arithmetic"
+    ) == sorted(
+        json.dumps(r["evidence"])
+        for r in other["requirements"]
+        if r["kind"] == "arithmetic"
+    )
+
+
+@pytest.mark.parametrize("policy", ("preserve_literals", "bind_safe_literals"))
+@pytest.mark.parametrize("shape", sorted(probe.E4BJ_REFUSALS))
+def test_mysql_e4b_chain_j_neighbours_keep_their_refusal(tmp_path, shape, policy):
+    """A nesting or a `-` of two fields on a JOIN row, two fields under a
+    WHERE, an operation in the `on` (P10) or the WHERE, a WHERE beside a
+    Float-keyed JOIN, a `let`, a header parameter, a RIGHT JOIN and the
+    clauses beside an operation item keep main's blockers, object for
+    object, under both literal policies (rule two); PostgreSQL emits each,
+    or keeps main's blockers where it refuses it too."""
+    body = probe.E4BJ_REFUSALS[shape]
+    _, outcome = probe.e4bj_world(tmp_path / "mysql", "mysql", body, policy)
+    assert outcome.status == "BLOCKED" and outcome.artifact is None
+    assert _e4_blockers(outcome) == probe.E4BJ_REFUSAL_BLOCKERS[shape]
+    _, postgres = probe.e4bj_world(tmp_path / "postgres", "postgres", body, policy)
+    expected = probe.E4BJ_POSTGRES_BLOCKERS.get(shape)
+    assert postgres.status == ("VERIFIED" if expected is None else "BLOCKED")
+    assert expected is None or _e4_blockers(postgres) == expected
+
+
+def test_a_bind_safe_literal_leaves_the_mysql_e4b_chain_j_cells(tmp_path):
+    """The control: under bind_safe_literals EJ6's literal is a bind-safe `?`,
+    which no E4B cell holds, so it keeps main's blocker."""
+    body = probe.E4BJ_FORMS["EJ6"]
+    _, outcome = probe.e4bj_world(tmp_path, "mysql", body, "bind_safe_literals")
+    assert outcome.artifact is None
+    assert _e4_blockers(outcome) == [
+        ("PIE-B1003", "float_literal_operands_required", 13, 9)
+    ]
+
+
+@pytest.mark.parametrize("form", ("EJ1", "EJ2", "EJ3", "EJ4"))
+def test_mysql_e4b_items_stand_for_their_fields_in_s06_join_cells(tmp_path, form):
+    """P9 over an S06 Float-keyed JOIN: each operation item stands for its
+    field (PREREG Law, item 4), so emission, compiled replay and the pure
+    boundary each derive the S06 cell of the JOIN as with that field read."""
+    import _pietto_sql_emission_portable as portable
+    from pietto._project.project_compiled_build import build_compiled
+    from pietto._project.project_completed_semantics import _compiled_float_cell
+    from pietto._project import project_compiled_schema as wire
+
+    body = probe.E4BJ_FORMS[form]
+    _, outcome = probe.e4bj_world(tmp_path / "e4b", "mysql", body)
+    artifact = outcome.artifact
+    assert artifact is not None
+    item = body.split("    r = ", 1)[1].split("\n", 1)[0]
+    field = next(token for token in ("f6o.v", "f6i.v") if token in item)
+    _, plain = probe.e4bj_world(
+        tmp_path / "plain", "mysql", body.replace(f"r = {item}", f"r = {field}")
+    )
+    assert plain.artifact is not None
+    from pietto._project.project_sql_plan_expressions import ProjectSQLComparison
+
+    plan = artifact.request.plan
+    (on,) = [
+        e
+        for e in plan.expressions
+        if type(e) is ProjectSQLComparison
+        and e.expression.operator in ("==", "!=")
+        and rows.value_tag(rows._planned(plan, e.left)) == "Float"
+    ]
+    cell = rows.mysql_float_cell(artifact.request, on)
+    assert cell is not None and cell[0] in ("inner", "left")
+    records = {
+        record.address: record
+        for record in wire.decode(build_compiled(artifact).payload).records
+    }
+    (comparison,) = [
+        address
+        for address, record in records.items()
+        if address.kind == "operation"
+        and record.get("operator") in (("comparison", "=="), ("comparison", "!="))
+        and record.get("logical")[0] == "Bool"
+        and all(o.kind == "read" for o in record.get("operands"))
+        and records[records[record.get("operands")[0]].get("port")].get("logical")[0]
+        == "Float"
+    ]
+    assert _compiled_float_cell(records, comparison) == cell
+    exported = portable.export_emission_observation(artifact, artifact.request)
+    assert exported.canonical_bytes is not None
+    view = pure.parse_emission_observation(exported.canonical_bytes).view
+    assert view is not None
+    doc = pure._Doc(dict(view.records))
+    (node,) = [
+        ref
+        for ref in doc.all("sql_operation")
+        if doc[ref]["kind"] == "comparison"
+        and doc[doc[doc[ref]["operands"][0]]["realization"]]["tag"] == "Float"
+    ]
+    assert pure._mysql_float_cell(doc, node) == cell

@@ -178,9 +178,15 @@ The G1 and G2 slices, which widen S02's
 which opens its [narrow cell](language.md#mysql-float-arithmetic-cell), are
 review candidates rebuilt on that repair's rule; none has landed, and none
 opens a form until its own campaign matches on a new freeze (MC.03, MC.09).
-E4's wider positions, a `let` carry, WHERE comparisons and ORDER BY keys,
-stay refused under J12 (3) for the owner's later plan, before the Phase82
-freeze (MC.04, PL.58).
+E4's wider positions are E4B, the owner's plan before the Phase82 freeze on
+its own ledger (MC.04, PL.58). Its first slices, review candidates on the
+same terms, would open a `let` carry, WHERE comparisons and ORDER BY keys of
+a narrow operation, two fields, one level of nesting, `count`'s argument, a
+header parameter operand under `+` or `-` (a `*` beside one stays refused),
+computed `let` GROUP BY keys and a whole item on a JOIN row
+([E4B's cells](language.md#mysql-float-wider-cells)); until each chain's
+campaign matches they stay refused under J12 (3), and a `Float` operation in
+a JOIN `on` keeps its refusal (owner, O1 (a)).
 `stddev` of an `Int` (J12, D76.10) is one with no target phase (D77.34), and
 MySQL nested results (D71.05) one with the target of the separate later
 nested work package (D77.32). The MySQL `UUID` header parameter stays
@@ -445,8 +451,7 @@ before its owner's Gate 1 takes it.
 | SQLite's second tier: JOINs, range-proved `Int` arithmetic and windows (S13–S15) | the owner's plan, before the Phase82 freeze, with its own Gate 1 and ledger; the cutoff for admitting it is Phase82's Gate 1 (PL.58 (4)); the decision on the freeze ledger's JOIN key and grain row comes before any slice that opens a JOIN (PL.54, PL.58; [Phase78 audit](phases/phase-78/completion-audit.md#handoff)) |
 | SQLite run-time guarded and `Float` arithmetic, `/` and `%`; `Text` that holds NUL; SQLite bundles, saved results, relay, jobs and R2; other SQLite builds and platforms; the SQLite capability-facts profile | a later Gate 1 with a use case for the arithmetic; a later SQLite execution Gate 1 for NUL; the later execution and recovery owners; the Phase82 support matrix, where each is not qualified; the editor capability-facts Gate 1; each untaken one a Phase82 freeze input ([B2 deferred owners](phases/phase-78/route.md#b2-deferred-owners)) |
 | The other MySQL project `sum(Int)` forms | the MySQL catch-up work package MC before Phase81, form by form with its own qualification (D77.76, MC.01, MC.02; see [MySQL cadence](#mysql-cadence) and the [MC route](mysql-catchup/route.md)) |
-| E4's wider MySQL positions outside its narrow cell: a `let` carry, a WHERE comparison and an ORDER BY key of a `Float` `+`, `-`, `*` or sign on a field (C04 E4) | the owner's later plan, before the Phase82 freeze (D77.78, MC.04, PL.58) |
-| Every other position of PostgreSQL's E4 on MySQL, such as `x + y`, a nested operation or a parameter operand | no target (MC.04, MC.10) |
+| Every other position of PostgreSQL's E4 on MySQL, outside E4B's positions, such as two levels of nesting, `/` or an aggregate other than `count` of an operation | no target (MC.04, MC.10) |
 | `verify_project_sql_plan` runs without a memo, 4 to 29 times per case | `_project/project_sql_plan_verification.py` and its emission callers, in Phase81 (PL.40, D15); a memo needs the owner ([Phase77 S26](phases/phase-77/route.md#s26-closure-record)) |
 
 ## Phase82 freeze ledger

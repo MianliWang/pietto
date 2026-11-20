@@ -1164,7 +1164,8 @@ declares:
 On MySQL `emit-sql --project` also reports BLOCKED the `Float` forms that
 PostgreSQL emits (above): arithmetic and a sign on a `Float`
 field (`price * 2.0`, `-price`) outside the
-[E4 cell](language.md#mysql-float-arithmetic-cell), a `Float` window
+[E4 cell](language.md#mysql-float-arithmetic-cell) and
+[E4B's cells](language.md#mysql-float-wider-cells), a `Float` window
 `partition by` or `order by` key, and `group by`, `order by`,
 `select distinct:` and the set forms other than UNION ALL over a window
 `percent_rank` or `cume_dist` result (MySQL has no project `string_agg` or

@@ -1860,14 +1860,16 @@ or a successful semantic check alone establishes none of those premises.
   `0.1.11` refused, the forms that Phase77 opens in `0.1.12`, the MySQL
   `Float` `same_value` in a null-safe JOIN `on` that `0.2.1` opens and the
   `Float` `+`, `-`, `*` and sign of MC's
-  [E4 cell](language.md#mysql-float-arithmetic-cell), with
+  [E4 cell](language.md#mysql-float-arithmetic-cell) and of
+  [E4B's cells](language.md#mysql-float-wider-cells), with
   PIE-R1004 `PUBLIC_R2_UNQUALIFIED_FORM` before any workspace access or
   connection: no native qualification has run R2's refined statement of any
   of them. It is the last R2 check, so a query that another one refuses
   keeps that refusal: a paired form (`PUBLIC_R2_PAIRED_FORM`), a query that
   reads `now()` (`PUBLIC_R2_STATEMENT_SNAPSHOT`), an
   [S07](release-notes.md#float-group-by-keys-in-mysql-projects) `Float` GROUP BY key
-  form (`REFINEMENT_COMPARISON_DOMAIN`) when they prepare it, and, when its
+  form or an E4B `Float` ORDER BY key (`REFINEMENT_COMPARISON_DOMAIN`) when
+  they prepare it, and, when its
   values and parameters bind, an
   [S09](release-notes.md#mysql-project-decimal-date-and-timestamp-parameters) `Timestamp`
   parameter selected as an output (`MEANING_OUTPUT`, as in `save()`).

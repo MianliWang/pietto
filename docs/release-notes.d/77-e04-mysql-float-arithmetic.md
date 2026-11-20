@@ -37,8 +37,9 @@
   and the pure boundary from its document; plain verification asks
   emission's function where the cell is and checks its operands by its own
   law. Compiled bundles and live templates replay the same SQL.
-- Kept refused, with the blockers they have without this note, object for
-  object: two `Float` fields (`x + y`, `x - x`), a nested operation such as
+- Kept refused outside [E4B's cells](../language.md#mysql-float-wider-cells),
+  with the blockers they have without this note, object for object: two
+  `Float` fields (`x + y`, `x - x`), a nested operation such as
   `(x * 2.0) + 1.0` or `-(-x)`, unary `+`, an `Int` literal, a literal under
   `+` or under two signs, `/`, a header parameter, the operation in a `let`,
   a WHERE comparison, an ORDER BY key or an aggregate argument, and a cell's
@@ -56,11 +57,13 @@
   raw primitive stage over MySQL `DOUBLE` and its emitted stage over this
   change's SQL, each on PostgreSQL 18.6 and MySQL 8.4.12 (MC.04, MC.05,
   MC.06), has not run on this change.
-- Beyond the MySQL cadence under J12 (3): E4's wider positions, a `let`
-  carry, a WHERE comparison and an ORDER BY key of such a result, wait for
-  the owner's later plan, before the Phase82 freeze (MC.04); every other
-  position of PostgreSQL's E4 keeps its refusal, with no target (MC.04,
-  MC.10).
+- Beyond the MySQL cadence under J12 (3): E4's wider positions open only in
+  [E4B's cells](../language.md#mysql-float-wider-cells), whose own notes
+  list them, each on its own chain's qualification, and a `*` beside a
+  header parameter stays refused there; every other position of
+  PostgreSQL's E4, such as two levels of nesting, `/` or an aggregate other
+  than `count`, keeps its refusal with no target (MC.04, MC.10), and so does
+  a `Float` operation in a JOIN `on` (owner, O1 (a)).
 
 Changed diagnostics (programs refused in `0.2.1`; no accepted program
 changes; MySQL projects, no message text changed):
