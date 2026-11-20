@@ -33,7 +33,9 @@ where it is qualified under CPython 3.13.13 and 3.12.13. See
   `limits.seconds`. The cap is 128 MiB because the check of a 253 MiB
   file of randomly keyed indexes outran the default 20 seconds.
 - The whole result is read, the transaction committed and the file closed
-  before the first batch, which carries the compiled Arrow schema.
+  before the first batch, which carries the compiled Arrow schema. A column
+  is nullable there as in the emission's `columns`, so a comparison of a
+  nullable field, or a `not`, `and` or `or` of one, delivers its NULL.
 - An error that SQLite raises is named by its extended result code
   (`SQLITE_ERRORCODE_<n>`), or `SQLITE_INTEGER_OVERFLOW` for a `sum` past
   signed 64 bits, never by its message.

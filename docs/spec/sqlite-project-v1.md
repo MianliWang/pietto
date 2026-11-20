@@ -264,7 +264,8 @@ under the rule `sqlite_b2` and, as v2 requires, the generated
 `ranges` cover the statement byte for byte, in order, each with the plan
 object it renders as its `subject`.
 
-Each column has its export's logical type and nullability. A column that
+Each column has its export's logical type and nullability, a nullability
+that `check` leaves unknown, as a comparison's, being nullable. A column that
 reads a source field, selected directly or as a `group by` key, has that
 field's contract `representation`; a `count` has the storage `sqlite_integer`
 and the `int_range` 0 to 9223372036854775807; a `min` or `max` has its

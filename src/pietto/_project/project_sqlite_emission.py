@@ -1173,7 +1173,9 @@ def _columns(artifact: SQLiteArtifact) -> list[dict[str, Any]]:
     ):
         value = result.value
         tag = _type_name(export)
-        nullable = export.field.effective_nullability.value == "nullable"
+        # A nullability that `check` leaves unknown, as a comparison's, may
+        # be NULL, so the `sqlite_file` route's Arrow schema must allow it.
+        nullable = export.field.effective_nullability.value != "non_null"
         correspondence: dict[str, Any] = {}
         if type(value) is SQLiteColumn:
             field = fields[value.field]
