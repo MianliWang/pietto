@@ -312,6 +312,10 @@ def test_alias_operands_and_aggregate_arguments_emit_the_base_typed_sql(
 
     ages = int_sum(f"({q}age{q} + 1)")
     older_ages = int_sum(f"({q}age{q} + 5)")
+    rank = f"RANK() OVER (ORDER BY {ages} DESC)"
+    if connector != "postgres.table":
+        # MySQL returns a rank as BIGINT UNSIGNED, so it is cast to SIGNED.
+        rank = f"CAST({rank} AS SIGNED)"
     assert sql.diagnostics == ()
     assert [artifact.sql for artifact in sql.artifacts] == [
         "SELECT\n"
@@ -337,7 +341,7 @@ def test_alias_operands_and_aggregate_arguments_emit_the_base_typed_sql(
         f"FROM {q}orders{q}",
         "SELECT\n"
         f"    {q}region{q} AS {q}region{q},\n"
-        f"    RANK() OVER (ORDER BY {ages} DESC) AS {q}r{q},\n"
+        f"    {rank} AS {q}r{q},\n"
         f"    SUM({q}amount{q}) AS {q}total{q},\n"
         f"    {ages} AS {q}ages{q},\n"
         f"    {older_ages} AS {q}older_ages{q},\n"

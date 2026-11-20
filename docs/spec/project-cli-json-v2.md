@@ -624,6 +624,18 @@ window (PIE-B1003 `window_aggregate_approved_non_support_on_mysql`) except
 same function and roles
 ([0.1.12](../release-notes.md#count-min-and-max-over-a-window-in-eleven-mysql-project-forms)).
 
+On MySQL a `row_number`, `rank`, `dense_rank` or `ntile` window is written
+`CAST(ROW_NUMBER() OVER (...) AS SIGNED)` (`RANK`, `DENSE_RANK`,
+`NTILE(n)`), as MySQL returns each as `BIGINT UNSIGNED`, which a binary `+`,
+`-` or `*` over it would keep (MySQL computes unary `-` signed) and a set
+beside a signed operand would make `DECIMAL`.
+Its window column has no `argument_cast` and the `result_cast` `SIGNED`, and
+its additive `ranges` roles are the `syntax` roles `window_result_cast_open`
+(`CAST(`) and `window_result_cast_close` (` AS SIGNED)`) around
+`window_open` and its OVER specification. Its storage stays `my_bigint`
+with `int_range` 0 to 9223372036854775807. A PostgreSQL one has no
+`result_cast`.
+
 `Int` arithmetic with a `None` operand (D-12, kind `arithmetic`) writes that
 NULL as `CAST(NULL AS pg_catalog.int8)` on PostgreSQL and
 `CAST(NULL AS SIGNED)` on MySQL, with the additive `ranges` roles

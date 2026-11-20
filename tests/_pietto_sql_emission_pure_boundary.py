@@ -2717,6 +2717,16 @@ def _aggregate_casts(
     return None, None
 
 
+def _rank_cast(family: str, function: str) -> str | None:
+    """MySQL sends a rank or bucket as BIGINT UNSIGNED, so it is cast to SIGNED."""
+    return (
+        "SIGNED"
+        if family == "mysql"
+        and function in {"row_number", "rank", "dense_rank", "ntile"}
+        else None
+    )
+
+
 def _decimal_sum_cast(family: str, function: str, argument, result) -> str | None:
     """The E10 result cast is derived from two retained Decimal carriers."""
 
@@ -4689,7 +4699,8 @@ class _Check:
             arguments = [doc[item] for item in column["arguments"]]
             function = column["function"]
             # An aggregate over a window: PostgreSQL, one column argument or a
-            # row count, and R13's casts; every other window has no cast.
+            # row count, and R13's casts; a MySQL rank or bucket is cast to
+            # SIGNED; every other window has no cast.
             casts = (column["argument_cast"], column["result_cast"])
             if function in schema.WINDOW_AGGREGATES:
                 reads = [
@@ -4711,7 +4722,9 @@ class _Check:
                     "window aggregate",
                 )
             else:
-                _require(casts == (None, None), "window cast")
+                _require(
+                    casts == (None, _rank_cast(self.family, function)), "window cast"
+                )
             if self.family == "postgres":
                 function = column["function"]
                 roles = tuple(argument["role"] for argument in arguments)
@@ -9589,7 +9602,7 @@ class _Render:
                 raise _Mismatch("window named specification")
             used.append(definition)
         # Derived casts (_Check's "window aggregate"/"window cast" relation).
-        argument_cast = result_cast = None
+        argument_cast, result_cast = None, _rank_cast(self.family, function)
         if function in schema.WINDOW_AGGREGATES:
             reads = [a["read"] for a in arguments if a["read"] is not None]
             argument_cast, result_cast = _aggregate_casts(

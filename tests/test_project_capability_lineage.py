@@ -297,6 +297,13 @@ def _emit(script_ir: ScriptIR, dialect: WindowTargetDialect) -> str:
     return emitted.artifacts[0].sql
 
 
+def _rank(call: str, dialect: WindowTargetDialect) -> str:
+    """A MySQL rank, BIGINT UNSIGNED there, is cast to SIGNED."""
+    if dialect is WindowTargetDialect.POSTGRESQL:
+        return call
+    return f"CAST({call} AS SIGNED)"
+
+
 def _unsupported_details(
     relation: RelationIR,
     dialect: WindowTargetDialect,
@@ -333,11 +340,15 @@ def test_language_named_window_example_falls_back_to_exact_inline_sql(
         NamedWindowLoweringStrategy.INLINE_EXACT,
         [f"{dialect.value} cannot add PARTITION BY to a copied named base"],
     )
+    ordered = _rank('ROW_NUMBER() OVER (ORDER BY "id" ASC)', dialect)
+    parted = _rank(
+        'ROW_NUMBER() OVER (PARTITION BY "category" ORDER BY "id" ASC)', dialect
+    )
     sql = (
         "SELECT\n"
-        '    ROW_NUMBER() OVER (ORDER BY "id" ASC) AS "a",\n'
-        '    ROW_NUMBER() OVER (PARTITION BY "category" ORDER BY "id" ASC) AS "b",\n'
-        '    ROW_NUMBER() OVER (PARTITION BY "category" ORDER BY "id" ASC) AS "c"\n'
+        f'    {ordered} AS "a",\n'
+        f'    {parted} AS "b",\n'
+        f'    {parted} AS "c"\n'
         'FROM "rows"'
     )
     if dialect is WindowTargetDialect.MYSQL:
@@ -436,14 +447,17 @@ def test_copyable_named_refinements_and_chains_stay_native(
         else (NamedWindowLoweringStrategy.NATIVE_PRESERVE, "", "`")
     )
     assert _unsupported_details(relation, dialect) == (native, [])
+    ordered = _rank('ROW_NUMBER() OVER "ordered"', dialect)
+    parted = _rank('ROW_NUMBER() OVER ("parted" ORDER BY "id" ASC)', dialect)
+    alias = _rank('RANK() OVER "alias"', dialect)
     sql = (
         "SELECT\n"
-        '    ROW_NUMBER() OVER "ordered" AS "a",\n'
+        f'    {ordered} AS "a",\n'
         '    FIRST_VALUE("value") OVER ("ordered" ROWS BETWEEN 1 PRECEDING AND '
         f'CURRENT ROW{exclusion}) AS "b",\n'
-        '    ROW_NUMBER() OVER ("parted" ORDER BY "id" ASC) AS "c",\n'
+        f'    {parted} AS "c",\n'
         '    LAST_VALUE("value") OVER "framed" AS "d",\n'
-        '    RANK() OVER "alias" AS "e"\n'
+        f'    {alias} AS "e"\n'
         'FROM "rows"\n'
         "WINDOW\n"
         '    "ordered" AS (ORDER BY "id" ASC),\n'
@@ -873,8 +887,12 @@ def test_empty_extended_named_windows_keep_copy_identity_and_default_frames(
     )
     assert _unsupported_details(relation, dialect) == (native, [])
     sql = _emit(script_ir, dialect)
-    assert 'ROW_NUMBER() OVER "ordered" AS "ranked_direct"'.replace('"', quote) in sql
-    assert 'ROW_NUMBER() OVER ("ordered") AS "ranked_copy"'.replace('"', quote) in sql
+    for over, alias in (
+        ('"ordered"', "ranked_direct"),
+        ('("ordered")', "ranked_copy"),
+    ):
+        expected = f'{_rank("ROW_NUMBER() OVER " + over, dialect)} AS "{alias}"'
+        assert expected.replace('"', quote) in sql
     for alias in ("value_direct", "value_copy"):
         expected = (
             'FIRST_VALUE("value") OVER ("ordered" RANGE BETWEEN UNBOUNDED PRECEDING '

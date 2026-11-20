@@ -310,6 +310,9 @@ def render(statement, artifact, page_values=(), *, _guards=None, clock=None):
                 original_uses(a[0].argument)
         elif k == "window":
             original, alias, partitions, orders, whole_frame = a
+            # The original's result cast: a MySQL rank or bucket is SIGNED.
+            if original.result_cast is not None:
+                emit("CAST(")
             emit(SPELLING[original.function] + "(")
             for i, arg in enumerate(original.arguments):
                 if i:
@@ -333,6 +336,8 @@ def render(statement, artifact, page_values=(), *, _guards=None, clock=None):
             if whole_frame:
                 emit(" ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING")
             emit(")")
+            if original.result_cast is not None:
+                emit(" AS " + original.result_cast + ")")
         elif k == "guard_control":
             from pietto._project.project_guard_program import GuardStatement
 

@@ -150,6 +150,7 @@ _WINDOW_FUNCTION_NAMES = {
 _ZERO_ARGUMENT_WINDOW_FUNCTIONS = frozenset(
     {"row_number", "rank", "dense_rank", "percent_rank", "cume_dist"}
 )
+_SIGNED_WINDOW_FUNCTIONS = frozenset({"row_number", "rank", "dense_rank", "ntile"})
 _DATE_PARTS = frozenset({"year", "month", "day", "hour", "minute"})
 _COMPOUND_CALLS = frozenset({"contains", "starts_with", "ends_with"})
 
@@ -416,7 +417,13 @@ def render_mysql_window_call(
     if null_treatment is not None and expression.null_treatment_is_explicit:
         modifiers.append("RESPECT NULLS")
     suffix = "" if not modifiers else " " + " ".join(modifiers)
-    return f"{_WINDOW_FUNCTION_NAMES[name]}({argument_sql}){suffix} OVER {over_sql}"
+    sql = f"{_WINDOW_FUNCTION_NAMES[name]}({argument_sql}){suffix} OVER {over_sql}"
+    if name in _SIGNED_WINDOW_FUNCTIONS:
+        # MySQL returns a rank or bucket as BIGINT UNSIGNED, which a binary
+        # operation over it keeps (error 1690 below zero) and a set beside a
+        # signed operand makes DECIMAL; project SQL casts it the same way.
+        return f"CAST({sql} AS SIGNED)"
+    return sql
 
 
 def render_mysql_aggregate_window_call(

@@ -1597,12 +1597,19 @@ EMITTED_JOINS = {
         (
             "SELECT\n"
             "    `orders`.`id` AS `oid`,\n"
-            "    ROW_NUMBER() OVER (PARTITION BY `c`.`id` ORDER BY `orders`.`id` ASC) AS `rn`,\n"
+            "    CAST(ROW_NUMBER() OVER (PARTITION BY `c`.`id` ORDER BY `orders`.`id` ASC) AS SIGNED) AS `rn`,\n"
             "    LAG(`orders`.`amount`) OVER (PARTITION BY `c`.`id` ORDER BY `orders`.`id` ASC) AS `prev`\n"
             "FROM `shop`.`orders` AS `orders`\n"
             "INNER JOIN `shop`.`customers` AS `c` ON `orders`.`customer_id` = `c`.`id`"
         ),
-        None,
+        (
+            "SELECT\n"
+            '    "orders"."id" AS "oid",\n'
+            '    ROW_NUMBER() OVER (PARTITION BY "c"."id" ORDER BY "orders"."id" ASC) AS "rn",\n'
+            '    LAG("orders"."amount") OVER (PARTITION BY "c"."id" ORDER BY "orders"."id" ASC) AS "prev"\n'
+            'FROM "shop"."orders" AS "orders"\n'
+            'INNER JOIN "shop"."customers" AS "c" ON "orders"."customer_id" = "c"."id"'
+        ),
     ),
     "named-window": (
         "query q:\n"
@@ -1619,14 +1626,23 @@ EMITTED_JOINS = {
         (
             "SELECT\n"
             "    `orders`.`id` AS `oid`,\n"
-            "    ROW_NUMBER() OVER `w` AS `rn`,\n"
-            "    RANK() OVER `w` AS `rk`\n"
+            "    CAST(ROW_NUMBER() OVER `w` AS SIGNED) AS `rn`,\n"
+            "    CAST(RANK() OVER `w` AS SIGNED) AS `rk`\n"
             "FROM `shop`.`orders` AS `orders`\n"
             "INNER JOIN `shop`.`customers` AS `c` ON `orders`.`customer_id` = `c`.`id`\n"
             "WINDOW\n"
             "    `w` AS (PARTITION BY `c`.`id` ORDER BY `orders`.`id` ASC)"
         ),
-        None,
+        (
+            "SELECT\n"
+            '    "orders"."id" AS "oid",\n'
+            '    ROW_NUMBER() OVER "w" AS "rn",\n'
+            '    RANK() OVER "w" AS "rk"\n'
+            'FROM "shop"."orders" AS "orders"\n'
+            'INNER JOIN "shop"."customers" AS "c" ON "orders"."customer_id" = "c"."id"\n'
+            "WINDOW\n"
+            '    "w" AS (PARTITION BY "c"."id" ORDER BY "orders"."id" ASC)'
+        ),
     ),
     "qualify-hidden-input": (
         "query q:\n"
@@ -1647,7 +1663,7 @@ EMITTED_JOINS = {
             "FROM (\n"
             "SELECT\n"
             "    `orders`.`id` AS `oid`,\n"
-            "    ROW_NUMBER() OVER (PARTITION BY `c`.`id` ORDER BY `orders`.`id` ASC) AS `__pietto_qualify_0`,\n"
+            "    CAST(ROW_NUMBER() OVER (PARTITION BY `c`.`id` ORDER BY `orders`.`id` ASC) AS SIGNED) AS `__pietto_qualify_0`,\n"
             "    `c`.`region_id` AS `__pietto_qualify_1`,\n"
             "    `orders`.`id` AS `__pietto_qualify_2`\n"
             "FROM `shop`.`orders` AS `orders`\n"
@@ -1659,7 +1675,24 @@ EMITTED_JOINS = {
             "    `__pietto_qualify_2` ASC\n"
             "LIMIT 3"
         ),
-        None,
+        (
+            "SELECT\n"
+            '    "oid"\n'
+            "FROM (\n"
+            "SELECT\n"
+            '    "orders"."id" AS "oid",\n'
+            '    ROW_NUMBER() OVER (PARTITION BY "c"."id" ORDER BY "orders"."id" ASC) AS "__pietto_qualify_0",\n'
+            '    "c"."region_id" AS "__pietto_qualify_1",\n'
+            '    "orders"."id" AS "__pietto_qualify_2"\n'
+            'FROM "shop"."orders" AS "orders"\n'
+            'INNER JOIN "shop"."customers" AS "c" ON "orders"."customer_id" = "c"."id"\n'
+            ') AS "__pietto_qualify"\n'
+            "WHERE\n"
+            '    ("__pietto_qualify_1" IS NOT NULL) AND ("__pietto_qualify_0" <= 2)\n'
+            "ORDER BY\n"
+            '    "__pietto_qualify_2" ASC\n'
+            "LIMIT 3"
+        ),
     ),
     "aggregate-window": (
         "query q:\n"
@@ -2056,7 +2089,7 @@ EMITTED_JOINS = {
         (
             "SELECT\n"
             "    `__pietto_full`.`__pietto_full_0` AS `oid`,\n"
-            "    ROW_NUMBER() OVER (ORDER BY `__pietto_full`.`__pietto_full_1` ASC) AS `rn`\n"
+            "    CAST(ROW_NUMBER() OVER (ORDER BY `__pietto_full`.`__pietto_full_1` ASC) AS SIGNED) AS `rn`\n"
             "FROM (\n"
             "SELECT\n"
             "    `orders`.`id` AS `__pietto_full_0`,\n"
@@ -2099,7 +2132,7 @@ EMITTED_JOINS = {
             "SELECT\n"
             "    `__pietto_full`.`__pietto_full_0` AS `oid`,\n"
             "    `__pietto_full`.`__pietto_full_1` AS `cid`,\n"
-            "    ROW_NUMBER() OVER (PARTITION BY `__pietto_full`.`__pietto_full_1` ORDER BY `__pietto_full`.`__pietto_full_0` ASC) AS `__pietto_qualify_0`\n"
+            "    CAST(ROW_NUMBER() OVER (PARTITION BY `__pietto_full`.`__pietto_full_1` ORDER BY `__pietto_full`.`__pietto_full_0` ASC) AS SIGNED) AS `__pietto_qualify_0`\n"
             "FROM (\n"
             "SELECT\n"
             "    `orders`.`id` AS `__pietto_full_0`,\n"

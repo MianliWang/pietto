@@ -5721,6 +5721,18 @@ DOUBLE, as grouped MySQL aggregates do. MySQL may compute a sliding `sum` or
 round differently; it does not under its default session setting
 `windowing_use_high_precision = ON`, which single-file MySQL SQL assumes as it
 assumes the other default session settings.
+MySQL SQL, single-file and project, and the statement R2 refines from
+project SQL, writes a `row_number`, `rank`, `dense_rank` or `ntile` result as
+`CAST(ROW_NUMBER() OVER (...) AS SIGNED)`: MySQL returns each as
+`BIGINT UNSIGNED`, so a binary operation over one, such as `rn - 5`, would
+fail with MySQL error 1690 below zero, and a set of one beside a signed
+operand would be `DECIMAL`. In a project the column stays a non-null
+`my_bigint` from 0 to 9223372036854775807 and an operation over it is a
+`my_signed_int`. A set column takes its first operand's 64-bit carrier over
+the operands' merged range, so a `union all` of a rank, first, and a literal
+or a `BIGINT` column is a `my_bigint`; a rank beside a 16- or 32-bit operand,
+such as a `min` of an `INT` field, is refused with PIE-B1002
+`set_column_physical_representation_mismatch`. PostgreSQL's SQL is unchanged.
 Partition and resolved order items preserve source order, duplicates,
 qualification, and direction. Each item names an input field or a `let`: an
 expression written there reports PIE-S2103 (`window partition expression must

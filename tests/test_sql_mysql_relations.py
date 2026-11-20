@@ -604,7 +604,7 @@ def test_a_qualify_statement_defines_the_relations_its_outer_stage_reads(
         "WITH `big_orders` AS (\nSELECT\n    `item_id` AS `item_id`\n"
         "FROM `orders`\nWHERE `qty` > 10\n)\n"
         "SELECT\n    `id`,\n    `rn`\nFROM (\nSELECT\n    `id` AS `id`,\n"
-        "    ROW_NUMBER() OVER (ORDER BY `id` ASC) AS `rn`,\n"
+        "    CAST(ROW_NUMBER() OVER (ORDER BY `id` ASC) AS SIGNED) AS `rn`,\n"
         "    `items`.`id` AS `__pietto_qualify_0`\nFROM `items` AS `items`\n"
         f") AS `__pietto_qualify`\n{outer}"
     )
@@ -630,7 +630,7 @@ def test_a_qualify_port_read_inside_exists_names_its_derived_table() -> None:
     assert result.diagnostics == ()
     assert [artifact.sql for artifact in result.artifacts] == [
         "SELECT\n    `id`,\n    `rn`\nFROM (\nSELECT\n    `id` AS `id`,\n"
-        "    ROW_NUMBER() OVER (ORDER BY `id` ASC) AS `rn`,\n"
+        "    CAST(ROW_NUMBER() OVER (ORDER BY `id` ASC) AS SIGNED) AS `rn`,\n"
         "    `items`.`id` AS `__pietto_qualify_0`\nFROM `items` AS `items`\n"
         ") AS `__pietto_qualify`\nWHERE\n    (`rn` <= 3) AND EXISTS (SELECT 1 "
         "FROM `orders` AS `_pietto_value_1` WHERE "
@@ -670,11 +670,48 @@ def test_a_qualify_relation_read_as_a_cte_defines_each_relation_once(
         "FROM `items`\n),\n"
         "`top` AS (\nSELECT\n    `id`,\n    `cat`,\n    `rn`\nFROM (\nSELECT\n"
         "    `id` AS `id`,\n    `cat` AS `cat`,\n"
-        "    ROW_NUMBER() OVER (PARTITION BY `cat` ORDER BY `id` ASC) AS `rn`\n"
+        "    CAST(ROW_NUMBER() OVER (PARTITION BY `cat` ORDER BY `id` ASC) AS SIGNED) "
+        "AS `rn`\n"
         "FROM `base`\n) AS `__pietto_qualify`\nWHERE\n    `rn` = 1\n"
         f"{limit_sql}\n)\n"
         "SELECT\n    `id` AS `id`\nFROM `top`\nWHERE `id` > 5"
     )
+
+
+@pytest.mark.parametrize(
+    ("call", "spelling"),
+    (
+        ("row_number()", "ROW_NUMBER()"),
+        ("rank()", "RANK()"),
+        ("dense_rank()", "DENSE_RANK()"),
+        ("ntile(2)", "NTILE(2)"),
+    ),
+)
+def test_a_rank_read_by_an_operation_is_cast_to_signed(
+    call: str, spelling: str
+) -> None:
+    """MySQL returns a rank or bucket as BIGINT UNSIGNED, so `rn - 5` over an
+    uncast one failed with error 1690 below zero; the window is cast to
+    SIGNED where it is computed, and the operation that reads it stays bare.
+    PERCENT_RANK and CUME_DIST, DOUBLE, stay uncast."""
+
+    result = emit_mysql_sql(
+        _compile(
+            "shape Row:\n    id: Int\n"
+            'source items: Row = mysql.table("items")\n'
+            "table ranked:\n    from items\n    select:\n        id\n"
+            f"        rn = {call} window(order by id)\n"
+            "        pr = percent_rank() window(order by id)\n"
+            "query result:\n    from ranked\n    select:\n        lo = rn - 5\n"
+            "        hi = 5 - rn\n"
+        )
+    )
+
+    assert result.diagnostics == ()
+    sql = result.artifacts[-1].sql
+    assert f"    CAST({spelling} OVER (ORDER BY `id` ASC) AS SIGNED) AS `rn`,\n" in sql
+    assert "    PERCENT_RANK() OVER (ORDER BY `id` ASC) AS `pr`\n" in sql
+    assert "    `rn` - 5 AS `lo`,\n    5 - `rn` AS `hi`\n" in sql
 
 
 def test_a_relation_read_only_by_a_qualify_any_refuses_its_reader() -> None:
@@ -878,8 +915,8 @@ def test_a_qualify_over_a_join_keeps_its_hidden_input_port() -> None:
     assert result.diagnostics == ()
     assert result.artifacts[-1].sql == (
         "SELECT\n    `oid`\nFROM (\nSELECT\n    `orders`.`id` AS `oid`,\n"
-        "    ROW_NUMBER() OVER (PARTITION BY `c`.`id` ORDER BY `orders`.`id` ASC) "
-        "AS `__pietto_qualify_0`,\n    `c`.`region_id` AS `__pietto_qualify_1`\n"
+        "    CAST(ROW_NUMBER() OVER (PARTITION BY `c`.`id` ORDER BY `orders`.`id` ASC) "
+        "AS SIGNED) AS `__pietto_qualify_0`,\n    `c`.`region_id` AS `__pietto_qualify_1`\n"
         "FROM `shop`.`orders` AS `orders`\n"
         "INNER JOIN `shop`.`customers` AS `c` ON `orders`.`customer_id` = `c`.`id`\n"
         ") AS `__pietto_qualify`\nWHERE\n"
