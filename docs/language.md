@@ -730,6 +730,55 @@ between zero and the result, so the statement fails with SQLite's
 22003, and never returns a wrong value; a mixed-sign range is BLOCKED with
 PIE-B1004 `sum_int_aggregate_range_proof_missing`. The `int_range` of an
 `avg`'s field is the range evidence of [Aggregates](#aggregates-and-grouping).
+`Int` arithmetic, `+`, `-`, `*`, unary `-` and `abs(x)` over `Int` fields and
+literals, may appear in `select` and `where`, and `+`, `-`, `*` and unary `-`
+also as the argument of `avg` and `sum` (`check` refuses `abs` there,
+PIE-S2315), when its range is proved. Each field read contributes its
+contract `int_range`, each read on its own, and each literal its value; the
+bounds of each operation are computed from those of its operands, and those
+of every result, intermediate ones and an aggregate's argument row by row
+included, must lie inside signed 64 bits, since SQLite turns an `Int` result
+outside them into a `REAL` without an error. So `x + 1` needs an
+`int_range` whose `max` is below 9223372036854775807, and `abs(x)` one whose
+`min` is above -9223372036854775808; otherwise the statement is BLOCKED with
+PIE-B1004 `int_arithmetic_range_proof_missing`. As the two reads of `x` are
+bounded apart, `x * x` over an `int_range` of both signs counts as reaching
+below zero, and `x - x` over the full range is refused although it is 0. A
+`sum` of arithmetic needs bounds on one side of zero, as a `sum` of a field
+does. Arithmetic on parameters, `Float` arithmetic, `/` and `%` stay
+refused, and so does arithmetic that reads an aggregate, which passes
+`check`; `check` refuses arithmetic in `having` (PIE-S2327) and arithmetic
+over `group by` keys in the `select` of an aggregated relation that selects
+no aggregate (PIE-S2319); beside an aggregate, such arithmetic is BLOCKED
+with PIE-B1003 `sqlite_expression_not_admitted` and
+`sqlite_projection_not_admitted`.
+Over one source read without `group by` or an aggregate, a project also
+selects windows: `row_number`, `rank`, `dense_rank` and `count()`, `count`,
+`min` and `max` of an `Int` or `Float` field, and `sum` of an `Int` field
+whose `int_range` lies on one side of zero, only in a frame from
+`unbounded preceding` to `current row` or `unbounded following`, the
+omitted frame included, since SQLite can fail a sliding sum whose every
+frame fits. Their partition and order keys are fields of the source;
+`count()` with neither takes only the default frame, where every row is a
+peer, since another frame counts rows in the order SQLite scans them; and a
+frame has no `range` offset and no `exclude`, which SQLite computes again
+for every row, other than `exclude no others`, which excludes nothing and
+is left out; any other window is BLOCKED with PIE-B1003
+`sqlite_window_not_admitted` or, for such a `sum`,
+`sqlite_window_sum_frame_not_admitted`, and a window `sum` of an `Int`
+field whose `int_range` holds both signs with PIE-B1004
+`sum_int_aggregate_range_proof_missing`.
+A table or query may also join `sqlite.table` sources: `inner join x on ...`
+or `left join x on ...` of a source bound by `let x = source`, a self-join
+included, one after another, whose `on` is one or more equalities `a == b`
+joined with `and`, each of a field of `x` and a field of an earlier input,
+the two of one type, `Int`, `Text` or `Bool`. The forms above then read the
+fields of every input, arithmetic included, but for windows, which read one
+source and so are BLOCKED after a JOIN with PIE-B1003
+`sqlite_relation_shape_not_admitted`; an
+aggregate over rows that a JOIN may repeat stays PIE-S2333, as everywhere. RIGHT, FULL, CROSS and asof JOINs, a JOIN
+to a table, query or relation `let`, a relationship match and any other
+`on` are BLOCKED with PIE-B1003 `sqlite_join_not_admitted`.
 The emission contract gives the table as the `relation` `{"namespace":
 "main", "name": NAME}`, where NAME is the `sqlite.table` string exactly,
 and each field's storage ([emission contract values](project-package.md#emission-contract-values));
@@ -737,16 +786,22 @@ every other form, and a contract that does not fit, is BLOCKED with the
 details of the specification's
 [compile refusals](spec/sqlite-project-v1.md#compile-refusals).
 
-The SQL is one `SELECT` over `` `main`.`<table>` AS `s0` ``. It writes every
-field as `` `s0`.`<column>` ``, quotes every name in backticks, writes each
+The SQL is one `SELECT` over `` `main`.`<table>` AS `s0` ``, each JOIN adding
+`` INNER JOIN `main`.`<table>` AS `s1` ON ... `` or `LEFT JOIN`, with `s2`,
+`s3`, ... for later inputs. It writes every field as `` `sN`.`<column>` ``
+with its input's alias, quotes every name in backticks, writes each
 parameter read as `?N`, numbered from 1 by its first read, writes a `Bool`
 literal as `1` or `0`, and ends every ascending key with `NULLS LAST` and
-every descending key with `NULLS FIRST`, as single files do. It keeps the
-single-file premises above except the collation: project SQL writes
-`COLLATE BINARY` at each `Text` comparison, `group by` key, `order by` key
-and `count_distinct` argument, so a `COLLATE NOCASE` column still compares
-by its bytes, and the contract's `Text` collation `BINARY` names that
-comparison, not the column's. `compile_query(dialect="sqlite")` compiles
+every descending key with `NULLS FIRST`, as single files do. It writes
+`abs(x)` as `ABS(x)` and a unary `-` before an `Int` literal as one signed
+literal, so `-9223372036854775808` is SQLite's `INTEGER` minimum. It keeps
+the single-file premises above except the collation: project SQL writes
+`COLLATE BINARY` at each `Text` comparison, a JOIN's `on` included, `group
+by` key, `order by` key, window key and `count_distinct` argument, so a
+`COLLATE NOCASE` column still compares by its bytes, and the contract's
+`Text` collation `BINARY` names that comparison, not the column's. It writes
+each window inline as `OVER (...)`, with the frame the plan resolves written
+out. `compile_query(dialect="sqlite")` compiles
 such a query for the read-only
 [`sqlite_file` route](execution.md#sqlite-file-route).
 

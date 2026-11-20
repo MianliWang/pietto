@@ -521,6 +521,38 @@ evidence behind these lessons.
   driver sets the client and `DOCKER_HOST` itself rather than trusting a
   shell environment that may point them at another engine.
 
+Lessons 78-9 to 78-12 come from B2's second tier, whose
+[record](../phases/phase-78/route.md#b2-second-tier-record) keeps their
+evidence.
+
+- **78-9 — Census the reference before a replay's Gate 1.** PostgreSQL
+  project mode writes no statement for three forms that S14 and S15 open
+  and for any `Bool` comparison, so R2 and R3 could not reach five forms,
+  and each batch needed its own owner dialog to open them on native cells
+  alone (D78.16, D78.17). Before a replay's Gate 1 asks what it covers,
+  emit each planned form through the reference pipeline, list what it
+  refuses and put the native-only question to the owner once.
+- **78-10 — A cell must tell its form from the nearest wrong one.** R3's
+  package review found no entry for an `on` of two equalities joined with
+  `and`, and its second review found that the chain of three inputs on
+  `Text` keys gives the same rows read as a LEFT or an INNER JOIN, since
+  every key it reads has a match. Give each cell's data a row that the
+  nearest wrong reading changes: a LEFT JOIN a row with no match, a
+  conjunction a row that meets one equality only.
+- **78-11 — Merging parallel slices writes rules none of them owned.** S13a,
+  S14 and S15 were written in parallel; at integration a window over a JOIN
+  needed a refusal and S14's proof needed each input's `int_range`, rules
+  no slice had written, and both shaped R3's bytes. At integration list
+  the combinations of the parallel slices and give each a refusal or a
+  cell, with a test, before the replay freezes.
+- **78-12 — Bind a campaign to its inputs, not to `main`.** R2's dispatch
+  pinned `main`, a rule copied from its template, so a push 13 s before the
+  attempt counted as a breach and stopped the lane, although none of R2's
+  inputs moved and the lead ruled that the attempt stands; R3's dispatch
+  recorded such a move instead. A campaign's stop rules name what it reads
+  (the bound head, the frozen package and the Engine) and record a move of
+  anything else.
+
 ## Phase79
 
 The [completion audit](../phases/phase-79/t2-completion-audit.md) keeps the

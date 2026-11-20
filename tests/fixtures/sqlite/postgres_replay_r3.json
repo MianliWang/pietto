@@ -1,0 +1,809 @@
+{
+ "format": "pietto.phase78.b2-r3.postgres-replay.v1",
+ "source": {
+  "what": "Rows that PostgreSQL 18.6 returned for the PostgreSQL bytes of SQLite B2's JOIN cells (Phase78 R3, D78.14 (7)): every cell of tests/test_sql_sqlite_native.py's _JOIN_CELLS (S13a, S14's arithmetic over joined rows among them), in that order, that the PostgreSQL project pipeline emits (literal policy preserve), over the two-source PostgreSQL contract of its fixture below; each program with sqlite.table(\" swapped for postgres.table(\". -nocase variants are SQLite-only premises; postgres_refused lists the cells that pipeline refuses, with each blocker's code and detail.",
+  "campaign": "Preregistration delta of R3 (derived from R2's), attempt 1 of the R3 campaign, PASS exit 0; the campaign ended with this run. Outer wall time 21.76 s (charged 22 s of the campaign's two hours, D78.11). The 13 entries of postgres_replay_r2.json, the 124 of postgres_replay_r1.json and the 105 of postgres_replay_v1.json were reused, not replayed (D78.10). The JOINs on Bool keys have native cells only (D78.17).",
+  "run_id": "p78t2-r3-20261118T030136Z/attempt-20261118T050955Z",
+  "started_utc": "2026-11-18T05:10:11.534169Z",
+  "finished_utc": "2026-11-18T05:10:33.231041Z",
+  "outer_start_utc": "2026-11-18T05:10:11.492493136Z",
+  "outer_end_utc": "2026-11-18T05:10:33.254446065Z",
+  "status": "PASS",
+  "preregistration_delta_sha256": "7e2f96405ea95f4dafbb7f59d4fdd1b241bce553706bad792a86d91e089ad274",
+  "sha256sums_sha256": "c59eac8f65d80915af1dfbd36c45b9d8c0866a057ccc511428c5f7f3c84b832c",
+  "driver_sha256": "1382d3d8cf387a7a8caa48dc7367fb462cbb29f58eb0449e78951af67b9ee125",
+  "judge_sha256": "38f6bcb0a4af92a22c1344107a47e5349f092cb4f56aa947cb21060c561b42e4",
+  "manifest_sha256": "e8a835e2b910c268d28a0714d2c1ff9ddcedb2f7d664bdde0e5097b4ec82d2c4",
+  "manifest_generator_sha256": "cb8ddcc2975aba9acba81885415d64433d8fd2ebb14861ede0ecdf86f73b4d76",
+  "manifest_input_sha256": {
+   "src/pietto/sql/postgres.py": "fb0757217b1f0ae4e8705c1c5649987ab09bbd36fe4faed440c00fd7d4e7c527",
+   "tests/_pietto_sql_sqlite.py": "2abe30fa0d6571e1f140233aaa26057fa227fe4fcd91517e34dcd68c2f49bc4d",
+   "tests/fixtures/sqlite/postgres_replay_r1.json": "d76817b8df0bbe18005a24cff43ad03cef8695f239f2ca21a3974a22dbb38ae9",
+   "tests/fixtures/sqlite/postgres_replay_r2.json": "03b390ed14ab547353bcc9c98b6c774e647bc3ed0e1d0cdd6a1cb55e0a543daf",
+   "tests/fixtures/sqlite/postgres_replay_v1.json": "325be52e27a815d79fdbbd77cb42701c469b6d4dc0355fc4026712d39942fe8c",
+   "tests/fixtures/sqlite/single_file.pietto": "430c151f17e44ed6bbf7dbcc7cec7753fdd74912bafcef62a0eb2949fbfaed2e",
+   "tests/phase66_target_pins.json": "572a36a890cda4dc286cd9f9fcccf7998a292fc3b437b7836937960c74e87e92",
+   "tests/test_sql_sqlite_native.py": "a49bc03ce4e5567784d9914273f3ca167402863089c9d4ca208d9b8099b8b0ef"
+  },
+  "lane_base_head": "9c0d9b7c93938e40f0029dce9834e426acf86112",
+  "records_sha256": "e755a5f0c64d09992e47be0b2be70033ee99fe3ec1c24214a2c8d5e9d693653d",
+  "result_sha256": "e27141ff0f14e41e1f1ec292703fa0f7faed67fa8399d417218f88884f656f3c",
+  "image": "docker.io/library/postgres:18.6-bookworm@sha256:a10c981235b4f635e65df0cfb66a5598064628128505dbc6a3ed4ca303717521",
+  "server_version": "18.6 (Debian 18.6-1.pgdg12+2)",
+  "server_version_num": "180006",
+  "server_encoding": "UTF8",
+  "timezone": "UTC",
+  "psycopg": "3.3.8 binary",
+  "libpq": 180006,
+  "runtime": "Docker Desktop 4.99.0 (245822), Engine 29.9.3, kernel 6.18.58.1-microsoft-standard-WSL2",
+  "container": "--pull=never --network none, under PostgreSQL slot lock 2 of 3 held by engine-slot, removed by its label after the run"
+ },
+ "regeneration": "No command regenerates this file (golden-fixture policy). The replay driver wrote records.jsonl and result.json; each entry here copies, in manifest order, its record's sql_sha256, sent, columns, type_oids and rows verbatim (a value is [type, text] as the replay driver wrote it: repr for int, float, str and bool; null is NULL; no entry has an argument), the manifest's parameters and the judge's divergences; fixtures copy the manifest's tables, in load order, and PostgreSQL contracts. When an entry's PostgreSQL bytes, fixture rows, contract, prewritten oracle or carriers change, or a refused cell starts to emit or changes its blockers, test_each_r3_postgres_replay_binds_the_bytes_it_ran in tests/test_sql_sqlite_native.py fails. Then the manifest is generated again from the tree, the changed or new entries run under a reviewed preregistration delta and D78.08's conditions, and a reviewed edit replaces only those entries and the source block; every unchanged entry keeps its saved rows (docs/development.md, SQLite target validation).",
+ "not_verified": [
+  "JOINs on Bool keys, INNER and LEFT: PostgreSQL project mode refuses every Bool comparison, so they have native cells only, which the owner ruled enough to open them (D78.17).",
+  "COLLATE NOCASE key columns: a SQLite-only premise; their -nocase variants run natively with the base cell's oracle.",
+  "The sqlite_file route over a JOIN (the defences per source, the bounded read, the uniqueness check of declared keys under a joined aggregate): no SQL byte of its own; native cells only.",
+  "A JOIN with query arguments: no JOIN cell binds one.",
+  "Arithmetic past the bounds over joined rows: refused at emission (PIE-B1004 int_arithmetic_range_proof_missing); nothing runs."
+ ],
+ "postgres_refused": [
+  ["project-join-inner-bool-fans-out", [["PIE-B1003", "comparison_type_pair_not_admitted"]]],
+  ["project-join-chain-of-three", [["PIE-B1003", "comparison_type_pair_not_admitted"]]]
+ ],
+ "fixtures": {
+  "join": {
+   "tables": [
+    {
+     "table": "t",
+     "postgres_ddl": "CREATE TABLE \"t\" (\"id\" bigint NOT NULL, \"n\" bigint, \"s\" text COLLATE \"C\", \"b\" boolean, \"x\" double precision)",
+     "rows": [
+      [["int", "1"], ["int", "-9223372036854775808"], ["str", "'a'"], ["bool", "True"], ["float", "-0.5"]],
+      [["int", "2"], ["int", "9223372036854775807"], ["str", "'A'"], ["bool", "False"], ["float", "1e+300"]],
+      [["int", "3"], ["int", "0"], ["str", "'\u00e9'"], null, ["float", "0.0"]],
+      [["int", "4"], null, ["str", "'e\u0301'"], ["bool", "True"], ["float", "-0.0"]],
+      [["int", "5"], ["int", "7"], null, ["bool", "False"], null],
+      [["int", "6"], ["int", "7"], ["str", "'\u4e2d'"], ["bool", "True"], ["float", "2.5"]],
+      [["int", "7"], ["int", "7"], ["str", "'\u4e2d'"], ["bool", "True"], ["float", "2.5"]],
+      [["int", "8"], null, ["str", "'\ud83d\ude00'"], null, null],
+      [["int", "9"], ["int", "1"], ["str", "''"], ["bool", "False"], ["float", "1.0"]]
+     ]
+    },
+    {
+     "table": "u",
+     "postgres_ddl": "CREATE TABLE \"u\" (\"k\" bigint NOT NULL, \"w\" text COLLATE \"C\", \"c\" boolean, \"v\" bigint)",
+     "rows": [
+      [["int", "7"], ["str", "'a'"], ["bool", "True"], ["int", "10"]],
+      [["int", "0"], ["str", "'A'"], ["bool", "False"], ["int", "20"]],
+      [["int", "1"], ["str", "'\u00e9'"], null, ["int", "30"]],
+      [["int", "99"], null, ["bool", "True"], ["int", "40"]],
+      [["int", "-1"], ["str", "''"], ["bool", "False"], null]
+     ]
+    }
+   ],
+   "postgres_contract": {
+    "environment": [
+     {
+      "key": "client_encoding",
+      "scope": "statement",
+      "value": "UTF8"
+     },
+     {
+      "key": "operator_environment",
+      "scope": "statement",
+      "value": "builtin_only"
+     },
+     {
+      "key": "identifier_case",
+      "scope": "statement",
+      "value": "quoted_exact"
+     },
+     {
+      "key": "parameter_protocol",
+      "scope": "statement",
+      "value": "postgres_extended"
+     }
+    ],
+    "format": "pietto.emission-contract.v1",
+    "sources": [
+     {
+      "fields": [
+       {
+        "column": "id",
+        "name": "id",
+        "ordinal": 0,
+        "representation": {
+         "domain": {
+          "kind": "int_range",
+          "max": "9223372036854775807",
+          "min": "-9223372036854775808"
+         },
+         "nullable": false,
+         "storage": {
+          "kind": "pg_int8"
+         }
+        }
+       },
+       {
+        "column": "n",
+        "name": "n",
+        "ordinal": 1,
+        "representation": {
+         "domain": {
+          "kind": "int_range",
+          "max": "9223372036854775807",
+          "min": "-9223372036854775808"
+         },
+         "nullable": true,
+         "storage": {
+          "kind": "pg_int8"
+         }
+        }
+       },
+       {
+        "column": "s",
+        "name": "s",
+        "ordinal": 2,
+        "representation": {
+         "domain": {
+          "collation": "C",
+          "encoding": "UTF8",
+          "kind": "text",
+          "max_characters": 100,
+          "padding": "NO PAD"
+         },
+         "nullable": true,
+         "storage": {
+          "kind": "pg_text"
+         }
+        }
+       },
+       {
+        "column": "b",
+        "name": "b",
+        "ordinal": 3,
+        "representation": {
+         "domain": {
+          "kind": "bool01"
+         },
+         "nullable": true,
+         "storage": {
+          "kind": "pg_bool"
+         }
+        }
+       },
+       {
+        "column": "x",
+        "name": "x",
+        "ordinal": 4,
+        "representation": {
+         "domain": {
+          "format": "binary64",
+          "kind": "finite_float"
+         },
+         "nullable": true,
+         "storage": {
+          "kind": "pg_float8"
+         }
+        }
+       }
+      ],
+      "premises": [
+       {
+        "key": "row_domain_matches",
+        "scope": "source",
+        "value": true
+       },
+       {
+        "key": "read_only_object",
+        "scope": "source",
+        "value": true
+       }
+      ],
+      "relation": {
+       "name": "t",
+       "namespace": "public"
+      },
+      "scan": "relation_rows",
+      "selector": {
+       "kind": "source",
+       "module": "main.pietto",
+       "name": "t"
+      }
+     },
+     {
+      "fields": [
+       {
+        "column": "k",
+        "name": "k",
+        "ordinal": 0,
+        "representation": {
+         "domain": {
+          "kind": "int_range",
+          "max": "9223372036854775807",
+          "min": "-9223372036854775808"
+         },
+         "nullable": false,
+         "storage": {
+          "kind": "pg_int8"
+         }
+        }
+       },
+       {
+        "column": "w",
+        "name": "w",
+        "ordinal": 1,
+        "representation": {
+         "domain": {
+          "collation": "C",
+          "encoding": "UTF8",
+          "kind": "text",
+          "max_characters": 100,
+          "padding": "NO PAD"
+         },
+         "nullable": true,
+         "storage": {
+          "kind": "pg_text"
+         }
+        }
+       },
+       {
+        "column": "c",
+        "name": "c",
+        "ordinal": 2,
+        "representation": {
+         "domain": {
+          "kind": "bool01"
+         },
+         "nullable": true,
+         "storage": {
+          "kind": "pg_bool"
+         }
+        }
+       },
+       {
+        "column": "v",
+        "name": "v",
+        "ordinal": 3,
+        "representation": {
+         "domain": {
+          "kind": "int_range",
+          "max": "9223372036854775807",
+          "min": "-9223372036854775808"
+         },
+         "nullable": true,
+         "storage": {
+          "kind": "pg_int8"
+         }
+        }
+       }
+      ],
+      "premises": [
+       {
+        "key": "row_domain_matches",
+        "scope": "source",
+        "value": true
+       },
+       {
+        "key": "read_only_object",
+        "scope": "source",
+        "value": true
+       }
+      ],
+      "relation": {
+       "name": "u",
+       "namespace": "public"
+      },
+      "scan": "relation_rows",
+      "selector": {
+       "kind": "source",
+       "module": "main.pietto",
+       "name": "u"
+      }
+     }
+    ],
+    "target": {
+     "family": "postgres",
+     "release": "18.6"
+    }
+   }
+  },
+  "join-arith": {
+   "tables": [
+    {
+     "table": "t",
+     "postgres_ddl": "CREATE TABLE \"t\" (\"id\" bigint NOT NULL, \"n\" bigint, \"s\" text COLLATE \"C\", \"b\" boolean, \"x\" double precision)",
+     "rows": [
+      [["int", "1"], ["int", "-9223372036854775808"], ["str", "'a'"], ["bool", "True"], ["float", "-0.5"]],
+      [["int", "2"], ["int", "9223372036854775807"], ["str", "'A'"], ["bool", "False"], ["float", "1e+300"]],
+      [["int", "3"], ["int", "0"], ["str", "'\u00e9'"], null, ["float", "0.0"]],
+      [["int", "4"], null, ["str", "'e\u0301'"], ["bool", "True"], ["float", "-0.0"]],
+      [["int", "5"], ["int", "7"], null, ["bool", "False"], null],
+      [["int", "6"], ["int", "7"], ["str", "'\u4e2d'"], ["bool", "True"], ["float", "2.5"]],
+      [["int", "7"], ["int", "7"], ["str", "'\u4e2d'"], ["bool", "True"], ["float", "2.5"]],
+      [["int", "8"], null, ["str", "'\ud83d\ude00'"], null, null],
+      [["int", "9"], ["int", "1"], ["str", "''"], ["bool", "False"], ["float", "1.0"]]
+     ]
+    },
+    {
+     "table": "u",
+     "postgres_ddl": "CREATE TABLE \"u\" (\"k\" bigint NOT NULL, \"w\" text COLLATE \"C\", \"c\" boolean, \"v\" bigint)",
+     "rows": [
+      [["int", "7"], ["str", "'a'"], ["bool", "True"], ["int", "10"]],
+      [["int", "0"], ["str", "'A'"], ["bool", "False"], ["int", "20"]],
+      [["int", "1"], ["str", "'\u00e9'"], null, ["int", "30"]],
+      [["int", "99"], null, ["bool", "True"], ["int", "40"]],
+      [["int", "-1"], ["str", "''"], ["bool", "False"], null]
+     ]
+    }
+   ],
+   "postgres_contract": {
+    "environment": [
+     {
+      "key": "client_encoding",
+      "scope": "statement",
+      "value": "UTF8"
+     },
+     {
+      "key": "operator_environment",
+      "scope": "statement",
+      "value": "builtin_only"
+     },
+     {
+      "key": "identifier_case",
+      "scope": "statement",
+      "value": "quoted_exact"
+     },
+     {
+      "key": "parameter_protocol",
+      "scope": "statement",
+      "value": "postgres_extended"
+     }
+    ],
+    "format": "pietto.emission-contract.v1",
+    "sources": [
+     {
+      "fields": [
+       {
+        "column": "id",
+        "name": "id",
+        "ordinal": 0,
+        "representation": {
+         "domain": {
+          "kind": "int_range",
+          "max": "9",
+          "min": "1"
+         },
+         "nullable": false,
+         "storage": {
+          "kind": "pg_int8"
+         }
+        }
+       },
+       {
+        "column": "n",
+        "name": "n",
+        "ordinal": 1,
+        "representation": {
+         "domain": {
+          "kind": "int_range",
+          "max": "9223372036854775807",
+          "min": "-9223372036854775808"
+         },
+         "nullable": true,
+         "storage": {
+          "kind": "pg_int8"
+         }
+        }
+       },
+       {
+        "column": "s",
+        "name": "s",
+        "ordinal": 2,
+        "representation": {
+         "domain": {
+          "collation": "C",
+          "encoding": "UTF8",
+          "kind": "text",
+          "max_characters": 100,
+          "padding": "NO PAD"
+         },
+         "nullable": true,
+         "storage": {
+          "kind": "pg_text"
+         }
+        }
+       },
+       {
+        "column": "b",
+        "name": "b",
+        "ordinal": 3,
+        "representation": {
+         "domain": {
+          "kind": "bool01"
+         },
+         "nullable": true,
+         "storage": {
+          "kind": "pg_bool"
+         }
+        }
+       },
+       {
+        "column": "x",
+        "name": "x",
+        "ordinal": 4,
+        "representation": {
+         "domain": {
+          "format": "binary64",
+          "kind": "finite_float"
+         },
+         "nullable": true,
+         "storage": {
+          "kind": "pg_float8"
+         }
+        }
+       }
+      ],
+      "premises": [
+       {
+        "key": "row_domain_matches",
+        "scope": "source",
+        "value": true
+       },
+       {
+        "key": "read_only_object",
+        "scope": "source",
+        "value": true
+       }
+      ],
+      "relation": {
+       "name": "t",
+       "namespace": "public"
+      },
+      "scan": "relation_rows",
+      "selector": {
+       "kind": "source",
+       "module": "main.pietto",
+       "name": "t"
+      }
+     },
+     {
+      "fields": [
+       {
+        "column": "k",
+        "name": "k",
+        "ordinal": 0,
+        "representation": {
+         "domain": {
+          "kind": "int_range",
+          "max": "99",
+          "min": "-1"
+         },
+         "nullable": false,
+         "storage": {
+          "kind": "pg_int8"
+         }
+        }
+       },
+       {
+        "column": "w",
+        "name": "w",
+        "ordinal": 1,
+        "representation": {
+         "domain": {
+          "collation": "C",
+          "encoding": "UTF8",
+          "kind": "text",
+          "max_characters": 100,
+          "padding": "NO PAD"
+         },
+         "nullable": true,
+         "storage": {
+          "kind": "pg_text"
+         }
+        }
+       },
+       {
+        "column": "c",
+        "name": "c",
+        "ordinal": 2,
+        "representation": {
+         "domain": {
+          "kind": "bool01"
+         },
+         "nullable": true,
+         "storage": {
+          "kind": "pg_bool"
+         }
+        }
+       },
+       {
+        "column": "v",
+        "name": "v",
+        "ordinal": 3,
+        "representation": {
+         "domain": {
+          "kind": "int_range",
+          "max": "100",
+          "min": "0"
+         },
+         "nullable": true,
+         "storage": {
+          "kind": "pg_int8"
+         }
+        }
+       }
+      ],
+      "premises": [
+       {
+        "key": "row_domain_matches",
+        "scope": "source",
+        "value": true
+       },
+       {
+        "key": "read_only_object",
+        "scope": "source",
+        "value": true
+       }
+      ],
+      "relation": {
+       "name": "u",
+       "namespace": "public"
+      },
+      "scan": "relation_rows",
+      "selector": {
+       "kind": "source",
+       "module": "main.pietto",
+       "name": "u"
+      }
+     }
+    ],
+    "target": {
+     "family": "postgres",
+     "release": "18.6"
+    }
+   }
+  }
+ },
+ "entries": [
+  {
+   "id": "project-join-inner-int-with-null-keys",
+   "fixture": "join",
+   "postgres_sql_sha256": "314424136982df05d4ad24fae4d2502ad9031f4bbc8a426c796deeb27a2759b3",
+   "parameters": [],
+   "sent": [],
+   "columns": ["id", "v"],
+   "type_oids": [20, 20],
+   "divergences": [],
+   "rows": [
+    [["int", "3"], ["int", "20"]],
+    [["int", "9"], ["int", "30"]],
+    [["int", "5"], ["int", "10"]],
+    [["int", "6"], ["int", "10"]],
+    [["int", "7"], ["int", "10"]]
+   ]
+  },
+  {
+   "id": "project-join-left-text-by-its-bytes",
+   "fixture": "join",
+   "postgres_sql_sha256": "ccd0ccbea480c183e75510767ddaeba625365373d968119660185b03717ae8e4",
+   "parameters": [],
+   "sent": [],
+   "columns": ["id", "v"],
+   "type_oids": [20, 20],
+   "divergences": [],
+   "rows": [
+    [["int", "9"], null],
+    [["int", "2"], ["int", "20"]],
+    [["int", "1"], ["int", "10"]],
+    [["int", "4"], null],
+    [["int", "3"], ["int", "30"]],
+    [["int", "6"], null],
+    [["int", "7"], null],
+    [["int", "8"], null],
+    [["int", "5"], null]
+   ]
+  },
+  {
+   "id": "project-join-self-join",
+   "fixture": "join",
+   "postgres_sql_sha256": "75e3ba9dceb6cca2a5dfe7e3a012a9b2c3576d1834d7c171d8fca74741e499fa",
+   "parameters": [],
+   "sent": [],
+   "columns": ["id", "pid"],
+   "type_oids": [20, 20],
+   "divergences": [],
+   "rows": [
+    [["int", "1"], ["int", "1"]],
+    [["int", "3"], ["int", "3"]],
+    [["int", "9"], ["int", "9"]],
+    [["int", "5"], ["int", "5"]],
+    [["int", "5"], ["int", "6"]],
+    [["int", "5"], ["int", "7"]],
+    [["int", "6"], ["int", "5"]],
+    [["int", "6"], ["int", "6"]],
+    [["int", "6"], ["int", "7"]],
+    [["int", "7"], ["int", "5"]],
+    [["int", "7"], ["int", "6"]],
+    [["int", "7"], ["int", "7"]],
+    [["int", "2"], ["int", "2"]]
+   ]
+  },
+  {
+   "id": "project-join-left-nulls-under-where",
+   "fixture": "join",
+   "postgres_sql_sha256": "f2e5936a31c4cb97234bb442cdab1cd2242f8dd4f54e0cdbbd46fedf456a4930",
+   "parameters": [],
+   "sent": [],
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "1"]],
+    [["int", "3"]],
+    [["int", "9"]],
+    [["int", "2"]],
+    [["int", "4"]],
+    [["int", "8"]]
+   ]
+  },
+  {
+   "id": "project-join-left-nulls-group-with-right-nulls",
+   "fixture": "join",
+   "postgres_sql_sha256": "61f7d5a25e43a0b3302bdfa82aba66df16c791dbdec6ce7bd6a5e216a3cea4a6",
+   "parameters": [],
+   "sent": [],
+   "columns": ["c", "n"],
+   "type_oids": [16, 20],
+   "divergences": [],
+   "rows": [
+    [["bool", "False"], ["int", "1"]],
+    [null, ["int", "5"]],
+    [["bool", "True"], ["int", "3"]]
+   ]
+  },
+  {
+   "id": "project-join-inner-text-grouped",
+   "fixture": "join",
+   "postgres_sql_sha256": "5fe189d16bf97278626ba4a4916d55faee05a776885dd2975f6534bbd03d9303",
+   "parameters": [],
+   "sent": [],
+   "columns": ["c", "n", "hi"],
+   "type_oids": [16, 20, 20],
+   "divergences": [],
+   "rows": [
+    [null, ["int", "1"], ["int", "0"]],
+    [["bool", "False"], ["int", "2"], ["int", "9223372036854775807"]],
+    [["bool", "True"], ["int", "1"], ["int", "-9223372036854775808"]]
+   ]
+  },
+  {
+   "id": "project-join-left-grouped-having-order",
+   "fixture": "join",
+   "postgres_sql_sha256": "fe90cdabfeccdd1f1c45fe64dc0659acd3ba49c212694e952dd01144ed7ef785",
+   "parameters": [],
+   "sent": [],
+   "columns": ["b", "n", "m"],
+   "type_oids": [16, 20, 20],
+   "divergences": [],
+   "rows": [
+    [["bool", "False"], ["int", "2"], ["int", "1"]],
+    [["bool", "True"], ["int", "4"], ["int", "4"]],
+    [null, ["int", "2"], ["int", "1"]]
+   ]
+  },
+  {
+   "id": "project-join-chain-of-three-on-text",
+   "fixture": "join",
+   "postgres_sql_sha256": "5580b489f011192c34b9893999f1e41cb63ec7e24680e13d97433e9c275cb154",
+   "parameters": [],
+   "sent": [],
+   "columns": ["id", "v", "pid"],
+   "type_oids": [20, 20, 20],
+   "divergences": [],
+   "rows": [
+    [["int", "3"], ["int", "20"], ["int", "2"]],
+    [["int", "5"], ["int", "10"], ["int", "1"]],
+    [["int", "6"], ["int", "10"], ["int", "1"]],
+    [["int", "7"], ["int", "10"], ["int", "1"]],
+    [["int", "9"], ["int", "30"], ["int", "3"]]
+   ]
+  },
+  {
+   "id": "project-join-left-self-join-on-int-and-text-limited",
+   "fixture": "join",
+   "postgres_sql_sha256": "4b18274798229c9ca3285e597e98a5a4f682aca6b826671eb2e621232ac5d5d2",
+   "parameters": [],
+   "sent": [],
+   "columns": ["id", "pid"],
+   "type_oids": [20, 20],
+   "divergences": [],
+   "rows": [
+    [["int", "1"], ["int", "1"]],
+    [["int", "2"], ["int", "2"]],
+    [["int", "3"], ["int", "3"]],
+    [["int", "6"], ["int", "6"]],
+    [["int", "7"], ["int", "6"]],
+    [["int", "6"], ["int", "7"]],
+    [["int", "7"], ["int", "7"]],
+    [["int", "9"], ["int", "9"]],
+    [["int", "4"], null],
+    [["int", "5"], null]
+   ]
+  },
+  {
+   "id": "project-join-inner-arithmetic",
+   "fixture": "join-arith",
+   "postgres_sql_sha256": "37cc95f2a7bb21b463000622a081236f8390f24bee380a7e55f6f1b4ab02cfc9",
+   "parameters": [],
+   "sent": [],
+   "columns": ["id", "s", "d"],
+   "type_oids": [20, 20, 20],
+   "divergences": [],
+   "rows": [
+    [["int", "3"], ["int", "40"], ["int", "-17"]],
+    [["int", "9"], ["int", "61"], ["int", "-21"]]
+   ]
+  },
+  {
+   "id": "project-join-left-arithmetic-over-nulls",
+   "fixture": "join-arith",
+   "postgres_sql_sha256": "7c1a13c64d6495201dd56679f8a31082f47d2bfe30680115eb2f366525eacfcc",
+   "parameters": [],
+   "sent": [],
+   "columns": ["id", "w", "g", "a"],
+   "type_oids": [20, 20, 20, 20],
+   "divergences": [],
+   "rows": [
+    [["int", "1"], null, null, null],
+    [["int", "3"], ["int", "21"], ["int", "0"], ["int", "3"]],
+    [["int", "9"], ["int", "31"], ["int", "-1"], ["int", "8"]],
+    [["int", "5"], ["int", "11"], ["int", "-7"], ["int", "2"]],
+    [["int", "6"], ["int", "11"], ["int", "-7"], ["int", "1"]],
+    [["int", "7"], ["int", "11"], ["int", "-7"], ["int", "0"]],
+    [["int", "2"], null, null, null],
+    [["int", "4"], null, null, null],
+    [["int", "8"], null, null, null]
+   ]
+  },
+  {
+   "id": "project-join-inner-grouped-sum-and-avg-of-arithmetic",
+   "fixture": "join-arith",
+   "postgres_sql_sha256": "8927a03e2e1d9d5b59235c324a38ca4879f80b81e49de8e9a36d4503ae9ae712",
+   "parameters": [],
+   "sent": [],
+   "columns": ["k", "s", "a"],
+   "type_oids": [20, 20, 701],
+   "divergences": [],
+   "rows": [
+    [["int", "0"], ["int", "60"], ["float", "23.0"]],
+    [["int", "1"], ["int", "270"], ["float", "39.0"]],
+    [["int", "7"], ["int", "180"], ["float", "16.0"]]
+   ]
+  },
+  {
+   "id": "project-join-self-join-arithmetic",
+   "fixture": "join-arith",
+   "postgres_sql_sha256": "ba21abae5534a991c6bcc0be2eeb791cccc923d68021d37c35be94e9efb3b051",
+   "parameters": [],
+   "sent": [],
+   "columns": ["id", "s"],
+   "type_oids": [20, 20],
+   "divergences": [],
+   "rows": [
+    [["int", "1"], ["int", "2"]],
+    [["int", "3"], ["int", "6"]],
+    [["int", "9"], ["int", "18"]],
+    [["int", "5"], ["int", "10"]],
+    [["int", "5"], ["int", "11"]],
+    [["int", "5"], ["int", "12"]],
+    [["int", "6"], ["int", "11"]],
+    [["int", "6"], ["int", "12"]],
+    [["int", "6"], ["int", "13"]],
+    [["int", "7"], ["int", "12"]],
+    [["int", "7"], ["int", "13"]],
+    [["int", "7"], ["int", "14"]],
+    [["int", "2"], ["int", "4"]]
+   ]
+  }
+ ]
+}
