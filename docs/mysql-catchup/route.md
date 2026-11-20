@@ -184,6 +184,19 @@ items come after the families because both they and every family change
 `project_sql_emission_rows.py`, and changing it first would void each
 family's byte equivalence under D77.50 again.
 
+PL.74 revises this order, which keeps its text above: G3–G8's slices are
+implemented in parallel and their commits keep the order; a family freezes
+once its slice and the harness are ready and the families before it have
+frozen, without waiting for their campaigns to be MATCHED; and a refreeze
+that an upstream repair forces counts under MC.09 only when a campaign ran
+on the old freeze. The lead's rulings in PL.74 read MC.17's count the same
+way for every refreeze; let G7 and G8 freeze first without restating their
+laws, with the S03 neighbours that MC.14 places within G7 and the two-level
+neighbours handed to G8 on a list of their own, closed before MC's closure;
+and run D19's measurement early, once the sixth harness freeze passes
+MC.12, while its precheck still follows G8. None of this widens a family,
+changes a cell or criterion, or opens a form.
+
 ## Qualification
 
 The harness is derived from the second freeze of S03's qualification
@@ -220,6 +233,12 @@ family freezes.
   A family's first freeze counts toward MC.09's three; a rebind that stops
   before its freeze record, or that follows only a move of the candidate
   head with no campaign run on the old freeze, does not count (MC.17).
+  G1's first campaign matched 17 of its 18 forms; its I6 counterexample is
+  an existing defect of `main`, not of G1's law, so G1 does not end:
+  `main` is repaired first and G1 runs again on its second freeze (PL.67,
+  which revises MC.09 for I6 only). Under that repair every grouped MySQL
+  `SMALLINT` or `INT` `min` or `max` is a cast `my_signed_int`, and each
+  family's expectations follow it (PL.67, PL.73).
 - **Receipts.** Changed production bytes require fresh full target receipts:
   PostgreSQL's runs once on the host, and MySQL's comes from the batch head's
   natural CI `Target mysql` job, as D77.71 did (MC.16). MC's forms do not
@@ -252,7 +271,9 @@ lane workflows stop and the lead reports to the owner: the S/H/L/K/Q
 review, the ledger's use and the estimate for G3–G8, D19 and PL.49's items,
 and the CI health of the latest published head. G3 starts only after that
 report. An owner answer that changes the scope or the order revises this
-route.
+route: PL.74 has the report drafted before G1, G2 and E4 each have a
+conclusion and delivered before G3 freezes, while G3's slice is implemented
+beside the others.
 
 ## Stop points
 
@@ -264,7 +285,8 @@ stopping a lane in a dialog (MC.15).
    the owner.
 3. A run or the classification of PL.49's mutants shows a real defect of
    `main`: the lane stops, the lead reports to the owner, and the repair
-   runs on its own, apart from any family (D77.63, MC.16).
+   runs on its own, apart from any family (D77.63, MC.16), as G1's I6 did
+   (PL.67).
 4. A change would alter PostgreSQL SQL or another public PostgreSQL output,
    the blocker list of a statement that stays refused, `VERSIONS`, a
    compiled record or a public contract, or would add a PIE code or detail:
@@ -326,7 +348,8 @@ The audit hands off:
 - the forms still refused, each with its decision (MC.09, MC.10), and the
   J12 (3) list that the next release carries;
 - the shapes to which D19 extended the precheck;
-- the Phase82 freeze ledger row of MC.10;
+- the Phase82 freeze ledger row of MC.10, which also lists E4B's `Float`
+  arithmetic in a JOIN `on` (PL.68);
 - E4's wider positions, which come before the Phase82 freeze under their
   own Gate 1 (PL.58), and any ended family, for the owner's later plan;
 - PL.49's outcome: the classification of the 57 mutants and the cell

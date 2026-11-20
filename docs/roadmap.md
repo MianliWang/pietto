@@ -167,6 +167,12 @@ ships in `0.2.2`. Its Gate 1 is recorded (MC.01–MC.17) and MC is active:
 all eight `sum(Int)` families G1–G8 (MC.02), E4's narrow cell with a
 guarded `*` (MC.04, MC.05), D19 and PL.49's two items, on its own ledger
 (MC.07); see the [MC route](mysql-catchup/route.md).
+G1's first campaign found an existing defect of `main` in S02's cell; its
+repair, which writes every grouped MySQL `SMALLINT` or `INT` `min` and `max`
+as `CAST(... AS SIGNED)` and declares it a `my_signed_int`, with R22 widened
+to merge such an operand on MySQL, goes first in `0.2.2`'s existing-defect
+batch, and G1 then runs again on a new freeze (PL.67, PL.71, PL.73). G3–G8's
+slices may be implemented in parallel with pipelined freezes (PL.74).
 `stddev` of an `Int` (J12, D76.10) is one with no target phase (D77.34), and
 MySQL nested results (D71.05) one with the target of the separate later
 nested work package (D77.32). The MySQL `UUID` header parameter stays
@@ -311,8 +317,7 @@ diagnostic without a path (PL.44 (c), PL.66), and the
 classifiers name Linux and Windows. A verification result is reused only
 inside one public call, and a stored or cross-process result is verified
 again when loaded. The diagnostic review fixes texts, hints, positions, order
-and severity within the existing codes. Nullability v2 gets a read-only
-review first, reported to the owner at the midpoint. The assurance work uses
+and severity within the existing codes. The assurance work uses
 a bounded, seeded generator and shrinker with no new dependency and no
 network. The release tools move into `scripts/`, where CI runs only their
 dry run and self-tests. Phase81 keeps the sheet's ledger,
@@ -335,8 +340,9 @@ own code writing the files. The Windows scope covers a path-based batch
 directory writer, a claim of CLI and compile support with execution NOTRUN,
 and a native Windows editor acceptance, and that claim leaves out the extras
 (PL.40, D5); until then the package keeps its
-`Operating System :: OS Independent` classifier. Nullability v2 goes to
-Phase81 if it changes a public type contract, otherwise to `0.3.0`.
+`Operating System :: OS Independent` classifier. Nullability v2 changes a
+public type contract, as Phase81's review found, so the freeze keeps the
+v1 rules and v2 waits for `0.3.0` as a breaking item (PL.69).
 
 From the `0.2.1` lanes (PL.44), Phase81's diagnostic review also drops,
 by Q7 (d) (a) of PL.50, the PIE-B1004 `identifier_case_declaration_missing`
@@ -416,7 +422,7 @@ before its owner's Gate 1 takes it.
 | A new built-in table function | the first Gate 1 that names a case; Phase82 freeze input (D74.12) |
 | Database-native array and JSON columns; the `postgres_adbc` nested route | the Phase82 freeze, by its ledger row (D76.11, D80.06, PL.39) |
 | MySQL nested output and `JSON_TABLE` | the separate nested work package, at its own Gate 1 (D71.05, D77.32) |
-| pandas and Polars nesting; the Arrow data-analysis example; `compile_queries(...)`; `round` of a `Float` with digits | the owner's answer of 2026-11-15 to the lead's `0.2.1` plan, and for the example the lead's ruling under the owner's later instruction that day (J25, D75.03, D76.05, D80.06, PL.39): one level of nesting to the interop relief (PL.47, which revises PL.39 for that level), and other nesting to a Gate 1 after the nested work package that took Phase77 S24 (D77.32), which admits it before the Phase82 freeze or leaves it refused by the `pietto.interop` ledger row; `compile_queries(...)` after the forged-compiled trust decision below, at the latest the Phase82 freeze; `round` to its Phase82 freeze ledger row; and the example, whose inputs Phase79 B1 and Phase80 S02 deliver, is delivered by the `0.2.1` interop guidance in [An Arrow table through DuckDB](interop.md#an-arrow-table-through-duckdb) |
+| pandas and Polars nesting; the Arrow data-analysis example; `compile_queries(...)`; `round` of a `Float` with digits | the owner's answer of 2026-11-15 to the lead's `0.2.1` plan, and for the example the lead's ruling under the owner's later instruction that day (J25, D75.03, D76.05, D80.06, PL.39): one level of nesting to the interop relief (PL.47, which revises PL.39 for that level), and other nesting to a Gate 1 after the nested work package that took Phase77 S24 (D77.32), which admits it before the Phase82 freeze or leaves it refused by the `pietto.interop` ledger row; `compile_queries(...)` after the forged-compiled trust decision, which PL.70 took, at the latest the Phase82 freeze; `round` to its Phase82 freeze ledger row; and the example, whose inputs Phase79 B1 and Phase80 S02 deliver, is delivered by the `0.2.1` interop guidance in [An Arrow table through DuckDB](interop.md#an-arrow-table-through-duckdb) |
 | Nested fuzz and high-intensity differential work; a readability and compile-time benchmark | Phase81 (J25) |
 | The nested public format | the Phase82 freeze |
 | Multi-level collections and the refused nested combinations; a capture let that reads another capture let | the NestedRelation semantic owner and the ProjectSQLPlan owner; the scope and capture semantic owner; each at its first admission Gate 1 |
@@ -455,11 +461,11 @@ each completion audit adds the freeze inputs of its phase here.
 | The PostgreSQL TLS profile of `PostgresAccess.ca_file` | a support-matrix row | D76.07 |
 | Single files and projects | `language.md` states the rule before the freeze: single files open project-only forms one at a time, DISTINCT first, with no promise that they stay a subset of projects | owner, 2026-11-07 |
 | Bundles and saved jobs across versions; an upgrade-impact tool | the Phase82 compatibility and migration policy, and whether the tool comes before the freeze | D76.13, Phase76 reminder 7, PL.51 |
-| Nullability v2 | Phase81 if it changes a public type contract, otherwise `0.3.0` | D73.13, owner, 2026-11-07, PL.50, PL.51 |
+| Nullability v2 | frozen at the v1 rules; v2 is a breaking item for `0.3.0` (PL.69) | D73.13, owner, 2026-11-07, PL.50, PL.51, PL.69 |
 | The CPython matrix and the Windows claim | frozen as Phase81 decides them | owner, 2026-11-07 |
 | The release notes' history before the freeze, which keeps its file layout until then | archived by the Phase82 freeze | PL.40 (D10), PL.51 |
 | Compiled replay and live analysis give different JOIN key and grain facts for equal SQL bytes | decided (PL.61): live semantic analysis is the only authority, and adapters read the facts only from the verified plan; JF's J2 aligns the compiled replay with the same law before Phase82's Gate 1, and Phase82 audits the closed decision | Phase74 handoff, Phase76 reminder 8, PL.61, PL.62 |
-| A forged compiled aggregate whose argument reads a `let:` name in a form that `compile_query` refuses for that aggregate, such as `sum(t)` with `let t = value % 2`, loads with consistent SQL | fixed: `load_bundle` refuses such a bundle (`PIE-R1004`): the compiled replay and its semantic verifier judge a `let:` name that is a whole aggregate argument by the value it holds, except under `min` and `max`, which read it as a field, refuse a computed `let:` value inside an argument's own operation, as an aggregate `order by` key, or in the test or the summed field of a conditional count or sum and the test of `any` or `all` over a group, and read a window's value only from a field; a `let:` name that only renames a field reads as that field, so an edited bundle that reads one where `compile_query` refuses the name, such as `sum(d + 1)` with `let d = value`, loads as a known equivalence of the field form, such as `sum(value + 1)`, with equivalent SQL; Phase82 audits the closed row | Phase74 handoff, Phase76 reminder 8 |
+| A forged compiled aggregate whose argument reads a `let:` name in a form that `compile_query` refuses for that aggregate, such as `sum(t)` with `let t = value % 2`, loads with consistent SQL | fixed: `load_bundle` refuses such a bundle (`PIE-R1004`): the compiled replay and its semantic verifier judge a `let:` name that is a whole aggregate argument by the value it holds, except under `min` and `max`, which read it as a field, refuse a computed `let:` value inside an argument's own operation, as an aggregate `order by` key, or in the test or the summed field of a conditional count or sum and the test of `any` or `all` over a group, and read a window's value only from a field; a `let:` name that only renames a field reads as that field, so an edited bundle that reads one where `compile_query` refuses the name, such as `sum(d + 1)` with `let d = value`, loads as a known equivalence of the field form, such as `sum(value + 1)`, with equivalent SQL; Phase82 audits the closed row | Phase74 handoff, Phase76 reminder 8, PL.70 |
 | The VS Code extension's sync script imports the generated lexer and parser from `pietto.generated` and two functions from `pietto.indentation`, modules that no public contract names | whether the script must stop importing them, and which public entry point replaces them if so | PL.38, PL.44 |
 | The fixed civil `Timestamp` meaning of a `now()` output; the statement time that R2 records and `recover` binds | each freezes with the result contract and the R2 workspace, or changes before the freeze | D77.42, D77.49; [Phase77 audit](phases/phase-77/completion-audit.md) |
 | MySQL R2 refuses every form that `0.1.11` refused (`PUBLIC_R2_UNQUALIFIED_FORM`, by rule two) and every paired form (`PUBLIC_R2_PAIRED_FORM`) | a support-matrix row for R2 by target, or narrowed by forms that a native R2 qualification covers | D77.46, D77.67, D77.68 |
