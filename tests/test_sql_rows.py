@@ -2154,6 +2154,158 @@ def test_every_reader_accepts_a_mysql_numeric_cell_beside_literals(tmp_path, bod
     probe.numeric_readers_accept(outcome)
 
 
+# 1e-195, spelled without an exponent; its square rounds to zero.
+TINY = "0." + "0" * 194 + "1"
+
+
+def _folding(law):
+    """``law`` folding every pair of Float literals as 1.0 * 1.0."""
+    return lambda *args, float_values=None, **kwargs: law(
+        *args, float_values=float_values and (1.0, 1.0), **kwargs
+    )
+
+
+@pytest.mark.parametrize("policy", ("preserve_literals", "bind_safe_literals"))
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+@pytest.mark.parametrize("value", (f"{TINY} * {TINY}", f"-{TINY} * {TINY}"))
+def test_a_float_literal_product_that_rounds_to_zero_is_refused(
+    tmp_path, monkeypatch, value, target, policy
+):
+    """PostgreSQL's float8 `*` fails a product of two non-zero values that
+    rounds to zero (SQLSTATE 22003), bound parameters included, where MySQL
+    returns 0.0: the static Float fold refuses it as it refuses an overflow.
+    With emission and live verification forced past their folds, plain
+    verification's own law, the pure boundary, the independent public decoder
+    and both laws of compiled replay still refuse it."""
+    from pietto._project import project_sql_emission_verification as verification
+    from pietto._project.project_compiled_build import build_compiled
+    from pietto._project.project_compiled_loading import load_compiled
+    from pietto._project.project_compiled_lowering import emit_compiled
+
+    body = (
+        f"query result:\n    from rows\n    select:\n        id\n        r = {value}\n"
+    )
+    _, outcome = probe.numeric_world(tmp_path / "refused", target, body, policy)
+    assert numeric_blockers(outcome) == [
+        ("PIE-B1002", "float_result_not_finite", 13, 9)
+    ]
+    with monkeypatch.context() as patch:
+        patch.setattr(
+            rows,
+            "resolved_binary_realization",
+            _folding(rows.resolved_binary_realization),
+        )
+        patch.setattr(
+            verification,
+            "resolved_row_realization",
+            _folding(verification.resolved_row_realization),
+        )
+        _, outcome = probe.numeric_world(tmp_path / "forged", target, body, policy)
+        artifact = outcome.artifact
+        assert outcome.status == "VERIFIED" and artifact is not None
+        observed = portable.export_emission_observation(artifact, artifact.request)
+        public = serialize_project_sql_emission(outcome)
+        built = build_compiled(artifact)
+    with monkeypatch.context() as patch:
+        patch.setattr(verification, "emission_blockers", lambda request: ())
+        assert verify_project_sql_emission(artifact, artifact.request).issues == (
+            "plan_ast_correspondence",
+        )
+    assert observed.canonical_bytes is not None
+    refused = pure.parse_emission_observation(observed.canonical_bytes)
+    assert (refused.status, refused.detail) == (
+        pure.Status.INVALID_RELATION,
+        "Float literal fold",
+    )
+    with pytest.raises(ValueError, match="^finite Float result$"):
+        probe.decode_public(public)
+    loaded = load_compiled(
+        built.payload,
+        expected_pin=built.pin,
+        accepted_producer=built.producer,
+        accepted_compatibility=built.compatibility,
+    )
+    fixed = tuple(item.value for item in artifact.fixed_values)
+    with pytest.raises(ValueError, match="COMPILED_PHYSICAL_DOMAIN"):
+        emit_compiled(loaded, fixed)
+    with monkeypatch.context() as patch:
+        patch.setattr(
+            rows,
+            "resolved_binary_realization",
+            _folding(rows.resolved_binary_realization),
+        )
+        with pytest.raises(ValueError, match="float result outside finite range"):
+            emit_compiled(loaded, fixed)
+
+
+@pytest.mark.parametrize("policy", ("preserve_literals", "bind_safe_literals"))
+@pytest.mark.parametrize("value", (f"2.0 * ({TINY} * {TINY})", f"-({TINY} * {TINY})"))
+def test_a_mysql_form_over_a_float_product_that_rounds_to_zero(tmp_path, value, policy):
+    """On MySQL such a product under another product or a sign reports the
+    inner product's fold, not the outer form's own Float blocker."""
+    body = (
+        f"query result:\n    from rows\n    select:\n        id\n        r = {value}\n"
+    )
+    _, outcome = probe.numeric_world(tmp_path, "mysql", body, policy)
+    assert numeric_blockers(outcome) == [
+        ("PIE-B1002", "float_result_not_finite", 13, 9)
+    ]
+
+
+@pytest.mark.parametrize("policy", ("preserve_literals", "bind_safe_literals"))
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+def test_float_literal_folds_that_reach_zero_exactly_keep_their_value(
+    tmp_path, target, policy
+):
+    """Neither target fails a subnormal product, a zero factor or a sum that
+    is exactly zero, so the fold keeps each and every reader accepts it."""
+    small = "0." + "0" * 159 + "1"
+    body = (
+        "query result:\n    from rows\n    select:\n        id\n"
+        f"        sub = {small} * {small}\n        zero = 0.0 * {TINY}\n"
+        "        cancel = 1.5 + -1.5\n"
+    )
+    _, outcome = probe.numeric_world(tmp_path, target, body, policy)
+    probe.numeric_readers_accept(outcome)
+
+
+# 1e300, spelled without an exponent; its square overflows.
+HUGE = "1" + "0" * 300 + ".0"
+
+
+@pytest.mark.parametrize("policy", ("preserve_literals", "bind_safe_literals"))
+@pytest.mark.parametrize(
+    ("let", "value"),
+    ((TINY, "x * x"), (TINY, f"x * {TINY}"), (TINY, "-x * x"), (HUGE, "x * x")),
+)
+def test_a_let_holding_a_float_literal_is_not_folded(tmp_path, let, value, policy):
+    """PostgreSQL SQL reads a `let` that holds a Float literal as a column, so
+    the target checks the product when it runs: emission folds only direct
+    literals and their signs, and compiled derivation and replay fold the same
+    operands, so every reader accepts the VERIFIED statement."""
+    body = (
+        f"query result:\n    from rows\n    let x = {let}\n    select:\n"
+        f"        id\n        r = {value}\n"
+    )
+    _, outcome = probe.numeric_world(tmp_path, "postgres", body, policy)
+    probe.numeric_readers_accept(outcome)
+
+
+@pytest.mark.parametrize("policy", ("preserve_literals", "bind_safe_literals"))
+@pytest.mark.parametrize(
+    "value", ("(1.5 * 2.0) * 3.0", "-(1.5 * 2.0) * 3.0", "1.5 + (2.0 - 3.0)")
+)
+def test_a_float_operation_over_a_folded_result_is_not_folded(tmp_path, value, policy):
+    """An inner fold's result is not a direct literal, so PostgreSQL checks the
+    outer operation when it runs, and every reader, the public decoder
+    included, accepts the VERIFIED statement."""
+    body = (
+        f"query result:\n    from rows\n    select:\n        id\n        r = {value}\n"
+    )
+    _, outcome = probe.numeric_world(tmp_path, "postgres", body, policy)
+    probe.numeric_readers_accept(outcome)
+
+
 def _plan_with(plan, **tables):
     """A copy of a closed plan with some tables replaced."""
     edited = copy(plan)

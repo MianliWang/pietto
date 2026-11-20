@@ -10555,8 +10555,17 @@ def _decode_fixed_public(document, limits):
                         " - ": values[0] - values[1],
                         " * ": values[0] * values[1],
                     }[node["operator"]]
-                    _need(math.isfinite(value), "finite Float result")
-                    result["float_value"] = value
+                    # No float_value: the emitter folds only direct literals and
+                    # their signs, so an operation over this result is checked.
+                    # Finite, and no product of two non-zero values that rounds
+                    # to zero: PostgreSQL's float8 `*` fails it (22003 underflow).
+                    _need(
+                        math.isfinite(value)
+                        and (
+                            node["operator"] != " * " or value != 0.0 or 0.0 in values
+                        ),
+                        "finite Float result",
+                    )
             elif family == "mysql" and node["operator"] == " % ":
                 # S15: a cell over two BIGINT fields, inside signed 64 bits;
                 # the readers under test derive the rest of the cell.

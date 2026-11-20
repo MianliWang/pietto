@@ -26,6 +26,12 @@ parameters, with the aggregates `count`, `count_distinct` (of an `Int`,
   PostgreSQL's exact sum would: over a field whose `int_range` has a `min` of
   0 or more or a `max` of 0 or less. A sum outside signed 64 bits fails with
   SQLite's `integer overflow` and never returns a wrong value.
+- Each result column in the document's `columns` has its export's
+  nullability, and one that `check` leaves unknown, such as a comparison or
+  a `not`, `and` or `or` of one, is `nullable: true`, which the
+  `sqlite_file` route's Arrow schema needs. PostgreSQL emission writes such
+  a column's nullability as `"unknown"`, and its route reads that as
+  nullable.
 - Single files gain `having`, `count_distinct` of an `Int`, `Text` or `Bool`
   field and `avg` of an `Int` field; their `sum` stays refused, since a file
   has no `int_range`.

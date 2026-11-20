@@ -862,6 +862,41 @@ def _value_realization(doc, value):
     return None
 
 
+def _operation_nullable(doc, op):
+    """The nullability semantic.expressions gives an arithmetic, sign, cast or
+    scalar call result over its operands, which the emitter keeps: arithmetic
+    is unknown, nullable over a NULL operand (resolved_binary_value_type,
+    _binary_value_type); a sign or cast keeps its operand's; `same_value` is
+    non-null; `nullif` its first argument's, nullable for a non-null one;
+    `coalesce` non-null with one non-null argument, else unknown with an
+    unknown one, else nullable; any other call is nullable with a nullable
+    argument, else unknown with an unknown one, else non-null. A literal is
+    non-null and a NULL nullable."""
+    kind, operator = op["kind"], op["operator"]
+    operands = op["operands"]
+    if kind == "arithmetic":
+        return True if any(c.kind == "sql_null" for c in operands) else "unknown"
+    states = tuple(
+        True
+        if child.kind == "sql_null"
+        else False
+        if child.kind in ("sql_anchor", "sql_unary")
+        else doc[doc[child]["realization"]]["nullable"]
+        for child in operands
+    )
+    if kind != "scalar_call":
+        return states[0]
+    if operator == "same_value":
+        return False
+    if operator == "nullif":
+        return True if states[0] is False else states[0]
+    # One non-null argument makes a coalesce non-null; one nullable, a call.
+    decisive = operator != "coalesce"
+    if decisive in states:
+        return decisive
+    return "unknown" if "unknown" in states else not decisive
+
+
 def _literal_provenance(doc, value):
     """A direct literal or the retained literal origin of a materialized let."""
 
@@ -899,10 +934,18 @@ def _float_literal(doc, value) -> bool:
     """One direct, possibly signed, Float literal or bound literal value: the
     operand a static Float fold reads (never a let, field or parameter read)."""
 
+    return _float_literal_value(doc, value) is not None
+
+
+def _float_literal_value(doc, value) -> float | None:
+    """The signed value of such an operand, or None."""
+
+    negated = False
     while value.kind == "sql_unary":
+        negated ^= doc[value]["operator"] == "-"
         value = doc[value]["operand"]
     if value.kind != "sql_anchor":
-        return False
+        return None
     leaf = doc[value]["operand"]
     fixed = (
         doc[leaf]["value"]
@@ -911,7 +954,9 @@ def _float_literal(doc, value) -> bool:
         if leaf.kind == "sql_parameter"
         else None
     )
-    return fixed is not None and fixed.tag == "Float"
+    if fixed is None or fixed.tag != "Float":
+        return None
+    return -fixed.value if negated else fixed.value
 
 
 def _literal_text(doc, value):
@@ -3804,6 +3849,25 @@ class _Check:
                     ),
                     "MySQL division carrier",
                 )
+            folded = tuple(_float_literal_value(doc, child) for child in op["operands"])
+            if (
+                op["kind"] == "arithmetic"
+                and op["operator"] in {"+", "-", "*"}
+                and result["tag"] == "Float"
+                and len(folded) == 2
+                and None not in folded
+            ):
+                # The emitter's static fold: no infinity, and no product of two
+                # non-zero values that rounds to zero (PostgreSQL's 22003).
+                left, right = cast(tuple[float, float], folded)
+                value = {"+": left + right, "-": left - right, "*": left * right}[
+                    op["operator"]
+                ]
+                _require(
+                    math.isfinite(value)
+                    and (op["operator"] != "*" or value != 0.0 or 0.0 in folded),
+                    "Float literal fold",
+                )
             if family == "postgres" and result["tag"] == "Decimal":
                 operands = tuple(
                     _value_realization(doc, child) for child in op["operands"]
@@ -4144,6 +4208,12 @@ class _Check:
                         result["nullable"] == temporal["nullable"],
                         "date_trunc timestamp",
                     )
+            # After this operation's relations, so one they refuse keeps its detail.
+            if op["kind"] in ("arithmetic", "sign", "cast", "scalar_call"):
+                _require(
+                    result["nullable"] == _operation_nullable(doc, op),
+                    "operation nullability",
+                )
         spread = _mysql_spread_cell(doc) if family == "mysql" else None
         mysql_sums = _mysql_cells(doc)[1] if family == "mysql" else frozenset()
         # A MySQL `first` or `last` only in the S13 statement class.
