@@ -7180,6 +7180,16 @@ def _verify(plan, completed, bundle, selected, policy, envelope):
         return (Issue.STRUCTURE,)
 
 
+class _PlanRefused(Exception):
+    """A failed complete plan check; its arguments are the issues."""
+
+
+def _verify_project_sql_plan(plan, completed, bundle, selected, policy, envelope):
+    issues = _verify(plan, completed, bundle, selected, policy, envelope)
+    if issues:
+        raise _PlanRefused(*issues)
+
+
 # repr=False: a generated repr expands the shared plan graph as a tree.
 @dataclass(frozen=True, slots=True, kw_only=True, eq=False, repr=False)
 class ProjectSQLPlanVerification:
@@ -7198,18 +7208,21 @@ class ProjectSQLPlanVerification:
             object.__setattr__(
                 self, "envelope", getattr(self.plan, "fixed_envelope", None)
             )
-        object.__setattr__(
-            self,
-            "issues",
-            _verify(
+        # Every argument is part of the mark, so a changed input checks again.
+        try:
+            once(
+                _verify_project_sql_plan,
                 self.plan,
                 self.completed,
                 self.analysis_bundle,
                 self.selected_owner,
                 self.literal_policy,
                 self.envelope,
-            ),
-        )
+            )
+            issues = ()
+        except _PlanRefused as refused:
+            issues = refused.args
+        object.__setattr__(self, "issues", issues)
 
     @property
     def verified(self) -> bool:

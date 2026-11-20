@@ -74,6 +74,7 @@ from pietto._project.project_sqlite_emission import (
     emit_sqlite_sql,
     serialize_sqlite_emission,
 )
+from pietto._project.project_verification_scope import entry
 from pietto._terminal_text import escape_unicode_controls
 from pietto.semantic.analyzer import recursion_limit_diagnostic
 
@@ -276,6 +277,17 @@ def run_project_emit_sql(arguments: Sequence[str]) -> ProjectEmitResult:
                 text,
                 namespace.dialect,
             )
+    return _run_project_emit_sql_single(namespace, text, policy, output)
+
+
+@entry
+def _run_project_emit_sql_single(
+    namespace: argparse.Namespace,
+    text: bool,
+    policy: ProjectSQLLiteralPolicy,
+    output: Path | None,
+) -> ProjectEmitResult:
+    """Emit one owner and serialize its document inside one verification scope."""
 
     def finish(
         outcome: EmissionOutcome | DuckDBEmission | SQLiteEmission,
@@ -865,6 +877,19 @@ def _batch_rejected(problem: InputError, text: bool, dialect: str) -> ProjectEmi
     )
 
 
+@entry
+def _emit_batch_owner(
+    context: _EmissionContext,
+    owner: Any,
+    dialect: str,
+    policy: ProjectSQLLiteralPolicy,
+) -> tuple[str, bytes]:
+    """One batch owner's status and document inside its own verification scope,
+    so no owner's plan outlives its item."""
+    outcome = _emit_owner(context, owner, dialect, policy)
+    return outcome.status, serialize_emission(outcome)
+
+
 def _run_project_emit_sql_batch(
     project: str,
     module: str | None,
@@ -932,10 +957,8 @@ def _run_project_emit_sql_batch(
     statuses: set[str] = set()
     item_bytes = 0
     for index, owner in enumerate(owners):
-        outcome = _emit_owner(context, owner, dialect, policy)
-        statuses.add(outcome.status)
-        document = serialize_emission(outcome)
-        del outcome
+        owner_status, document = _emit_batch_owner(context, owner, dialect, policy)
+        statuses.add(owner_status)
         item = _BatchItem(
             document,
             canonical(
