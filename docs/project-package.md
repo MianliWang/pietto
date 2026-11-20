@@ -873,7 +873,7 @@ MySQL keeps project `sum(Int)` BLOCKED with `PIE-B1004`,
 as its `CAST(DECIMAL AS SIGNED)` would clamp an out-of-range sum, and Int
 arithmetic not proved to fit signed 64 bits BLOCKED with `PIE-B1002`,
 outside the `0.1.12` (Phase77 S01/S02) cells, the S02 cell as `0.2.2` (MC G1
-to G5) widens it, and S03 forms that the [language page](language.md) states.
+to G6) widens it, and S03 forms that the [language page](language.md) states.
 PostgreSQL admits exact Decimal/Int addition and subtraction and addition
 or subtraction of Decimals with different scales. Let `s = max(s1, s2)`;
 the result has precision `max(p1 - s1, p2 - s2) + 1 + s`. A physical Int
@@ -1026,8 +1026,10 @@ keys, nullable or not; MC G3: also with HAVING, ORDER BY, LIMIT and DISTINCT
 as the language page states them; MC G4: also through relation aliases,
 unread windows, qualified reads, imported sources and one plain or
 aggregating upstream as it states them; MC G5: also with header parameters
-and bind-safe literals as it states them), and outside the S03 JOIN and
-two-level forms that the [language page](language.md) states,
+and bind-safe literals as it states them; MC G6: also over INNER, LEFT and
+RIGHT JOINs of sources whose `on` links an `Int` field of each side as it
+states them), and outside the S03 JOIN and two-level forms that the
+[language page](language.md) states,
 and an `Int` row expression not proved
 to fit signed 64 bits (`PIE-B1002`) outside its `0.1.12` (Phase77 S01)
 cell there.

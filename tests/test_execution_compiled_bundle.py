@@ -3026,6 +3026,13 @@ _NUMERIC_UNFORGEABLE = {
     "G5_R4": "PIE-B1003",
     "G5_timestamp": "PIE-B1003",
     "G5_R9": "PIE-B1004",
+    # MC G6's: a label too long, a sum outside every cell, a FULL JOIN, and
+    # sums that project semantics refuses first.
+    "G6_R1": "PIE-B1002",
+    "G6_R2": "PIE-B1004",
+    "G6_R3": "PIE-B1003",
+    "G6_X1": "PIE-B1003",
+    "G6_X2": "PIE-B1003",
 }
 
 
@@ -3046,7 +3053,7 @@ def _numeric_cells_opened(patch):
 
 
 # Each refused S01/S02 body, the S01 WHERE cell whose literal a bind-safe
-# `?` replaces, each MC G1 to G5 (`G2_` to `G5_` before its name) neighbour
+# `?` replaces, each MC G1 to G6 (`G2_` to `G6_` before its name) neighbour
 # under a policy that refuses it, and each SMALLINT read that G1, G2, G4 and
 # G5 leave in S02's cell (`G1S_`, `G2K_`, `G4S_` and `G5S_` before its
 # name).
@@ -3122,12 +3129,26 @@ _NUMERIC_FORGED = [
         )
         for shape in sorted(_pietto_sql_emission.G5_REFUSALS)
     ),
+    *(
+        (
+            "G6_" + shape,
+            _pietto_sql_emission.G6_REFUSAL_POLICIES.get(shape, ("preserve_literals",))[
+                0
+            ],
+        )
+        for shape in sorted(_pietto_sql_emission.G6_REFUSALS)
+    ),
 ]
 # An alias of an alias, an unread alias of another relation or of a second
 # import name of the upstream and an upstream declared as a relation `let`
 # block leave G4's R6, R13, X10 and X9, and an alias or an unread window its
 # SMALLINT reads (G4S_), the records and document of the same body read
-# directly.
+# directly; a relation alias over JOIN rows leaves G6's R9 those of the same
+# body read directly, and a `def` or relationship call or a JOIN with no
+# `let` leaves G6's neighbours those of the form it inlines to or binds, as
+# an unread window or relation alias and an imported source leave them
+# K1's. (G1's X6 and G2's R6, relation aliases that G4 opens, are no longer
+# neighbours.)
 _NUMERIC_ALIASES = {
     **_pietto_sql_emission.NUMERIC_ALIASES,
     **{"G4_" + shape: body for shape, body in _pietto_sql_emission.G4_ALIASES.items()},
@@ -3135,15 +3156,32 @@ _NUMERIC_ALIASES = {
         "G4S_" + shape: body
         for shape, body in _pietto_sql_emission.G4_SMALLINT_ALIASES.items()
     },
+    "G6_R9": _pietto_sql_emission.G6_REFUSALS["R9"]
+    .replace("    let r = orders\n    from r\n", "    from orders\n")
+    .replace("r.id", "orders.id"),
+    "G6_on_def_literal": _pietto_sql_emission.G6_FORMS["O2"],
+    "G6_on_relationship_literal": _pietto_sql_emission.G6_FORMS["O2"],
+    "G6_on_def_call": _pietto_sql_emission.G6_FORMS["K1"],
+    "G6_join_unbound": _pietto_sql_emission.G6_FORMS["K1"],
+    "G6_window": _pietto_sql_emission.G6_FORMS["K1"],
+    "G6_unread_alias": _pietto_sql_emission.G6_FORMS["K1"],
+    "G6_imported": _pietto_sql_emission.G6_FORMS["K1"],
 }
 
 
 def _numeric_forged_world(shape):
     """The world, keywords and body of a forged numeric shape: a G2 to G5
-    neighbour (`G2_` to `G5_` before its name) over grouping_world, or a
+    neighbour (`G2_` to `G5_` before its name) over grouping_world, a G6
+    one (`G6_`) over join_world (with G6_REFUSAL_WORLDS' keywords), or a
     SMALLINT read beside G1, G2 or G3 (`G1S_`, `G2K_`) or under G4's
     organization or G5's placeholders (`G4S_`, `G5S_`) over division_world
     (or G4_SMALLINT_WORLDS' world)."""
+    if shape.startswith("G6_"):
+        return (
+            _pietto_sql_emission.join_world,
+            _pietto_sql_emission.G6_REFUSAL_WORLDS.get(shape[3:], {}),
+            _pietto_sql_emission.G6_REFUSALS[shape[3:]],
+        )
     if shape.startswith(("G4_", "G5_")):
         return (
             _pietto_sql_emission.grouping_world,
@@ -3195,12 +3233,13 @@ def test_forged_mysql_numeric_cells_fail_every_reader(
     the re-rendering alone takes the records) and compiled replay and its
     template (records) once the law is back; a body whose
     emission verifies itself or that another rule refuses has no artifact.
-    A relation alias or a window, read or not, an imported source or an
+    A relation alias or a window, read or not, an imported source, an
     upstream declared as a relation `let` block that no cell takes (MC
-    G4's R6, R13, X9 and X10 among them) fails the plan's readers only: its
-    document and records are the direct read's apart from source positions
-    and the source digest, so the pure boundary and compiled replay accept
-    them (NUMERIC_ALIASES)."""
+    G4's R6, R13, X9 and X10 among them), a `def` or relationship call
+    or a JOIN with no `let` (MC G6's neighbours) fails the plan's readers
+    only: its document and records are the direct read's apart from source
+    positions and the source digest, so the pure boundary and compiled
+    replay accept them (NUMERIC_ALIASES)."""
     import _pietto_sql_emission_portable as portable
     import _pietto_sql_emission_pure_boundary as pure
     from pietto._project.project_compiled_lowering import emit_compiled
@@ -3231,7 +3270,19 @@ def test_forged_mysql_numeric_cells_fail_every_reader(
         observed = portable.export_emission_observation(artifact, artifact.request)
         loaded = _numeric_loaded(artifact)
     summed = shape.startswith(
-        ("sum_", "s02", "G1S_", "G2_", "G2K_", "G3_", "G4_", "G4S_", "G5_", "G5S_")
+        (
+            "sum_",
+            "s02",
+            "G1S_",
+            "G2_",
+            "G2K_",
+            "G3_",
+            "G4_",
+            "G4S_",
+            "G5_",
+            "G5S_",
+            "G6_",
+        )
     ) or (shape in _pietto_sql_emission.G1_REFUSALS)
     assert not verify_project_sql_emission(artifact, artifact.request).verified
     with pytest.raises(BindingError, match="^BINDING_ARTIFACT$"):
@@ -4623,6 +4674,170 @@ def test_the_mysql_pure_cell_law_ends_at_a_fourth_body(tmp_path):
         assert pure._mysql_cells(Counted(records)) == (frozenset(),) * 5
         counts.append(Counted.reads)
     assert counts[0] == counts[1]
+
+
+# MC G6: each edit of a native JOIN bundle that only one check of the
+# compiled JOIN law refuses (`chain_earlier_source`, which leaves join 0 out
+# of the chain, the check of a JOIN outside it), over G6_FORMS' O2 (one
+# LEFT JOIN, its predicate operation 2 the `and` of operation 0,
+# `i.order_id == orders.id` over reads 0 and 1, and operation 1,
+# `i.units > 0` over read 2 and literal 2) or, for `chain_`, over K4 (join
+# 1 over join 0 through use 2 and source 2 through use 3).
+_COMPILED_G6_EDITS = {
+    "kind_full": _record_edit(_A("join", 0), kind="full"),
+    "kind_cross": _record_edit(_A("join", 0), kind="cross"),
+    "kind_right": _record_edit(_A("join", 0), kind="right"),
+    "equality": _record_edit(_A("join", 0), equalities=(_A("operation", 0),)),
+    "predicate_missing": _record_edit(_A("join", 0), predicate=None),
+    "unlinked": _record_edit(_A("join", 0), predicate=_A("operation", 1)),
+    "or": _record_edit(_A("operation", 2), operator=("binary", "or")),
+    "link_operator": _record_edit(_A("operation", 0), operator=("comparison", "!=")),
+    "link_same_input": _record_edit(
+        _A("read", 0), use=_A("use", 0), port=_A("port", 1)
+    ),
+    "link_text": _record_edit(_A("read", 1), port=_A("port", 4)),
+    "link_foreign_port": _record_edit(_A("read", 1), port=_A("port", 7)),
+    "literal_nullable": _record_edit(_A("read", 2), port=_A("port", 8)),
+    "literal_earlier": _record_edit(
+        _A("read", 2), use=_A("use", 0), port=_A("port", 3)
+    ),
+    "literal_operator": _record_edit(_A("operation", 1), operator=("comparison", "<")),
+    "literal_first": _record_edit(
+        _A("operation", 1), operands=(_A("literal", 2), _A("read", 2))
+    ),
+    "literal_negative": _record_edit(_A("literal", 2), value=wire.Scalar("Int", -1)),
+    "literal_tag": _record_edit(_A("literal", 2), tag="Text"),
+    "input_ordinal": _record_edit(_A("use", 0), ordinal=1),
+    # S02's own law takes a non-null SMALLINT key beside a sum and a count;
+    # over JOINs only G2's holds.
+    "g2_only": _record_edit(_A("field", 0), physical=_SMALLINT_PHYSICAL),
+    "chain_joined_join": _record_edit(_A("use", 3), producer=_A("join", 0)),
+    "chain_earlier_source": _record_edit(_A("use", 2), producer=_A("source", 1)),
+    "chain_owner": _record_edit(_A("join", 0), owner=_A("declaration", 0)),
+}
+
+
+@pytest.mark.parametrize("edit", sorted(_COMPILED_G6_EDITS))
+def test_the_mysql_compiled_g6_law_refuses_each_edited_record(tmp_path, edit):
+    """Compiled replay derives MC G6's law from the records: it finds a
+    JOIN form's sums, and none once one record changes: a FULL or CROSS
+    JOIN, a relationship equality, an `on` that is missing, links nothing
+    or holds an `or`, a linking `==` of another operator, over one input, a
+    Text port or a port its use does not carry, a literal comparison in a
+    RIGHT JOIN, of a nullable or earlier input's field, of another
+    operator, order, sign or tag, inputs out of order, a key S02's own law
+    alone takes, a joined input that is a JOIN, a JOIN outside the chain or
+    of another declaration."""
+    from pietto._project import project_sql_emission_rows as rows
+
+    chain = edit.startswith("chain_")
+    records, query = _numeric_records(
+        tmp_path,
+        _pietto_sql_emission.G6_FORMS["K4" if chain else "O2"],
+        _pietto_sql_emission.join_world,
+    )
+    native = frozenset(
+        _A("aggregate_value", index) for index in ((0, 1) if chain else (0,))
+    )
+    assert rows.mysql_compiled_cells(records, records[query]) == (
+        frozenset(),
+        native,
+        frozenset(),
+        frozenset(),
+        frozenset(),
+    )
+    edited = _COMPILED_G6_EDITS[edit](records)
+    assert rows.mysql_compiled_cells(edited, edited[query]) == (frozenset(),) * 5
+
+
+def _doc_fixed(kind, index, tag, wire_value):
+    def edit(records):
+        import _pietto_sql_emission_pure_boundary as pure
+
+        return _doc_edit(kind, index, value=pure.Fixed(tag, wire_value))(records)
+
+    return edit
+
+
+# MC G6: each edit of a native JOIN document that only one check of the
+# pure JOIN law refuses, over G6_FORMS' O2: join_body 0 over join_input 0
+# (`orders`) and 1 (`items`), its predicate sql_operation 0 the `and` of
+# sql_operation 1, `i.order_id == orders.id` over sql_stage_reference 0 and
+# 1, and sql_operation 2, `i.units > 0` over sql_stage_reference 2 and
+# sql_anchor 0 of sql_literal 0.
+_PURE_G6_EDITS = {
+    "kind_full": _doc_edit("join_body", 0, join_kind="full"),
+    "kind_cross": _doc_edit("join_body", 0, join_kind="cross"),
+    "kind_right": _doc_edit("join_body", 0, join_kind="right"),
+    "equality": _doc_edit("join_body", 0, equalities=(_doc_ref("sql_operation", 1),)),
+    "unlinked": _doc_edit("join_body", 0, predicate=_doc_ref("sql_operation", 2)),
+    "or": _doc_edit("sql_operation", 0, operator="or"),
+    "link_operator": _doc_edit("sql_operation", 1, operator="!="),
+    "link_same_input": _doc_edit(
+        "sql_stage_reference", 0, column=_doc_ref("stage_column", 1)
+    ),
+    "link_text": _doc_realization_edit(1, tag="Text"),
+    "literal_nullable": _doc_realization_edit(2, nullable=True),
+    "literal_earlier": _doc_edit(
+        "sql_stage_reference", 2, column=_doc_ref("stage_column", 3)
+    ),
+    "literal_operator": _doc_edit("sql_operation", 2, operator="<"),
+    "literal_first": _doc_edit(
+        "sql_operation",
+        2,
+        operands=(_doc_ref("sql_anchor", 0), _doc_ref("sql_stage_reference", 2)),
+    ),
+    "literal_negative": _doc_fixed("sql_literal", 0, "Int", "-1"),
+    "literal_tag": _doc_edit("sql_anchor", 0, tag="Text"),
+    "input_ordinal": _doc_edit("join_input", 0, ordinal=1),
+    "joined_join": _doc_edit("join_input", 1, producer=_doc_ref("join_body", 0)),
+    "earlier_cycle": _doc_edit("join_input", 0, producer=_doc_ref("join_body", 0)),
+    "stray_join": _doc_edit("join_body", 0, copy=True),
+    # S02's own law takes a non-null SMALLINT key beside a sum and a count;
+    # over JOINs only G2's holds.
+    "g2_only": lambda records: _doc_edit(
+        "realization",
+        records[records[_doc_ref("aggregate_key_column", 0)].fields["read"]]
+        .fields["realization"]
+        .index,
+        storage={"kind": "my_smallint"},
+    )(records),
+}
+
+
+@pytest.mark.parametrize("edit", sorted(_PURE_G6_EDITS))
+def test_the_mysql_pure_g6_law_refuses_each_edited_record(tmp_path, edit):
+    """The pure boundary derives MC G6's law from the document: it finds a
+    JOIN form's sums, and none once one record changes: a FULL, CROSS or,
+    beside a literal comparison, RIGHT JOIN, a relationship equality, an
+    `on` that links nothing or holds an `or`, a linking `==` of another
+    operator, over one input or a Text column, a literal comparison of a
+    nullable or earlier input's column, of another operator, order, sign or
+    tag, inputs out of order, a joined input or an earlier input that is
+    no source or earlier JOIN, a JOIN body outside the chain, or a key S02's
+    own law alone takes."""
+    import _pietto_sql_emission_portable as portable
+    import _pietto_sql_emission_pure_boundary as pure
+
+    _, outcome = _pietto_sql_emission.join_world(
+        tmp_path, "mysql", _pietto_sql_emission.G6_FORMS["O2"]
+    )
+    artifact = outcome.artifact
+    assert artifact is not None, outcome.blockers
+    exported = portable.export_emission_observation(artifact, artifact.request)
+    assert exported.canonical_bytes is not None
+    view = pure.parse_emission_observation(exported.canonical_bytes).view
+    assert view is not None
+    records = dict(view.records)
+    assert pure._mysql_cells(pure._Doc(records)) == (
+        frozenset(),
+        frozenset({pure.Ref("aggregate_value_column", 0)}),
+        frozenset(),
+        frozenset(),
+        frozenset(),
+    )
+    edited = pure._Doc(_PURE_G6_EDITS[edit](records))
+    assert pure._mysql_cells(edited) == (frozenset(),) * 5
 
 
 def test_mysql_sum_cells_are_derived_once_per_compiled_replay(tmp_path, monkeypatch):
@@ -6466,30 +6681,28 @@ def _s03_document_edit(kind, name, change):
 
 # Per tamper: the form, its records' and its document's edit, and the pure
 # boundary's detail.
+# A LEFT J1 and J2 with its ON operands reversed are MC G6's cells
+# (G6_S03_CELLS), so the JOIN tampers make a FULL J1 and a `>=` in J2's ON.
 _S03_TAMPERS = {
     "join_kind": (
         "J1",
-        _s03_record_edit("join", "kind", lambda value, record: "left"),
-        _s03_document_edit("join_body", "join_kind", lambda value, fields: "left"),
+        _s03_record_edit("join", "kind", lambda value, record: "full"),
+        _s03_document_edit("join_body", "join_kind", lambda value, fields: "full"),
         "sum result",
     ),
-    "on_order": (
+    "on_operator": (
         "J2",
         _s03_record_edit(
             "operation",
-            "operands",
+            "operator",
             lambda value, record: (
-                tuple(reversed(value))
-                if record.get("operator") == ("comparison", "==")
-                else None
+                ("comparison", ">=") if value == ("comparison", "==") else None
             ),
         ),
         _s03_document_edit(
             "sql_operation",
-            "operands",
-            lambda value, fields: (
-                list(reversed(value)) if fields["operator"] == "==" else None
-            ),
+            "operator",
+            lambda value, fields: ">=" if value == "==" else None,
         ),
         "sum result",
     ),
@@ -6537,9 +6750,9 @@ _S03_TAMPERS = {
 @pytest.mark.parametrize("tamper", sorted(_S03_TAMPERS))
 def test_tampered_mysql_s03_forms_fail_compiled_and_pure_readers(tmp_path, tamper):
     """A forger who rewrites a native S03 bundle or observation so that the
-    JOIN's kind, the order of its ON operands, C3's test operator or C1's
-    key carrier differ from the form gets compiled replay and the pure
-    boundary to refuse it; the untouched bytes pass."""
+    JOIN's kind or its ON operator, C3's test operator or C1's key carrier
+    differ from the form, outside MC G6's cell too, gets compiled replay and
+    the pure boundary to refuse it; the untouched bytes pass."""
     import _pietto_sql_emission_portable as portable
     import _pietto_sql_emission_pure_boundary as pure
     from pietto._project.project_compiled_lowering import emit_compiled

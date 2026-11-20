@@ -2112,6 +2112,97 @@ _MYSQL_CELL_KINDS = frozenset(
 # R08: the bind-safe slot kinds a division cell's document may also hold;
 # they close every other cell but an S02 sum's (MC G5).
 _MYSQL_SLOT_KINDS = frozenset({"fixed_value", "native_use", "sql_parameter"})
+# MC G6: the kinds an S02 chain's JOINs add; they close every other cell.
+_MYSQL_JOIN_KINDS = frozenset(
+    {"join_body", "join_column", "join_input", "row_join_use", "sql_join_query"}
+)
+
+
+def _mysql_joins(doc, last) -> bool:
+    """MC G6, restated from the document: ``last`` and the JOIN bodies below
+    it through each earlier input are every JOIN body; each is `inner`,
+    `left` or `right`, with no relationship equality, its earlier input a
+    bound source (the first) or the JOIN body before it and its joined input
+    a bound source. Its predicate is a conjunction (`and` operations) of
+    linking equalities, one at least, an `==` of an Int column of the joined
+    input and one of the earlier input in either order, and, unless it is a
+    `right` JOIN, of `>` or `>=` comparisons of a non-null Int column of the
+    joined input with an Int literal of no sign. Linear in the JOIN bodies
+    and their predicates."""
+
+    seen = set()
+    while True:
+        if last in seen:
+            return False
+        seen.add(last)
+        join = doc[last]
+        inputs = [doc[item] for item in join["inputs"]]
+        if (
+            join["join_kind"] not in ("inner", "left", "right")
+            or join["equalities"]
+            or [item["ordinal"] for item in inputs] != [0, 1]
+            or inputs[1]["producer"].kind != "bound_source"
+            or inputs[0]["producer"].kind not in ("bound_source", "join_body")
+        ):
+            return False
+
+        def side(ref):
+            """(side, nullable) of an Int column read of one input, side 1
+            the joined input; or None."""
+            if type(ref) is not Ref or ref.kind != "sql_stage_reference":
+                return None
+            realization = doc[doc[ref]["realization"]]
+            column = doc[ref]["column"]
+            sides = [index for index in (0, 1) if column in inputs[index]["columns"]]
+            if len(sides) != 1 or realization["tag"] != "Int":
+                return None
+            return sides[0], realization["nullable"]
+
+        linked, pending = False, [join["predicate"]]
+        while pending:
+            ref = pending.pop()
+            if type(ref) is not Ref or ref.kind != "sql_operation":
+                return False
+            operation = doc[ref]
+            operands = operation["operands"]
+            kind = (operation["kind"], operation["operator"], len(operands))
+            if kind == ("logical", "and", 2):
+                pending.extend(operands)
+                continue
+            if kind[0] != "comparison" or len(operands) != 2:
+                return False
+            left, right = side(operands[0]), side(operands[1])
+            if kind[1] == "==" and left and right and {left[0], right[0]} == {0, 1}:
+                linked = True
+                continue
+            anchor = operands[1]
+            literal = (
+                doc[anchor]["operand"]
+                if type(anchor) is Ref and anchor.kind == "sql_anchor"
+                else None
+            )
+            written = (
+                doc[literal]["value"]
+                if type(literal) is Ref and literal.kind == "sql_literal"
+                else None
+            )
+            if not (
+                kind[1] in (">", ">=")
+                and join["join_kind"] != "right"
+                and left == (1, False)
+                and type(written) is Fixed
+                and doc[anchor]["tag"] == "Int"
+                and written.tag == "Int"
+                and type(written.wire) is str
+                and _NON_NEGATIVE.fullmatch(written.wire)
+            ):
+                return False
+        if not linked:
+            return False
+        earlier = inputs[0]["producer"]
+        if earlier.kind == "bound_source":
+            return seen == set(doc.all("join_body"))
+        last = earlier
 
 
 def _mysql_cells(
@@ -2140,8 +2231,12 @@ def _mysql_cells(
     or a `count_distinct`, `max` or `avg` of one source field of its
     _MYSQL_SUM_BESIDE storage), and the
     final body only projects the aggregate's columns. Below a WHERE an S02
-    chain may start with one body per value `let` (_mysql_sum_lets), and a
-    SMALLINT read keeps S02's own cell (_mysql_sum_smallint). S15
+    chain may start with one body per value `let` (_mysql_sum_lets), and
+    (MC G6) its first body may scan JOINs that keep _mysql_joins in place of
+    the source scan, under G2's law alone, with no upstream (MC G4), HAVING
+    or result body (MC G3) or bind-safe parameter (MC G5); JOIN records
+    close every other cell. A SMALLINT read keeps S02's own cell
+    (_mysql_sum_smallint). S15
     cells need one projection body straight over the scan,
     each of whose columns is a read of a source field of its tag's carrier
     (_mysql_remainder_carrier) or a `%` named once over two such reads of
@@ -2176,11 +2271,17 @@ def _mysql_cells(
         frozenset(),
         frozenset(),
     )
-    if not (_MYSQL_CELL_KINDS | _MYSQL_SLOT_KINDS | _MYSQL_CLAUSE_KINDS).issuperset(
-        doc.kinds
-    ):
+    if not (
+        _MYSQL_CELL_KINDS | _MYSQL_SLOT_KINDS | _MYSQL_CLAUSE_KINDS | _MYSQL_JOIN_KINDS
+    ).issuperset(doc.kinds):
         return empty
-    slotted = not (_MYSQL_CELL_KINDS | _MYSQL_CLAUSE_KINDS).issuperset(doc.kinds)
+    joined = not _MYSQL_JOIN_KINDS.isdisjoint(doc.kinds)
+    slotted = not (
+        _MYSQL_CELL_KINDS | _MYSQL_CLAUSE_KINDS | _MYSQL_JOIN_KINDS
+    ).issuperset(doc.kinds)
+    # MC G6: no bind-safe parameter and no G3 result record over JOIN rows.
+    if joined and (slotted or not _MYSQL_CLAUSE_KINDS.isdisjoint(doc.kinds)):
+        return empty
     bodies = doc.all("row_body")
     # An S02 chain may add a HAVING body (MC G3) and `let` bodies, which each
     # hold one row value column (MC G1), and an upstream's three (MC G4).
@@ -2220,8 +2321,13 @@ def _mysql_cells(
     lets = next(
         (index for index, kind in enumerate(kinds) if kind != "let"), len(kinds)
     )
+    scan = doc[chain[-1]]["scan"]
     if (
-        doc[(upper or chain)[-1]]["scan"].kind != "row_scan"
+        # MC G6: the query's own chain may scan JOINs; an upstream never does.
+        doc[(upper or chain)[-1]]["scan"].kind
+        != ("row_join_use" if joined else "row_scan")
+        or joined
+        and bool(upper)
         or len(chain) + len(upper) != len(bodies)
         or any(doc[ref]["window"] is not None for ref in (*chain, *upper))
         or upper
@@ -2260,6 +2366,17 @@ def _mysql_cells(
         for ref in (*chain, *upper)
     ) or len(doc.all("aggregate_stage")) != (aggregate is not None) + (
         inner is not None
+    ):
+        return empty
+    # MC G6: JOINs only beneath an S02 aggregate, keeping _mysql_joins, and
+    # with no HAVING body (MC G3): a HAVING body is a row body, not one of
+    # _MYSQL_CLAUSE_KINDS, so the clause check above misses it; emission
+    # (mysql_checked_query) and compiled replay (mysql_compiled_cells) give
+    # JOIN rows no G3 clause.
+    if joined and (
+        aggregate is None
+        or "satisfying" in kinds
+        or not _mysql_joins(doc, doc[scan]["body"])
     ):
         return empty
     if slotted and aggregate is not None:
@@ -2429,23 +2546,28 @@ def _mysql_cells(
             )
         )
 
-    def law(current, field) -> bool:
+    def law(current, field, *, g2_only=False) -> bool:
         """S02's own law (own_law) or MC G2's of an aggregate stage over
-        ``field`` columns."""
+        ``field`` columns; G2's alone with ``g2_only`` (MC G6, over JOINs)."""
         reads = [doc[key]["read"] for key in current["keys"]]
-        return own_law(current, field) or (
-            all(
-                field(read) and _mysql_storage_kind(doc, read) in _MYSQL_SUM_KEY_KINDS
-                for read in reads
-            )
-            and all(
-                doc[value]["function"] in ("sum", "count", "min")
-                or type(argument := doc[value]["argument"]) is Ref
-                and argument.kind == "sql_stage_reference"
-                and field(doc[argument]["column"])
-                and _mysql_storage_kind(doc, argument)
-                in _MYSQL_SUM_BESIDE.get(doc[value]["function"], ())
-                for value in current["values"]
+        return (
+            not g2_only
+            and own_law(current, field)
+            or (
+                all(
+                    field(read)
+                    and _mysql_storage_kind(doc, read) in _MYSQL_SUM_KEY_KINDS
+                    for read in reads
+                )
+                and all(
+                    doc[value]["function"] in ("sum", "count", "min")
+                    or type(argument := doc[value]["argument"]) is Ref
+                    and argument.kind == "sql_stage_reference"
+                    and field(doc[argument]["column"])
+                    and _mysql_storage_kind(doc, argument)
+                    in _MYSQL_SUM_BESIDE.get(doc[value]["function"], ())
+                    for value in current["values"]
+                )
             )
         )
 
@@ -2543,7 +2665,8 @@ def _mysql_cells(
         )
 
     if (
-        not law(stage, carried)
+        # MC G6: over JOINs, G2's law alone.
+        not law(stage, carried, g2_only=joined)
         or not upstream()
         or any(
             column.kind != "aggregate_projection_column"
@@ -2561,7 +2684,7 @@ def _mysql_cells(
             doc,
             current,
             lets,
-            not upper and not slotted and own_law(stage, field),
+            not upper and not slotted and not joined and own_law(stage, field),
             chain[1] != aggregate or result is not None,
         )
         for current in (stage, lower)
@@ -2583,12 +2706,12 @@ def _mysql_sum_smallint(doc, stage, lets, own, clauses) -> bool:
     """MC G1-G3 (lead ruling of 2026-11-21, S02-SMALLINT), restated: beside
     a source field key column, or a `count` or `min` of one source field
     read, of `my_smallint` storage, S02's own law holds of ``stage`` over
-    no upstream (MC G4) and beside no bind-safe parameter (MC G5; ``own``),
-    which stands over no `let` body (``lets`` counts them) and under no
-    HAVING or result body (``clauses``), and its every sum reads a nullable
-    BIGINT source field (_mysql_checked_carrier).
-    The caller asks it of the query's stage and of an upstream's, which
-    stands below the query and so holds no such read."""
+    no upstream (MC G4) or JOIN (MC G6) and beside no bind-safe parameter
+    (MC G5; ``own``), which stands over no `let` body (``lets`` counts
+    them) and under no HAVING or result body (``clauses``), and its every
+    sum reads a nullable BIGINT source field (_mysql_checked_carrier). The
+    caller asks it of the query's stage and of an upstream's, which stands
+    below the query and so holds no such read."""
 
     reads = [
         doc[key]["read"]

@@ -1509,7 +1509,8 @@ _FIRST = (
 # Int and of a Float), S02 beside S01, R08's `Int /` over a literal
 # divisor, MC G1's INT and `let` carriers, MC G2's aggregates and keys,
 # MC G3's later clauses, MC G4's relation alias and aggregating upstream,
-# and MC G5's header parameter.
+# MC G5's header parameter, and MC G6's JOIN chains and `on` literal
+# comparisons.
 PHASE77_MYSQL_FORMS = {
     "S05": ("agg", _STATISTIC),
     "S06_join": (
@@ -1600,6 +1601,20 @@ PHASE77_MYSQL_FORMS = {
         "grouping",
         "query result(lo: Int):\n    from rows\n    where id > lo\n    group by k\n"
         "    select:\n        k\n        x = sum(n)\n",
+    ),
+    "G6_chain": (
+        "join",
+        "query result:\n    from items\n    let o = orders\n"
+        "    left join o on o.id == items.order_id\n    let c = customers\n"
+        "    right join c on c.id == o.customer\n    group by c.id\n"
+        "    select:\n        id = c.id\n        qty = sum(items.qty)\n",
+    ),
+    "G6_on": (
+        "join",
+        "query result:\n    from orders\n    let i = items\n"
+        "    left join i on i.order_id == orders.id and i.units > 0\n"
+        "    group by orders.id\n    select:\n        id = orders.id\n"
+        "        qty = sum(i.qty)\n        m = count(i.id)\n",
     ),
     "S15": (
         "remainder",
@@ -1697,6 +1712,13 @@ MYSQL_0111_FORMS = {
         "grouping",
         "query result(lo: Int):\n    from rows\n    where id > lo\n    group by k\n"
         "    select:\n        k\n        hi = max(n)\n",
+        _WORKSPACE,
+    ),
+    "G6": (
+        "join",
+        "query result:\n    from orders\n    let i = items\n"
+        "    inner join i on i.order_id == orders.id\n    group by orders.id\n"
+        "    select:\n        id = orders.id\n        qty = max(i.qty)\n",
         _WORKSPACE,
     ),
     "S15": (
