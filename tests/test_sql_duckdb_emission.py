@@ -815,6 +815,35 @@ def test_unadmitted_arithmetic_is_blocked(tmp_path: Path, case: str) -> None:
 
 
 @pytest.mark.parametrize(
+    ("value", "parameters"),
+    (
+        ("cost + cost", ""),
+        ("big - big", ""),
+        ("cost * cost", ""),
+        ("cost + big", ""),
+        ("cost * 2", ""),
+        ("-cost", ""),
+        ("cost + p", "p: Decimal(12, 2)"),
+    ),
+)
+def test_decimal_arithmetic_is_refused_at_the_result_field(
+    tmp_path: Path, value: str, parameters: str
+) -> None:
+    """Arithmetic takes `Int` or `Float` operands only: a `Decimal` field
+    beside itself, another `Decimal`, an `Int` literal or a `Decimal`
+    parameter, or under a sign, is rule 7's at the result field, and the
+    parameter that only it reads is rule 9's too."""
+    body = _selected(f"t = {value}", parameters)
+    status, document = emit(_typed(tmp_path / "p", body), body)
+    expected = [("PIE-B1003", "duckdb_projection_not_admitted")]
+    if parameters:
+        expected.append(("PIE-B1003", "duckdb_parameter_not_admitted"))
+    assert (status, blockers(document)) == ("BLOCKED", expected)
+    location = document["blockers"][0]["location"]
+    assert (location["line"], location["column"]) == (14, 9)
+
+
+@pytest.mark.parametrize(
     "domain",
     [
         {"kind": "int_range", "min": "0", "max": str(2**64)},
