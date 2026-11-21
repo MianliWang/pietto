@@ -899,6 +899,94 @@ def test_the_capture_limits_count_rows_per_input_and_bytes_once_in_all(
     assert _refusal(query, access=access, **arguments) == limit
 
 
+def test_the_capture_checks_each_later_input_as_it_checks_the_first(
+    tmp_path: Path,
+) -> None:
+    """Steps 3 and 4 of the capture check every input against its read, not
+    only the first: a later input of another Arrow type, an `Int` outside
+    the `int_range` that rule 7c's proof reads, a NULL in a non-null field,
+    a `Float` that is not finite, a `Text` beyond its characters, or a
+    `Date`, `Timestamp` or `Decimal` outside its interval, is refused before
+    any session (DUCKDB_ARROW_SCHEMA)."""
+    pa = _engine()
+    schema = ("PIE-R1002", "DUCKDB_ARROW_SCHEMA")
+    body = (
+        "table result:\n    from orders\n"
+        "    inner join customers on customers.name == orders.note\n"
+        "    select:\n        id = orders.id\n        s = orders.amount + customers.id\n"
+    )
+    query = joined(tmp_path / "p", body, document=narrowed(joined_contract()))
+    first = orders(pa, ((1, 5, "a", True, 1.5),))
+    later = customers(pa, ((7, "a", 0.5),))
+    columns = {"id": 0, "name": 1, "rate": 2}
+    forged = {
+        "int32": ("id", pa.array([7], pa.int32())),
+        "large_string": ("name", pa.array(["a"], pa.large_string())),
+        "float32": ("rate", pa.array([0.5], pa.float32())),
+        "beyond the int_range": ("id", pa.array([5000], pa.int64())),
+        "below the int_range": ("id", pa.array([-1001], pa.int64())),
+        "null in a non-null field": ("name", pa.array([None], pa.string())),
+        "NaN": ("rate", pa.array([math.nan])),
+        "-Inf": ("rate", pa.array([-math.inf])),
+        "too many characters": ("name", pa.array(["a" * 101])),
+    }
+    for name, (column, array) in forged.items():
+        table = later.set_column(columns[column], column, array)
+        access = (
+            execution.DuckDBArrowInput("orders", first),
+            execution.DuckDBArrowInput("customers", table),
+        )
+        assert _refusal(query, access=access) == schema, name
+    access = (
+        execution.DuckDBArrowInput("orders", first),
+        execution.DuckDBArrowInput("customers", later),
+    )
+    handle = execution.execute(query, route="duckdb_arrow", access=access, premise=None)
+    with handle as result:
+        rows = [r for batch in result for r in pa.record_batch(batch).to_pylist()]
+    assert rows == [{"id": 1, "s": 12}]
+    header = TYPED_HEADER + 'source later: Event = duckdb.arrow("later")\n'
+    document = contract(
+        source_entry(fields=TYPED_FIELDS), source_entry("later", TYPED_FIELDS)
+    )
+    body = (
+        "table result:\n    from orders\n"
+        "    inner join later on orders.id == later.id\n"
+        "    select:\n        id = orders.id\n        day = later.day\n"
+        "        at = later.at\n        cost = later.cost\n"
+    )
+    query = joined(tmp_path / "typed", body, header, document)
+    one = TYPED_ROWS[:1]
+    at = pa.array([datetime(2024, 1, 1)])
+    forged = {
+        "timestamp_ns": ("at", at.cast(pa.timestamp("ns"))),
+        "decimal_scale": ("cost", pa.array([Decimal("1")], pa.decimal128(12, 3))),
+        "date_before_1000": ("day", pa.array([date(999, 12, 31)], pa.date32())),
+        "timestamp_past_the_civil_end": (
+            "at",
+            pa.array([datetime(9999, 12, 31, 23, 59, 59, 500000)], pa.timestamp("us")),
+        ),
+        "decimal_beyond_its_precision": (
+            "cost",
+            _over(pa, 10**12, pa.decimal128(12, 2)),
+        ),
+    }
+    for name, (column, array) in forged.items():
+        access = (
+            execution.DuckDBArrowInput("orders", events(pa, one)),
+            execution.DuckDBArrowInput("later", events(pa, one, **{column: array})),
+        )
+        assert _refusal(query, access=access) == schema, name
+    access = (
+        execution.DuckDBArrowInput("orders", events(pa, one)),
+        execution.DuckDBArrowInput("later", events(pa, one)),
+    )
+    handle = execution.execute(query, route="duckdb_arrow", access=access, premise=None)
+    with handle as result:
+        rows = [r for batch in result for r in pa.record_batch(batch).to_pylist()]
+    assert [r["id"] for r in rows] == [1]
+
+
 def test_aggregates_over_join_rows_check_every_declared_key(
     tmp_path: Path, joined_query: execution.CompiledQuery
 ) -> None:
