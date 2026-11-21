@@ -409,6 +409,18 @@ jobs of each Python (shared acquisition, plan and emission portability
 and the three general runtime shards), Target postgres, Target mysql and
 the target conformance aggregate.
 
+The Gate 2 launcher that ran this Gate 2 was lost with the integration
+host's disk. The launcher rebuilt on 2026-11-20 keeps the DuckDB extra
+start (78-6): after the validation, the package smoke, the interop
+consumers and the `sqlite_file` route's file, it runs
+`tests/test_execution_api_duckdb_arrow.py` and
+`tests/test_sql_duckdb_emission.py` in an `execute-duckdb` environment,
+with `duckdb` `2.0.0` and `pyarrow` `26.0.1`. Each of its four runs on
+2026-11-20 passed that step with 284 tests, none skipped; the last, the
+Gate 2 of `100bd786`, the tree of `65c22852`, ran it from 20:07:47Z to
+20:08:01Z. The launcher does not itself refuse a skip in that step; the
+count is read from the step's log.
+
 ## Phase82 inputs
 
 The [freeze ledger](../../roadmap.md#phase82-freeze-ledger)'s DuckDB Arrow
@@ -439,9 +451,8 @@ stays alpha until the Phase82 freeze rules on it.
   and grain row, which PL.61 decided and JF's J2 aligns before Phase82's
   Gate 1; the route reads JOIN facts only from the verified plan.
 - **Debt.** The lead's ruling on whether the re-check of what survives of
-  U06's run stands for its independent integrity audit; the lead's
-  record of whether the chain's reviews stand for its batch audit; and
-  the Gate 2 launcher's DuckDB extra start, which keeps running the
-  route's owners without skips (78-6). Owner: the lead, each before the
-  `0.2.2` release commit. The ten-slowest profile's one finding, the
-  checker's self-test, is kept (above).
+  U06's run stands for its independent integrity audit, and the lead's
+  record of whether the chain's reviews stand for its batch audit.
+  Owner: the lead, each before the `0.2.2` release commit. The
+  ten-slowest profile's one finding, the checker's self-test, is kept,
+  and the rebuilt Gate 2 launcher keeps the DuckDB extra start (above).
