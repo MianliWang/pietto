@@ -447,11 +447,17 @@ def test_order_keys_predicates_and_the_limit_count_toward_the_nodes(
 
 
 def test_order_refusals_report_their_sites(tmp_path: Path) -> None:
-    """Rule 8a at the first computed key, with the text the owner agreed to;
-    rule 5 alone at the `order by` whose key names a renamed or computed
-    output, for which the plan is unavailable."""
+    """Rule 8a at the first computed key, with the text the owner agreed to,
+    and in a grouped query at a key that reads an arithmetic output, alone
+    or over a JOIN; rule 5 alone at the `order by` whose key names a renamed
+    or computed output, for which the plan is unavailable."""
     computed = (
         PROJECTION + "    order by:\n        id\n        -amount\n        amount + 1\n"
+    )
+    grouped = (
+        "table result:\n    from orders\n    group by price\n    select:\n"
+        "        price\n        g = -price\n        n = count()\n"
+        "    order by:\n        n desc\n        g\n"
     )
     renamed = (
         PROJECTION.replace("        note\n", "        label = note\n")
@@ -463,6 +469,7 @@ def test_order_refusals_report_their_sites(tmp_path: Path) -> None:
     )
     for name, body, detail, site in (
         ("computed", computed, "duckdb_order_not_admitted", (17, 9)),
+        ("grouped", grouped, "duckdb_order_not_admitted", (19, 9)),
         ("renamed", renamed, "duckdb_relation_shape_not_admitted", (15, 5)),
         ("output", output, "duckdb_relation_shape_not_admitted", (15, 5)),
     ):
@@ -471,6 +478,22 @@ def test_order_refusals_report_their_sites(tmp_path: Path) -> None:
         (blocker,) = document["blockers"]
         location = blocker["location"]
         assert (location["line"], location["column"]) == site
+    joined = (
+        "table result:\n    from orders\n"
+        "    inner join customers on customers.id == orders.amount\n"
+        "    group by customers.id\n    select:\n        c = customers.id + 1\n"
+        "        n = count()\n    order by:\n        c desc\n"
+    )
+    root = write(
+        tmp_path / "joined", joined, narrowed(joined_contract()), JOINED_HEADER
+    )
+    status, document = emit(root, joined)
+    assert (status, blockers(document)) == (
+        "BLOCKED",
+        [("PIE-B1003", "duckdb_order_not_admitted")],
+    )
+    location = document["blockers"][0]["location"]
+    assert (location["line"], location["column"]) == (27, 9)
     assert adapter.suggestion("PIE-B1003", "duckdb_order_not_admitted") == (
         "order by source fields or selected outputs, such as order by total"
         " desc; computed keys are not available on DuckDB"
@@ -482,6 +505,12 @@ SHAPES = {
     "computed_output_order_key": (
         _grouped("t = sum(amount) + 1", "    order by:\n        t\n"),
         [("PIE-B1003", "duckdb_projection_not_admitted")],
+    ),
+    # The key reads arithmetic that rule 7 admits, a computed key.
+    "arithmetic_output_order_key": (
+        "table result:\n    from orders\n    group by price\n    select:\n"
+        "        r = price * 2.0\n        n = count()\n    order by:\n        r\n",
+        [("PIE-B1003", "duckdb_order_not_admitted")],
     ),
     "avg": (
         _grouped("mean = avg(amount)"),

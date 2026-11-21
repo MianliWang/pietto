@@ -42,7 +42,9 @@ them. In a grouped query the language refuses a parameter as an operand
 - Other computed values, nested arithmetic, a mix of `Int` and `Float`, an
   `Int` sign, arithmetic over aggregates and arithmetic of literals and
   parameters only, such as `-1.5`, stay refused with
-  `duckdb_projection_not_admitted`. A statement with arithmetic needs the
+  `duckdb_projection_not_admitted`. An arithmetic output is a computed
+  `order by` key: in a grouped query, `order by r` after `r = price * 2.0`
+  is refused with `PIE-B1003` `duckdb_order_not_admitted` at the key. A statement with arithmetic needs the
   `operator_environment` premise, as one with a `where` or `having` does.
 - `duckdb_projection_not_admitted` and `duckdb_parameter_not_admitted`
   name arithmetic in their suggestions, as the grouping notes above quote

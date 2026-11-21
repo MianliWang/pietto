@@ -633,9 +633,9 @@ class _Values:
         """(source port, aggregate function) of an order key that reads a
         result field of `outputs` directly, or a source field when the
         statement neither groups nor aggregates; (None, None) when rule 7 or
-        7a refuses that result field; None for any other key (rule 8a).
-        Each port of the key's use is a copy of one value, which it reaches
-        through the result ports."""
+        7a refuses that result field; None for any other key, arithmetic
+        that rule 7 admits included (rule 8a). Each port of the key's use is
+        a copy of one value, which it reaches through the result ports."""
         root = self.roots.get(item.expression)
         use = None if root is None else self.uses.get(root.use)
         if (
@@ -656,6 +656,8 @@ class _Values:
         owner = self.owners.get(ends[0])
         for projection, port, selected in outputs:
             if projection is not None and projection.ref is ends[0]:
+                if port is None and selected is None and self.computed(projection, {}):
+                    return None
                 return (port, None) if selected is None else self.value(selected)
             if selected is not None and selected is owner:
                 return self.value(selected)

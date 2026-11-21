@@ -17,8 +17,8 @@ names its `aggregate` and `function` and has its result's type and
 nullability, and each key's column names its `group_key`.
 
 Such a query or table can also order and limit its rows. Each `order by` key
-is a direct read of a source field, or in a grouped query a selected output,
-ascending or descending, and the `limit` is the static one the language
+is a direct read of a source field, or in a grouped query a selected key or
+aggregate, ascending or descending, and the `limit` is the static one the language
 takes. `emit-sql` writes `ORDER BY` over qualified capture columns or the
 restated aggregate, each key with `ASC NULLS LAST` or `DESC NULLS FIRST`, so
 NULL sorts where PostgreSQL puts it, and the limit as `LIMIT <n>`. Rows that
