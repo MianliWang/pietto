@@ -206,8 +206,89 @@ Classified:
 Structural improvement: none needed; wall-time improvement: none claimed;
 no-gain: the repeated emissions above. The bounded ten-slowest profile of
 step 4 reads the final natural CI health of the batch head after
-publication; it is NOT_OBSERVED here (PL.07). The lead owns it, with B2's
-profile of `43888270979`, before the `0.2.2` release commit.
+publication: the natural exact-head CI `44225459194` of `df8817d3`
+([Gate 2](#budget-failures-and-gate-2)) ran from 02:44:33Z to 03:07:00Z
+on 2026-11-18 (1,347 s), and its 21 jobs took 11,223 s in all (jobs API,
+start to completion, without queueing); the longest was Compiler /
+Package 3.13 at 1,228 s. Its health was read on 2026-11-21 at about
+15:57Z through the owner's read-only token (PL.07): the 15 `ci-health`
+artifacts match the digests the API lists, the workflow summary passes
+`verify_workflow_health` of that head's `scripts/ci_workloads.py` with
+the run's own context, each runtime and partition artifact equals its
+part of the workflow summary, and the `[ci-health]` lines of the
+aggregate job's log agree. The status is INSUFFICIENT_EVIDENCE with a
+WATCH screen. History read 4 candidates and accepted 3 (`44166283520` of
+the tier's base `900e8915`, `44042698462` and `44006845752`) with none
+rejected, but none is comparable: each differs in its test set, and the
+two older ones in their runner images and the 3.13 domain too. Each
+Python collected 31,546 nodes, 121 more than at `900e8915`; 31,400
+passed and 146 were skipped. The only alert that needs no history is the
+structural `FEWER_UNITS_THAN_WORKERS` (plan- and emission-portability, 3
+nodes on 4 workers, on both Pythons). The provisional ones are
+`SHARD_IMBALANCE_REVIEW` on both Pythons (longest over median 1.85 on
+3.12 and 2.05 on 3.13, general-runtime-1 the longest each time) and
+`LONG_INDIVISIBLE_NODE` 18 times, the same nine child-process nodes on
+each Python. Every shard ran on runner image `20261111.196.1`, as at
+`900e8915`.
+
+Ranked by setup, call and teardown time, 12 nodes above the tenth
+in-process one on Python 3.13 were left out because their time is spent
+in child processes, of the kinds the [B1 profile](completion-audit.md#b1-acquisition-review)
+names: the differential process cells of `test_harness_ir_differential.py`,
+`test_harness_plan_conformance.py` (its setup is that acquisition) and
+`test_harness_plan_portability.py`; the six checkout, relocated and
+installed standalone batches of the two portability files; the two fresh
+source-free processes of `test_execution_compiled_source_free.py`; and
+`test_harness_execution_api.py::test_checkout_consumer_cases_satisfy_the_checker`,
+whose module fixture starts a fresh `-I` worker for each consumer case.
+B1's profile set the DuckDB native checker's self-test apart, since the
+split between its fresh `-I` oracle interpreter and its in-process check
+was not observed. It is counted in process here: on the integration
+host the frozen oracle took 4.1 s and the frozen checker's self-test
+46.7 s on CPython 3.13.13 ([the re-check](#the-v7-run)).
+
+| Node | Job | 3.13 s | 3.12 s | Where the time is |
+| --- | --- | ---: | ---: | --- |
+| `test_harness_target_conformance.py::test_data_only_receipt_controls_have_nonempty_positive_denominators[postgres]` | Runtime 3.13 / general-runtime-1 | 184.4 | 188.7 | setup, 179.9 s: the module fixture `valid_receipts` |
+| `test_harness_execution_api.py::test_the_duckdb_native_checker_accepts_honest_units_and_refuses_each_fabricated_shape` | Runtime 3.13 / general-runtime-2 | 128.5 | 148.1 | call, the frozen checker's self-test |
+| `test_harness_sql_emission_portability.py::test_every_admitted_artifact_exports_corresponds_and_decodes[postgres]` | Runtime 3.13 / shared-acquisition | 93.4 | 155.8 | call |
+| `test_harness_sql_emission_portability.py::test_every_admitted_artifact_exports_corresponds_and_decodes[mysql]` | Runtime 3.13 / shared-acquisition | 82.6 | 135.1 | call |
+| `test_harness_target_conformance.py::test_empty_text_anchor_requires_the_observed_var_string_type` | Runtime 3.13 / general-runtime-1 | 45.7 | 51.4 | call; the fixture was already built on its worker |
+| `test_repo_reader_acquisition.py::test_shared_facts_match_legacy_text_ast_import_and_identifier_acquisition` | Runtime 3.13 / general-runtime-2 | 38.4 | 45.5 | call |
+| `test_execution_compiled_bundle.py::test_mysql_lpad_and_now_cells_are_derived_in_linear_work[words-_chained_lets]` | Runtime 3.13 / general-runtime-3 | 31.8 | 26.9 | call |
+| `test_sql_values.py::test_the_static_values_bound_is_no_emission_guarantee[postgres-1000-64-blockers2]` | Runtime 3.13 / general-runtime-3 | 30.5 | 24.3 | call |
+| `test_repo_test_layout.py::test_no_test_reads_the_mutable_status_or_roadmap` | Runtime 3.13 / general-runtime-1 | 30.2 | 29.0 | call |
+| `test_sql_values.py::test_the_static_values_bound_is_no_emission_guarantee[mysql-1000-64-blockers3]` | Runtime 3.13 / general-runtime-3 | 29.1 | 23.3 | call |
+
+Seven of the ten ids are in B1's profile of `43645308189`; new are the
+DuckDB checker's self-test and the two `test_sql_values.py` bound nodes,
+a test that B1's profile saw leave its list. On Python 3.12 the same six
+lead, in another order, and of the other four `test_repo_test_layout.py`'s
+node and the `[words-_chained_lets]` cell are the same;
+`test_project_r2_proposal.py::test_r2_refuses_a_paired_mysql_form_before_any_workspace`
+(27.2 s) and the `[pair-_beside_a_capture]` cell (25.6 s) take the places
+of the two `test_sql_values.py` nodes (24.3 s and 23.3 s).
+
+The checker's self-test is the tier's one node among the ten. It took
+46.5 s on 3.13 and 46.9 s on 3.12 in the health of `44166283520`, whose
+workflow summary matches the digest this head's history lists, on the
+same runner image, and 128.5 s and 148.1 s here; between the two heads
+only U06 changed the files it runs, and its v7 checker judges 225
+reports, the five honest ones and 220 fabricated shapes. It is kept
+deliberately: the oracle and the checker are frozen bytes that change
+only by a new preregistration (above), and the node's shard,
+general-runtime-2, is not the longest on either Python. The cProfile
+half of step 4 is NOT_OBSERVED: none of the ten ran alone under cProfile,
+because the integration host was not quiet during this read (other
+lanes held it, at one-minute loads from 14 to 47), so no verifier-runs,
+call-count or self-time finding is recorded, and no performance claim
+rests on the table beyond the checker's split above. The Windows jobs
+are outside partition health by design, so their nodes are not ranked.
+GitHub's rendered Job Summary has no REST endpoint and was not read; the
+summary was regenerated from the artifact with `summary_markdown`.
+Health is advisory, and nothing here changes scheduling, topology or
+test selection. B2's profile of `43888270979` belongs to the
+[B2 audit](b2-completion-audit.md).
 
 ## The v7 run
 
@@ -359,7 +440,8 @@ stays alpha until the Phase82 freeze rules on it.
   Gate 1; the route reads JOIN facts only from the verified plan.
 - **Debt.** The lead's ruling on whether the re-check of what survives of
   U06's run stands for its independent integrity audit; the lead's
-  record of whether the chain's reviews stand for its batch audit; the
-  ten-slowest profile of the batch head; and the Gate 2 launcher's DuckDB
-  extra start, which keeps running the route's owners without skips
-  (78-6). Owner: the lead, each before the `0.2.2` release commit.
+  record of whether the chain's reviews stand for its batch audit; and
+  the Gate 2 launcher's DuckDB extra start, which keeps running the
+  route's owners without skips (78-6). Owner: the lead, each before the
+  `0.2.2` release commit. The ten-slowest profile's one finding, the
+  checker's self-test, is kept (above).
