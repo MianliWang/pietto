@@ -16,9 +16,9 @@ delivery, qualification and acquisition review, and Phase79's handoff.
 
 Phase79 is done when the batch that carries this audit is pushed and its
 natural exact-head CI is green (D79.23). This document does not certify its
-own publication: the batch's Gate 2 and natural CI are recorded by the
-first documentation commit after its push, before the `0.2.2` release
-commit (D79.21).
+own publication: a documentation commit after the push recorded the
+batch's Gate 2, reviews and natural CI in
+[Budget, failures and Gate 2](#budget-failures-and-gate-2).
 
 ## Baseline and publication boundary
 
@@ -99,7 +99,10 @@ the installed wheel on CPython 3.13.13 and 3.12.13. Natural CI's
 Pythons. The execution owner's cells skip on every CI job, none of which
 installs `execute-duckdb` (lesson 75-3); on the integration host the
 `execute-duckdb` environment ran the three DuckDB owners with none skipped
-(below), and the batch Gate 2's DuckDB extra start runs them again.
+(below). The batch Gate 2's DuckDB extra start ran the execution and
+emission owners again, none skipped, and the errors owner, whose DuckDB
+cell needs no DuckDB, ran in its core validation
+([Gate 2](#budget-failures-and-gate-2)).
 
 ## Compiled compatibility
 
@@ -148,7 +151,11 @@ migrate.
   `docs/worked-example.md`; it adds no spelling, so no extension sync patch
   is needed and none is authorized.
 - **Fragments.** U08 compared each fragment's qualification sentence with
-  the specification; B2's batch audit compares them again.
+  the specification; the batch's reviews do not record a second
+  comparison ([below](#budget-failures-and-gate-2)). On 2026-11-21 each of
+  the four sentences names the specification's releases and platforms,
+  `duckdb` `2.0.0` with `pyarrow` `26.0.1` on CPython 3.12 and 3.13,
+  Linux x86-64 with glibc 2.28 or later.
 
 ## Tier 2 acquisition review
 
@@ -277,8 +284,49 @@ allocations. The lead charges each workflow after it ends, on the
 owner-held ledger outside Git. Failures are kept, never rerun as
 replacements: U06's four dry runs on draft freezes, two of whose U1 runs
 were refused by law 3 before the freeze, are outside the run and are not
-v7 outputs. The batch Gate 2, its batch audit and its natural CI are the
-lead's and are recorded after the push (D79.21).
+v7 outputs.
+
+No review over the whole published chain is recorded as its batch audit.
+By the lead's record and the P79T2 ledger, the chain was reviewed in
+parts: the first batch, U01 with the types and the arithmetic, by a
+batch audit with two lenses on 2026-11-17, whose medium findings were
+fixed and verified clean, with a second round asked for; U01–U05,
+integrated on `900e8915`, by three lenses, one of them on the merged
+correctness, verified clean with two low layout items that U06 took up;
+the self-join by two lenses and a verification; U06's preregistration
+by two lenses, verified clean; the run by the audit outside the lane
+(above); and U07 and U08 by one lens, whose five lows `13962f7e` and
+`8dac5fca` repaired, verified clean. Their reports were in the workflow
+journals that the disk loss took, and only the record's results survive.
+Owner: the lead, who records whether these reviews stand for the batch
+audit, before the `0.2.2` release commit.
+
+The batch Gate 2 ran once, on the batch's final tree `3aeb74f2`
+(`8dac5fca`), on the integration host, because `docs/development.md` is
+on a VR2 acceptance rule path, on 2026-11-18: its preflight began at
+02:22:14Z, and `scripts/validate.py` ran from 02:25:01Z to 02:37:49Z with
+the qualified storage and SQLite classes and passed in 768.5 s, with
+pytest at 671.21 s on 20 workers (31,384 passed, 162 skipped, none
+failed, of 31,546 collected). Its package smoke (02:37:49Z to 02:39:55Z)
+built the `0.2.1` wheel and sdist and passed the core and
+`execute-duckdb` cells, the latter with a real `duckdb_arrow` query, and
+the five interop cells; the six interop consumers and the sdist member
+check followed and passed. The DuckDB extra start (02:42:00Z to
+02:42:40Z) passed 284 tests of `tests/test_execution_api_duckdb_arrow.py`
+and `tests/test_sql_duckdb_emission.py`, the 56 and 228 nodes of the
+acquisition review, on 2 workers in an `execute-duckdb` environment,
+none skipped; the `sqlite_file` route's file then passed 80 tests in the
+same environment, none skipped (02:42:40Z to 02:43:23Z). The tree was the
+same before and after. The run sealed `8dac5fca`, whose message alone was
+then amended with its Gate 2 line into `df8817d3`, and `900e8915..df8817d3`,
+11 commits, was pushed under PL.52 (D79.21) at 02:44:31Z by the lead's
+record. Its natural exact-head CI
+[`44225459194`](https://github.com/MianliWang/pietto/actions/runs/44225459194),
+push/main attempt 1, passed all 21 jobs from 02:44:33Z to 03:07:00Z:
+Python, Compiler / Package and Windows on 3.12 and 3.13, the six runtime
+jobs of each Python (shared acquisition, plan and emission portability
+and the three general runtime shards), Target postgres, Target mysql and
+the target conformance aggregate.
 
 ## Phase82 inputs
 
@@ -310,8 +358,8 @@ stays alpha until the Phase82 freeze rules on it.
   and grain row, which PL.61 decided and JF's J2 aligns before Phase82's
   Gate 1; the route reads JOIN facts only from the verified plan.
 - **Debt.** The lead's ruling on whether the re-check of what survives of
-  U06's run stands for its independent integrity audit; the batch's
-  Gate 2, batch audit and natural CI, recorded after the push; the
+  U06's run stands for its independent integrity audit; the lead's
+  record of whether the chain's reviews stand for its batch audit; the
   ten-slowest profile of the batch head; and the Gate 2 launcher's DuckDB
   extra start, which keeps running the route's owners without skips
   (78-6). Owner: the lead, each before the `0.2.2` release commit.
