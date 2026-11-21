@@ -80,7 +80,10 @@ earlier in the chain. No other target's page changes.
 rows and the shared pages state each opened form, each form kept refused
 and each limit. U06's cells C23–C28 and the changed C02a, C11, C12, C15,
 C18 and C22 judge them, and the route's pytest owners cover every refused
-JOIN form by form.
+JOIN form by form, the `any(...)` filter beside JOINs and rules 9 and 8b
+beside a refused JOIN since the
+[post-hoc batch audit](#the-post-hoc-batch-audit)'s repairs, which found
+them unpinned.
 
 **Existing.** Emission tests live in `tests/test_sql_duckdb_emission.py`,
 execution tests in `tests/test_execution_api_duckdb_arrow.py` and the
@@ -136,8 +139,12 @@ migrate.
   lead's record before the batch Gate 2, but its report was lost
   with the integration host's disk after 2026-11-18T17:25Z, as were the
   run's saved outputs. A re-check outside the lane read what survives
-  on 2026-11-21 ([below](#the-v7-run)). Owner: the lead, who rules
-  whether it stands for the audit, before the `0.2.2` release commit.
+  on 2026-11-21 ([below](#the-v7-run)). The audit was owed before the
+  batch Gate 2, the one deadline that applied; the audit recorded then
+  left no report, so the batch Gate 2 ran before the re-check that now
+  stands for it. By the lead's ruling of 2026-11-21 (1), the re-check is
+  recorded as the integrity audit, with its limit stated: it could not
+  re-judge the lost outputs.
 - **Midpoint.** The route draft's midpoint after the types and the
   arithmetic has no record in the route; the stops that took its place,
   the owner's two previews of the texts (D79.26, D79.29) and the lead's
@@ -379,8 +386,8 @@ by two lenses, verified clean; the run by the audit outside the lane
 (above); and U07 and U08 by one lens, whose five lows `13962f7e` and
 `8dac5fca` repaired, verified clean. Their reports were in the workflow
 journals that the disk loss took, and only the record's results survive.
-Owner: the lead, who records whether these reviews stand for the batch
-audit, before the `0.2.2` release commit.
+By the lead's ruling of 2026-11-21 (2), a batch audit of the whole chain
+ran post hoc ([below](#the-post-hoc-batch-audit)).
 
 The batch Gate 2 ran once, on the batch's final tree `3aeb74f2`
 (`8dac5fca`), on the integration host, because `docs/development.md` is
@@ -421,6 +428,42 @@ Gate 2 of `100bd786`, the tree of `65c22852`, ran it from 20:07:47Z to
 20:08:01Z. The launcher does not itself refuse a skip in that step; the
 count is read from the step's log.
 
+## The post-hoc batch audit
+
+The chain `900e8915..df8817d3` had its batch audit post hoc on
+2026-11-21, by the lead's ruling: one round on `main` `65c22852`,
+focused on issues across slices, with four lenses (semantics, readers,
+tests, records) and three skeptics for each finding of medium or worse.
+None was high. Nine mediums were confirmed by all three skeptics, two of
+them one defect that two lenses found, and nine lows were kept; each is
+an existing defect of `main`, repaired under PL.13 (b) by a commit on
+`65c22852` that joins the `0.2.2` batch (O-1):
+
+- A grouped `order by` an arithmetic output, which rules 1–29 passed and
+  rule 30 then refused as PIE-B1008 `plan_ast_correspondence`, is rule
+  8a's (fix: refuse a grouped DuckDB order key that reads arithmetic).
+- Rule 5 named an admitted JOIN or the statement for an `any(...)` filter
+  after the JOINs; it names the `any(...)` (fix: report DuckDB rule 5 at
+  an any(...) beside admitted JOINs).
+- Five stated rules had no pin, so a mutant loosening each passed every
+  owner: the capture's checks of every later input, the JOIN whose kind
+  makes arithmetic nullable in a chain, rule 16's JOIN and operand counts,
+  the refusal of `Decimal` arithmetic, and rules 9 and 8b beside a refused
+  JOIN. Five test commits pin them, and each pin fails with its rule
+  loosened.
+- The sql-emission v2 contract gave DuckDB no `Decimal`, `Date` or
+  `Timestamp` parameter tag (docs: state DuckDB's parameter tags in the
+  sql-emission v2 contract).
+- The lows: two test commits pin that an aggregate over one source checks
+  no declared key and the route's skip of empty batches and its
+  `batch_rows` check; two documentation commits bring the specification,
+  the roadmap, the route and the arithmetic note up to the tier's close
+  and narrow lesson 79-1; and this record states the integrity audit's
+  deadline ([above](#route-items-due-at-the-second-tier)).
+
+The audit's report and its skeptics' votes are kept in the lead's record
+outside Git.
+
 ## Phase82 inputs
 
 The [freeze ledger](../../roadmap.md#phase82-freeze-ledger)'s DuckDB Arrow
@@ -450,9 +493,8 @@ stays alpha until the Phase82 freeze rules on it.
 - **Phase82.** The freeze ledger's DuckDB row (above), and its JOIN key
   and grain row, which PL.61 decided and JF's J2 aligns before Phase82's
   Gate 1; the route reads JOIN facts only from the verified plan.
-- **Debt.** The lead's ruling on whether the re-check of what survives of
-  U06's run stands for its independent integrity audit, and the lead's
-  record of whether the chain's reviews stand for its batch audit.
-  Owner: the lead, each before the `0.2.2` release commit. The
+- **Debt.** None of the tier's own: the lead ruled that the re-check of
+  U06's run stands for its integrity audit, and the chain's batch audit
+  ran post hoc, its repairs joining the `0.2.2` batch (above). The
   ten-slowest profile's one finding, the checker's self-test, is kept,
   and the rebuilt Gate 2 launcher keeps the DuckDB extra start (above).
