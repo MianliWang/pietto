@@ -527,12 +527,13 @@ The [completion audit](../phases/phase-79/t2-completion-audit.md) keeps the
 evidence behind these lessons, with the [B1](../phases/phase-79/completion-audit.md)
 and [B2](../phases/phase-79/b2-completion-audit.md) audits.
 
-- **79-1 — State an engine's batch boundary as a bound.** D79.27 and the
-  specification first said that each batch holds `batch_rows` rows, the last
-  the rest; a dry run of the native matrix on a draft freeze then saw a left
-  JOIN's six rows in batches of 4 and 2, since DuckDB's reader ends a batch
-  where its result chunk ends. The specification was corrected before the
-  freeze and D79.30 records it. Write a library's chunking as "at most",
+- **79-1 — State an engine's batch boundary as a bound.** D79.27, and a draft
+  of the specification before the batch reading's commit, said that each batch
+  holds `batch_rows` rows, the last the rest; a dry run of the native matrix
+  on a draft freeze then saw a left JOIN's six rows in batches of 4 and 2,
+  since DuckDB's reader ends a batch where its result chunk ends. The
+  published specification has always said "at most `batch_rows` rows", and
+  D79.30 corrects D79.27's words. Write a library's chunking as "at most",
   with an empty chunk skipped, until every shape that the route admits has
   been measured, and let the checker judge sizes by those bounds.
 - **79-2 — Streaming moves errors into the reads and can strip their
