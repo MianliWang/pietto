@@ -446,6 +446,31 @@ def test_order_keys_predicates_and_the_limit_count_toward_the_nodes(
             assert blockers(emitted) == [("PIE-B1007", "generated_structure_limit")]
 
 
+def test_joins_and_arithmetic_count_toward_the_nodes(tmp_path: Path) -> None:
+    """Rule 16 counts per JOIN the JOIN, its relation and its `on` as a
+    predicate, and each operand of arithmetic: JOINED's 27 nodes are 2 for
+    the statement and its relation, 8 for its columns, 3 for its `where`, 9
+    for its INNER JOIN's `and` of two equalities and 5 for its LEFT JOIN;
+    SELF_JOINED's 19 are 2, 8, 5 for its JOIN and 4 for its operands; and a
+    projection's 12 are 2, 6 for its columns and 4 for its operands."""
+    arithmetic = _selected("t = amount + id\n        m = amount * id")
+    for name, body, header, document, nodes in (
+        ("joined", JOINED, JOINED_HEADER, joined_contract, 27),
+        ("self", SELF_JOINED, JOINED_HEADER, lambda: narrowed(joined_contract()), 19),
+        ("arithmetic", arithmetic, HEADER, _bounded, 12),
+    ):
+        for limit, expected in ((nodes, "VERIFIED"), (nodes - 1, "BLOCKED")):
+            limited = document()
+            limited["environment"].append(
+                statement("resource_limits", {"nodes": limit})
+            )
+            root = write(tmp_path / f"{name}-{limit}", body, limited, header)
+            status, emitted = emit(root, body)
+            assert status == expected, (name, limit)
+            if status == "BLOCKED":
+                assert blockers(emitted) == [("PIE-B1007", "generated_structure_limit")]
+
+
 def test_order_refusals_report_their_sites(tmp_path: Path) -> None:
     """Rule 8a at the first computed key, with the text the owner agreed to,
     and in a grouped query at a key that reads an arithmetic output, alone
