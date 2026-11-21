@@ -129,7 +129,12 @@ migrate.
 - **Integrity audit.** The route asks for an independent integrity audit
   of U06's verdict, by an auditor outside the lane (74-1). The lane
   re-checked its own outputs after the run (below); that is not the
-  independent audit. Owner: the lead, before the batch Gate 2.
+  independent audit. An audit outside the lane was recorded clean in the
+  lead's record before the batch Gate 2, but its report was lost
+  with the integration host's disk after 2026-11-18T17:25Z, as were the
+  run's saved outputs. A re-check outside the lane read what survives
+  on 2026-11-21 ([below](#the-v7-run)). Owner: the lead, who rules
+  whether it stands for the audit, before the `0.2.2` release commit.
 - **Midpoint.** The route draft's midpoint after the types and the
   arithmetic has no record in the route; the stops that took its place,
   the owner's two previews of the texts (D79.26, D79.29) and the lead's
@@ -235,6 +240,35 @@ are the Git objects of `71a495a3`. The wheel's metadata carries
 `README.md`, which U08 changes, so a wheel of the final tree has other
 bytes from the same `src`.
 
+The re-check outside the lane, on 2026-11-21, read what survives. The
+run's directory, with every unit's saved outputs, was lost with the
+integration host's disk; the qualification folder survives, with the
+freeze, the run commands, each step's console output and the lane's
+digests and self-check. What it read agrees with the verdicts. The
+folder's 29 listed digests and the seven frozen ones (`FROZEN.sha256`
+`88400bc5…`) hold, and the four frozen helpers are byte for byte those
+of `71a495a3` and of the published `df8817d3`. The two scripts are the
+ones the run commands name; the host gate held before each of the six
+steps, which ran once each, in order, from 01:25:35Z to 01:36:03Z, each
+with exit status 0, and U0, U1, U2 and U3 each printed ACCEPTED, U0 after
+its 26 skip lines. The run directory's list of 871 digests, which the
+folder's digests bind, gives every unit the freeze's start copies and
+its `expected.json` (`1a82f426…`), and U2 and U3 one wheel, `44c964a6…`.
+The frozen oracle, run again in a fresh `-I` interpreter with neither
+DuckDB nor PyArrow loaded, wrote that `expected.json` byte for byte on
+CPython 3.13.13 and on 3.12.13; its 30 cells declare 633 sub-cases, the
+record count of U1, U2 and U3, and U0's four cells 46, which with the
+26 skip lines make U0's 72. As the negative control, the frozen
+checker's self-test on it accepted the four honest units and the other
+admitted outcome and gave each of its 220 fabricated shapes the refusal,
+VOID or DEGRADED it must get. `src`, `tests`, `grammar`,
+`pyproject.toml` and `uv.lock` are the same Git objects at `71a495a3`
+and at `df8817d3`, as D77.50's carry states. The re-check could not
+re-judge the saved outputs with the frozen checker, as B2's re-check
+did for T06, nor read each unit's identity, C12's namespace or the
+observations above, which only the lane's own run record and self-check
+now state.
+
 ## Budget, failures and Gate 2
 
 The tier runs on its own ledger P79T2, `C61/F196/D4,850/S4` under PL.15
@@ -275,7 +309,8 @@ stays alpha until the Phase82 freeze rules on it.
 - **Phase82.** The freeze ledger's DuckDB row (above), and its JOIN key
   and grain row, which PL.61 decided and JF's J2 aligns before Phase82's
   Gate 1; the route reads JOIN facts only from the verified plan.
-- **Debt.** The independent integrity audit of U06's run; the batch's
+- **Debt.** The lead's ruling on whether the re-check of what survives of
+  U06's run stands for its independent integrity audit; the batch's
   Gate 2, batch audit and natural CI, recorded after the push; the
   ten-slowest profile of the batch head; and the Gate 2 launcher's DuckDB
   extra start, which keeps running the route's owners without skips
