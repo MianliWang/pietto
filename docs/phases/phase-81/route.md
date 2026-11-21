@@ -1095,6 +1095,348 @@ stay with P08.
   the SQLite and DuckDB targets. Each is an opened form that a later
   registration may add with its own rules; none is claimed here.
 
+## P08 record
+
+P08 was assembled on 2026-11-21 on its parent, the P07 commit, from the
+parts that lead lanes wrote and a review lane checked, with that review's
+repairs, in a fresh worktree synced offline from `uv.lock` (CPython
+3.13.13, `pietto` editable from that worktree): its default tests once in
+the core environment of `uv sync --locked` and once with the
+`execute-duckdb` extra, and its two-database campaign on 2026-11-28 under
+PL.14. Its write set is five shared helpers,
+`tests/_pietto_harness_shrink.py`,
+`tests/_pietto_harness_generated_forms_metamorphic.py`,
+`tests/_pietto_harness_engine_oracle.py`,
+`tests/_pietto_harness_generated_forms_differential.py` and
+`tests/_pietto_harness_performance.py`, with their test owners
+`tests/test_harness_shrink.py`,
+`tests/test_harness_generated_forms_metamorphic.py`,
+`tests/test_harness_generated_forms_engines.py`,
+`tests/test_harness_generated_forms_differential.py` and
+`tests/test_harness_performance.py`; a new shared helper,
+`tests/_pietto_project_verification_bodies.py`, which takes the verifier
+bodies out of `tests/test_project_verification_scope.py`, so that the
+profile imports no test module (field 8); a paragraph of the [development
+guide](../../development.md#duckdb-native-qualification); and this record.
+It changes no product file, CI input, workload placement or lock, adds no
+dependency, and its default tests open no database and use no network
+(field 14). Every part but the differential uses P07's registered
+campaign, seeds 0 to 39 of both profiles, which every owner reads from the
+generator's helper ([P07 record](#p07-record)). The ten-node profile of
+Phase81's own final health stays with P16 (field 28); P08 delivers the
+tool that runs it. No other page was written for P08: what a separate page
+would have said is here, as the owner decided when P08 was adopted after
+its review (PL.87 (1)).
+
+- **Shrinker.** For a failing case and a predicate, it tries one-step
+  reductions in a fixed order (drop the LIMIT, the WHERE, a select item, a
+  GROUP BY key, an unread `let`, an order key, a JOIN conjunct or an
+  unread field, or lift an operand of a unary `-`, arithmetic, a call,
+  `and` or `or` into its place), takes the first that still fails, starts
+  again from it, and stops when none fails or after 1,000 predicate calls.
+  Every candidate is strictly smaller and stays in the generator's range,
+  keeping `id`, one other field, one select item, one aggregate and a row
+  or JOIN form's final `id` key; nothing is drawn at random. The predicate
+  keeps the original failure's signature, its route and the kind of its
+  disagreement, so a candidate that fails for another reason, such as a
+  compilation that is not `VERIFIED`, is not taken (field 24). Over the
+  registered seeds the tests keep the failure and leave no failing
+  candidate, bound the calls, give the same result under two hash seeds
+  and have single-file `check` accept every candidate on both targets; a
+  `compile_sql` disagreement with an oracle that lets WHERE narrow shrinks
+  to one `is not None` test of one optional field. No comparing owner
+  calls it: a failure names its seed, profile and route, and reducing it
+  is a step taken by hand with such a predicate.
+- **Metamorphic relations.** Six rewrites keep a case's meaning and run
+  through the original's public routes, with no oracle: `layout` (comment
+  lines, a WHERE broken over lines with a comment, doubled parentheses)
+  and `rename` (value `let`s and the JOIN binding renamed) keep
+  everything, each SQL byte for byte except the quoted new binding;
+  `inline` (a SELECT item writes its `let`'s expression) keeps all but a
+  project's SQL; `reverse` (SELECT items and value `let`s reversed),
+  `commute` (operands of `and`, `or`, `==`, `!=`, `+`, `*` swapped and
+  comparisons mirrored) and `duplicate` (`p` as `p and p`, `on c` as `on
+  c and c`) keep exit, status, codes, columns and types but compare no
+  SQL, so they catch a rewrite only where it changes acceptance, codes,
+  types or nullability; no relation compares rows. Pure tests check that
+  the oracle gives each rewrite the original's columns, that each relation
+  changes a registered case of each form it applies to, and that a layout
+  reading `is not None` as `is None` is caught by its SQL alone.
+- **Engine oracles.** For each case the oracle draws six seeded rows per
+  source and writes the case's SQL from the case alone: every expression
+  parenthesized, each `let` inlined, three-valued `AND` and `OR`,
+  `COUNT(*)`, and each key with the NULL order that the SQLite and DuckDB
+  targets document and write, `NULLS LAST` ascending and `NULLS FIRST`
+  descending, the language leaving the place of NULL to the target
+  ([language reference](../../language.md)). It imports only the standard
+  library and the generator, which a test checks. The same text runs in an
+  in-memory SQLite database and in DuckDB; the two must agree up to the
+  sign of a zero, and no column the generator's oracle types `non_null`
+  may hold a NULL. Where a target accepts a case, its public outputs must
+  return the oracle's rows: the SQL of single-file `emit-sql --dialect
+  sqlite` and of a SQLite project's `compile_query`, run on the same
+  database, and `execute` on the `duckdb_arrow` route of a DuckDB
+  project's `compile_query`, with one input per source the statement
+  reads (D79.19) and `Date` columns as `date32`, whose result columns and
+  Arrow types must also be the oracle's. Rows compare in order where the
+  ORDER BY fixes every row, as bags otherwise, and under a LIMIT by count
+  and bag inclusion. Only public outputs are read, no JOIN fact (PL.62).
+  Only a target's refusal leaves a case uncompared: a single-file exit 1
+  whose errors are all PIE-B codes, a project whose field types the
+  target's representation table lacks, or a `CompileRejected` that is
+  `BLOCKED` by PIE-B blockers alone; any other failure fails the case.
+- **Reach.** A census test requires each route to accept at least one
+  registered case of each form it opens, so that a later opening does not
+  fail it and a route that stops opening a form does; its counts are
+  observations, not asserted floors, so fewer cases of a form that stays
+  open pass it. At this commit single-file SQLite accepts 24 (11 row, 13
+  aggregate) and refuses 56 with PIE-B1000; a SQLite project accepts 18 (3
+  row, 12 aggregate, and 2 INNER and 1 LEFT JOIN, which SQLite B2's second
+  tier opened), leaves 34 outside its representation table, which has no
+  `Date`, and refuses 28 as `BLOCKED`; a DuckDB project accepts 20 (1 row,
+  15 aggregate, 1 INNER and 3 LEFT JOIN, 5 with a `Date` field) and
+  refuses 60 as `BLOCKED`. Witnesses that must be accepted and compared:
+  the row and aggregate cases of each route; on each project route its
+  INNER JOIN (seed 2, narrow) and a LEFT JOIN (on SQLite 26, narrow, whose
+  WHERE keeps matched rows only; on DuckDB 15, broad, which joins on a
+  `Date` field, and 33, narrow, which has one); and on DuckDB an aggregate
+  whose WHERE tests a `Date` field (9, narrow). Eight cases built outside
+  the registered seeds, an optional `Int` or `Text` field holding at least
+  two NULLs as the first ORDER BY key, ascending and descending, with no
+  LIMIT and with a LIMIT of 2, run on all three routes, each of which must
+  accept them; their oracle rows change when their NULL places swap, which
+  a test checks, so none passes without the target's NULL order. One more,
+  a LEFT JOIN on a `Text` field with a row of `t` that no row of `u`
+  matches, runs on both project routes, each of which must accept it; its
+  oracle rows change when the JOIN is read as INNER, which a test checks,
+  so it cannot pass with LEFT emitted as INNER, which the registered SQLite
+  LEFT JOIN cannot show. Coverage stays an observation: no DuckDB case
+  reaches arithmetic, unary `-`, a call, a `let` or `avg`, no SQLite
+  project case a `Date`, arithmetic, unary `-`, a call, a `let` or `sum`,
+  and no single-file SQLite case arithmetic, unary `-`, a call or `sum`.
+  Weakened copies, each run against the engine owner with the extra and
+  `--pietto-sqlite-class=qualified`, all fail it: `NULLS FIRST` and `NULLS
+  LAST` swapped in single-file SQLite (10 failures, 8 of them the NULL
+  cases), in the SQLite project (8) and on DuckDB (8), the last two caught
+  by the NULL cases alone; LEFT emitted as INNER on DuckDB (3) and in the
+  SQLite project (1, the built LEFT JOIN alone); `<` and `<=` swapped in
+  single-file SQLite (3), the SQLite project (3) and DuckDB (1); `IS NULL`
+  and `IS NOT NULL` swapped in the SQLite project (9) and on DuckDB (10);
+  `<>` written as `=` on DuckDB (1); and a plugin that refuses every SQLite
+  project JOIN case as `BLOCKED` by a PIE-B code (4: the census, both JOIN
+  witnesses and the built LEFT JOIN). In the core environment, a plugin
+  that refuses every DuckDB JOIN case as `BLOCKED` by a PIE-B code fails
+  the census, one that refuses it as `INPUT_REJECTED`, no target refusal,
+  fails it too, and one that turns a single-file emission into an exit 1
+  with a PIE-S error fails every SQLite case. These weakened copies ran
+  on this commit on 2026-11-27, on T2's base and after its first review
+  round's repairs, and the differential's four in the Checks bullet on
+  2026-11-28, after the second round's; the Checks bullet's others ran
+  on 2026-11-27 on this commit before those repairs, which leave their
+  code as it was.
+- **Where the engines run.** Product SQLite SQL runs only on the measured
+  build, under the SQLite class of [SQLite target
+  validation](../../development.md#sqlite-target-validation): elsewhere the
+  oracle, the reach and the project columns are still checked, and then
+  no product row is compared under `hosted-refusal`, `qualified` fails and
+  `report` skips with a counted `PIETTO_NOT_RUN sqlite-native` line. The
+  DuckDB half needs the `execute-duckdb` extra, so its 89 cells skip in
+  every CI job and in the core environment of `scripts/validate.py`; the
+  integration host's Gate 2 runs the owner in its `execute-duckdb`
+  environment with `--pietto-sqlite-class=qualified` and no skip, under
+  row 10 of [validation runner
+  acceptance](../../spec/validation-runner-acceptance-v1.md), and the
+  batch's Gate 2 is the DuckDB half's first run of record. Before it, this
+  assembly's run in that environment gave 181 passed, 0 skipped, exit 0,
+  on 2026-11-27; the engine step of the Gate 2 launcher's self-test
+  `p81-launcher-selftest`, which ran on 2026-11-28 on `e099eee3`, an
+  earlier candidate of this batch with DuckDB 2.0.0, gave 181 passed, 0
+  skipped, exit 0, and is not authoritative.
+- **Two-database differential.** For seeds 0 to 999 of the narrow
+  profile, whose forms PostgreSQL and MySQL projects both open, it draws
+  the rows of `t` and `u` within the emission contract's domains (`Int`
+  from -1,000 to 1,000, `Text` of at most 16 characters with no padding,
+  few enough values that joins, groups and ties occur), loads them as the
+  contract's storage on each target, compiles the case with
+  `compile_query` for each and runs it through the public `execute()` on
+  `postgres_rows` and `mysql_rows`. Both results must be complete, have
+  the generator oracle's column names, the Arrow type of each oracle type
+  (`int64`, `double`, `string`, `bool`, `date32[day]`) and its
+  nullability, hold no NULL in a column the oracle types `non_null`, and
+  return the same rows as far as the language promises them: in order
+  under a total ORDER BY of keys that cannot be NULL, as multisets
+  otherwise, and, where a LIMIT cuts an unpromised order, as
+  sub-multisets of the same query's complete results, which must be
+  equal. An error on either target is a disagreement. It finds only
+  disagreements between the two targets: an error that their shared
+  project renderer makes alike, such as `<` and `<=` swapped in its
+  comparison table, returns the same wrong rows on both, and is left to
+  the byte owners and the target-conformance owners, which catch that
+  one; a campaign with no disagreement is not row correctness for either
+  target. The default tests keep the corpus of 1,000 cases and its digest
+  `e60e2655…`, the rows' domains, the loading SQL, the order promise,
+  the oracle's schema for each type and each kind of disagreement, with
+  no database.
+- **Campaign.** Registered before it ran, over the committed helper
+  (SHA-256 `471467ad…`) on candidate `5d846318`, tree `40bb2ad0`: all
+  1,000 seeds, explicitly, on Linux, against one owned PostgreSQL 18.6 and
+  one owned MySQL 8.4.12 container of the pinned images of
+  `tests/phase66_target_pins.json`, through the conformance facility's
+  `acquire()` on the Docker Engine at `unix:///var/run/docker.sock`
+  (D77.19), whose endpoint was checked from the lane's environment
+  before dispatch, under one of each engine's three slot locks (PL.14)
+  for the whole run. The lock's holder exports
+  `PIETTO_ENGINE_SLOT_POSTGRES_SUFFIX` and
+  `PIETTO_ENGINE_SLOT_MYSQL_SUFFIX`; the lock tool is not in this
+  repository, and without either suffix the campaign refuses before it
+  opens a container. A SIGTERM or SIGHUP, as when the session that started
+  it ends, stops it as an interrupt does: it still removes both containers
+  and writes a `FAILED` report that keeps the seeds it observed, and it
+  ignores both while it cleans up, which has its own deadline; an
+  interrupt (SIGINT) or a SIGKILL during the cleanup still stops it, so
+  a run starts in a session of its own (`setsid`). The
+  campaign of record runs on the batch's final candidate, after its last
+  restack. `--first` and `--stop` run part of the seeds, and only a run
+  of all 1,000 is the campaign. Its `report.json` records the corpus and
+  helper digests, each seed's observations, the disagreements and the
+  cleanup; it passes only with a `COMPLETE` report, no disagreement and
+  every cleanup `success`, and no other evidence, the default tests
+  included, stands in for it. A launch-path run of the first seeds with
+  the real slot exports comes first; it also checks the oracle's Arrow
+  type and nullability map against the two engines, and it is evidence,
+  never the campaign. A disagreement is kept, never rerun into a pass
+  (field 30): its seed is reduced by hand with the shrinker and a
+  predicate that reruns both engines and keeps the route and the kind of
+  problem, then classified as a product defect (stop point 4), a harness
+  defect or a documented target freedom, either of which voids the run
+  and registers a new one. It ran from 11:35:44Z to 11:49:47Z at a
+  one-minute load of 0.56 at its start and 1.32 at its end, slots 2 and 2:
+  1,000 cases (334 row, 338 aggregate, 328 JOIN; 445 promised orders, 212
+  rerun without their LIMIT), no disagreement, cleanups `success` and
+  `success`; a case took 0.688 s at the median and 2.496 s at most; report
+  SHA-256 `79659dac…`; the launch-path run of seeds 0 to 24, with the
+  Arrow type and nullability map checked against both engines, came before
+  it in the same hold.
+- **Compile-time benchmark.** It times the public `compile_sql` over
+  P07's registered corpus, each case compiled as a project for
+  PostgreSQL and also for MySQL in the narrow profile, 120 compilations a
+  pass: a synthetic compiler workload, not ten nodes. The project files
+  are written once, as UTF-8 with LF line ends, before any timing; one
+  untimed warmup pass, which the command requires so that no timed pass
+  pays the lazy compiler import, and five timed passes run by default,
+  each after `gc.collect()`, timed by `time.perf_counter_ns`. The report
+  gives each pass, the median pass, each unit's median, each output's
+  status and SHA-256 and whether every pass gave the same outputs, the
+  run's start and end, and the one-minute load at the start and at the
+  end of each pass. As in P17's [validity rule](#p17-import-time-target),
+  a report with no pass or no load, or one of whose passes ends at a load
+  of 4 or more or takes more than twice the fastest, is void. `compare`
+  refuses two reports that are not the same measurement (workload, corpus,
+  units, warmup, repeats, unit, clock, Python and hash seed), a void report
+  and one run without a fixed `PYTHONHASHSEED`, which CPython draws afresh
+  when it is unset, empty or `random`, and then prints no ratio; no timing
+  makes it or a test fail. Only valid reports of runs that alternate the
+  base and the newer checkout in one session support a before-and-after
+  claim, as P15's paired measure did ([P15 record](#p15-record)); the
+  benchmark has no paired mode. The baseline: median pass 5.072 s, 120
+  `VERIFIED`, outputs stable, load 0.93 to 1.01, on `5d846318` on
+  2026-11-28.
+- **Ten-node profile.** The tool of step 4 of [phase-end acquisition
+  consolidation](../../development.md#phase-end-acquisition-consolidation)
+  takes its nodes from a file, one id per line in order, blank lines
+  dropped and an empty file refused, whose path and SHA-256 the report
+  records; it has no default list. Each node runs alone in a fresh
+  process under cProfile from setup to teardown, within a timeout (1,800
+  s by default; a node that outlives it is recorded as `timeout` and fails
+  the run), and reports its phase seconds, the runs of the verifier bodies
+  of `tests/_pietto_project_verification_bodies.py` beside their count per
+  top-level call, the product functions called most often, the top self
+  time and its child processes, so that a child-dominated node is recorded
+  as such; the report also records its end and the load then. A top-level
+  call is a call of a product function from a frame of a file under the
+  profiled checkout's `tests` directory; a callback from the standard
+  library or a third-party package, such as ANTLR's runtime or a `json`
+  hook, is not one, and the profile's own witness, a test that parses two
+  generated modules, counts exactly its two calls. `compare` of two
+  profiles prints each node's verifier runs and marks a side whose bodies
+  are missing. Profiling another checkout drops this harness's own test
+  helpers first, so that the node imports that checkout's. Phase81's ten,
+  from its final natural CI health, are P16's; the Phase78 audit's ten are
+  an input such a run may be given, never a default.
+- **Commands.** From the repository root, with the same Python and
+  `PYTHONHASHSEED` for both checkouts and, for timings, a quiet host:
+
+  ```bash
+  uv sync --locked --extra execute-postgres --extra execute-mysql
+  uv run python tests/_pietto_harness_generated_forms_differential.py --directory DIR
+  PYTHONHASHSEED=0 uv run python tests/_pietto_harness_performance.py compile --directory OUT/base
+  PYTHONHASHSEED=0 uv run python tests/_pietto_harness_performance.py compile --directory OUT/newer --product-root NEWER
+  uv run python tests/_pietto_harness_performance.py compare OUT/base/report.json OUT/newer/report.json
+  PYTHONHASHSEED=0 nice -n 19 uv run python tests/_pietto_harness_performance.py profile --directory OUT/profile --nodes-file NODES
+  PYTHONHASHSEED=0 nice -n 19 uv run python tests/_pietto_harness_performance.py profile --directory OUT/profile-newer --checkout NEWER --nodes-file NODES
+  ```
+
+  `--product-root` compiles the same corpus with another checkout's
+  `src/pietto`; `--checkout` runs that checkout's own tests.
+- **Checks.** Ruff format and lint over the changed files, and both
+  `pyright` runs of `scripts/validate.py` at the chain's head, with no
+  error. Pytest with four workers in the core environment on 2026-11-28:
+  P07's owner, the five P08 owners and
+  `tests/test_project_verification_scope.py`, 434
+  passed and 89 skipped, the 89 being the DuckDB half; the engine owner with
+  the `execute-duckdb` extra and `--pietto-sqlite-class=qualified`, 181
+  passed and 0 skipped. Weakened copies of the other parts each fail their
+  owner: the differential without the oracle's schema (6 failures) or
+  without its NULL check (3), or with a campaign that does not ignore a
+  stop while it cleans up (1) or stops only on SIGTERM (2); the profile
+  counting any caller outside the
+  product (2, its witness among them); `compare` taking a void report or
+  one without `PYTHONHASHSEED` (1 each); the validity rule without its
+  spread (2) or its load (1); the nodes file taking an empty list (1); the
+  profile without its timeout (1); the command taking `--warmup 0` (1);
+  `compare` taking a seed that is empty or `random` (1); and the validity
+  rule taking a report without a pass (1).
+  Renaming `BODIES` in the shared helper breaks both owners that read it,
+  and renaming a class inside the scope test leaves the profile owner
+  passing. No test reads `docs/phases` and none imports a test module
+  (`git grep`, exit 1 each). Not run: Windows and CPython 3.12 (natural
+  CI's) and the authoritative Gate 2 (the batch's) with its engine step;
+  the campaign and the benchmark baseline have their own bullets.
+- **Workload.** Every new node is an ordinary `general-runtime` test with
+  no `ci_workload` declaration and no runner capability, except the
+  engine owner's DuckDB half, whose capability is its extra (above).
+  Nodes: shrink 84, metamorphic 83, engines 181 (89 of them the DuckDB
+  half), differential 20 and performance 12, beside P07's 83 and the scope
+  owner's 60. On the first assembly's core run (three workers, 429 passed
+  and 88 skipped, at a one-minute load of 9 to 20), the seven owners took
+  106 s, the census node 5.8 s
+  and each metamorphic case at most 4.6 s, under the 60 s long-node
+  threshold; on a quiet host (core environment, four workers by file,
+  one-minute load 0.86 to 1.09, on 2026-11-28), per owner: shrink 84
+  nodes, 6.1 s summed, 0.39 s at most; metamorphic 83 nodes, 138.7 s
+  summed, 3.92 s at most; engines 181 nodes (89 skipped there), 7.8 s
+  summed, 5.04 s at most; differential 20 nodes, 0.1 s summed, 0.04 s at
+  most; performance 12 nodes, 2.3 s summed, 1.84 s at most; P07's 83
+  nodes, 29.2 s summed, 0.71 s at most; the scope owner's 60 nodes, 13.8 s
+  summed, 3.01 s at most. The metamorphic owner is the heaviest and gets
+  no
+  `[[file_costs]]` entry here, since `ci/workloads.toml` has one writer;
+  that waits for the writer's next reviewed health recommendation. Each
+  owner's executable examples are its weakened copies above. New
+  exceptional acquisition: the campaign's two containers per run, owned
+  and removed by `tests/_pietto_target_conformance_resources.py`'s
+  `Resources`; one fresh `profile-node` process per profiled node and one
+  for the profile owner's own test, each with this environment less
+  pytest's options and worker state; nothing else.
+- **Not done.** No SQLite row oracle over the differential's rows: Q9 A
+  names the two-database differential as these targets' oracle and the
+  in-process engines for their own opened forms only. No paired mode in
+  the benchmark. No automatic reduction of a failure. P07's
+  not-generated forms stay not generated. P08 is ready for a batch only
+  once its campaign has run; without a free PostgreSQL and MySQL slot
+  pair before a batch's seal it waits for the next batch rather than
+  sealing a campaign that did not run.
+
 ## P12 record
 
 P12 takes PL.44 (a) on the route's base `6fa66291`, with the scope that

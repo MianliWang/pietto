@@ -18,9 +18,9 @@ from typing import Any, cast
 import pytest
 
 from _pietto_execution_postgres_rows_probe import template
+from _pietto_project_verification_bodies import BODIES
 from pietto._project import model
 from pietto._project import project_compiled_verification as compiled_verification
-from pietto._project import project_completed_semantics as completed_semantics
 from pietto._project import project_execution as execution
 from pietto._project import project_guard_preparation as guard_preparation
 from pietto._project import project_query_block_ir_verification as ir_verification
@@ -36,47 +36,6 @@ from pietto._project.project_execution_template import (
 
 ROOT = Path(__file__).resolve().parents[1]
 MON = sys.monitoring
-
-
-def _body(module, private, public):
-    """The complete check: the memo's private body, else today's public one."""
-    return getattr(module, private, None) or getattr(module, public)
-
-
-# The complete bodies this guard counts: the eight memoized structural checks
-# plus the description and semantics checks they call. The binding-layer
-# verifiers are not memoized; their nested compiled checks are memo hits.
-BODIES = {
-    "verify(root)": getattr(model, "_verify_compiled_input", None)
-    or model.CompiledProjectInput.verify,
-    "verify_description": compiled_verification.verify_description,
-    "verify_compiled_semantics": completed_semantics.verify_compiled_semantics,
-    "verify_compiled_query_block_ir": _body(
-        ir_verification,
-        "_verify_compiled_query_block_ir",
-        "verify_compiled_query_block_ir",
-    ),
-    "verify_compiled_sql_plan": _body(
-        plan_verification, "_verify_compiled_sql_plan", "verify_compiled_sql_plan"
-    ),
-    "verify_compiled_emission": _body(
-        compiled_verification,
-        "_verify_compiled_emission",
-        "verify_compiled_emission",
-    ),
-    "verify_compiled_requirement_report": _body(
-        requirements,
-        "_verify_compiled_requirement_report",
-        "verify_compiled_requirement_report",
-    ),
-    "verify_scope": _body(guard_preparation, "_verify_scope", "verify_scope"),
-    "verify_preparation": _body(
-        guard_preparation, "_verify_preparation", "verify_preparation"
-    ),
-    "verify_project_sql_plan": _body(
-        plan_verification, "_verify_project_sql_plan", "_verify"
-    ),
-}
 
 
 class Runs:

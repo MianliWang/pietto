@@ -541,7 +541,12 @@ natural CI's arrow-ready cell runs seven real `duckdb_arrow` queries
 instead: B1's filter; B2's grouped aggregate with `having`, `order by`
 with `limit`, and filter with a literal and two parameters; and the second
 tier's `Int` arithmetic, `Date` and `Decimal` fields filtered by a `Date`
-parameter, and an inner JOIN over a tuple of inputs.
+parameter, and an inner JOIN over a tuple of inputs. The generated forms'
+engine owner `tests/test_harness_generated_forms_engines.py` skips its
+DuckDB cells the same way, so its acceptance also counts those skips beside
+the passes; the integration host runs it in the `execute-duckdb`
+environment with `--pietto-sqlite-class=qualified` and admits no skip
+there.
 [Validation runner acceptance](spec/validation-runner-acceptance-v1.md)
 row 10 states where the premise holds.
 
