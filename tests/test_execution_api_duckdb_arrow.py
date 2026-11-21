@@ -203,7 +203,10 @@ class _Connection:
     def sql(self, query: str, **arguments: Any) -> Any:
         if self._registered and "statement" in self._hooks:
             self._hooks["statement"]()
-        return self._connection.sql(query, **arguments)
+        relation = self._connection.sql(query, **arguments)
+        if self._registered and "relation" in self._hooks:
+            return self._hooks["relation"](relation)
+        return relation
 
     def register(self, name: str, table: Any) -> Any:
         self._calls.append(("register", name))
@@ -249,7 +252,9 @@ def _recorded(
     """The connection calls of every attempt, behind the real driver check,
     and the hooks a test may set: `register` runs with the real connection
     when the capture is registered (an exception fails the registration),
-    `statement` before each statement after the registration."""
+    `statement` before each statement after the registration, and
+    `relation` takes the relation of each such statement and gives the one
+    the route reads."""
     calls: list[tuple[str, ...]] = []
     hooks: dict[str, Any] = {}
     driver = route._driver
@@ -1625,6 +1630,60 @@ def test_batches_have_the_compiled_schema_and_follow_the_limits(
         assert calls == [*OPENED, *ENDED]
     # max_bytes 40 refuses the second batch of two rows, after the first.
     assert (failure.outcome.batches, failure.outcome.rows) == (1, 2)
+
+
+class _Reader:
+    """DuckDB's batch reader, giving the batches that `extra` makes for its
+    schema before its own."""
+
+    def __init__(self, reader: Any, extra: Any) -> None:
+        self._reader, self._extra = reader, list(extra(reader.schema))
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._reader, name)
+
+    def read_next_batch(self) -> Any:
+        return self._extra.pop(0) if self._extra else self._reader.read_next_batch()
+
+
+class _Relation:
+    """A statement's relation whose batch reader is a `_Reader`."""
+
+    def __init__(self, relation: Any, extra: Any) -> None:
+        self._relation, self._extra = relation, extra
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._relation, name)
+
+    def to_arrow_reader(self, rows: int) -> _Reader:
+        return _Reader(self._relation.to_arrow_reader(rows), self._extra)
+
+
+def test_a_batch_without_rows_is_skipped_and_one_beyond_batch_rows_fails(
+    projection_query: execution.CompiledQuery, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Session steps 3 and 4 (D79.30), which DuckDB `2.0.0`'s reader never
+    reaches, so a reader that does stands in for it: a batch with no rows
+    is skipped, never delivered, and a batch of more than `batch_rows` rows
+    fails the statement with PIE-R3005 DUCKDB_RESULT_CHECK."""
+    pa = _engine()
+    _calls, hooks = _recorded(monkeypatch)
+    limits = execution.ExecutionLimits(batch_rows=2)
+
+    def empty(schema: Any) -> list[Any]:
+        return [pa.RecordBatch.from_pylist([], schema=schema)] * 2
+
+    def three(schema: Any) -> list[Any]:
+        return [pa.RecordBatch.from_pylist([{"id": 1, "note": "a"}] * 3, schema=schema)]
+
+    hooks["relation"] = lambda relation: _Relation(relation, empty)
+    with _handle(pa, projection_query, limits=limits) as result:
+        batches = [pa.record_batch(batch) for batch in result]
+    assert [b.num_rows for b in batches] == [2, 2, 1]
+    hooks["relation"] = lambda relation: _Relation(relation, three)
+    failure = _failed(_handle(pa, projection_query, limits=limits))
+    assert (failure.code, failure.detail) == ("PIE-R3005", "DUCKDB_RESULT_CHECK")
+    assert failure.outcome is not None and failure.outcome.batches == 0
 
 
 def test_a_result_far_beyond_the_limits_stops_at_its_first_batch_beyond_them(
