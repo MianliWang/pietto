@@ -1901,6 +1901,107 @@ def test_postgresql_r2_refuses_a_first_page_it_does_not_read(tmp_path, form):
     assert _r2_refusals(query, pin="0" * 64)[1] == trust
 
 
+_VERIFY = ("verify", "REFINEMENT_NATIVE_SQL")
+_RENDER = ("render", "REFINEMENT_NATIVE_SQL")
+# D19 (PL.40 D19 A): the MySQL forms of the MC lists `d19` and `d19p`, which
+# measure R2's first page natively, each with its offline prediction: the
+# stage of D77.80's first-page check that refuses its page and the reason it
+# raises there (U and P forms), or None for a page the check reads (R and Q
+# forms); and each header-parameter form's one binding (for P01 and P02 the
+# joint acceptance shape's first).
+D19_FIRST_PAGES = {
+    **dict.fromkeys((*(f"U{n:02}" for n in range(1, 17)), "U18"), (_VERIFY, None)),
+    "U17": (("verify", "REFINEMENT_SCALAR"), None),
+    **dict.fromkeys((*(f"R{n:02}" for n in range(1, 13)), "R15", "R17"), (None, None)),
+    "P01": (_RENDER, {"k": 1, "b": 2, "p": 2, "f": -1}),
+    "P02": (_VERIFY, {"low": 1, "label": "a"}),
+    "P03": (_RENDER, {"k": 1}),
+    "P04": (_RENDER, {"f": 0}),
+    "P05": (_RENDER, {"k": 1}),
+    "P06": (_RENDER, {"b": 2}),
+    "P07": (_RENDER, {"p": 1}),
+    "P08": (_VERIFY, {"label": "a"}),
+    "P09": (_VERIFY, {"label": "a"}),
+    "P10": (_RENDER, {"f": 0}),
+    "Q01": (None, {"p": 1}),
+    "Q02": (None, {"p": 1}),
+    "Q03": (None, {"p": 1}),
+    "Q04": (None, {"low": 1}),
+    "Q05": (None, {"p": 2}),
+    "Q06": (None, {"p": 1}),
+}
+
+
+def _first_page_on_mysql(stages):
+    """D77.80's first-page check as PostgreSQL makes it, made on MySQL too:
+    a page it does not render or read is refused, with the stage and reason
+    appended to ``stages``; a page it reads at sizes 1 and 1000 appends
+    `read`."""
+    from pietto._project import project_refinement as refinement
+    from pietto._project.project_refinement_rendering import render
+    from pietto._project.project_refinement_verification import (
+        page_syntax,
+        verify_native,
+    )
+
+    def check(value):
+        assert not refinement._compiled_now(value.original)
+        stage = "syntax"
+        try:
+            for size in (1, 1000):
+                stage = "syntax"
+                statement, controls = page_syntax(value, None, size)
+                stage = "render"
+                native = render(statement, value.original, controls, clock=None)
+                stage = "verify"
+                verify_native(native, value, size=size, clock=None)
+        except ValueError as error:
+            stages.append((stage, str(error)))
+            raise ValueError("REFINEMENT_NATIVE_SQL") from None
+        stages.append(("read", None))
+
+    return check
+
+
+@pytest.mark.parametrize("form", D19_FIRST_PAGES)
+def test_mysql_r2_first_page_of_a_measured_form_is_as_predicted(
+    tmp_path, monkeypatch, form
+):
+    """Each MySQL form that D19 measures compiles to its pinned SQL as a
+    form that 0.1.11 compiled, and R2 takes it to the workspace without
+    reading its first page. With D77.80's check made on MySQL too, save and
+    recover refuse a page predicted unread, at its stage and reason, and go
+    on to the workspace with one predicted read."""
+    import _pietto_execution_joint_acceptance as joint
+    import _pietto_sql_emission as emission
+    from pietto._project import project_refinement as refinement
+
+    assert set(D19_FIRST_PAGES) == {*emission.D19_FORMS, *emission.D19P_FORMS}
+    unread, parameters = D19_FIRST_PAGES[form]
+    world = "d19" if form in emission.D19_FORMS else "d19p"
+    bodies, pinned = {
+        "d19": (emission.D19_FORMS, emission.D19_FORM_SQL),
+        "d19p": (emission.D19P_FORMS, emission.D19P_FORM_SQL),
+    }[world]
+    assert set(pinned) == {(name, "mysql") for name in bodies}
+    shape = {"P01": "param_window", "P02": "param_result"}.get(form)
+    if shape is not None:
+        (item,) = (item for item in joint.SHAPES if item.name == shape)
+        assert (item.body, item.bindings[0]) == (bodies[form], parameters)
+    query = _world_query(tmp_path, world, bodies[form])
+    assert query._main_emits is True and query.emission is not None
+    assert json.loads(query.emission)["sql"] == pinned[form, "mysql"]
+    restated = {} if parameters is None else {"parameters": parameters}
+    assert _r2_refusals(query, **restated) == (_WORKSPACE, _WORKSPACE)
+    stages = []
+    monkeypatch.setattr(
+        refinement, "_readable_first_page", _first_page_on_mysql(stages)
+    )
+    refusal = _WORKSPACE if unread is None else _NATIVE_SQL
+    assert _r2_refusals(query, **restated) == (refusal, refusal)
+    assert stages == [unread or ("read", None)] * 2
+
+
 def test_mysql_r2_decides_each_query_of_a_module_alone(tmp_path):
     """A query that 0.1.11 compiled keeps R2 beside one it refused."""
     import pietto.execution as execution

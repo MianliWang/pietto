@@ -24261,3 +24261,285 @@ E4_REFUSAL_BLOCKERS = {
     "set_operand": [("PIE-B1003", "float_literal_operands_required", 10, 9)],
     "unread_parameter": [("PIE-B1003", "float_literal_operands_required", 10, 9)],
 }
+
+
+# D19 (PL.40 D19 A): MySQL R2's first page, measured on a real MySQL by the
+# MC lists `d19` (literal forms over the `words` world) and `d19p` (header-
+# parameter forms over the published one-source fixture `rows`). Each body is
+# the offline enumeration's probe body byte for byte; U and P forms meet a
+# first page that R2 does not read, R and Q forms one that it reads
+# (test_project_r2_proposal.py pins each prediction).
+def d19_world(directory, target, body, policy="preserve_literals"):
+    """``body`` in the `words` world of the MySQL project `lpad` and `now()`
+    pairs (scalar_words_world)."""
+    source, contract = scalar_words_world(target, body, policy)
+    return build_case(directory, source, contract, policy)
+
+
+def d19p_world(directory, target, body, policy="preserve_literals"):
+    """``body`` as the query ``result`` of the published one-source fixture
+    with exact identifier case and the native parameter protocol, as the
+    joint acceptance writes its projects (parameterized_fixture)."""
+    item = parameterized_fixture(target, body, policy)
+    return build_case(directory, item["source"], item["contract"], policy)
+
+
+_D19_FROM = "table result:\n    from words\n"
+_D19_ID = "    select:\n        id\n"
+_D19_WHOLE = (
+    "            order by id rows between unbounded preceding and unbounded following\n"
+)
+_D19_GROUPS = (
+    "    group by:\n        text\n    select:\n        text\n        n = count()\n"
+)
+D19_FORMS = {
+    "U01": _D19_FROM + _D19_ID + "        l = lower(text)\n",
+    "U02": _D19_FROM + _D19_ID + "        u = upper(text)\n",
+    "U03": _D19_FROM + _D19_ID + "        t = trim(text)\n",
+    "U04": _D19_FROM + _D19_ID + "        n = len(text)\n",
+    "U05": _D19_FROM + _D19_ID + '        r = replace(text, "a", "b")\n',
+    "U06": _D19_FROM + _D19_ID + "        n = nullif(id, 1)\n",
+    "U07": _D19_FROM + _D19_ID + '        c = coalesce(ntext, "x")\n',
+    "U08": _D19_FROM + '    where contains(text, "a")\n' + _D19_ID,
+    "U09": _D19_FROM + _D19_ID + "        c = 1 if id > 1 else 0\n",
+    "U10": _D19_FROM + _D19_ID + "        f = Float(id)\n",
+    "U11": _D19_FROM + "    where 1 <= id <= 3\n" + _D19_ID,
+    "U12": _D19_FROM + "    where id in (1, 2)\n" + _D19_ID,
+    "U13": _D19_FROM + "    where id not in (1, 2)\n" + _D19_ID,
+    "U14": _D19_FROM + "    where not (id > 1)\n" + _D19_ID,
+    "U15": _D19_FROM + '    where same_value(ntext, "a")\n' + _D19_ID,
+    "U16": _D19_FROM + "    select:\n        a = avg(id)\n",
+    "U17": _D19_FROM + _D19_ID + "        t = id + None\n",
+    "U18": _D19_FROM + _D19_ID + '        s = same_value(text, nullif(text, "x"))\n',
+    "R01": _D19_FROM + _D19_ID,
+    "R02": _D19_FROM + _D19_ID + "        z = ntext is None\n",
+    "R03": _D19_FROM + _D19_ID + "        b = id > 1\n",
+    "R04": _D19_FROM + "    where id > 0 and id < 5\n" + _D19_ID,
+    "R05": _D19_FROM + "    where id < 0 or id > 5\n" + _D19_ID,
+    "R06": _D19_FROM + "    select:\n        n = count()\n",
+    "R07": _D19_FROM + "    select:\n        n = count(ntext)\n",
+    "R08": _D19_FROM + "    select:\n        lo = min(id)\n        hi = max(id)\n",
+    "R09": _D19_FROM + "    select:\n        n = count_distinct(text)\n",
+    "R10": _D19_FROM + _D19_GROUPS,
+    "R11": _D19_FROM + _D19_GROUPS + "    having:\n        n > 1\n",
+    "R12": _D19_FROM + _D19_ID + "    order by:\n        id desc\n    limit 2\n",
+    "R15": _D19_FROM + _D19_ID + "        a = lag(id, 1, 0) window(order by id)\n",
+    "R17": _D19_FROM
+    + _D19_ID
+    + "        t = nth_value(id, 2) window(\n"
+    + _D19_WHOLE
+    + "        )\n",
+}
+_D19P_ID = "    select:\n        id\n"
+D19P_FORMS = {
+    # The joint acceptance shapes `param_window` and `param_result`, verbatim.
+    "P01": """query result(k: Int, b: Int, p: Int, f: Int):
+    from rows
+    select:
+        id
+        a = lag(id, k, f) window(order by id)
+        n = ntile(b) window(order by id)
+        t = nth_value(id, p) window(
+            order by id rows between unbounded preceding and unbounded following
+        )
+""",
+    "P02": """query result(low: Int, label: Text | None):
+    from rows
+    where contains(text, label)
+    select:
+        id
+        s = id * low
+        u = lower(label)
+        r = row_number() window(order by id)
+    qualify:
+        r <= low + 1
+    order by:
+        id * low
+""",
+    "P03": "query result(k: Int):\n    from rows\n"
+    + _D19P_ID
+    + "        a = lag(id, k) window(order by id)\n",
+    "P04": "query result(f: Int):\n    from rows\n"
+    + _D19P_ID
+    + "        a = lag(id, 1, f) window(order by id)\n",
+    "P05": "query result(k: Int):\n    from rows\n"
+    + _D19P_ID
+    + "        a = lead(id, k) window(order by id)\n",
+    "P06": "query result(b: Int):\n    from rows\n"
+    + _D19P_ID
+    + "        n = ntile(b) window(order by id)\n",
+    "P07": "query result(p: Int):\n    from rows\n"
+    + _D19P_ID
+    + "        t = nth_value(id, p) window(\n"
+    + _D19_WHOLE
+    + "        )\n",
+    "P08": "query result(label: Text | None):\n    from rows\n"
+    + "    where contains(text, label)\n"
+    + _D19P_ID,
+    "P09": "query result(label: Text):\n    from rows\n"
+    + "    where lower(text) == label\n"
+    + _D19P_ID,
+    "P10": "query result(f: Int):\n    from rows\n"
+    + _D19P_ID
+    + "        a = lead(id, 1, f) window(order by id)\n",
+    "Q01": "query result(p: Int):\n    from rows\n    where id == p\n" + _D19P_ID,
+    "Q02": "query result(p: Int):\n    from rows\n" + _D19P_ID + "        b = p\n",
+    "Q03": "query result(p: Int):\n    from rows\n" + _D19P_ID + "        b = id > p\n",
+    "Q04": "query result(low: Int):\n    from rows\n"
+    + "    group by:\n        text\n    select:\n        text\n        n = count()\n"
+    + "    having:\n        n > low\n",
+    "Q05": "query result(p: Int):\n    from rows\n    where id > p\n"
+    + _D19P_ID
+    + "    order by:\n        id\n    limit 2\n",
+    "Q06": "query result(p: Int):\n    from rows\n" + _D19P_ID,
+}
+# The MySQL SQL each form emits under `preserve`, main's own (a rank is cast
+# AS SIGNED); R01 and Q06 emit the same bytes.
+D19_FORM_SQL = {
+    ("R01", "mysql"): (
+        "SELECT `s0`.`order.id` AS `id` FROM `phase66`.`phase66 source é` AS `s0`"
+    ),
+    ("R02", "mysql"): (
+        "SELECT `s0`.`order.id` AS `id`, (`s0`.`ntext` IS NULL) AS `z` FROM `phase66`.`phase66 source é` AS `s0`"
+    ),
+    ("R03", "mysql"): (
+        "SELECT `s0`.`order.id` AS `id`, (`s0`.`order.id` > CAST(1 AS SIGNED)) AS `b` FROM `phase66`.`phase66 source é` AS `s0`"
+    ),
+    ("R04", "mysql"): (
+        'WITH `p0` (`c0`, `c1`, `c2`) AS (SELECT `s0`.`order.id` AS `c0`, `s0`.`text ``"é` AS `c1`, `s0`.`ntext` AS `c2` FROM `phase66`.`phase66 source é` AS `s0` WHERE ((`s0`.`order.id` > CAST(0 AS SIGNED)) AND (`s0`.`order.id` < CAST(5 AS SIGNED)))) SELECT `t1`.`c0` AS `id` FROM `p0` AS `t1`'
+    ),
+    ("R05", "mysql"): (
+        'WITH `p0` (`c0`, `c1`, `c2`) AS (SELECT `s0`.`order.id` AS `c0`, `s0`.`text ``"é` AS `c1`, `s0`.`ntext` AS `c2` FROM `phase66`.`phase66 source é` AS `s0` WHERE ((`s0`.`order.id` < CAST(0 AS SIGNED)) OR (`s0`.`order.id` > CAST(5 AS SIGNED)))) SELECT `t1`.`c0` AS `id` FROM `p0` AS `t1`'
+    ),
+    ("R06", "mysql"): (
+        "WITH `p0` (`c0`) AS (SELECT COUNT(*) AS `c0` FROM `phase66`.`phase66 source é` AS `s0`) SELECT `t1`.`c0` AS `n` FROM `p0` AS `t1`"
+    ),
+    ("R07", "mysql"): (
+        "WITH `p0` (`c0`) AS (SELECT COUNT(`s0`.`ntext`) AS `c0` FROM `phase66`.`phase66 source é` AS `s0`) SELECT `t1`.`c0` AS `n` FROM `p0` AS `t1`"
+    ),
+    ("R08", "mysql"): (
+        "WITH `p0` (`c0`, `c1`) AS (SELECT MIN(`s0`.`order.id`) AS `c0`, MAX(`s0`.`order.id`) AS `c1` FROM `phase66`.`phase66 source é` AS `s0`) SELECT `t1`.`c0` AS `lo`, `t1`.`c1` AS `hi` FROM `p0` AS `t1`"
+    ),
+    ("R09", "mysql"): (
+        'WITH `p0` (`c0`) AS (SELECT COUNT(DISTINCT `s0`.`text ``"é`) AS `c0` FROM `phase66`.`phase66 source é` AS `s0`) SELECT `t1`.`c0` AS `n` FROM `p0` AS `t1`'
+    ),
+    ("R10", "mysql"): (
+        'WITH `p0` (`c0`, `c1`) AS (SELECT `s0`.`text ``"é` AS `c0`, COUNT(*) AS `c1` FROM `phase66`.`phase66 source é` AS `s0` GROUP BY `s0`.`text ``"é`) SELECT `t1`.`c0` AS `text`, `t1`.`c1` AS `n` FROM `p0` AS `t1`'
+    ),
+    ("R11", "mysql"): (
+        'WITH `p0` (`c0`, `c1`) AS (SELECT `s0`.`text ``"é` AS `c0`, COUNT(*) AS `c1` FROM `phase66`.`phase66 source é` AS `s0` GROUP BY `s0`.`text ``"é`), `p1` (`c0`, `c1`) AS (SELECT `t1`.`c0` AS `c0`, `t1`.`c1` AS `c1` FROM `p0` AS `t1` WHERE (`t1`.`c1` > CAST(1 AS SIGNED))) SELECT `t2`.`c0` AS `text`, `t2`.`c1` AS `n` FROM `p1` AS `t2`'
+    ),
+    ("R12", "mysql"): (
+        "WITH `p0` (`c0`, `c1`) AS (SELECT `s0`.`order.id` AS `c0`, `s0`.`order.id` AS `c1` FROM `phase66`.`phase66 source é` AS `s0`) SELECT `t0`.`c0` AS `id` FROM `p0` AS `t0` ORDER BY `t0`.`c1` DESC LIMIT 2"
+    ),
+    ("R15", "mysql"): (
+        'WITH `p0` (`c0`, `c1`, `c2`, `c3`) AS (SELECT `s0`.`order.id` AS `c0`, `s0`.`text ``"é` AS `c1`, `s0`.`ntext` AS `c2`, LAG(`s0`.`order.id`, 1, 0) OVER (ORDER BY `s0`.`order.id` ASC) AS `c3` FROM `phase66`.`phase66 source é` AS `s0`) SELECT `t1`.`c0` AS `id`, `t1`.`c3` AS `a` FROM `p0` AS `t1`'
+    ),
+    ("R17", "mysql"): (
+        'WITH `p0` (`c0`, `c1`, `c2`, `c3`) AS (SELECT `s0`.`order.id` AS `c0`, `s0`.`text ``"é` AS `c1`, `s0`.`ntext` AS `c2`, NTH_VALUE(`s0`.`order.id`, 2) OVER (ORDER BY `s0`.`order.id` ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS `c3` FROM `phase66`.`phase66 source é` AS `s0`) SELECT `t1`.`c0` AS `id`, `t1`.`c3` AS `t` FROM `p0` AS `t1`'
+    ),
+    ("U01", "mysql"): (
+        'SELECT `s0`.`order.id` AS `id`, LOWER(`s0`.`text ``"é`) AS `l` FROM `phase66`.`phase66 source é` AS `s0`'
+    ),
+    ("U02", "mysql"): (
+        'SELECT `s0`.`order.id` AS `id`, UPPER(`s0`.`text ``"é`) AS `u` FROM `phase66`.`phase66 source é` AS `s0`'
+    ),
+    ("U03", "mysql"): (
+        'SELECT `s0`.`order.id` AS `id`, TRIM(`s0`.`text ``"é`) AS `t` FROM `phase66`.`phase66 source é` AS `s0`'
+    ),
+    ("U04", "mysql"): (
+        'SELECT `s0`.`order.id` AS `id`, CAST(CHAR_LENGTH(`s0`.`text ``"é`) AS SIGNED) AS `n` FROM `phase66`.`phase66 source é` AS `s0`'
+    ),
+    ("U05", "mysql"): (
+        "SELECT `s0`.`order.id` AS `id`, REPLACE(`s0`.`text ``\"é`, CAST(X'61' AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_0900_bin, CAST(X'62' AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_0900_bin) AS `r` FROM `phase66`.`phase66 source é` AS `s0`"
+    ),
+    ("U06", "mysql"): (
+        "SELECT `s0`.`order.id` AS `id`, NULLIF(`s0`.`order.id`, CAST(1 AS SIGNED)) AS `n` FROM `phase66`.`phase66 source é` AS `s0`"
+    ),
+    ("U07", "mysql"): (
+        "SELECT `s0`.`order.id` AS `id`, COALESCE(`s0`.`ntext`, CAST(X'78' AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_0900_bin) AS `c` FROM `phase66`.`phase66 source é` AS `s0`"
+    ),
+    ("U08", "mysql"): (
+        "WITH `p0` (`c0`, `c1`, `c2`) AS (SELECT `s0`.`order.id` AS `c0`, `s0`.`text ``\"é` AS `c1`, `s0`.`ntext` AS `c2` FROM `phase66`.`phase66 source é` AS `s0` WHERE (INSTR(`s0`.`text ``\"é`, CAST(X'61' AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_0900_bin) > 0)) SELECT `t1`.`c0` AS `id` FROM `p0` AS `t1`"
+    ),
+    ("U09", "mysql"): (
+        "SELECT `s0`.`order.id` AS `id`, (CASE WHEN (`s0`.`order.id` > CAST(1 AS SIGNED)) THEN CAST(1 AS SIGNED) ELSE CAST(0 AS SIGNED) END) AS `c` FROM `phase66`.`phase66 source é` AS `s0`"
+    ),
+    ("U10", "mysql"): (
+        "SELECT `s0`.`order.id` AS `id`, CAST(`s0`.`order.id` AS DOUBLE) AS `f` FROM `phase66`.`phase66 source é` AS `s0`"
+    ),
+    ("U11", "mysql"): (
+        'WITH `p0` (`c0`, `c1`, `c2`) AS (SELECT `s0`.`order.id` AS `c0`, `s0`.`text ``"é` AS `c1`, `s0`.`ntext` AS `c2` FROM `phase66`.`phase66 source é` AS `s0` WHERE (`s0`.`order.id` BETWEEN CAST(1 AS SIGNED) AND CAST(3 AS SIGNED))) SELECT `t1`.`c0` AS `id` FROM `p0` AS `t1`'
+    ),
+    ("U12", "mysql"): (
+        'WITH `p0` (`c0`, `c1`, `c2`) AS (SELECT `s0`.`order.id` AS `c0`, `s0`.`text ``"é` AS `c1`, `s0`.`ntext` AS `c2` FROM `phase66`.`phase66 source é` AS `s0` WHERE (`s0`.`order.id` IN (CAST(1 AS SIGNED), CAST(2 AS SIGNED)))) SELECT `t1`.`c0` AS `id` FROM `p0` AS `t1`'
+    ),
+    ("U13", "mysql"): (
+        'WITH `p0` (`c0`, `c1`, `c2`) AS (SELECT `s0`.`order.id` AS `c0`, `s0`.`text ``"é` AS `c1`, `s0`.`ntext` AS `c2` FROM `phase66`.`phase66 source é` AS `s0` WHERE (`s0`.`order.id` NOT IN (CAST(1 AS SIGNED), CAST(2 AS SIGNED)))) SELECT `t1`.`c0` AS `id` FROM `p0` AS `t1`'
+    ),
+    ("U14", "mysql"): (
+        'WITH `p0` (`c0`, `c1`, `c2`) AS (SELECT `s0`.`order.id` AS `c0`, `s0`.`text ``"é` AS `c1`, `s0`.`ntext` AS `c2` FROM `phase66`.`phase66 source é` AS `s0` WHERE (NOT (`s0`.`order.id` > CAST(1 AS SIGNED)))) SELECT `t1`.`c0` AS `id` FROM `p0` AS `t1`'
+    ),
+    ("U15", "mysql"): (
+        "WITH `p0` (`c0`, `c1`, `c2`) AS (SELECT `s0`.`order.id` AS `c0`, `s0`.`text ``\"é` AS `c1`, `s0`.`ntext` AS `c2` FROM `phase66`.`phase66 source é` AS `s0` WHERE (`s0`.`ntext` <=> CAST(X'61' AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_0900_bin)) SELECT `t1`.`c0` AS `id` FROM `p0` AS `t1`"
+    ),
+    ("U16", "mysql"): (
+        "WITH `p0` (`c0`) AS (SELECT AVG(CAST(`s0`.`order.id` AS DOUBLE)) AS `c0` FROM `phase66`.`phase66 source é` AS `s0`) SELECT `t1`.`c0` AS `a` FROM `p0` AS `t1`"
+    ),
+    ("U17", "mysql"): (
+        "SELECT `s0`.`order.id` AS `id`, (`s0`.`order.id` + CAST(NULL AS SIGNED)) AS `t` FROM `phase66`.`phase66 source é` AS `s0`"
+    ),
+    ("U18", "mysql"): (
+        "SELECT `s0`.`order.id` AS `id`, (`s0`.`text ``\"é` <=> NULLIF(`s0`.`text ``\"é`, CAST(X'78' AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_0900_bin)) AS `s` FROM `phase66`.`phase66 source é` AS `s0`"
+    ),
+}
+D19P_FORM_SQL = {
+    ("P01", "mysql"): (
+        'WITH `p0` (`c0`, `c1`, `c2`, `c3`, `c4`, `c5`, `c6`, `c7`) AS (SELECT `s0`.`order.id` AS `c0`, `s0`.`flag value` AS `c1`, `s0`.`text ``"é` AS `c2`, `s0`.`amount value` AS `c3`, `s0`.`ratio value` AS `c4`, LAG(`s0`.`order.id`, ?, CAST(? AS SIGNED)) OVER (ORDER BY `s0`.`order.id` ASC) AS `c5`, CAST(NTILE(?) OVER (ORDER BY `s0`.`order.id` ASC) AS SIGNED) AS `c6`, NTH_VALUE(`s0`.`order.id`, ?) OVER (ORDER BY `s0`.`order.id` ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS `c7` FROM `phase66`.`phase66 source é` AS `s0`) SELECT `t1`.`c0` AS `id`, `t1`.`c5` AS `a`, `t1`.`c6` AS `n`, `t1`.`c7` AS `t` FROM `p0` AS `t1`'
+    ),
+    ("P02", "mysql"): (
+        'WITH `p0` (`c0`, `c1`, `c2`, `c3`, `c4`) AS (SELECT `s0`.`order.id` AS `c0`, `s0`.`flag value` AS `c1`, `s0`.`text ``"é` AS `c2`, `s0`.`amount value` AS `c3`, `s0`.`ratio value` AS `c4` FROM `phase66`.`phase66 source é` AS `s0` WHERE (INSTR(`s0`.`text ``"é`, CAST(? AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_0900_bin) > 0)), `p1` (`c0`, `c1`, `c2`, `c3`, `c4`, `c5`) AS (SELECT `t1`.`c0` AS `c0`, `t1`.`c1` AS `c1`, `t1`.`c2` AS `c2`, `t1`.`c3` AS `c3`, `t1`.`c4` AS `c4`, CAST(ROW_NUMBER() OVER (ORDER BY `t1`.`c0` ASC) AS SIGNED) AS `c5` FROM `p0` AS `t1`), `p2` (`c0`, `c1`, `c2`, `c3`, `c4`, `c5`) AS (SELECT `t2`.`c0` AS `c0`, `t2`.`c1` AS `c1`, `t2`.`c2` AS `c2`, `t2`.`c3` AS `c3`, `t2`.`c4` AS `c4`, `t2`.`c5` AS `c5` FROM `p1` AS `t2` WHERE (`t2`.`c5` <= (CAST(? AS SIGNED) + CAST(1 AS SIGNED)))), `p3` (`c0`, `c1`, `c2`, `c3`, `c4`) AS (SELECT `t3`.`c0` AS `c0`, (`t3`.`c0` * CAST(? AS SIGNED)) AS `c1`, LOWER(CAST(? AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_0900_bin) AS `c2`, `t3`.`c5` AS `c3`, `t3`.`c0` AS `c4` FROM `p2` AS `t3`) SELECT `t0`.`c0` AS `id`, `t0`.`c1` AS `s`, `t0`.`c2` AS `u`, `t0`.`c3` AS `r` FROM `p3` AS `t0` ORDER BY `t0`.`c1` ASC'
+    ),
+    ("P03", "mysql"): (
+        'WITH `p0` (`c0`, `c1`, `c2`, `c3`, `c4`, `c5`) AS (SELECT `s0`.`order.id` AS `c0`, `s0`.`flag value` AS `c1`, `s0`.`text ``"é` AS `c2`, `s0`.`amount value` AS `c3`, `s0`.`ratio value` AS `c4`, LAG(`s0`.`order.id`, ?) OVER (ORDER BY `s0`.`order.id` ASC) AS `c5` FROM `phase66`.`phase66 source é` AS `s0`) SELECT `t1`.`c0` AS `id`, `t1`.`c5` AS `a` FROM `p0` AS `t1`'
+    ),
+    ("P04", "mysql"): (
+        'WITH `p0` (`c0`, `c1`, `c2`, `c3`, `c4`, `c5`) AS (SELECT `s0`.`order.id` AS `c0`, `s0`.`flag value` AS `c1`, `s0`.`text ``"é` AS `c2`, `s0`.`amount value` AS `c3`, `s0`.`ratio value` AS `c4`, LAG(`s0`.`order.id`, 1, CAST(? AS SIGNED)) OVER (ORDER BY `s0`.`order.id` ASC) AS `c5` FROM `phase66`.`phase66 source é` AS `s0`) SELECT `t1`.`c0` AS `id`, `t1`.`c5` AS `a` FROM `p0` AS `t1`'
+    ),
+    ("P05", "mysql"): (
+        'WITH `p0` (`c0`, `c1`, `c2`, `c3`, `c4`, `c5`) AS (SELECT `s0`.`order.id` AS `c0`, `s0`.`flag value` AS `c1`, `s0`.`text ``"é` AS `c2`, `s0`.`amount value` AS `c3`, `s0`.`ratio value` AS `c4`, LEAD(`s0`.`order.id`, ?) OVER (ORDER BY `s0`.`order.id` ASC) AS `c5` FROM `phase66`.`phase66 source é` AS `s0`) SELECT `t1`.`c0` AS `id`, `t1`.`c5` AS `a` FROM `p0` AS `t1`'
+    ),
+    ("P06", "mysql"): (
+        'WITH `p0` (`c0`, `c1`, `c2`, `c3`, `c4`, `c5`) AS (SELECT `s0`.`order.id` AS `c0`, `s0`.`flag value` AS `c1`, `s0`.`text ``"é` AS `c2`, `s0`.`amount value` AS `c3`, `s0`.`ratio value` AS `c4`, CAST(NTILE(?) OVER (ORDER BY `s0`.`order.id` ASC) AS SIGNED) AS `c5` FROM `phase66`.`phase66 source é` AS `s0`) SELECT `t1`.`c0` AS `id`, `t1`.`c5` AS `n` FROM `p0` AS `t1`'
+    ),
+    ("P07", "mysql"): (
+        'WITH `p0` (`c0`, `c1`, `c2`, `c3`, `c4`, `c5`) AS (SELECT `s0`.`order.id` AS `c0`, `s0`.`flag value` AS `c1`, `s0`.`text ``"é` AS `c2`, `s0`.`amount value` AS `c3`, `s0`.`ratio value` AS `c4`, NTH_VALUE(`s0`.`order.id`, ?) OVER (ORDER BY `s0`.`order.id` ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS `c5` FROM `phase66`.`phase66 source é` AS `s0`) SELECT `t1`.`c0` AS `id`, `t1`.`c5` AS `t` FROM `p0` AS `t1`'
+    ),
+    ("P08", "mysql"): (
+        'WITH `p0` (`c0`, `c1`, `c2`, `c3`, `c4`) AS (SELECT `s0`.`order.id` AS `c0`, `s0`.`flag value` AS `c1`, `s0`.`text ``"é` AS `c2`, `s0`.`amount value` AS `c3`, `s0`.`ratio value` AS `c4` FROM `phase66`.`phase66 source é` AS `s0` WHERE (INSTR(`s0`.`text ``"é`, CAST(? AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_0900_bin) > 0)) SELECT `t1`.`c0` AS `id` FROM `p0` AS `t1`'
+    ),
+    ("P09", "mysql"): (
+        'WITH `p0` (`c0`, `c1`, `c2`, `c3`, `c4`) AS (SELECT `s0`.`order.id` AS `c0`, `s0`.`flag value` AS `c1`, `s0`.`text ``"é` AS `c2`, `s0`.`amount value` AS `c3`, `s0`.`ratio value` AS `c4` FROM `phase66`.`phase66 source é` AS `s0` WHERE (LOWER(`s0`.`text ``"é`) = CAST(? AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_0900_bin)) SELECT `t1`.`c0` AS `id` FROM `p0` AS `t1`'
+    ),
+    ("P10", "mysql"): (
+        'WITH `p0` (`c0`, `c1`, `c2`, `c3`, `c4`, `c5`) AS (SELECT `s0`.`order.id` AS `c0`, `s0`.`flag value` AS `c1`, `s0`.`text ``"é` AS `c2`, `s0`.`amount value` AS `c3`, `s0`.`ratio value` AS `c4`, LEAD(`s0`.`order.id`, 1, CAST(? AS SIGNED)) OVER (ORDER BY `s0`.`order.id` ASC) AS `c5` FROM `phase66`.`phase66 source é` AS `s0`) SELECT `t1`.`c0` AS `id`, `t1`.`c5` AS `a` FROM `p0` AS `t1`'
+    ),
+    ("Q01", "mysql"): (
+        'WITH `p0` (`c0`, `c1`, `c2`, `c3`, `c4`) AS (SELECT `s0`.`order.id` AS `c0`, `s0`.`flag value` AS `c1`, `s0`.`text ``"é` AS `c2`, `s0`.`amount value` AS `c3`, `s0`.`ratio value` AS `c4` FROM `phase66`.`phase66 source é` AS `s0` WHERE (`s0`.`order.id` = CAST(? AS SIGNED))) SELECT `t1`.`c0` AS `id` FROM `p0` AS `t1`'
+    ),
+    ("Q02", "mysql"): (
+        "SELECT `s0`.`order.id` AS `id`, CAST(? AS SIGNED) AS `b` FROM `phase66`.`phase66 source é` AS `s0`"
+    ),
+    ("Q03", "mysql"): (
+        "SELECT `s0`.`order.id` AS `id`, (`s0`.`order.id` > CAST(? AS SIGNED)) AS `b` FROM `phase66`.`phase66 source é` AS `s0`"
+    ),
+    ("Q04", "mysql"): (
+        'WITH `p0` (`c0`, `c1`) AS (SELECT `s0`.`text ``"é` AS `c0`, COUNT(*) AS `c1` FROM `phase66`.`phase66 source é` AS `s0` GROUP BY `s0`.`text ``"é`), `p1` (`c0`, `c1`) AS (SELECT `t1`.`c0` AS `c0`, `t1`.`c1` AS `c1` FROM `p0` AS `t1` WHERE (`t1`.`c1` > CAST(? AS SIGNED))) SELECT `t2`.`c0` AS `text`, `t2`.`c1` AS `n` FROM `p1` AS `t2`'
+    ),
+    ("Q05", "mysql"): (
+        'WITH `p0` (`c0`, `c1`, `c2`, `c3`, `c4`) AS (SELECT `s0`.`order.id` AS `c0`, `s0`.`flag value` AS `c1`, `s0`.`text ``"é` AS `c2`, `s0`.`amount value` AS `c3`, `s0`.`ratio value` AS `c4` FROM `phase66`.`phase66 source é` AS `s0` WHERE (`s0`.`order.id` > CAST(? AS SIGNED))), `p1` (`c0`, `c1`) AS (SELECT `t1`.`c0` AS `c0`, `t1`.`c0` AS `c1` FROM `p0` AS `t1`) SELECT `t0`.`c0` AS `id` FROM `p1` AS `t0` ORDER BY `t0`.`c1` ASC LIMIT 2'
+    ),
+    ("Q06", "mysql"): (
+        "SELECT `s0`.`order.id` AS `id` FROM `phase66`.`phase66 source é` AS `s0`"
+    ),
+}
