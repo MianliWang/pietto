@@ -188,7 +188,8 @@ states; `VERSIONS` and every compiled record are unchanged.
   that changes project SQL emission: B2 changes no PostgreSQL or MySQL
   project SQL, and the SQLite adapter's modules do not name that function,
   so the debt stays with Phase81 (PL.40 D15 A). Its owed ten-node profile
-  is still owed, beside Phase78's.
+  is recorded NOT_OBSERVED, beside Phase78's cProfile half, in the
+  [acquisition review](#b2-acquisition-review).
 
 ## B2 acquisition review
 
@@ -257,42 +258,54 @@ Classified:
 Structural improvement: none; wall-time improvement: none claimed; no-gain:
 the cross-shard re-emission and the replay's PostgreSQL front end above.
 
-**Ten-slowest profile.** From the health of `44006845752`, Python 3.13,
-which records 126 slowest nodes. Ranked by setup, call and teardown, 13
-nodes above the tenth in-process one spend their time in child processes,
-of the kinds the [B1 review](route.md#b1-acquisition-review) lists, and
+**Ten-slowest profile.** From the health of `44042698462`, this batch's
+natural exact-head CI, read as the [CI health](#ci-health) states, Python
+3.13, which records 126 slowest nodes. Ranked by setup, call and teardown,
+13 nodes above the tenth in-process one spend their time in child
+processes, of the kinds the [B1 review](route.md#b1-acquisition-review)
+lists, and
 `test_the_duckdb_native_checker_accepts_honest_units_and_refuses_each_fabricated_shape`
-(51.8 s) stays set apart, as there. The ten in-process ones:
+(46.8 s) stays set apart, as there. The ten in-process ones:
 
 | Node | Job | 3.13 s | 3.12 s |
 | --- | --- | ---: | ---: |
-| `test_harness_sql_emission_portability.py::test_every_admitted_artifact_exports_corresponds_and_decodes[postgres]` and `[mysql]` | Runtime 3.13 / shared-acquisition | 121.8, 112.9 | 116.5, 104.2 |
-| `test_harness_target_conformance.py::test_data_only_receipt_controls_have_nonempty_positive_denominators[postgres]` (setup 101.8 s, the `valid_receipts` fixture) | Runtime 3.13 / general-runtime-1 | 104.9 | 143.1 |
-| `test_repo_reader_acquisition.py::test_shared_facts_match_legacy_text_ast_import_and_identifier_acquisition` | Runtime 3.13 / general-runtime-1 | 29.4 | 43.3 |
-| `test_repo_test_layout.py::test_no_test_reads_the_mutable_status_or_roadmap` | Runtime 3.13 / general-runtime-2 | 29.2 | 31.3 |
-| `test_harness_target_conformance.py::test_empty_text_anchor_requires_the_observed_var_string_type` | Runtime 3.13 / general-runtime-1 | 27.6 | 38.5 |
-| `test_semantic_capability_facts.py::test_private_module_has_only_authorized_window_strategy_compiler_consumer` | Runtime 3.13 / general-runtime-2 | 23.8 | 24.4 |
-| `test_project_r2_proposal.py::test_r2_refuses_a_paired_mysql_form_before_any_workspace` | Runtime 3.13 / general-runtime-2 | 23.2 | 26.7 |
-| `test_execution_compiled_bundle.py::test_mysql_lpad_and_now_cells_are_derived_in_linear_work[words-_chained_lets]` | Runtime 3.13 / general-runtime-1 | 21.5 | 27.9 |
-| `test_sql_project_scalar_expressions.py::test_q1_scalar_surface_is_verified_through_both_project_targets[mysql]` | Runtime 3.13 / general-runtime-2 | 21.3 | 23.6 |
+| `test_harness_target_conformance.py::test_data_only_receipt_controls_have_nonempty_positive_denominators[postgres]` (setup 126.2 s, the `valid_receipts` fixture) | Runtime 3.13 / general-runtime-1 | 129.1 | 111.4 |
+| `test_harness_sql_emission_portability.py::test_every_admitted_artifact_exports_corresponds_and_decodes[postgres]` and `[mysql]` | Runtime 3.13 / shared-acquisition | 104.6, 97.9 | 183.6, 161.1 |
+| `test_repo_reader_acquisition.py::test_shared_facts_match_legacy_text_ast_import_and_identifier_acquisition` | Runtime 3.13 / general-runtime-1 | 42.3 | 31.9 |
+| `test_harness_target_conformance.py::test_empty_text_anchor_requires_the_observed_var_string_type` | Runtime 3.13 / general-runtime-1 | 34.4 | 32.6 |
+| `test_execution_compiled_bundle.py::test_mysql_lpad_and_now_cells_are_derived_in_linear_work[words-_chained_lets]` | Runtime 3.13 / general-runtime-1 | 26.6 | 23.5 |
+| `test_repo_test_layout.py::test_no_test_reads_the_mutable_status_or_roadmap` | Runtime 3.13 / general-runtime-2 | 25.1 | 16.4 |
+| `test_sql_values.py::test_the_static_values_bound_is_no_emission_guarantee[postgres-1000-64-blockers2]` and `[mysql-1000-64-blockers3]` | Runtime 3.13 / general-runtime-1 | 24.9, 23.8 | 20.8, 20.7 |
+| `test_semantic_capability_facts.py::test_private_module_has_only_authorized_window_strategy_compiler_consumer` | Runtime 3.13 / general-runtime-2 | 21.0 | 12.5 |
 
-None is a Phase78 node. The `valid_receipts` fixture is now built in one
-shard (M13 of PL.49), where B1's profile saw it in three. The Phase78 nodes
-in the recorded lists are the coverage law (9.5 s, 3.13 only), B1's CLI
-dispatch test (6.5 s and 11.9 s) and the plan profile's `sqlite.table` case
-(4.8 s and 6.9 s). The cProfile half of step 4 is NOT_OBSERVED: S16's
-pytest starts run at the lowest priority with four workers on a host that
-other lanes share, which is not the quiet host the step names, so none of
-the ten ran alone under cProfile and no performance claim rests on the
-table. The table reads `44006845752`, the newest natural CI when S16 ran,
-not this batch's: a documentation commit after this batch is published,
-before the `0.2.2` release commit, reads the health of the batch's natural
-CI and redoes the table.
-The cProfile half is the lead's, at the latest before the `0.2.2` release
-commit, together with the profile Phase77's audit still owes; if no quiet
-host runs it by then, it is recorded here as NOT_OBSERVED with the reason.
-Health is advisory, and nothing here changes scheduling, topology or test
-selection.
+None of the ten is a Phase78 node. The `valid_receipts` fixture is still
+built in one shard (M13 of PL.49), where B1's profile saw it in three.
+Against S16's table, which read `44006845752`, the newest natural CI when
+S16 ran, the two `test_sql_values.py` bound nodes joined the ten, and
+`test_project_r2_proposal.py::test_r2_refuses_a_paired_mysql_form_before_any_workspace`
+(20.0 s) and the `[mysql]` cell of
+`test_sql_project_scalar_expressions.py::test_q1_scalar_surface_is_verified_through_both_project_targets`
+(19.1 s) left it. On Python 3.12 the same eight lead, and
+`test_execution_compiled_bundle.py::test_mysql_lpad_and_now_cells_are_derived_in_linear_work[pair-_beside_a_capture]`
+(20.7 s) and R1's
+`test_sql_sqlite_native.py::test_each_r1_postgres_replay_binds_the_bytes_it_ran`
+(17.3 s) take the places of the layout test and the capability-facts test.
+The Phase78 nodes in the recorded lists are that replay test (19.8 s and
+17.3 s), whose PostgreSQL front end is fresh by design, as above, the plan
+profile's `sqlite.table` case (6.6 s, 3.13 only), B1's CLI dispatch test
+(6.5 s and 6.0 s) and the coverage law (5.3 s, 3.13 only).
+
+The cProfile half of step 4 is NOT_OBSERVED, and so is the ten-node
+profile that the [Phase77 audit](../phase-77/completion-audit.md#acquisition-budget-failures-and-profile)
+owes from the health of `43590596831`. Step 4 names a quiet host; the
+integration host is shared by the MySQL catch-up's lanes and others (its
+one-minute load average was 14.9 on 32 CPUs at 15:56Z on 2026-11-21, when
+the health behind this table was read), and S16's pytest starts ran there
+at the lowest priority with four workers. No other host ran them. So no
+node of either profile ran alone under cProfile, no verifier-runs,
+call-count or self-time finding is recorded, and no performance claim
+rests on the table. Health is advisory, and nothing here changes
+scheduling, topology or test selection.
 
 ## CI health
 
@@ -318,6 +331,27 @@ provisional ones are `SHARD_IMBALANCE_REVIEW` for the runtime on both
 Pythons and `LONG_INDIVISIBLE_NODE` 18 times. The health's cost is
 incomplete, as always, since it is written before Windows 3.12 and the
 aggregate job finish. Health is advisory and holds nothing.
+
+This batch's natural exact-head CI, `44042698462` of `300f0a93`,
+push/main attempt 1, ran from 07:57:27Z to 08:16:26Z on 2026-11-17 and
+passed all 21 jobs, which took 10,182 s in all (jobs API, start to
+completion); the longest was Windows 3.13 at 1,085 s. Its health was read
+for the ten-slowest profile through the same token, with GET requests
+only, on 2026-11-21 from 15:56:28Z to 15:56:32Z. Its 15 `ci-health`
+artifacts match the digests, sizes and head that the API lists: the
+workflow summary as read then, the other 14 as the lead's Phase81 Gate 0
+read them on 2026-11-17, whose copy of the summary is byte for byte the
+same. The workflow summary passes `verify_workflow_health` of that head's
+`scripts/ci_workloads.py`, and the aggregate job's `[ci-health]` lines
+agree. Each Python collected 31,424 nodes. The status is
+INSUFFICIENT_EVIDENCE with a WATCH screen. History read 4 candidates and
+accepted 3, `44006845752` (`6a0646b4`), `43946002245` (`31859bc6`) and
+`43902311675` (`64a7f885`), with none rejected and none comparable: each
+differs in runner images and test set. Of 23 signals, the structural
+`FEWER_UNITS_THAN_WORKERS` is the one above, four times; the provisional
+ones are `SHARD_IMBALANCE_REVIEW` for the runtime on Python 3.13 only and
+`LONG_INDIVISIBLE_NODE` 18 times. The health's cost misses only the
+aggregate job, which writes it.
 
 ## Gate 2 durations
 
@@ -400,9 +434,9 @@ until the freeze rules on them.
   `Bool` literals as an incompatible change (PL.54).
 - **Deferred owners.** As the route's [B2 deferred owners](route.md#b2-deferred-owners)
   and the roadmap's deferred subjects name them.
-- **Debts.** The cProfile half of the profile, before the `0.2.2` release
-  commit; the ten-slowest table from this batch's natural CI, in a
-  documentation commit after it and before the `0.2.2` release commit; the
-  coverage law's cross-shard re-emission; and B1's fresh parse. The
-  derived-rows inform is recorded (D78.13), and so are the Gate 2 and
-  natural CI of this batch, [above](#gate-2-durations).
+- **Debts.** The coverage law's cross-shard re-emission and B1's fresh
+  parse. The derived-rows inform is recorded (D78.13), and so are the
+  Gate 2 and natural CI of this batch, [above](#gate-2-durations), the
+  ten-slowest table from that CI's health and, as NOT_OBSERVED, the
+  cProfile half with the profile Phase77's audit owes, in the
+  [acquisition review](#b2-acquisition-review).
