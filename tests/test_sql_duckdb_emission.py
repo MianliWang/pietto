@@ -1320,6 +1320,38 @@ def test_arithmetic_over_left_join_rows_is_null_on_the_joined_side(
     )
 
 
+CHAINED = """table result:
+    from orders
+    {0} join customers on customers.id == orders.amount
+    {1} join buyers on buyers.id == orders.id
+    select:
+        id = orders.id
+        c = customers.id + orders.id
+        b = buyers.id + orders.id
+"""
+
+
+@pytest.mark.parametrize(("first", "second"), (("inner", "left"), ("left", "inner")))
+def test_arithmetic_is_nullable_by_the_kind_of_its_own_reads_join(
+    tmp_path: Path, first: str, second: str
+) -> None:
+    """In a chain of JOINs, arithmetic over a read is nullable when that
+    read's own JOIN is a LEFT JOIN, whatever the kind of the JOIN before or
+    after it."""
+    body = CHAINED.format(first, second)
+    document = narrowed(joined_contract())
+    status, emitted = emit(write(tmp_path / "p", body, document, JOINED_HEADER), body)
+    assert status == "VERIFIED", emitted
+    assert [
+        (c["label"], c["nullable"], c["representation"]["nullable"])
+        for c in emitted["columns"]
+    ] == [
+        ("id", False, False),
+        ("c", first == "left", first == "left"),
+        ("b", second == "left", second == "left"),
+    ]
+
+
 @pytest.mark.parametrize(
     "key,refused",
     (("day", False), ("at", False), ("cost", True)),

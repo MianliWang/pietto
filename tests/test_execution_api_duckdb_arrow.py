@@ -833,6 +833,37 @@ def test_arithmetic_and_typed_keys_run_over_join_rows(tmp_path: Path) -> None:
     assert sorted((r["id"], r["other"]) for r in got) == [(0, 10), (1, 11)]
 
 
+def test_arithmetic_over_a_chain_of_joins_is_null_on_its_left_joined_read(
+    tmp_path: Path,
+) -> None:
+    """Each JOIN's kind decides the nullability of arithmetic over its own
+    read: NULL rows come only from a LEFT JOIN's read, before or after an
+    INNER JOIN, and the result check finds each column as documented."""
+    pa = _engine()
+    body = (
+        "table result:\n    from orders\n"
+        "    {0} join customers on customers.id == orders.amount\n"
+        "    {1} join buyers on buyers.id == orders.id\n"
+        "    select:\n        id = orders.id\n"
+        "        c = customers.id + orders.id\n        b = buyers.id + orders.id\n"
+    )
+    rows = ((1, 5, "a", True, 1.5), (2, 10, None, False, 0.0))
+    rows += ((3, 7, "z", True, 2.0), (5, 7, "y", False, 1.0))
+    access = _inputs(pa, "orders", "customers", orders=orders(pa, rows))
+    for kinds, expected in (
+        (("inner", "left"), [(1, 6, 2), (2, 12, None)]),
+        (("left", "inner"), [(1, 6, 2), (5, None, 10)]),
+    ):
+        root = tmp_path / "_".join(kinds)
+        query = joined(root, body.format(*kinds), document=narrowed(joined_contract()))
+        handle = execution.execute(
+            query, route="duckdb_arrow", access=access, premise=None
+        )
+        with handle as result:
+            got = [r for batch in result for r in pa.record_batch(batch).to_pylist()]
+        assert sorted((r["id"], r["c"], r["b"]) for r in got) == expected, kinds
+
+
 def test_the_inputs_must_name_each_relation_once(
     joined_query: execution.CompiledQuery,
     projection_query: execution.CompiledQuery,
