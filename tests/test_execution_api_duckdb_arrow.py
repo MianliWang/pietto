@@ -1073,6 +1073,27 @@ def test_aggregates_over_join_rows_check_every_declared_key(
     handle.close()
 
 
+def test_an_aggregate_over_one_source_checks_no_declared_key(
+    tmp_path: Path,
+) -> None:
+    """D79.24 checks declared keys only where an aggregate reads JOIN rows:
+    over one source whose shape declares `unique(id)`, an input with a
+    repeated id is read, and both of its rows counted."""
+    pa = _engine()
+    body = (
+        "table result:\n    from orders\n    group by ok\n"
+        "    select:\n        ok\n        n = count()\n"
+    )
+    query = joined(tmp_path / "p", body, KEYED_HEADER)
+    rows = ((1, 5, "a", True, 1.5), (1, 6, "b", True, 2.0))
+    access = _inputs(pa, "orders", orders=orders(pa, rows))
+    handle = execution.execute(query, route="duckdb_arrow", access=access, premise=None)
+    assert [s.unique for s in handle._owner.facts.sources] == [()]
+    with handle as result:
+        got = [r for batch in result for r in pa.record_batch(batch).to_pylist()]
+    assert got == [{"ok": True, "n": 2}]
+
+
 def _joined_result(pa: Any, query: Any, access: Any) -> list[Any]:
     handle = execution.execute(
         query,
