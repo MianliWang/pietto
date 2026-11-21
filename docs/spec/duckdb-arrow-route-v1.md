@@ -1278,6 +1278,14 @@ The second tier's closeout U08 applied these:
 - `docs/roadmap.md`: the DuckDB Arrow route's row of the Phase82 freeze
   ledger; `docs/status.md`: the sentence on the second tier.
 
+A repair after the second tier's publication applied this, which its types
+had left out:
+
+- `docs/spec/project-cli-json-v2.md`: the DuckDB `tag`s `Decimal`, `Date`
+  and `Timestamp` of `parameters`, their `physical_type`s and casts, and
+  DuckDB's `server_index` and repeated `Float` operands in
+  `parameter_uses`.
+
 ## Open items
 
 | Item | Owner | Latest point |

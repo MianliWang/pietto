@@ -755,12 +755,23 @@ v1 reader rejects v2 by its tag. v2 is v1 with these differences:
   whose `physical_type` is `my_decimal`, `my_date` or `my_datetime` and whose
   read is the anchor cast `CAST(? AS DECIMAL(p,s))`, with the declaration's
   precision and scale, `CAST(? AS DATE)` or `CAST(? AS DATETIME(6))`; MySQL
-  has no `UUID` tag. These reads have no binding obligation.
+  has no `UUID` tag. On DuckDB `tag` is also `Decimal`, `Date` or
+  `Timestamp`, read only as one side of a `where` comparison whose other
+  side reads a source field of its type, and of its precision and scale for
+  a `Decimal` ([DuckDB Arrow route](duckdb-arrow-route-v1.md#admission)),
+  whose `physical_type` is `duckdb_decimal`, `duckdb_date` or
+  `duckdb_timestamp` and whose read is `CAST($n AS DECIMAL(p,s))`, with the
+  declaration's precision and scale, `CAST($n AS DATE)` or
+  `CAST($n AS TIMESTAMP)`; DuckDB has no `UUID` tag. These reads have no
+  binding obligation.
 - `parameter_uses[i]` names its owner instead of a slot:
   `{"use", "owner": {"kind": "slot", "slot": i} | {"kind": "parameter",
   "parameter": j}, "server_index", "physical_type", "range"}`. Reads and
   bind-safe slots share one occurrence order: PostgreSQL gives each owner one
-  `server_index`, MySQL one per occurrence.
+  `server_index`, MySQL one per occurrence. DuckDB gives each owner one
+  `server_index` too, and repeats a parameter operand of a checked `Float`
+  `+` or `-` twice and of a `*` four times, each an entry here and a read in
+  its `reads` ([SQL](duckdb-arrow-route-v1.md#sql)).
 - `binding_obligations`: `[{"obligation": k, "kind", "subject", "parameters"}]`
   in rendering order, one per operation or window count argument whose check
   waits for a binding. `kind` is `int_range_representable` (an Int result
