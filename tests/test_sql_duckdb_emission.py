@@ -1203,6 +1203,74 @@ def test_other_joins_are_rule_5_at_the_join(tmp_path: Path, join: str) -> None:
     assert emitted["blockers"][0]["suggestion"] == B2_SUGGESTIONS[SHAPE_REFUSED[1]]
 
 
+_ANY = "any(c.id == orders.amount for c in customers)"
+_INNER = "inner join buyers on buyers.id == orders.id"
+_LEFT = "left join buyers on buyers.id == orders.id"
+
+
+@pytest.mark.parametrize(
+    ("stages", "site", "where"),
+    (
+        # A `where` of any(...) before a JOIN or between JOINs filters them.
+        ((f"where {_ANY}", _INNER), (21, 11), None),
+        (
+            (
+                "inner join customers on customers.id == orders.amount",
+                "where any(b.id == orders.amount for b in buyers)",
+                _LEFT,
+            ),
+            (22, 11),
+            None,
+        ),
+        # After the JOINs it is the `where`, which rule 8 refuses too.
+        ((_INNER, f"where {_ANY}"), (22, 11), 22),
+        ((_INNER, f"where not {_ANY}"), (22, 15), 22),
+        ((_LEFT, f"where {_ANY}"), (22, 11), 22),
+        (
+            (
+                "inner join customers on customers.id == orders.amount",
+                _LEFT,
+                f"where {_ANY}",
+            ),
+            (23, 11),
+            23,
+        ),
+        ((f"where {_ANY}",), (21, 11), 21),
+        # A refused JOIN before it is the first refused stage.
+        (
+            ("right join buyers on buyers.id == orders.id", f"where {_ANY}"),
+            (21, 5),
+            22,
+        ),
+    ),
+)
+def test_an_any_filter_is_rule_5_at_the_any(
+    tmp_path: Path,
+    stages: tuple[str, ...],
+    site: tuple[int, int],
+    where: int | None,
+) -> None:
+    """An `any(...)` filter before, between or after admitted JOINs, or with
+    none, is refused by rule 5 at the `any(...)`, never at an admitted JOIN
+    or at the statement, whatever source it reads; rule 8 also refuses it in
+    the `where` after the JOINs."""
+    body = (
+        "table result:\n    from orders\n"
+        + "".join(f"    {stage}\n" for stage in stages)
+        + "    select:\n        id = orders.id\n"
+    )
+    status, emitted = _joined(tmp_path, body)
+    found = [
+        (code, detail, (b["location"]["line"], b["location"]["column"]))
+        for (code, detail), b in zip(blockers(emitted), emitted["blockers"])
+    ]
+    filtered = [("PIE-B1003", "duckdb_filter_not_admitted", (where, 5))]
+    assert (status, found) == (
+        "BLOCKED",
+        [(*SHAPE_REFUSED, site), *(filtered if where else [])],
+    )
+
+
 def test_arithmetic_over_left_join_rows_is_null_on_the_joined_side(
     tmp_path: Path,
 ) -> None:

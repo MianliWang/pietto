@@ -75,6 +75,12 @@ once. See [Execute API](../spec/duckdb-arrow-route-v1.md#execute-api).
   parameter that its `on` reads: its `blockers` list is shorter.
   `duckdb_source_count_not_admitted` now refuses only a statement that reads
   no source.
+- An `any(...)` filter before, between or after the JOINs stays refused
+  with `duckdb_relation_shape_not_admitted`, never at an admitted JOIN:
+  before or between them at the test of its `where`, after them at the
+  `any(...)`, where `duckdb_filter_not_admitted` at its `where` refuses it
+  too. A `where any(...)` without JOINs, which `0.2.1` refused at the
+  statement, is now refused at the `any(...)` as well.
 - The suggestions of three refusals change, and scripts that match their
   text must follow. `duckdb_relation_shape_not_admitted` now reads `DuckDB
   emission admits duckdb.arrow source reads joined by inner or left joins

@@ -445,8 +445,10 @@ def _chain(plan: Any) -> tuple[tuple[Any, Any, tuple[Any, ...]], ...] | None:
     the rows so far, each a read with its own ports, one per field of its
     source in order, so that a source read twice, as through a row-input
     alias, is two reads; without JOINs, the source and its source ports.
-    None when the JOINs do not chain source reads so, or a source is not
-    read."""
+    A source that no FROM or JOIN reads, as one read only inside an
+    `any(...)`, follows them as itself, as without JOINs, so the reads
+    outnumber the input uses and rule 5 fails. None when the JOINs do not
+    chain source reads so."""
     if not plan.joins:
         return tuple((source, source, _ports(plan, source)) for source in plan.sources)
     sources = {source.ref: source for source in plan.sources}
@@ -479,9 +481,9 @@ def _chain(plan: Any) -> tuple[tuple[Any, Any, tuple[Any, ...]], ...] | None:
         ):
             return None
         chain.append((read, source, own))
-    if len({id(source) for _, source, _ in chain}) != len(plan.sources):
-        return None
-    return tuple(chain)
+    chained = {id(source) for _, source, _ in chain}
+    unread = (s for s in plan.sources if id(s) not in chained)
+    return (*chain, *((s, s, _ports(plan, s)) for s in unread))
 
 
 class _Values:
@@ -1045,9 +1047,13 @@ class _Rules:
             and not any(refused)
             and not any(getattr(plan, name) for name in _EMPTY)
         ):
-            definition = self.checked.selected_owner.definition
+            owner = self.checked.selected_owner
+            definition = owner.definition
             clauses = ()
             if type(definition) in (QueryDef, TableDef):
+                # An expression that reads a relation, such as an `any(...)`
+                # after the JOINs, is a stage at itself.
+                reads = (u.edge.use.evidence.read for u in plan.expression_block_uses)
                 joins = definition.join_clauses
                 # A JOIN that the plan admits is no site; the plan's JOINs
                 # are the authored ones, in order.
@@ -1061,6 +1067,7 @@ class _Rules:
                         definition.distinct_clause,
                         *joins,
                         *definition.join_filters,
+                        *(r.expression for r in reads if r.owner is owner),
                         *definition.named_windows,
                         *definition.naming_declarations,
                     )
@@ -1787,6 +1794,7 @@ def verify_artifact(artifact: object) -> bool:
         values = _Values(plan)
         if (
             values.chain is None
+            or len(values.chain) != len(plan.input_uses)
             or artifact.ast != (expected := _expected_ast(plan))
             or not ast_rules_hold(artifact.ast, values.width, _labels(plan))
             or artifact.ast.nodes != values.nodes()
