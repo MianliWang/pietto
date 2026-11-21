@@ -135,8 +135,10 @@ and jobs do not take the route, so B2 adds nothing to migrate.
   first. The lead's status report to the owner of 2026-11-16 named the item
   overdue and listed part of it. Owner: the lead, who stated the whole
   list, nine derived rules, to the owner at about 08:30Z on 2026-11-16,
-  before the batch Gate 2, by the lead's record; a decision row records
-  it before the `0.2.2` release commit.
+  before the batch Gate 2, by the lead's record. D79.31 in the
+  [decision record](../../decisions.md) records it, before the `0.2.2`
+  release commit; the lead's record keeps the count of the rules but not
+  their words, and no answer of the owner.
 - **Fragment.** T08 compared the fragment with the specification and found
   no rule that differs. It added the links to the capability page and the
   execution guide and the qualified platforms; B2's batch audit compares
@@ -158,13 +160,26 @@ and jobs do not take the route, so B2 adds nothing to migrate.
   `having` qualified as one form, which C18 represents; for the other
   output types it stands on that evidence until a v7, whenever one runs,
   adds the cells. Owner: the lead, who decides whether the public pages
-  say so.
+  say so. Closed by the second tier
+  ([its audit](t2-completion-audit.md#route-items-due-at-the-second-tier)):
+  v7's C18 turns four of those probes into cells, a `having` over a
+  `Text` key, a `Bool` key and a `Float` `min`, the last against a
+  literal and against a parameter bound to `-0.0`, each in both input
+  orders, and v7's run accepted each of its units on 2026-11-18. A
+  `having` over an output of each of the four types now has a native
+  cell, so the public pages stay as they are. No `having` cell compares a
+  `Float` `max`, an output of the `min`'s type, or a `Text` output with a
+  parameter, as the fifth probe did with `t` holding NUL; the independent
+  integrity audit of v7's run is the second tier's own debt.
 - **Memory margin.** L13's statement fails with `OutOfMemoryException` at
   the 1 GiB `memory_limit`, as v6 expects, and T06's reviewers saw it
   succeed at 1.25 and 1.5 GiB and fail again at 2 GiB: the margin is narrow
   and not monotone. L13 does not separate the `memory_limit` value; C10's
   read-back does. A new pin or a v7 first measures that statement around
-  1 GiB.
+  1 GiB. Done in the second tier (the same audit): v7's C28 `memory
+  margin` ran L13's statement around the 1 GiB `memory_limit` in U1, U2
+  and U3, recorded and not judged, by the lead's ruling, in the run's
+  evidence outside Git.
 - **Integrity audit.** The route asks for an independent integrity audit
   of T06's verdict. The audit that read the saved outputs, digests and
   verdicts was run by T06's own lane after the run; two independent
@@ -232,9 +247,95 @@ Classified:
 Structural improvement: none needed; wall-time improvement: none claimed;
 no-gain: the two repeated emissions above. The bounded ten-slowest profile of
 step 4 reads the final natural CI health of the batch head after
-publication; it is NOT_OBSERVED here (PL.07). The lead owns it, from the
-health of the batch head's natural CI `43888270979`, before the `0.2.2`
-release commit.
+publication, so T08 recorded it NOT_OBSERVED (PL.07); the lead owned it,
+from the health of the batch head's natural CI `43888270979`, before the
+`0.2.2` release commit, and a documentation commit before that commit
+records it below.
+
+**Ten-slowest profile.** Natural exact-head CI
+[`43888270979`](https://github.com/MianliWang/pietto/actions/runs/43888270979)
+of `107df991`, push/main attempt 1, ran from 14:40:47Z to 15:04:04Z on
+2026-11-16 (1,397 s) and passed all 21 jobs, which took 10,030 s in all
+(jobs API, start to completion, without queueing); the longest was
+Compiler / Package 3.12 at 1,297 s. The lead read its health through the
+owner's read-only token (PL.07) on 2026-11-16 from 15:22:41Z to
+15:22:56Z: the 15 `ci-health` artifacts matched the digests, sizes and
+head that the API lists, and the workflow summary passed
+`verify_workflow_health` of that head's `scripts/ci_workloads.py`. A
+read through the same token on 2026-11-21 at 15:56Z found the same run,
+21 successful jobs and 15 digests, which the saved artifacts still
+match, and the check passed again on them. The status is
+INSUFFICIENT_EVIDENCE with a WATCH screen. History read 4 candidates and
+accepted 3 (`43814266697`, `43767179471`, `43731590999`) with none
+rejected, but none is comparable: each differs in its test set and its
+runners, and the two older ones also in policy. Each Python collected
+31,044 nodes; 30,991 passed and 53 were skipped. Of the 23 signals, 4 are
+the structural `FEWER_UNITS_THAN_WORKERS` (plan- and
+emission-portability, 3 nodes on 4 workers, on both Pythons), 18 are
+`LONG_INDIVISIBLE_NODE`, the same nine child-process nodes on each
+Python, and one is `SHARD_IMBALANCE_WATCH` for 3.12, as at `851ad83f`,
+whose `SHARD_IMBALANCE_REVIEW` for 3.13
+([above](#baseline-and-publication-boundary)) is not raised here.
+
+The Python 3.13 health records 126 slowest nodes: 30 for each of the
+shared-acquisition and three general-runtime partitions and 3 for each
+portability partition. Ranked by setup, call and teardown time, 13 nodes
+above the tenth in-process one spend their time in child processes, of
+the kinds the [Phase80 profile](../phase-80/completion-audit.md#acquisition-consolidation)
+lists: the process cells of `test_harness_ir_differential.py`,
+`test_harness_plan_conformance.py` (its setup),
+`test_harness_plan_portability.py` and
+`test_harness_sql_emission_portability.py`; the six checkout, relocated
+and installed standalone batches of the two portability files; the two
+fresh source-free processes of `test_execution_compiled_source_free.py`;
+and `test_harness_execution_api.py::test_checkout_consumer_cases_satisfy_the_checker`,
+whose module fixture starts a fresh `-I` worker for each consumer case.
+`test_harness_execution_api.py::test_the_duckdb_native_checker_accepts_honest_units_and_refuses_each_fabricated_shape`
+stays set apart, as there: it starts one fresh `-I` oracle interpreter
+and then checks in process. The ten in-process ones:
+
+| Node | Job | 3.13 s | 3.12 s | Where the time is |
+| --- | --- | ---: | ---: | --- |
+| `test_harness_target_conformance.py::test_data_only_receipt_controls_have_nonempty_positive_denominators[postgres]` | Runtime 3.13 / general-runtime-1 | 108.0 | 136.1 | setup, 105.5 s: the module fixture `valid_receipts` |
+| `test_harness_sql_emission_portability.py::test_every_admitted_artifact_exports_corresponds_and_decodes[postgres]` | Runtime 3.13 / shared-acquisition | 107.0 | 175.0 | call |
+| `test_harness_sql_emission_portability.py::test_every_admitted_artifact_exports_corresponds_and_decodes[mysql]` | Runtime 3.13 / shared-acquisition | 96.5 | 158.3 | call |
+| `test_repo_reader_acquisition.py::test_shared_facts_match_legacy_text_ast_import_and_identifier_acquisition` | Runtime 3.13 / general-runtime-3 | 40.9 | 30.1 | call |
+| `test_harness_target_conformance.py::test_empty_text_anchor_requires_the_observed_var_string_type` | Runtime 3.13 / general-runtime-1 | 27.6 | 37.7 | call |
+| `test_execution_compiled_bundle.py::test_mysql_lpad_and_now_cells_are_derived_in_linear_work[pair-_beside_a_capture]` | Runtime 3.13 / general-runtime-3 | 22.0 | 19.5 | call |
+| `test_execution_compiled_bundle.py::test_mysql_lpad_and_now_cells_are_derived_in_linear_work[words-_chained_lets]` | Runtime 3.13 / general-runtime-1 | 21.4 | 25.9 | call |
+| `test_sql_values.py::test_the_static_values_bound_is_no_emission_guarantee[postgres-1000-64-blockers2]` | Runtime 3.13 / general-runtime-1 | 20.6 | 22.7 | call |
+| `test_repo_test_layout.py::test_no_test_reads_the_mutable_status_or_roadmap` | Runtime 3.13 / general-runtime-3 | 20.3 | 15.7 | call |
+| `test_sql_values.py::test_the_static_values_bound_is_no_emission_guarantee[mysql-1000-64-blockers3]` | Runtime 3.13 / general-runtime-1 | 19.1 | 21.3 | call |
+
+Eight of the ten ids are in the Phase80 profile of `43645308189`. The
+`valid_receipts` fixture, which that profile saw built in three shards,
+is paid once here, by `[postgres]` in general-runtime-1 (M13 of PL.49),
+so its `[mysql]` node and the `receipt_corruption` node left the list,
+and the two `test_sql_values.py` bound nodes, which left that profile's
+list, are back. On Python 3.12 nine of the ten lead, in another order;
+its tenth in-process node is
+`test_project_r2_proposal.py::test_r2_refuses_a_paired_mysql_form_before_any_workspace`
+(19.0 s), and `test_repo_test_layout.py`'s node falls below it at 15.7 s.
+
+None of the ten is a B2 node. B2's emission and execution owners have no
+node in the recorded lists, whose general-runtime partitions record nodes
+down to 5.0 to 6.0 s on 3.13, and B2's execution cells skip on every CI
+job ([Acceptance layers](#acceptance-layers)). The one node in them that
+B2 changed is the set-apart checker, whose frozen helpers T06 evolved:
+33.8 s on 3.13 (general-runtime-2) and 46.3 s on 3.12, where the Phase80
+profile saw 23.8 s on 3.13 on an earlier tree; its split between the
+oracle's process and the check in process is not observed, so no cause
+is claimed.
+
+The cProfile half of step 4 is NOT_OBSERVED: these readings ran no
+pytest, and the integration host is shared with the MySQL catch-up's
+lanes (load average 11 to 19 on 32 CPUs at the second read), which is
+not the quiet host the step names. None of the ten ran alone under cProfile, no
+verifier-runs, call-count or self-time finding is recorded, and no
+performance claim rests on the table. The Windows jobs are outside
+partition health by design, so their nodes are not ranked. Health is
+advisory, and nothing here changes scheduling, topology or test
+selection.
 
 ## T06's run on the T08 tree
 
@@ -367,4 +468,8 @@ read-back. The route stays alpha until the Phase82 freeze rules on it.
   passes to the first slice that admits a JOIN.
 - **Debt.** The derived-rows decision row and the `having` and
   memory-margin items above; and the ten-slowest profile of the batch
-  head.
+  head. Recorded before the `0.2.2` release commit: D79.31 records the
+  derived-rows inform, the second tier's v7 closed the `having` and
+  memory-margin items, and the
+  [ten-slowest profile](#b2-acquisition-review) reads the batch head's
+  health, with its cProfile half NOT_OBSERVED.
