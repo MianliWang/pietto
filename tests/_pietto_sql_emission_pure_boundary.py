@@ -3056,8 +3056,9 @@ def _mysql_remainder_carrier(doc, ref) -> str | None:
 
 
 # S03 (project_sql_emission_sum_forms): the record kinds a paired statement's
-# document may hold besides a cell's: one JOIN of two sources, or one named
-# upstream definition.
+# document may hold besides a cell's: one JOIN of two sources, or named
+# upstream definitions; MC s03n: the selected definition's ORDER BY, a result
+# body over its projection body.
 _MYSQL_S03_KINDS = _MYSQL_CELL_KINDS | {
     "join_body",
     "join_column",
@@ -3066,6 +3067,16 @@ _MYSQL_S03_KINDS = _MYSQL_CELL_KINDS | {
     "row_named_use",
     "sql_join_query",
 }
+_MYSQL_S03_RESULT_KINDS = frozenset(
+    {
+        "result_column",
+        "result_order",
+        "result_order_item",
+        "result_stage",
+        "row_result_body",
+        "row_result_use",
+    }
+)
 _NON_NEGATIVE = re.compile(r"0|[1-9][0-9]*")
 
 
@@ -3073,18 +3084,38 @@ def _mysql_s03(doc) -> frozenset:
     """The S03 sum and conditional sum columns of a paired MySQL statement,
     from the document alone, as emission derives the statement from what is
     written (mysql_s03_statement): every record is of a kind in
-    _MYSQL_S03_KINDS, and the one final projection body stands over an
-    aggregate body of its definition, over a source scan, one JOIN of two
-    sources, or the named use of another definition's projection over its
-    aggregate over such a JOIN; no other body exists. An imported source or
-    definition and a relation alias leave the same document, so only
-    emission refuses them."""
+    _MYSQL_S03_KINDS or _MYSQL_S03_RESULT_KINDS, and the one final
+    projection body stands over an aggregate body of its definition, over a
+    source scan, one JOIN of two sources, or the named use of another
+    definition's projection body, which stands so in turn, three
+    definitions at most; a definition's projection body may instead scan a
+    source alone (a plain level, MC s03n). The selected definition alone
+    may add one HAVING body between its aggregate body and its projection
+    body, one WHERE body between the named use of the definition below and
+    its aggregate body, and one final result body over its projection body,
+    which holds its ORDER BY and neither DISTINCT nor LIMIT (MC s03n). No
+    other body exists. An
+    imported source or definition and a relation alias leave the same
+    document, so only emission refuses them."""
 
-    if not _MYSQL_S03_KINDS.issuperset(doc.kinds):
+    if not (_MYSQL_S03_KINDS | _MYSQL_S03_RESULT_KINDS).issuperset(doc.kinds):
         return frozenset()
     bodies = doc.all("row_body")
+    results = doc.all("row_result_body")
     finals = [ref for ref in bodies if doc[ref]["final"] is True]
-    if len(finals) != 1 or len(bodies) > 4:
+    if len(results) > 1 or len(finals) != 1 - len(results) or len(bodies) > 7:
+        return frozenset()
+    result = doc[results[0]] if results else None
+    if result is not None and (
+        result["final"] is not True
+        or result["scan"].kind != "row_result_use"
+        or result["distinct"] is not None
+        or result["limit"] is not None
+        or result["predicate"] is not None
+        or result["window"] is not None
+        or result["aggregation"] is not None
+        or result["order"] is None
+    ):
         return frozenset()
     requests = doc.all("request")
     preserve = (
@@ -3092,12 +3123,31 @@ def _mysql_s03(doc) -> frozenset:
     )
     used: set = set()
     sums: list = []
+    clauses: list = []
 
     def carrier(field):
         return sum_forms.carrier(doc[field]["representation"])
 
-    def test(ref, column):
-        """A conditional sum's test: a read, `not`, `is None` or `>` literal."""
+    def literal(ref):
+        """An Int literal as written, `N`, of an anchor, or None."""
+        if type(ref) is not Ref or ref.kind != "sql_anchor":
+            return None
+        anchor = doc[ref]
+        if anchor["tag"] != "Int" or anchor["operand"].kind != "sql_literal":
+            return None
+        written = doc[anchor["operand"]]["value"]
+        if (
+            type(written) is not Fixed
+            or written.tag != "Int"
+            or type(written.wire) is not str
+            or not _NON_NEGATIVE.fullmatch(written.wire)
+        ):
+            return None
+        return int(written.wire)
+
+    def test(ref, column, compound=True):
+        """A conditional sum's test: a read, `not`, `is None` or `>` literal,
+        or (MC s03n) an `and` or `or` of two of them."""
         if type(ref) is not Ref:
             return None
         if ref.kind == "sql_stage_reference":
@@ -3107,50 +3157,78 @@ def _mysql_s03(doc) -> frozenset:
             return None
         operation = doc[ref]
         operands = operation["operands"]
+        kind = (operation["kind"], operation["operator"], len(operands))
+        if compound and kind in (("logical", "and", 2), ("logical", "or", 2)):
+            left, right = (test(item, column, False) for item in operands)
+            return None if left is None or right is None else (kind[1], left, right)
         if not operands or operands[0].kind != "sql_stage_reference":
             return None
         value = column(doc[operands[0]]["column"])
-        kind = (operation["kind"], operation["operator"], len(operands))
         if value is None:
             return None
         if kind == ("not", "not", 1):
             return "not", value
         if kind == ("null_test", "is null", 1):
             return "none", value
-        if kind != ("comparison", ">", 2) or operands[1].kind != "sql_anchor":
-            return None
-        anchor = doc[operands[1]]
-        literal = anchor["operand"]
-        if anchor["tag"] != "Int" or literal.kind != "sql_literal":
-            return None
-        written = doc[literal]["value"]
-        if (
-            type(written) is not Fixed
-            or written.tag != "Int"
-            or type(written.wire) is not str
-            or not _NON_NEGATIVE.fullmatch(written.wire)
-        ):
-            return None
-        return ">", value, int(written.wire)
+        number = literal(operands[1]) if kind == ("comparison", ">", 2) else None
+        return None if number is None else (">", value, number)
 
-    def level(final, nested):
-        """The level of a projection body over its aggregate body: (level,
-        its terminals to their items, the upstream level if any), or None."""
+    def level(final, depth):
+        """The level of a projection body over its aggregate body, or over a
+        source scan alone: (level, its terminals to their items, the level
+        below if any), or None. Only the selected definition's (``depth`` 0)
+        may hold a HAVING body and a WHERE body, and its projection body
+        then carries the ORDER BY keys of the result body."""
         projection = doc[final]
         scan = projection["scan"]
         if (
-            projection["block_kind"] != "projection"
+            final in used
+            or projection["block_kind"] != "projection"
             or projection["predicate"] is not None
             or projection["window"] is not None
             or projection["aggregation"] is not None
-            or scan.kind != "row_stage_use"
+            or len(projection["columns"]) != len(projection["terminals"])
         ):
             return None
+        used.add(final)
+        if scan.kind == "row_scan":
+            # MC s03n: a plain level, which reads the source's fields.
+            fields = doc[doc[scan]["realization"]]["fields"]
+            items, ports = [], {}
+            for ref, terminal in zip(
+                projection["columns"], projection["terminals"], strict=True
+            ):
+                value = doc[ref]["value"] if ref.kind == "row_value_column" else None
+                if type(value) is not Ref or value.kind != "sql_stage_reference":
+                    return None
+                stage = doc[value]["column"]
+                field = doc[stage]["field"]
+                if not _mysql_field_column(doc, stage) or field not in fields:
+                    return None
+                items.append(("read", ("A", field, carrier(field))))
+                ports[terminal] = items[-1]
+            return (None, None, tuple(items)), ports, None
+        if scan.kind != "row_stage_use":
+            return None
         below = doc[scan]["body"]
+        satisfying = None
+        if depth == 0 and doc[below]["block_kind"] == "satisfying":
+            satisfying, below = below, doc[doc[below]["scan"]]["body"]
+            current = doc[satisfying]
+            if (
+                below in used
+                or satisfying in used
+                or current["scan"].kind != "row_stage_use"
+                or current["window"] is not None
+                or current["aggregation"] is not None
+                or current["definition"] != projection["definition"]
+                or len(current["columns"]) != len(current["terminals"])
+            ):
+                return None
+            used.add(satisfying)
         body = doc[below]
         if (
             below in used
-            or final in used
             or body["block_kind"] != "aggregate"
             or body["predicate"] is not None
             or body["window"] is not None
@@ -3158,8 +3236,28 @@ def _mysql_s03(doc) -> frozenset:
             or body["definition"] != projection["definition"]
         ):
             return None
-        used.update((final, below))
-        scan = body["scan"]
+        used.add(below)
+        scan, where = body["scan"], None
+        if (
+            depth == 0
+            and scan.kind == "row_stage_use"
+            and doc[doc[scan]["body"]]["block_kind"] == "where"
+        ):
+            # MC s03n's T-1: a WHERE body over the named use of the
+            # definition below.
+            where = doc[scan]["body"]
+            current = doc[where]
+            if (
+                where in used
+                or current["definition"] != projection["definition"]
+                or current["window"] is not None
+                or current["aggregation"] is not None
+                or current["scan"].kind != "row_named_use"
+                or len(current["columns"]) != len(current["terminals"])
+            ):
+                return None
+            used.add(where)
+            scan = current["scan"]
         join, upstream = None, None
         sides = {}
 
@@ -3216,31 +3314,74 @@ def _mysql_s03(doc) -> frozenset:
                     tuple(carrier(field) for field in doc[item["producer"]]["fields"])
                     for item in inputs
                 ),
+                tuple(doc[inputs[0]["producer"]]["fields"]),
             )
             if None in join:
                 return None
-        elif scan.kind == "row_named_use" and not nested:
+        elif scan.kind == "row_named_use" and depth < 2:
             upper = doc[scan]["body"]
             if doc[upper]["definition"] == body["definition"]:
                 return None
-            upstream = level(upper, True)
+            upstream = level(upper, depth + 1)
             if upstream is None:
                 return None
         else:
             return None
+        if where is not None:
+            # It carries the named use's columns in order and tests them as
+            # a conditional sum's test.
+            assert upstream is not None
+            current = doc[where]
+            carried = [
+                doc[doc[ref]["read"]]["terminal"]
+                if ref.kind == "row_carry_column"
+                else None
+                for ref in current["columns"]
+            ]
+            predicate = current["predicate"]
+            line = (
+                test(doc[predicate]["value"], column)
+                if type(predicate) is Ref and predicate.kind == "row_predicate"
+                else None
+            )
+            if carried != list(doc[doc[scan]["body"]]["terminals"]) or line is None:
+                return None
+            clauses.append(("where", line))
+            # The aggregate body reads the WHERE body's columns, each an item
+            # below.
+            upstream = (
+                upstream[0],
+                {
+                    terminal: upstream[1][source]
+                    for terminal, source in zip(
+                        current["terminals"], carried, strict=True
+                    )
+                },
+                upstream[2],
+            )
         stage = doc[body["aggregation"]]
         keys = tuple(column(doc[key]["read"]) for key in stage["keys"])
         if None in keys:
             return None
         outputs = {}
-        if len(body["columns"]) != len(body["terminals"]) or len(
-            projection["columns"]
-        ) != len(projection["terminals"]):
+        if len(body["columns"]) != len(body["terminals"]):
             return None
         for ref, terminal in zip(body["columns"], body["terminals"], strict=True):
             current = doc[ref]
             if ref.kind == "aggregate_key_column":
                 item = ("key", column(current["read"]))
+            elif (
+                ref.kind == "aggregate_value_column"
+                and current["function"] == "count"
+                and current["argument"] is None
+                and current["delimiter"] is None
+                and not current["distinct"]
+                and not current["order_by"]
+                and not current["extra_arguments"]
+            ):
+                # MC s03n: `count()`.
+                outputs[terminal] = ("count", None)
+                continue
             elif (
                 ref.kind != "aggregate_value_column"
                 or current["distinct"]
@@ -3269,6 +3410,41 @@ def _mysql_s03(doc) -> frozenset:
             ("key", key) for key in keys
         ]:
             return None
+        if satisfying is not None:
+            # MC s03n: the HAVING body carries the aggregate body's columns in
+            # order and compares one of them with an Int literal.
+            current = doc[satisfying]
+            carried = [
+                doc[doc[ref]["read"]]["terminal"]
+                if ref.kind == "row_carry_column"
+                else None
+                for ref in current["columns"]
+            ]
+            predicate = current["predicate"]
+            line = (
+                doc[doc[predicate]["value"]]
+                if type(predicate) is Ref and predicate.kind == "row_predicate"
+                else None
+            )
+            pair = () if line is None else line["operands"]
+            if (
+                carried != list(body["terminals"])
+                or line is None
+                or doc[predicate]["value"].kind != "sql_operation"
+                or line["kind"] != "comparison"
+                or len(pair) != 2
+                or pair[0].kind != "sql_stage_reference"
+                or literal(pair[1]) is None
+            ):
+                return None
+            read = doc[doc[pair[0]]["column"]]["terminal"]
+            if read not in outputs:
+                return None
+            clauses.append((line["operator"], outputs[read], literal(pair[1])))
+            outputs = {
+                terminal: outputs[source]
+                for terminal, source in zip(current["terminals"], carried, strict=True)
+            }
         items, ports = [], {}
         for ref, terminal in zip(
             projection["columns"], projection["terminals"], strict=True
@@ -3276,6 +3452,9 @@ def _mysql_s03(doc) -> frozenset:
             item = (
                 outputs.get(doc[doc[ref]["read"]]["terminal"])
                 if ref.kind == "aggregate_projection_column"
+                or depth == 0
+                and result is not None
+                and ref.kind == "row_carry_column"
                 else None
             )
             if item is None:
@@ -3284,11 +3463,49 @@ def _mysql_s03(doc) -> frozenset:
             ports[terminal] = item
         return (join, keys, tuple(items)), ports, upstream
 
-    top = level(finals[0], False)
+    top_body = doc[result["scan"]]["body"] if result is not None else finals[0]
+    top = level(top_body, 0)
     if top is None or len(used) != len(bodies):
         return frozenset()
-    levels = (top[0],) if top[2] is None else (top[2][0], top[0])
-    return frozenset(sums) if sum_forms.paired(levels, preserve) else frozenset()
+    levels = []
+    current = top
+    while current is not None:
+        levels.append(current[0])
+        current = current[2]
+    levels.reverse()
+    if result is not None:
+        # MC s03n: the result body reads the projection body's columns, its
+        # ORDER BY keys among them.
+        ports = top[1]
+        read = [
+            ports.get(doc[doc[ref]["read"]]["terminal"])
+            if ref.kind == "result_column"
+            else None
+            for ref in result["columns"]
+        ]
+        order = [
+            (ports.get(doc[doc[ref]["read"]]["terminal"]), doc[ref]["direction"])
+            for ref in doc[result["order"]]["items"]
+            if doc[ref]["nulls"] is None
+        ]
+        if (
+            None in read
+            or any(item is None for item, _ in order)
+            or len(order) != len(doc[result["order"]]["items"])
+            or {
+                doc[doc[ref]["read"]]["terminal"]
+                for ref in (*result["columns"], *doc[result["order"]]["items"])
+            }
+            != set(doc[top_body]["terminals"])
+        ):
+            return frozenset()
+        levels[-1] = (*levels[-1][:2], tuple(read))
+        clauses.extend(("order", item, way) for item, way in order)
+    return (
+        frozenset(sums)
+        if sum_forms.paired(tuple(levels), preserve, tuple(clauses))
+        else frozenset()
+    )
 
 
 # S02, restated: the aggregates an S02 cell's stage may hold beside its sums

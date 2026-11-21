@@ -3423,7 +3423,9 @@ def mysql_compiled_typed_cells(records, entry) -> bool:
 # statement may hold, and the fields of each of its definitions as written
 # that may be set; any other one (WHERE, a `let` block, window, HAVING,
 # DISTINCT, ORDER BY, LIMIT, header parameter, JOIN filter, or one a later
-# plan or grammar adds) keeps main's refusal.
+# plan or grammar adds) keeps main's refusal. MC s03n: the selected
+# definition may also set its HAVING, ORDER BY and (T-1) WHERE, whose plan
+# tables it then holds (_MYSQL_S03_CLAUSE_PLAN_TABLES).
 _MYSQL_S03_PLAN_TABLES = (_MYSQL_CELL_PLAN_TABLES - {"filters"}) | {
     "aggregate_risks",
     "join_inputs",
@@ -3431,6 +3433,16 @@ _MYSQL_S03_PLAN_TABLES = (_MYSQL_CELL_PLAN_TABLES - {"filters"}) | {
     "join_tails",
     "joins",
 }
+_MYSQL_S03_CLAUSE_PLAN_TABLES = frozenset(
+    {
+        "filters",
+        "order_expressions",
+        "order_items",
+        "order_uses",
+        "orders",
+        "result_boundaries",
+    }
+)
 _MYSQL_S03_AUTHORED = frozenset(
     {
         "span",
@@ -3447,15 +3459,25 @@ _MYSQL_S03_RECORDS = _MYSQL_CELL_RECORDS | {"join", "join_value"}
 
 def mysql_s03_statement(request) -> bool:
     """S03: whether this MySQL statement, as written over its bound contract,
-    is one of the paired sum forms (sum_forms.paired): its selected
-    definition reads sources, one JOIN of two at most, or one upstream
-    definition that does; every one is declared in the selected module, so
-    an imported source or definition, as a relation alias, keeps main's
-    refusal (D77.24). Its aggregates are the forms' own. Each call indexes
-    the selected module's definitions and the bound sources by name, then
-    reads two definitions of a few items at most: O(module definitions and
-    bound source fields), independent of the statement's sum count. No
-    statement is one while emission derives as main (AS_MAIN)."""
+    is one of the paired sum forms or (MC s03n) one of the neighbours that
+    sum_forms.paired opens: its selected definition reads sources, one JOIN
+    of two at most, or a chain of up to two more definitions of its module,
+    each read by FROM by its own name, the lowest over such sources. Every
+    source is declared in the selected module and read by its own name, but
+    the selected definition alone may read one through a relation alias
+    `let x = S`, its one `let`, or one imported under its own name from the
+    module that declares it into a module that imports nothing else but a
+    `def` (the authored script holds no imported `def` or relationship, so
+    the module's imported relationships are read apart); paired then sees
+    which (``organized``:
+    D77.24, compiled records and the pure document cannot tell them from a
+    direct read). Only the selected definition may set HAVING, ORDER BY and
+    WHERE, which paired then reads. Its
+    aggregates are the forms' own. Each call indexes the selected module's
+    definitions and the bound sources by name, then reads three definitions
+    of a few items at most: O(module definitions and bound source fields),
+    independent of the statement's sum count. No statement is one while
+    emission derives as main (AS_MAIN)."""
 
     from pietto import ast_nodes as ast
     from pietto._project import project_sql_emission_sum_forms as forms
@@ -3471,14 +3493,13 @@ def mysql_s03_statement(request) -> bool:
             type(value := getattr(plan, name)) is tuple
             and value
             and name not in _MYSQL_S03_PLAN_TABLES
+            and name not in _MYSQL_S03_CLAUSE_PLAN_TABLES
             for name in plan.__dataclass_fields__
         )
     ):
         return False
     owner = plan.scope.selected_owner
     module = plan.scope.completed.semantic_result.modules[owner.module_position]
-    if any(binding.module is not module for binding in plan.sources):
-        return False
     relations = (
         ast.SourceDef,
         ast.QueryDef,
@@ -3491,8 +3512,53 @@ def mysql_s03_statement(request) -> bool:
     for definition in definitions:
         if type(definition) in relations:
             named[definition.name] = None if definition.name in named else definition
+    selected = definitions[owner.declaration_position]
+    if type(selected) not in (ast.QueryDef, ast.TableDef):
+        return False
+    # MC s03n: HAVING's and WHERE's filters and ORDER BY's tables are the
+    # selected definition's alone.
+    ordered = selected.order_by_clause is not None
+    if len(plan.filters) != (selected.satisfying_clause is not None) + (
+        selected.where_clause is not None
+    ) or any(
+        bool(getattr(plan, name)) is not ordered
+        for name in _MYSQL_S03_CLAUSE_PLAN_TABLES - {"filters"}
+    ):
+        return False
+    # MC s03n: a source imported under its own name from the module that
+    # declares it, which the selected definition alone may read, and the
+    # module's one import.
+    imported = None
+    foreign = [binding for binding in plan.sources if binding.module is not module]
+    if foreign:
+        parsed = module.parsed_input
+        assert parsed is not None
+        if parsed.imported_relationships:
+            return False
+        imports = [
+            (
+                statement.target,
+                item.declaration_kind,
+                item.exported_name,
+                item.local_name in (None, item.exported_name),
+            )
+            for statement in (parsed.authored_script or parsed.script).module_statements
+            if type(statement) is ast.ImportStatement
+            for item in statement.items
+        ]
+        if len(plan.sources) != 1 or imports != [
+            (
+                foreign[0].module.path,
+                ast.ModuleDeclarationKind.SOURCE,
+                foreign[0].declaration.name,
+                True,
+            )
+        ]:
+            return False
+        imported = foreign[0].declaration.name
     carriers: dict[str, dict[str, str | None]] = {}
     layouts: dict[str, tuple] = {}
+    tokens: dict[str, tuple] = {}
     for source in request.sources:
         name = json.loads(source.selector)["name"]
         carriers[name] = (
@@ -3503,27 +3569,34 @@ def mysql_s03_statement(request) -> bool:
                 for field in source.fields
             }
         )
-        layouts[name] = tuple(
-            forms.carrier(field.representation)
-            for field in sorted(source.fields, key=lambda field: field.ordinal)
-        )
+        ordered = sorted(source.fields, key=lambda field: field.ordinal)
+        layouts[name] = tuple(forms.carrier(field.representation) for field in ordered)
+        tokens[name] = tuple(field.name for field in ordered)
     read_sources: set[str] = set()
+    organized = None
 
     def column(side, source, field):
         carrier = carriers.get(source, {}).get(field)
         read_sources.add(source)
         return None if carrier is None else (side, field, carrier)
 
-    def level(definition, upstream):
+    def level(definition, upstream, top):
+        """One definition's level, its items by output name, and (``top``,
+        the selected one) its clauses; None outside the forms' shapes."""
+        nonlocal organized
         if type(definition) not in (ast.QueryDef, ast.TableDef) or any(
             getattr(definition, name) not in (None, ())
             for name in definition.__dataclass_fields__
             if name not in _MYSQL_S03_AUTHORED
+            and not (
+                top and name in ("order_by_clause", "satisfying_clause", "where_clause")
+            )
         ):
             return None
         origin = definition.from_clause
         if origin.binding_name is not None:
             return None
+        source = origin.source_name
         join, sides = None, None
 
         def read(expression):
@@ -3536,23 +3609,47 @@ def mysql_s03_statement(request) -> bool:
                     or expression.parts[0] not in sides
                 ):
                     return None
-                side, source = sides[expression.parts[0]]
-                return column(side, source, expression.parts[1])
+                side, read_source = sides[expression.parts[0]]
+                return column(side, read_source, expression.parts[1])
             if type(expression) is not ast.NameExpr:
                 return None
             if upstream is None:
-                return column("A", origin.source_name, expression.name)
+                return column("A", source, expression.name)
             item = upstream[1].get(expression.name)
             return None if item is None else ("U", item, None)
 
         if upstream is not None:
             if (
-                origin.source_name != upstream[0]
+                source != upstream[0]
                 or definition.join_clauses
                 or definition.naming_declarations
             ):
                 return None
-        elif type(named.get(origin.source_name)) is not ast.SourceDef:
+        elif (
+            top
+            and not definition.join_clauses
+            and len(definition.naming_declarations) == 1
+            and imported is None
+        ):
+            # MC s03n: `let x = S`, `from x`, S a source of the module, not
+            # in parentheses.
+            (let,) = definition.naming_declarations
+            if not (
+                type(let) is ast.QueryLetDeclaration
+                and type(let.expression) is ast.NameExpr
+                and let.name == source
+                and let.expression.name != source
+                and type(named.get(let.expression.name)) is ast.SourceDef
+                and source not in named
+                and _ends(let, let.expression)
+            ):
+                return None
+            source, organized = let.expression.name, "alias"
+        elif source == imported and top:
+            if definition.join_clauses or definition.naming_declarations:
+                return None
+            organized = "import"
+        elif type(named.get(source)) is not ast.SourceDef:
             return None
         elif definition.join_clauses or definition.naming_declarations:
             written = _written_join(
@@ -3564,7 +3661,7 @@ def mysql_s03_statement(request) -> bool:
                 return None
             clause, let, on = written
             sides = {
-                origin.source_name: ("A", origin.source_name),
+                source: ("A", source),
                 let.name: ("B", let.expression.name),
             }
             assert type(on) is ast.ComparisonExpr and clause.on_clause is not None
@@ -3581,10 +3678,10 @@ def mysql_s03_statement(request) -> bool:
                 str(clause.kind),
                 left,
                 right,
-                layouts.get(origin.source_name),
+                layouts.get(source),
                 layouts.get(let.expression.name),
+                tokens.get(source),
             )
-        conditional = join is None and upstream is None
         keys = []
         for key in (
             ()
@@ -3596,14 +3693,14 @@ def mysql_s03_statement(request) -> bool:
                 return None
             keys.append(value)
         items, outputs = [], {}
-        for selected in definition.select_items:
-            expression = selected.expression
-            item = _mysql_s03_item(expression, read, conditional)
-            if not _ends(selected, expression) or (
-                selected.alias is None and not _starts(selected, expression)
+        for chosen in definition.select_items:
+            expression = chosen.expression
+            item = _mysql_s03_item(expression, read, join is None)
+            if not _ends(chosen, expression) or (
+                chosen.alias is None and not _starts(chosen, expression)
             ):
                 item = None
-            name = selected.alias or (
+            name = chosen.alias or (
                 expression.name
                 if type(expression) is ast.NameExpr
                 else expression.parts[-1]
@@ -3614,40 +3711,95 @@ def mysql_s03_statement(request) -> bool:
                 return None
             items.append(item)
             outputs[name] = item
-        return (join, tuple(keys), tuple(items)), outputs
-
-    selected = definitions[owner.declaration_position]
-    if type(selected) not in (ast.QueryDef, ast.TableDef):
-        return False
-    upstream = named.get(selected.from_clause.source_name)
-    if type(upstream) in (ast.QueryDef, ast.TableDef):
-        first = level(upstream, None)
-        top = (
-            None
-            if first is None
-            else level(selected, (selected.from_clause.source_name, first[1]))
+        plain = definition.group_by_clause is None and all(
+            item[0] == "key" for item in items
         )
-        levels = None if top is None or first is None else (first[0], top[0])
-        relations_read = 2
-    else:
-        top = level(selected, None)
-        levels = None if top is None else (top[0],)
-        relations_read = 1
-    if levels is None:
+        if plain:
+            # MC s03n: a plain level, which aggregates nothing and selects
+            # each field by its own name (Law C's upstream); compiled
+            # records and the pure document hold no such name (D77.24).
+            if any(name != item[1][1] for name, item in outputs.items()):
+                return None
+            items = [("read", item[1]) for item in items]
+            outputs = {name: ("read", item[1]) for name, item in outputs.items()}
+        clauses = []
+        where = definition.where_clause if top else None
+        if where is not None:
+            # MC s03n's T-1: a WHERE whose one test reads this level's input,
+            # written as a conditional sum's test is.
+            test = _mysql_s03_test(where.expression, read)
+            if test is None or not _ends(where, where.expression):
+                return None
+            clauses.append(("where", test))
+        if top and definition.order_by_clause is not None:
+            # MC s03n: an ORDER BY key reads a selected output named alone.
+            for entry in definition.order_by_clause.items:
+                name = getattr(entry.expression, "name", None)
+                if (
+                    type(entry.expression) is not ast.NameExpr
+                    or entry.direction is not None
+                    or not _starts(entry, entry.expression)
+                    or not _ends(entry, entry.expression)
+                    or name not in outputs
+                ):
+                    return None
+                clauses.append(("order", outputs[name], "asc"))
+        having = definition.satisfying_clause if top else None
+        if having is not None:
+            # MC s03n: one HAVING line comparing a selected output named
+            # alone with an Int literal, as written.
+            line = having.expression
+            name = getattr(getattr(line, "left", None), "name", None)
+            if (
+                type(line) is not ast.ComparisonExpr
+                or type(line.left) is not ast.NameExpr
+                or type(line.right) is not ast.LiteralExpr
+                or type(line.right.value) is not int
+                or not _ends(having, line)
+                or not _starts(line, line.left)
+                or not _ends(line, line.right)
+                or name not in outputs
+            ):
+                return None
+            clauses.append((line.operator, outputs[name], line.right.value))
+        level_tuple = (join, None if plain else tuple(keys), tuple(items))
+        return level_tuple, outputs, tuple(clauses)
+
+    # The chain by FROM, the selected definition last.
+    chain = [selected]
+    while len(chain) <= 3 and type(
+        below := named.get(chain[-1].from_clause.source_name)
+    ) in (ast.QueryDef, ast.TableDef):
+        chain.append(below)
+    if len(chain) > 3:
         return False
+    chain.reverse()
+    levels: list = []
+    clauses: tuple = ()
+    upstream = None
+    for position, definition in enumerate(chain):
+        found = level(definition, upstream, position + 1 == len(chain))
+        if found is None:
+            return False
+        levels.append(found[0])
+        clauses = found[2]
+        upstream = (definition.name, found[1])
     functions = sorted(
         "filtered_sum" if item[0] == "fsum" else item[0]
         for current in levels
         for item in current[2]
-        if item[0] != "key"
+        if item[0] not in ("key", "read")
     )
     return (
-        len(plan.bindings.definitions) == len(read_sources) + relations_read
+        len(plan.bindings.definitions) == len(read_sources) + len(chain)
         and len(plan.sources) == len(read_sources)
         and sorted(str(function_name(value.source)) for value in plan.aggregates)
         == functions
         and forms.paired(
-            levels, plan.literal_policy is ProjectSQLLiteralPolicy.PRESERVE_LITERALS
+            tuple(levels),
+            plan.literal_policy is ProjectSQLLiteralPolicy.PRESERVE_LITERALS,
+            clauses,
+            organized,
         )
     )
 
@@ -3706,7 +3858,8 @@ def _ends(outer, inner) -> bool:
 
 def _mysql_s03_item(expression, read, conditional):
     """One SELECT item as an S03 item (sum_forms), or None; a parenthesized
-    argument, test or operand is none (_starts, _ends)."""
+    argument, test or operand is none (_starts, _ends), nor a call over two
+    lines or with a space at its parentheses."""
 
     from pietto import ast_nodes as ast
 
@@ -3717,17 +3870,28 @@ def _mysql_s03_item(expression, read, conditional):
         type(expression) is not ast.CallExpr
         or type(expression.callee) is not ast.NameExpr
         or expression.aggregate_order_by
-        or len(expression.arguments) != 1
+        or len(expression.arguments) > 1
+        or expression.span.line != expression.span.end_line
     ):
         return None
-    function, argument = expression.callee.name, expression.arguments[0]
+    function = expression.callee.name
+    if not expression.arguments:
+        # MC s03n: `count()` as written, no space in it.
+        return (
+            ("count", None)
+            if function == "count"
+            and (expression.span.end_line, expression.span.end_column)
+            == (expression.span.line, expression.span.column + len("count()"))
+            else None
+        )
+    argument = expression.arguments[0]
     # `name(` then the argument, then `)`, on one line.
-    if (
-        expression.span.line != expression.span.end_line
-        or (argument.span.line, argument.span.column)
-        != (expression.span.line, expression.span.column + len(function) + 1)
-        or (argument.span.end_line, argument.span.end_column + 1)
-        != (expression.span.end_line, expression.span.end_column)
+    if (argument.span.line, argument.span.column) != (
+        expression.span.line,
+        expression.span.column + len(function) + 1,
+    ) or (argument.span.end_line, argument.span.end_column + 1) != (
+        expression.span.end_line,
+        expression.span.end_column,
     ):
         return None
     if function == "sum" and type(argument) is ast.GeneratorExpr:
@@ -3741,37 +3905,59 @@ def _mysql_s03_item(expression, read, conditional):
             or not _ends(argument, test)
         ):
             return None
-        if type(test) is ast.NameExpr:
-            parts = ("is", read(test))
-        elif (
-            type(test) is ast.UnaryExpr
-            and test.operator == "not"
-            and _ends(test, test.operand)
-        ):
-            parts = ("not", read(test.operand))
-        elif (
-            type(test) is ast.IsNullExpr
-            and test.negated is False
-            and _starts(test, test.value)
-        ):
-            parts = ("none", read(test.value))
-        elif (
-            type(test) is ast.ComparisonExpr
-            and test.operator == ">"
-            and type(test.right) is ast.LiteralExpr
-            and type(test.right.value) is int
-            and _starts(test, test.left)
-            and _ends(test, test.right)
-        ):
-            parts = (">", read(test.left), test.right.value)
-        else:
-            return None
+        parts = _mysql_s03_test(test, read)
         value = read(argument.body)
-        return None if value is None or parts[1] is None else ("fsum", value, parts)
+        return None if value is None or parts is None else ("fsum", value, parts)
     if function in ("sum", "count"):
         value = read(argument)
         return None if value is None else (function, value)
     return None
+
+
+def _mysql_s03_test(test, read):
+    """A conditional sum's test as an S03 test (sum_forms): a read, `not` or
+    `is None` of one, a read `>` an Int literal, or (MC s03n) an `and` or
+    `or` of two such tests, each written plainly; None for any other."""
+
+    from pietto import ast_nodes as ast
+
+    if type(test) is ast.NameExpr:
+        parts = ("is", read(test))
+    elif (
+        type(test) is ast.UnaryExpr
+        and test.operator == "not"
+        and _ends(test, test.operand)
+    ):
+        parts = ("not", read(test.operand))
+    elif (
+        type(test) is ast.IsNullExpr
+        and test.negated is False
+        and _starts(test, test.value)
+    ):
+        parts = ("none", read(test.value))
+    elif (
+        type(test) is ast.ComparisonExpr
+        and test.operator == ">"
+        and type(test.right) is ast.LiteralExpr
+        and type(test.right.value) is int
+        and _starts(test, test.left)
+        and _ends(test, test.right)
+    ):
+        parts = (">", read(test.left), test.right.value)
+    elif (
+        type(test) is ast.BinaryExpr
+        and test.operator in ("and", "or")
+        and _starts(test, test.left)
+        and _ends(test, test.right)
+    ):
+        parts = (
+            test.operator,
+            _mysql_s03_test(test.left, read),
+            _mysql_s03_test(test.right, read),
+        )
+    else:
+        return None
+    return None if parts[1] is None or parts[2:3] == (None,) else parts
 
 
 def mysql_s03_compiled(records, entry) -> frozenset:
@@ -3784,29 +3970,41 @@ def mysql_s03_compiled(records, entry) -> frozenset:
 def _mysql_s03_compiled(records, entry) -> frozenset:
     """Compiled replay's S03 sums and conditional sums (their aggregate_value
     addresses), from the records alone, as emission derives the statement
-    (mysql_s03_statement): every record is of a kind in _MYSQL_S03_RECORDS,
-    and the entry's terminal is a projection row over an aggregate of its
-    declaration, over a source, one JOIN of two sources, or the projection
-    row of one other declaration over its aggregate over such a JOIN; no
-    other row, aggregate or JOIN exists. An imported source or definition
-    and a relation alias leave the same records, so only emission refuses
+    (mysql_s03_statement): every record is of a kind in _MYSQL_S03_RECORDS
+    or a result record, and the entry's terminal is a projection row over
+    an aggregate of its declaration, over a source, one JOIN of two
+    sources, or the projection row of another declaration, which stands so
+    in turn, three declarations at most; a declaration's projection row may
+    instead stand over a source alone (a plain level, MC s03n). The selected
+    declaration alone may add one HAVING row between its aggregate and its
+    projection row, one WHERE row between the projection row of the
+    declaration below and its aggregate, and one result record over its
+    projection row, which holds its ORDER BY and neither DISTINCT nor LIMIT
+    (MC s03n). No other row,
+    aggregate, result or JOIN exists. An imported source or definition and
+    a relation alias leave the same records, so only emission refuses
     them."""
 
     from pietto._project import project_sql_emission_sum_forms as forms
     from pietto._project.project_compiled_schema import Address
 
-    if any(address.kind not in _MYSQL_S03_RECORDS for address in records):
+    if any(
+        address.kind not in _MYSQL_S03_RECORDS and address.kind != "result"
+        for address in records
+    ):
         return frozenset()
     units: set = set()
     sums: list = []
+    clauses: list = []
 
     def field(port):
         return port.get("source"), forms.carrier(
             records[port.get("source")].get("physical")
         )
 
-    def operand(address, column):
-        """A conditional sum's test: a read, `not`, `is None` or `>` literal."""
+    def operand(address, column, compound=True):
+        """A conditional sum's test: a read, `not`, `is None` or `>` literal,
+        or (MC s03n) an `and` or `or` of two of them."""
         if address.kind == "read":
             value = column(address)
             return None if value is None else ("is", value)
@@ -3814,6 +4012,13 @@ def _mysql_s03_compiled(records, entry) -> frozenset:
         if address.kind != "operation":
             return None
         operator, operands = operation.get("operator"), operation.get("operands")
+        if (
+            compound
+            and operator in (("binary", "and"), ("binary", "or"))
+            and len(operands) == 2
+        ):
+            left, right = (operand(item, column, False) for item in operands)
+            return None if left is None or right is None else (operator[1], left, right)
         if (
             operator in (("not", "not"), ("null_test", "is_null"))
             and len(operands) == 1
@@ -3834,22 +4039,53 @@ def _mysql_s03_compiled(records, entry) -> frozenset:
             return None if value is None else (">", value, literal)
         return None
 
-    def level(row, owner, nested=False):
-        """The level of a projection row over its aggregate: (level, the
-        row's output ports to their items, the upstream level if any), or
-        None."""
+    def level(row, owner, depth):
+        """The level of a projection row of ``owner`` over its aggregate,
+        or over a source alone: (level, the row's output ports to their
+        items, the level below if any), or None. Only the selected
+        declaration's (``depth`` 0) may hold a HAVING row and a WHERE row."""
         if (
             row.address.kind != "row"
             or row.get("stage") != "projection"
             or row.get("predicate") is not None
             or row.get("owner") != owner
+            or len(row.get("values")) != len(row.get("outputs"))
         ):
             return None
-        aggregate = records[row.get("input")]
+        units.add(row.address)
+        aggregate, satisfying = records[row.get("input")], None
+        if (
+            depth == 0
+            and aggregate.address.kind == "row"
+            and aggregate.get("stage") == "satisfying"
+            and aggregate.get("owner") == owner
+        ):
+            satisfying, aggregate = aggregate, records[aggregate.get("input")]
+            units.add(satisfying.address)
+        if aggregate.address.kind == "source" and satisfying is None:
+            # MC s03n: a plain level, which reads the source's fields.
+            items, ports = [], {}
+            for read, port in zip(row.get("values"), row.get("outputs"), strict=True):
+                found = (
+                    records[records[read].get("port")] if read.kind == "read" else None
+                )
+                if found is None or found.get("owner") != aggregate.address:
+                    return None
+                items.append(("read", ("A", *field(found))))
+                ports[port] = items[-1]
+            return (None, None, tuple(items)), ports, None
         if aggregate.address.kind != "aggregate" or aggregate.get("owner") != owner:
             return None
-        below = records[aggregate.get("input")]
-        units.update((row.address, aggregate.address))
+        below, where = records[aggregate.get("input")], None
+        units.add(aggregate.address)
+        if (
+            depth == 0
+            and below.address.kind == "row"
+            and below.get("stage") == "where"
+            and below.get("owner") == owner
+        ):
+            where, below = below, records[below.get("input")]
+            units.add(where.address)
         join, upstream, uses = None, None, []
 
         def side(read):
@@ -3911,15 +4147,45 @@ def _mysql_s03_compiled(records, entry) -> frozenset:
                     )
                     for use in uses
                 ),
+                tuple(records[uses[0].get("producer")].get("fields")),
             )
             if None in join:
                 return None
-        elif below.address.kind == "row" and below.get("owner") != owner and not nested:
-            upstream = level(below, below.get("owner"), True)
+        elif below.address.kind == "row" and below.get("owner") != owner and depth < 2:
+            upstream = level(below, below.get("owner"), depth + 1)
             if upstream is None:
                 return None
         elif below.address.kind != "source":
             return None
+        if where is not None:
+            # MC s03n's T-1: the WHERE row carries the ports of the level
+            # below in order and tests them as a conditional sum's test.
+            if upstream is None:
+                return None
+            inputs, passed = below.get("outputs"), where.get("values")
+            if (
+                where.get("predicate") is None
+                or len(passed) != len(inputs)
+                or len(where.get("outputs")) != len(passed)
+                or not all(
+                    read.kind == "read" and records[read].get("port") == port
+                    for read, port in zip(passed, inputs)
+                )
+            ):
+                return None
+            test = operand(where.get("predicate"), column)
+            if test is None:
+                return None
+            clauses.append(("where", test))
+            # The aggregate reads the WHERE row's ports, each an item below.
+            upstream = (
+                upstream[0],
+                {
+                    port: upstream[1][source]
+                    for port, source in zip(where.get("outputs"), inputs, strict=True)
+                },
+                upstream[2],
+            )
         keys = tuple(column(key) for key in aggregate.get("keys"))
         if None in keys:
             return None
@@ -3928,7 +4194,10 @@ def _mysql_s03_compiled(records, entry) -> frozenset:
             value = records[address]
             function, arguments = value.get("function"), value.get("arguments")
             item = None
-            if (
+            if function == "count" and not arguments:
+                # MC s03n: `count()`.
+                item = ("count", None)
+            elif (
                 function in ("sum", "count")
                 and len(arguments) == 1
                 and arguments[0].kind == "read"
@@ -3956,9 +4225,45 @@ def _mysql_s03_compiled(records, entry) -> frozenset:
                 outputs[address] = ("key", keys[aggregate.get("keys").index(source)])
             else:
                 return None
+        if satisfying is not None:
+            # MC s03n: the HAVING row carries the aggregate's ports in order
+            # and compares one of them with an Int literal.
+            passed, predicate = satisfying.get("values"), satisfying.get("predicate")
+            operation = (
+                records[predicate]
+                if getattr(predicate, "kind", None) == "operation"
+                else None
+            )
+            pair = () if operation is None else operation.get("operands")
+            if (
+                len(passed) != len(aggregate.get("outputs"))
+                or len(satisfying.get("outputs")) != len(passed)
+                or not all(
+                    read.kind == "read" and records[read].get("port") == port
+                    for read, port in zip(passed, aggregate.get("outputs"))
+                )
+                or operation is None
+                or operation.get("operator")[0] != "comparison"
+                or len(pair) != 2
+                or pair[0].kind != "read"
+                or pair[1].kind != "literal"
+                or records[pair[1]].get("tag") != "Int"
+                or type(number := getattr(records[pair[1]].get("value"), "value", None))
+                is not int
+            ):
+                return None
+            # Its predicate reads the aggregate's port, its row the carries.
+            read = records[pair[0]].get("port")
+            if read not in outputs:
+                return None
+            clauses.append((operation.get("operator")[1], outputs[read], number))
+            outputs = {
+                port: outputs[source]
+                for port, source in zip(
+                    satisfying.get("outputs"), aggregate.get("outputs"), strict=True
+                )
+            }
         items, ports = [], {}
-        if len(row.get("values")) != len(row.get("outputs")):
-            return None
         for read, port in zip(row.get("values"), row.get("outputs"), strict=True):
             item = (
                 outputs.get(records[read].get("port")) if read.kind == "read" else None
@@ -3969,17 +4274,64 @@ def _mysql_s03_compiled(records, entry) -> frozenset:
             ports[port] = item
         return (join, keys, tuple(items)), ports, upstream
 
-    top = level(records[entry.get("terminal")], entry.get("declaration"))
+    terminal, result = records[entry.get("terminal")], None
+    if terminal.address.kind == "result":
+        # MC s03n: the selected declaration's ORDER BY, with no DISTINCT or
+        # LIMIT, over its projection row.
+        result, terminal = terminal, records[terminal.get("input")]
+        if (
+            result.get("owner") != entry.get("declaration")
+            or result.get("distinct") is not False
+            or result.get("limit") is not None
+            or result.get("limit_literal") is not None
+        ):
+            return frozenset()
+        units.add(result.address)
+    top = level(terminal, entry.get("declaration"), 0)
     if top is None or any(
-        address.kind in {"row", "aggregate", "join"} and address not in units
+        address.kind in {"row", "aggregate", "join", "result"} and address not in units
         for address in records
     ):
         return frozenset()
-    levels = (top[0],) if top[2] is None else (top[2][0], top[0])
+    levels = []
+    current = top
+    while current is not None:
+        levels.append(current[0])
+        current = current[2]
+    levels.reverse()
+    if result is not None:
+        ports = top[1]
+        read = [
+            ports.get(records[item].get("port")) if item.kind == "read" else None
+            for item in result.get("projection")
+        ]
+        order = [
+            (ports.get(records[item].get("port")) if item.kind == "read" else None, way)
+            for item, way in result.get("ordering")
+        ]
+        if (
+            None in read
+            or any(item is None for item, _ in order)
+            or {
+                records[item].get("port")
+                for item in (
+                    *result.get("projection"),
+                    *(item for item, _ in result.get("ordering")),
+                )
+            }
+            != set(terminal.get("outputs"))
+        ):
+            return frozenset()
+        levels[-1] = (*levels[-1][:2], tuple(read))
+        clauses.extend(("order", item, way) for item, way in order)
     preserve = records[Address("policy", 0)].get("literal_policy") == (
         "preserve_literals"
     )
-    return frozenset(sums) if forms.paired(levels, preserve) else frozenset()
+    return (
+        frozenset(sums)
+        if forms.paired(tuple(levels), preserve, tuple(clauses))
+        else frozenset()
+    )
 
 
 def _mysql_g8_shapes(order, item) -> bool:

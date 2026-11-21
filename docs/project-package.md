@@ -873,7 +873,8 @@ MySQL keeps project `sum(Int)` BLOCKED with `PIE-B1004`,
 as its `CAST(DECIMAL AS SIGNED)` would clamp an out-of-range sum, and Int
 arithmetic not proved to fit signed 64 bits BLOCKED with `PIE-B1002`,
 outside the `0.1.12` (Phase77 S01/S02) cells, the S02 cell as `0.2.2` (MC G1
-to G7) widens it, the chains of levels of MC G8, and S03 forms that the
+to G7) widens it, the chains of levels of MC G8, the S03 forms and their
+MC s03n conditional and multi-level neighbours that the
 [language page](language.md) states.
 PostgreSQL admits exact Decimal/Int addition and subtraction and addition
 or subtraction of Decimals with different scales. Let `s = max(s1, s2)`;
@@ -1030,7 +1031,8 @@ aggregating upstream as it states them; MC G5: also with header parameters
 and bind-safe literals as it states them; MC G6: also over INNER, LEFT and
 RIGHT JOINs of sources whose `on` links an `Int` field of each side as it
 states them; MC G8: also at every level of a chain of levels as it states
-them), and outside the S03 JOIN and two-level forms that the
+them), and outside the S03 JOIN and two-level forms and the MC s03n
+two- and three-level forms that the
 [language page](language.md) states,
 and an `Int` row expression not proved
 to fit signed 64 bits (`PIE-B1002`) outside its `0.1.12` (Phase77 S01)
@@ -1114,8 +1116,9 @@ with only its names changed
 ([0.1.12](release-notes.md#conditional-counts-and-tests-of-a-group-in-three-mysql-project-forms)): the count with
 `PIE-B1003` (`conditional_count_not_admitted_on_target`), the sum with
 `PIE-B1004` (`sum_int_aggregate_range_proof_missing`), outside the `0.1.12`
-(Phase77 S03) conditional sum forms and the S02 cell as `0.2.2` (MC G7)
-widens it to conditional sums that the [language page](language.md)
+(Phase77 S03) conditional sum forms, the conditional sums of the S02 cell
+as `0.2.2` (MC G7) widens it, and the MC s03n conditional forms with one
+clause or source organization that the [language page](language.md)
 states, where it is a non-null `my_signed_int` from S02's guarded `SUM`
 under `COALESCE(..., 0)` with the same R13 evidence. Compiled bundles and live
 templates carry them unchanged: the compiled `aggregate_value` function is

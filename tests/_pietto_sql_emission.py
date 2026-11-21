@@ -20014,21 +20014,38 @@ def s03_world(
     """``body`` over S03_HEADER, its contract binding the sources the body
     names, with exact identifier case and the native parameter protocol;
     ``names`` renames identifiers (whole words) in the header, the body and
-    the contract's selectors and fields alike, and ``extra`` adds nullable
-    BIGINT fields after a source's own, as {source: (name, ...)}. A dict
-    ``body`` maps module paths to their text, main.pietto's after the
-    header."""
+    the contract's selectors and fields alike, and ``extra`` adds fields to
+    a source, as {source: (field, ...)}, each a name, a nullable BIGINT
+    after the source's own fields, or (name, kind, nullable, before), kind
+    one of _S03_FIELDS' and ``before`` None or the field it is declared
+    before. A dict ``body`` maps module paths to their text, main.pietto's
+    after the header."""
     names, extra = names or {}, extra or {}
     header = S03_HEADER
-    for source, last in (
-        ("orders", "    flag: Bool | None\n"),
-        ("items", "    qty: Int | None\n"),
-    ):
-        header = header.replace(
-            last,
-            last
-            + "".join(f"    {name}: Int | None\n" for name in extra.get(source, ())),
+    layout = {source: list(fields) for source, fields in _S03_FIELDS.items()}
+
+    def line(name, kind, nullable):
+        return "    %s: %s%s\n" % (
+            name,
+            "Bool" if kind == "bool" else "Int",
+            " | None" if nullable else "",
         )
+
+    for source, fields in layout.items():
+        for entry in extra.get(source, ()):
+            name, kind, nullable, before = (
+                (entry, "wide", True, None) if type(entry) is str else entry
+            )
+            added = (name, kind, nullable)
+            if before is None:
+                old, new = line(*fields[-1]), line(*fields[-1]) + line(*added)
+                fields.append(added)
+            else:
+                (anchor,) = [field for field in fields if field[0] == before]
+                old, new = line(*anchor), line(*added) + line(*anchor)
+                fields.insert(fields.index(anchor), added)
+            assert header.count(old) == 1, old
+            header = header.replace(old, new)
 
     def renamed(text):
         return (
@@ -20086,12 +20103,10 @@ def s03_world(
                         },
                     },
                 }
-                for ordinal, (name, kind, nullable) in enumerate(
-                    (*fields, *((name, "wide", True) for name in extra.get(source, ())))
-                )
+                for ordinal, (name, kind, nullable) in enumerate(fields)
             ],
         }
-        for source, fields in _S03_FIELDS.items()
+        for source, fields in layout.items()
         if re.search(r"\b%s\b" % source, text)
     ]
     files["main.pietto"] = renamed(
@@ -20174,42 +20189,26 @@ S03_RENAMES = {
 # Shapes outside the forms: the pack's 19 controls (forms.json) and others,
 # each keeping main's MySQL blockers (S03_REFUSAL_BLOCKERS) under both
 # policies, but the JOIN ones that MC G6 opens, which left for G6_S03_CELLS,
-# and the eleven that MC G7 opens, its cells (G7_CELLS) or forms. An imported
-# source and a relation alias also leave the compiled records and pure
-# document of a form (S03_ALIASES).
+# the eleven that MC G7 opens, its cells (G7_CELLS) or forms, and the
+# neighbours that MC s03n opens, its forms (S03N_FORMS) and spellings
+# (S03N_SPELLINGS). An imported source and a relation alias also leave the
+# compiled records and pure document of a form (S03_ALIASES).
 S03_REFUSALS = {
-    "ctl_c_order_by": "query result:\n    from orders\n    group by customer\n    select:\n        customer\n        paid = sum(o.amount for o in group if o.flag)\n    order by customer\n",
     "ctl_c_other_operator": "query result:\n    from orders\n    select:\n        z = sum(o.amount for o in group if o.id >= 3)\n",
-    "ctl_c_row_alias": "query result:\n    let x = orders\n    from x\n    group by customer\n    select:\n        customer\n        paid = sum(o.amount for o in group if o.flag)\n",
     "ctl_c_test_on_int_isnone": "query result:\n    from orders\n    select:\n        x = sum(o.amount for o in group if not o.flag)\n        y = sum(o.amount for o in group if o.amount is None)\n",
-    "ctl_c_upstream": "query up:\n    from orders\n    select:\n        customer\n        amount\n        flag\nquery result:\n    from up\n    group by customer\n    select:\n        customer\n        paid = sum(o.amount for o in group if o.flag)\n",
-    "ctl_t_second_where": S03_FORMS["T1"].replace(
-        "    from per_order\n", "    from per_order\n    where lines > 0\n"
-    ),
-    "ctl_t_third_level": "query per_order:\n    from orders\n    let i = items\n    left join i on i.order_id == orders.id\n    group by orders.id, orders.customer\n    select:\n        id = orders.id\n        customer = orders.customer\n        qty = sum(i.qty)\nquery mid:\n    from per_order\n    group by customer\n    select:\n        customer\n        qty = sum(qty)\nquery result:\n    from mid\n    select:\n        all_qty = sum(qty)\n",
     "c1_beside_composed": S03_FORMS["C1"] + "        extra = sum(amount) + 1\n",
-    "t2_extra_upstream_count": S03_FORMS["T2"].replace(
-        "        qty = sum(i.qty)\nquery result",
-        "        qty = sum(i.qty)\n        n = count()\nquery result",
-    ),
-    # A two-level form's per_order selects exactly its form's items.
-    "t1_upstream_subset": S03_FORMS["T1"].replace("        id = orders.id\n", ""),
-    "t2_upstream_subset": S03_FORMS["T2"].replace("        id = orders.id\n", ""),
-    "imported_source": {
-        "main.pietto": "export source orders\n",
-        "other.pietto": 'from "main.pietto" import (\n    source orders,\n)\n'
-        + S03_FORMS["C1"],
-    },
 }
 # A JOIN form's SQL carries every field of both sources, so a source with a
 # field beyond the qualification's tables is no form (J2's over a wider
-# `items` is MC G6's, G6_S03_CELLS); a conditional form reads only its
-# fields and stays one. Per shape: (form, extra fields).
+# `items` is MC G6's, G6_S03_CELLS, and T1's over an `orders` with one more
+# nullable BIGINT field MC s03n's T-4, S03N_FORMS' t1_wider_orders); a
+# conditional form reads only its fields and stays one. Per shape: (form,
+# extra fields).
 S03_WIDER = {
-    "t1_wider_orders": ("T1", {"orders": ("note",)}),
+    "t2_wider_orders": ("T2", {"orders": ("note",)}),
     "c1_wider_orders": ("C1", {"orders": ("note",)}),
 }
-# A refused shape whose compiled records and pure document are a form's.
+# An s03n spelling whose compiled records and pure document are a form's.
 S03_ALIASES = {
     "ctl_c_row_alias": "C1",
     "imported_source": "C1",
@@ -20290,41 +20289,12 @@ S03_REFUSAL_BLOCKERS = {
     "c1_beside_composed": [
         ("PIE-B1003", "aggregate_composition_not_admitted_on_target", 21, 17),
     ],
-    "ctl_c_order_by": [
-        ("PIE-B1004", "sum_int_aggregate_range_proof_missing", 20, 9),
-    ],
     "ctl_c_other_operator": [
         ("PIE-B1004", "sum_int_aggregate_range_proof_missing", 18, 9),
-    ],
-    "ctl_c_row_alias": [
-        ("PIE-B1004", "sum_int_aggregate_range_proof_missing", 21, 9),
     ],
     "ctl_c_test_on_int_isnone": [
         ("PIE-B1004", "sum_int_aggregate_range_proof_missing", 18, 9),
         ("PIE-B1004", "sum_int_aggregate_range_proof_missing", 19, 9),
-    ],
-    "ctl_c_upstream": [
-        ("PIE-B1004", "sum_int_aggregate_range_proof_missing", 26, 9),
-    ],
-    "ctl_t_second_where": [
-        ("PIE-B1004", "sum_int_aggregate_range_proof_missing", 31, 9),
-        ("PIE-B1004", "sum_int_aggregate_range_proof_missing", 32, 9),
-    ],
-    "ctl_t_third_level": [
-        ("PIE-B1004", "sum_int_aggregate_range_proof_missing", 23, 9),
-    ],
-    "imported_source": [
-        ("PIE-B1004", "sum_int_aggregate_range_proof_missing", 9, 9),
-    ],
-    "t2_extra_upstream_count": [
-        ("PIE-B1004", "sum_int_aggregate_range_proof_missing", 23, 9),
-    ],
-    "t1_upstream_subset": [
-        ("PIE-B1004", "sum_int_aggregate_range_proof_missing", 29, 9),
-        ("PIE-B1004", "sum_int_aggregate_range_proof_missing", 30, 9),
-    ],
-    "t2_upstream_subset": [
-        ("PIE-B1004", "sum_int_aggregate_range_proof_missing", 22, 9),
     ],
 }
 
@@ -21175,9 +21145,10 @@ G7_CELLS = {
         _G7_BOTH,
     ),
 }
-# Bodies refused beside the law (R: a long label, a sum outside every cell,
-# ORDER BY, a header parameter, a bind-safe `?`, a relation alias, an upstream
-# query, an imported source) or outside it (X: another comparison, `is None`
+# Bodies refused beside the law (R: a long label, a sum outside every cell, a
+# header parameter, a bind-safe `?`; MC s03n opens R3 and R6 to R8, its
+# r3_order_by, r6_row_alias, r7_upstream and r8_imported_source) or outside
+# it (X: another comparison, `is None`
 # of an Int, the conditional count, a sum in an expression, `is not None`, two
 # fields compared, a literal on the left, an Int literal outside the range, a
 # Bool literal, literal arithmetic, a literal written `+N` or `-(-N)`, `is
@@ -21192,16 +21163,8 @@ G7_CELLS = {
 G7_REFUSALS = {
     "R1": G7_FORMS["T1"].replace("paid =", "%s =" % ("p" * 257)),
     "R2": G7_FORMS["B2"] + "        z = sum(amount + nn)\n",
-    "R3": G7_FORMS["T1"] + "    order by:\n        customer\n",
     "R4": "query result(lo: Int):\n    from orders\n    where id > lo\n    group by customer\n    select:\n        customer\n        paid = sum(o.amount for o in group if o.flag and o.id > 3)\n",
     "R5": G7_FORMS["M1"],
-    "R6": "query result:\n    let x = orders\n    from x\n    group by customer\n    select:\n        customer\n        paid = sum(o.amount for o in group if o.flag or o.id > 3)\n",
-    "R7": "query up:\n    from orders\n    select:\n        customer\n        amount\n        flag\nquery result:\n    from up\n    group by customer\n    select:\n        customer\n        paid = sum(o.amount for o in group if not o.flag)\n",
-    "R8": {
-        "main.pietto": "export source orders\n",
-        "other.pietto": 'from "main.pietto" import (\n    source orders,\n)\n'
-        + G7_FORMS["T1"],
-    },
     "X1": _G7_SCALAR % "o.id >= 3",
     **{
         "test_" + name: _G7_SCALAR % f"o.id {operator} 3"
@@ -21303,23 +21266,11 @@ G7_REFUSAL_BLOCKERS = {
         ("PIE-B1004", "sum_int_aggregate_range_proof_missing", 21, 9),
         ("PIE-B1002", "arithmetic_outside_physical_range", 23, 9),
     ],
-    "R3": [
-        ("PIE-B1004", "sum_int_aggregate_range_proof_missing", 20, 9),
-    ],
     "R4": [
         ("PIE-B1004", "sum_int_aggregate_range_proof_missing", 21, 9),
     ],
     "R5": [
         ("PIE-B1004", "sum_int_aggregate_range_proof_missing", 21, 9),
-    ],
-    "R6": [
-        ("PIE-B1004", "sum_int_aggregate_range_proof_missing", 21, 9),
-    ],
-    "R7": [
-        ("PIE-B1004", "sum_int_aggregate_range_proof_missing", 26, 9),
-    ],
-    "R8": [
-        ("PIE-B1004", "sum_int_aggregate_range_proof_missing", 9, 9),
     ],
     "X1": [
         ("PIE-B1004", "sum_int_aggregate_range_proof_missing", 18, 9),
@@ -22017,20 +21968,1217 @@ G8_REFUSAL_BLOCKERS = {
 G8_POSTGRES_BLOCKERS = {
     "R1": [("PIE-B1002", "output_label_unrepresentable", None, None)],
 }
-# Over s03_world: T1 with a third level (P3) and T2 with one (P4), whose
-# per-order bottoms are not the style page's, with main's MySQL blockers.
-G8_S03_REFUSALS = {
-    "P3": (
-        S03_FORMS["T1"].replace("query result:", "query per_customer:")
-        + "query result:\n    from per_customer\n    select:\n        x = sum(revenue)\n        y = sum(lines)\n",
-        [(*_G8_SUM, 30, 9), (*_G8_SUM, 31, 9)],
+# MC s03n: S03's neighbours that MC G7 and G8 hand on, which the s03n list's
+# Law C (a conditional sum with one of ORDER BY, a relation alias, an
+# imported source, a plain upstream and a HAVING line, each over the bases it
+# names) and Law T (a chain over S03's T1 or T2 per-order bottom with one of
+# T-1 to T-6) open. Its twelve run forms over s03_world: eight of S03's
+# neighbours and four that the list adds beside them (G7's R3 and R7, C1
+# with HAVING and G8's P3); ctl_t_second_where is T-1, T1 with `where lines
+# > 0` in its second level, which reads the bottom's count column, and
+# t1_wider_orders is T1 over an `orders` with one more nullable BIGINT field
+# `note`, which no level reads (S03N_EXTRA).
+S03N_FORMS = {
+    "ctl_c_order_by": S03_FORMS["C1"] + "    order by customer\n",
+    "r3_order_by": G7_FORMS["T1"] + "    order by:\n        customer\n",
+    "ctl_c_upstream": "query up:\n    from orders\n    select:\n        customer\n        amount\n        flag\nquery result:\n    from up\n    group by customer\n    select:\n        customer\n        paid = sum(o.amount for o in group if o.flag)\n",
+    "r7_upstream": "query up:\n    from orders\n    select:\n        customer\n        amount\n        flag\nquery result:\n    from up\n    group by customer\n    select:\n        customer\n        paid = sum(o.amount for o in group if not o.flag)\n",
+    "c1_having": S03_FORMS["C1"] + "    having:\n        paid >= 0\n",
+    "ctl_t_second_where": S03_FORMS["T1"].replace(
+        "    from per_order\n", "    from per_order\n    where lines > 0\n"
     ),
-    "P4": (
-        S03_FORMS["T2"].replace("query result:", "query mid:")
-        + "query result:\n    from mid\n    select:\n        x = sum(qty)\n",
-        [(*_G8_SUM, 23, 9)],
+    "t1_upstream_subset": S03_FORMS["T1"].replace("        id = orders.id\n", ""),
+    "t1_wider_orders": S03_FORMS["T1"],
+    "t2_upstream_subset": S03_FORMS["T2"].replace("        id = orders.id\n", ""),
+    "t2_extra_upstream_count": S03_FORMS["T2"].replace(
+        "        qty = sum(i.qty)\nquery result",
+        "        qty = sum(i.qty)\n        n = count()\nquery result",
+    ),
+    "ctl_t_third_level": S03_FORMS["T2"].replace("query result:", "query mid:")
+    + "query result:\n    from mid\n    select:\n        all_qty = sum(qty)\n",
+    "t1_third_level": S03_FORMS["T1"].replace("query result:", "query per_customer:")
+    + "query result:\n    from per_customer\n    select:\n        x = sum(revenue)\n        y = sum(lines)\n",
+}
+S03N_EXTRA = {"t1_wider_orders": {"orders": ("note",)}}
+
+
+def s03n_world(directory, target, body, policy="preserve_literals"):
+    """``body``, the body of one S03N_FORMS form, over s03_world with that
+    form's extra fields (S03N_EXTRA); ValueError for any other body."""
+    forms = [form for form, written in S03N_FORMS.items() if written == body]
+    if len(forms) != 1:
+        raise ValueError("not the body of an s03n form")
+    return s03_world(directory, target, body, policy, extra=S03N_EXTRA.get(forms[0]))
+
+
+# The SQL of each form on each target: PostgreSQL's main's own, MySQL's the
+# s03n list's predictions, main's MySQL SQL of the form with each sum
+# written `max` and each such MAX the guarded SUM, a conditional one inside
+# S03's COALESCE (the list's BC and BT).
+S03N_FORM_SQL = {
+    ("ctl_c_order_by", "postgres"): (
+        'WITH "p0" ("c0", "c1") AS (SELECT "s0"."customer" AS "c0", COALESCE(CAST(SUM(CASE WHEN "s0"."flag" THEN CAST("s0"."amount" AS pg_catalog.int8) END) AS pg_catalog.int8), 0) AS "c1" FROM "public"."s03 orders" AS "s0" GROUP BY "s0"."customer"), "p1" ("c0", "c1", "c2") AS (SELECT "t1"."c0" AS "c0", "t1"."c1" AS "c1", "t1"."c0" AS "c2" FROM "p0" AS "t1") SELECT "t0"."c0" AS "customer", "t0"."c1" AS "paid" FROM "p1" AS "t0" ORDER BY "t0"."c2" ASC'
+    ),
+    ("ctl_c_order_by", "mysql"): (
+        "WITH `p0` (`c0`, `c1`) AS (SELECT `s0`.`customer` AS `c0`, COALESCE(CASE WHEN SUM(CASE WHEN `s0`.`flag` THEN `s0`.`amount` END) > 9223372036854775807 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) WHEN SUM(CASE WHEN `s0`.`flag` THEN `s0`.`amount` END) < -9223372036854775808 THEN CAST(-9223372036854775808 AS SIGNED) - CAST(1 AS SIGNED) ELSE CAST(SUM(CASE WHEN `s0`.`flag` THEN `s0`.`amount` END) AS SIGNED) END, 0) AS `c1` FROM `phase66`.`s03 orders` AS `s0` GROUP BY `s0`.`customer`), `p1` (`c0`, `c1`, `c2`) AS (SELECT `t1`.`c0` AS `c0`, `t1`.`c1` AS `c1`, `t1`.`c0` AS `c2` FROM `p0` AS `t1`) SELECT `t0`.`c0` AS `customer`, `t0`.`c1` AS `paid` FROM `p1` AS `t0` ORDER BY `t0`.`c2` ASC"
+    ),
+    ("r3_order_by", "postgres"): (
+        'WITH "p0" ("c0", "c1") AS (SELECT "s0"."customer" AS "c0", COALESCE(CAST(SUM(CASE WHEN ("s0"."flag" AND ("s0"."id" > CAST(3 AS pg_catalog.int8))) THEN CAST("s0"."amount" AS pg_catalog.int8) END) AS pg_catalog.int8), 0) AS "c1" FROM "public"."s03 orders" AS "s0" GROUP BY "s0"."customer"), "p1" ("c0", "c1", "c2") AS (SELECT "t1"."c0" AS "c0", "t1"."c1" AS "c1", "t1"."c0" AS "c2" FROM "p0" AS "t1") SELECT "t0"."c0" AS "customer", "t0"."c1" AS "paid" FROM "p1" AS "t0" ORDER BY "t0"."c2" ASC'
+    ),
+    ("r3_order_by", "mysql"): (
+        "WITH `p0` (`c0`, `c1`) AS (SELECT `s0`.`customer` AS `c0`, COALESCE(CASE WHEN SUM(CASE WHEN (`s0`.`flag` AND (`s0`.`id` > CAST(3 AS SIGNED))) THEN `s0`.`amount` END) > 9223372036854775807 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) WHEN SUM(CASE WHEN (`s0`.`flag` AND (`s0`.`id` > CAST(3 AS SIGNED))) THEN `s0`.`amount` END) < -9223372036854775808 THEN CAST(-9223372036854775808 AS SIGNED) - CAST(1 AS SIGNED) ELSE CAST(SUM(CASE WHEN (`s0`.`flag` AND (`s0`.`id` > CAST(3 AS SIGNED))) THEN `s0`.`amount` END) AS SIGNED) END, 0) AS `c1` FROM `phase66`.`s03 orders` AS `s0` GROUP BY `s0`.`customer`), `p1` (`c0`, `c1`, `c2`) AS (SELECT `t1`.`c0` AS `c0`, `t1`.`c1` AS `c1`, `t1`.`c0` AS `c2` FROM `p0` AS `t1`) SELECT `t0`.`c0` AS `customer`, `t0`.`c1` AS `paid` FROM `p1` AS `t0` ORDER BY `t0`.`c2` ASC"
+    ),
+    ("ctl_c_upstream", "postgres"): (
+        'WITH "p0" ("c0", "c1", "c2") AS (SELECT "s0"."customer" AS "c0", "s0"."amount" AS "c1", "s0"."flag" AS "c2" FROM "public"."s03 orders" AS "s0"), "p1" ("c0", "c1") AS (SELECT "s1"."c0" AS "c0", COALESCE(CAST(SUM(CASE WHEN "s1"."c2" THEN CAST("s1"."c1" AS pg_catalog.int8) END) AS pg_catalog.int8), 0) AS "c1" FROM "p0" AS "s1" GROUP BY "s1"."c0") SELECT "t2"."c0" AS "customer", "t2"."c1" AS "paid" FROM "p1" AS "t2"'
+    ),
+    ("ctl_c_upstream", "mysql"): (
+        "WITH `p0` (`c0`, `c1`, `c2`) AS (SELECT `s0`.`customer` AS `c0`, `s0`.`amount` AS `c1`, `s0`.`flag` AS `c2` FROM `phase66`.`s03 orders` AS `s0`), `p1` (`c0`, `c1`) AS (SELECT `s1`.`c0` AS `c0`, COALESCE(CASE WHEN SUM(CASE WHEN `s1`.`c2` THEN `s1`.`c1` END) > 9223372036854775807 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) WHEN SUM(CASE WHEN `s1`.`c2` THEN `s1`.`c1` END) < -9223372036854775808 THEN CAST(-9223372036854775808 AS SIGNED) - CAST(1 AS SIGNED) ELSE CAST(SUM(CASE WHEN `s1`.`c2` THEN `s1`.`c1` END) AS SIGNED) END, 0) AS `c1` FROM `p0` AS `s1` GROUP BY `s1`.`c0`) SELECT `t2`.`c0` AS `customer`, `t2`.`c1` AS `paid` FROM `p1` AS `t2`"
+    ),
+    ("r7_upstream", "postgres"): (
+        'WITH "p0" ("c0", "c1", "c2") AS (SELECT "s0"."customer" AS "c0", "s0"."amount" AS "c1", "s0"."flag" AS "c2" FROM "public"."s03 orders" AS "s0"), "p1" ("c0", "c1") AS (SELECT "s1"."c0" AS "c0", COALESCE(CAST(SUM(CASE WHEN (NOT "s1"."c2") THEN CAST("s1"."c1" AS pg_catalog.int8) END) AS pg_catalog.int8), 0) AS "c1" FROM "p0" AS "s1" GROUP BY "s1"."c0") SELECT "t2"."c0" AS "customer", "t2"."c1" AS "paid" FROM "p1" AS "t2"'
+    ),
+    ("r7_upstream", "mysql"): (
+        "WITH `p0` (`c0`, `c1`, `c2`) AS (SELECT `s0`.`customer` AS `c0`, `s0`.`amount` AS `c1`, `s0`.`flag` AS `c2` FROM `phase66`.`s03 orders` AS `s0`), `p1` (`c0`, `c1`) AS (SELECT `s1`.`c0` AS `c0`, COALESCE(CASE WHEN SUM(CASE WHEN (NOT `s1`.`c2`) THEN `s1`.`c1` END) > 9223372036854775807 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) WHEN SUM(CASE WHEN (NOT `s1`.`c2`) THEN `s1`.`c1` END) < -9223372036854775808 THEN CAST(-9223372036854775808 AS SIGNED) - CAST(1 AS SIGNED) ELSE CAST(SUM(CASE WHEN (NOT `s1`.`c2`) THEN `s1`.`c1` END) AS SIGNED) END, 0) AS `c1` FROM `p0` AS `s1` GROUP BY `s1`.`c0`) SELECT `t2`.`c0` AS `customer`, `t2`.`c1` AS `paid` FROM `p1` AS `t2`"
+    ),
+    ("c1_having", "postgres"): (
+        'WITH "p0" ("c0", "c1") AS (SELECT "s0"."customer" AS "c0", COALESCE(CAST(SUM(CASE WHEN "s0"."flag" THEN CAST("s0"."amount" AS pg_catalog.int8) END) AS pg_catalog.int8), 0) AS "c1" FROM "public"."s03 orders" AS "s0" GROUP BY "s0"."customer"), "p1" ("c0", "c1") AS (SELECT "t1"."c0" AS "c0", "t1"."c1" AS "c1" FROM "p0" AS "t1" WHERE ("t1"."c1" >= CAST(0 AS pg_catalog.int8))) SELECT "t2"."c0" AS "customer", "t2"."c1" AS "paid" FROM "p1" AS "t2"'
+    ),
+    ("c1_having", "mysql"): (
+        "WITH `p0` (`c0`, `c1`) AS (SELECT `s0`.`customer` AS `c0`, COALESCE(CASE WHEN SUM(CASE WHEN `s0`.`flag` THEN `s0`.`amount` END) > 9223372036854775807 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) WHEN SUM(CASE WHEN `s0`.`flag` THEN `s0`.`amount` END) < -9223372036854775808 THEN CAST(-9223372036854775808 AS SIGNED) - CAST(1 AS SIGNED) ELSE CAST(SUM(CASE WHEN `s0`.`flag` THEN `s0`.`amount` END) AS SIGNED) END, 0) AS `c1` FROM `phase66`.`s03 orders` AS `s0` GROUP BY `s0`.`customer`), `p1` (`c0`, `c1`) AS (SELECT `t1`.`c0` AS `c0`, `t1`.`c1` AS `c1` FROM `p0` AS `t1` WHERE (`t1`.`c1` >= CAST(0 AS SIGNED))) SELECT `t2`.`c0` AS `customer`, `t2`.`c1` AS `paid` FROM `p1` AS `t2`"
+    ),
+    ("ctl_t_second_where", "postgres"): (
+        'WITH "p0" ("c0", "c1", "c2", "c3", "c4", "c5", "c6", "c7") AS (SELECT "m0"."id" AS "c0", "m0"."customer" AS "c1", "m0"."amount" AS "c2", "m0"."nn" AS "c3", "m0"."flag" AS "c4", "m1"."id" AS "c5", "m1"."order_id" AS "c6", "m1"."qty" AS "c7" FROM "public"."s03 orders" AS "m0" LEFT JOIN "public"."s03 items" AS "m1" ON ("m1"."order_id" = "m0"."id")), "p1" ("c0", "c1", "c2", "c3") AS (SELECT "t0"."c0" AS "c0", "t0"."c1" AS "c1", "t0"."c2" AS "c2", COUNT("t0"."c5") AS "c3" FROM "p0" AS "t0" GROUP BY "t0"."c0", "t0"."c1", "t0"."c2"), "p2" ("c0", "c1", "c2", "c3") AS (SELECT "t1"."c0" AS "c0", "t1"."c1" AS "c1", "t1"."c2" AS "c2", "t1"."c3" AS "c3" FROM "p1" AS "t1"), "p3" ("c0", "c1", "c2", "c3") AS (SELECT "s2"."c0" AS "c0", "s2"."c1" AS "c1", "s2"."c2" AS "c2", "s2"."c3" AS "c3" FROM "p2" AS "s2" WHERE ("s2"."c3" > CAST(0 AS pg_catalog.int8))), "p4" ("c0", "c1", "c2") AS (SELECT "t3"."c1" AS "c0", CAST(SUM(CAST("t3"."c2" AS pg_catalog.int8)) AS pg_catalog.int8) AS "c1", CAST(SUM(CAST("t3"."c3" AS pg_catalog.int8)) AS pg_catalog.int8) AS "c2" FROM "p3" AS "t3" GROUP BY "t3"."c1") SELECT "t4"."c0" AS "customer", "t4"."c1" AS "revenue", "t4"."c2" AS "lines" FROM "p4" AS "t4"'
+    ),
+    ("ctl_t_second_where", "mysql"): (
+        "WITH `p0` (`c0`, `c1`, `c2`, `c3`, `c4`, `c5`, `c6`, `c7`) AS (SELECT `m0`.`id` AS `c0`, `m0`.`customer` AS `c1`, `m0`.`amount` AS `c2`, `m0`.`nn` AS `c3`, `m0`.`flag` AS `c4`, `m1`.`id` AS `c5`, `m1`.`order_id` AS `c6`, `m1`.`qty` AS `c7` FROM `phase66`.`s03 orders` AS `m0` LEFT JOIN `phase66`.`s03 items` AS `m1` ON (`m1`.`order_id` = `m0`.`id`)), `p1` (`c0`, `c1`, `c2`, `c3`) AS (SELECT `t0`.`c0` AS `c0`, `t0`.`c1` AS `c1`, `t0`.`c2` AS `c2`, COUNT(`t0`.`c5`) AS `c3` FROM `p0` AS `t0` GROUP BY `t0`.`c0`, `t0`.`c1`, `t0`.`c2`), `p2` (`c0`, `c1`, `c2`, `c3`) AS (SELECT `t1`.`c0` AS `c0`, `t1`.`c1` AS `c1`, `t1`.`c2` AS `c2`, `t1`.`c3` AS `c3` FROM `p1` AS `t1`), `p3` (`c0`, `c1`, `c2`, `c3`) AS (SELECT `s2`.`c0` AS `c0`, `s2`.`c1` AS `c1`, `s2`.`c2` AS `c2`, `s2`.`c3` AS `c3` FROM `p2` AS `s2` WHERE (`s2`.`c3` > CAST(0 AS SIGNED))), `p4` (`c0`, `c1`, `c2`) AS (SELECT `t3`.`c1` AS `c0`, CASE WHEN SUM(`t3`.`c2`) > 9223372036854775807 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) WHEN SUM(`t3`.`c2`) < -9223372036854775808 THEN CAST(-9223372036854775808 AS SIGNED) - CAST(1 AS SIGNED) ELSE CAST(SUM(`t3`.`c2`) AS SIGNED) END AS `c1`, CASE WHEN SUM(`t3`.`c3`) > 9223372036854775807 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) WHEN SUM(`t3`.`c3`) < -9223372036854775808 THEN CAST(-9223372036854775808 AS SIGNED) - CAST(1 AS SIGNED) ELSE CAST(SUM(`t3`.`c3`) AS SIGNED) END AS `c2` FROM `p3` AS `t3` GROUP BY `t3`.`c1`) SELECT `t4`.`c0` AS `customer`, `t4`.`c1` AS `revenue`, `t4`.`c2` AS `lines` FROM `p4` AS `t4`"
+    ),
+    ("t1_upstream_subset", "postgres"): (
+        'WITH "p0" ("c0", "c1", "c2", "c3", "c4", "c5", "c6", "c7") AS (SELECT "m0"."id" AS "c0", "m0"."customer" AS "c1", "m0"."amount" AS "c2", "m0"."nn" AS "c3", "m0"."flag" AS "c4", "m1"."id" AS "c5", "m1"."order_id" AS "c6", "m1"."qty" AS "c7" FROM "public"."s03 orders" AS "m0" LEFT JOIN "public"."s03 items" AS "m1" ON ("m1"."order_id" = "m0"."id")), "p1" ("c0", "c1", "c2", "c3") AS (SELECT "t0"."c0" AS "c0", "t0"."c1" AS "c1", "t0"."c2" AS "c2", COUNT("t0"."c5") AS "c3" FROM "p0" AS "t0" GROUP BY "t0"."c0", "t0"."c1", "t0"."c2"), "p2" ("c0", "c1", "c2") AS (SELECT "t1"."c1" AS "c0", "t1"."c2" AS "c1", "t1"."c3" AS "c2" FROM "p1" AS "t1"), "p3" ("c0", "c1", "c2") AS (SELECT "s2"."c0" AS "c0", CAST(SUM(CAST("s2"."c1" AS pg_catalog.int8)) AS pg_catalog.int8) AS "c1", CAST(SUM(CAST("s2"."c2" AS pg_catalog.int8)) AS pg_catalog.int8) AS "c2" FROM "p2" AS "s2" GROUP BY "s2"."c0") SELECT "t3"."c0" AS "customer", "t3"."c1" AS "revenue", "t3"."c2" AS "lines" FROM "p3" AS "t3"'
+    ),
+    ("t1_upstream_subset", "mysql"): (
+        "WITH `p0` (`c0`, `c1`, `c2`, `c3`, `c4`, `c5`, `c6`, `c7`) AS (SELECT `m0`.`id` AS `c0`, `m0`.`customer` AS `c1`, `m0`.`amount` AS `c2`, `m0`.`nn` AS `c3`, `m0`.`flag` AS `c4`, `m1`.`id` AS `c5`, `m1`.`order_id` AS `c6`, `m1`.`qty` AS `c7` FROM `phase66`.`s03 orders` AS `m0` LEFT JOIN `phase66`.`s03 items` AS `m1` ON (`m1`.`order_id` = `m0`.`id`)), `p1` (`c0`, `c1`, `c2`, `c3`) AS (SELECT `t0`.`c0` AS `c0`, `t0`.`c1` AS `c1`, `t0`.`c2` AS `c2`, COUNT(`t0`.`c5`) AS `c3` FROM `p0` AS `t0` GROUP BY `t0`.`c0`, `t0`.`c1`, `t0`.`c2`), `p2` (`c0`, `c1`, `c2`) AS (SELECT `t1`.`c1` AS `c0`, `t1`.`c2` AS `c1`, `t1`.`c3` AS `c2` FROM `p1` AS `t1`), `p3` (`c0`, `c1`, `c2`) AS (SELECT `s2`.`c0` AS `c0`, CASE WHEN SUM(`s2`.`c1`) > 9223372036854775807 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) WHEN SUM(`s2`.`c1`) < -9223372036854775808 THEN CAST(-9223372036854775808 AS SIGNED) - CAST(1 AS SIGNED) ELSE CAST(SUM(`s2`.`c1`) AS SIGNED) END AS `c1`, CASE WHEN SUM(`s2`.`c2`) > 9223372036854775807 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) WHEN SUM(`s2`.`c2`) < -9223372036854775808 THEN CAST(-9223372036854775808 AS SIGNED) - CAST(1 AS SIGNED) ELSE CAST(SUM(`s2`.`c2`) AS SIGNED) END AS `c2` FROM `p2` AS `s2` GROUP BY `s2`.`c0`) SELECT `t3`.`c0` AS `customer`, `t3`.`c1` AS `revenue`, `t3`.`c2` AS `lines` FROM `p3` AS `t3`"
+    ),
+    ("t1_wider_orders", "postgres"): (
+        'WITH "p0" ("c0", "c1", "c2", "c3", "c4", "c5", "c6", "c7", "c8") AS (SELECT "m0"."id" AS "c0", "m0"."customer" AS "c1", "m0"."amount" AS "c2", "m0"."nn" AS "c3", "m0"."flag" AS "c4", "m0"."note" AS "c5", "m1"."id" AS "c6", "m1"."order_id" AS "c7", "m1"."qty" AS "c8" FROM "public"."s03 orders" AS "m0" LEFT JOIN "public"."s03 items" AS "m1" ON ("m1"."order_id" = "m0"."id")), "p1" ("c0", "c1", "c2", "c3") AS (SELECT "t0"."c0" AS "c0", "t0"."c1" AS "c1", "t0"."c2" AS "c2", COUNT("t0"."c6") AS "c3" FROM "p0" AS "t0" GROUP BY "t0"."c0", "t0"."c1", "t0"."c2"), "p2" ("c0", "c1", "c2", "c3") AS (SELECT "t1"."c0" AS "c0", "t1"."c1" AS "c1", "t1"."c2" AS "c2", "t1"."c3" AS "c3" FROM "p1" AS "t1"), "p3" ("c0", "c1", "c2") AS (SELECT "s2"."c1" AS "c0", CAST(SUM(CAST("s2"."c2" AS pg_catalog.int8)) AS pg_catalog.int8) AS "c1", CAST(SUM(CAST("s2"."c3" AS pg_catalog.int8)) AS pg_catalog.int8) AS "c2" FROM "p2" AS "s2" GROUP BY "s2"."c1") SELECT "t3"."c0" AS "customer", "t3"."c1" AS "revenue", "t3"."c2" AS "lines" FROM "p3" AS "t3"'
+    ),
+    ("t1_wider_orders", "mysql"): (
+        "WITH `p0` (`c0`, `c1`, `c2`, `c3`, `c4`, `c5`, `c6`, `c7`, `c8`) AS (SELECT `m0`.`id` AS `c0`, `m0`.`customer` AS `c1`, `m0`.`amount` AS `c2`, `m0`.`nn` AS `c3`, `m0`.`flag` AS `c4`, `m0`.`note` AS `c5`, `m1`.`id` AS `c6`, `m1`.`order_id` AS `c7`, `m1`.`qty` AS `c8` FROM `phase66`.`s03 orders` AS `m0` LEFT JOIN `phase66`.`s03 items` AS `m1` ON (`m1`.`order_id` = `m0`.`id`)), `p1` (`c0`, `c1`, `c2`, `c3`) AS (SELECT `t0`.`c0` AS `c0`, `t0`.`c1` AS `c1`, `t0`.`c2` AS `c2`, COUNT(`t0`.`c6`) AS `c3` FROM `p0` AS `t0` GROUP BY `t0`.`c0`, `t0`.`c1`, `t0`.`c2`), `p2` (`c0`, `c1`, `c2`, `c3`) AS (SELECT `t1`.`c0` AS `c0`, `t1`.`c1` AS `c1`, `t1`.`c2` AS `c2`, `t1`.`c3` AS `c3` FROM `p1` AS `t1`), `p3` (`c0`, `c1`, `c2`) AS (SELECT `s2`.`c1` AS `c0`, CASE WHEN SUM(`s2`.`c2`) > 9223372036854775807 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) WHEN SUM(`s2`.`c2`) < -9223372036854775808 THEN CAST(-9223372036854775808 AS SIGNED) - CAST(1 AS SIGNED) ELSE CAST(SUM(`s2`.`c2`) AS SIGNED) END AS `c1`, CASE WHEN SUM(`s2`.`c3`) > 9223372036854775807 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) WHEN SUM(`s2`.`c3`) < -9223372036854775808 THEN CAST(-9223372036854775808 AS SIGNED) - CAST(1 AS SIGNED) ELSE CAST(SUM(`s2`.`c3`) AS SIGNED) END AS `c2` FROM `p2` AS `s2` GROUP BY `s2`.`c1`) SELECT `t3`.`c0` AS `customer`, `t3`.`c1` AS `revenue`, `t3`.`c2` AS `lines` FROM `p3` AS `t3`"
+    ),
+    ("t2_upstream_subset", "postgres"): (
+        'WITH "p0" ("c0", "c1", "c2", "c3", "c4", "c5", "c6", "c7") AS (SELECT "m0"."id" AS "c0", "m0"."customer" AS "c1", "m0"."amount" AS "c2", "m0"."nn" AS "c3", "m0"."flag" AS "c4", "m1"."id" AS "c5", "m1"."order_id" AS "c6", "m1"."qty" AS "c7" FROM "public"."s03 orders" AS "m0" LEFT JOIN "public"."s03 items" AS "m1" ON ("m1"."order_id" = "m0"."id")), "p1" ("c0", "c1", "c2") AS (SELECT "t0"."c0" AS "c0", "t0"."c1" AS "c1", CAST(SUM(CAST("t0"."c7" AS pg_catalog.int8)) AS pg_catalog.int8) AS "c2" FROM "p0" AS "t0" GROUP BY "t0"."c0", "t0"."c1"), "p2" ("c0", "c1") AS (SELECT "t1"."c1" AS "c0", "t1"."c2" AS "c1" FROM "p1" AS "t1"), "p3" ("c0", "c1") AS (SELECT "s2"."c0" AS "c0", CAST(SUM(CAST("s2"."c1" AS pg_catalog.int8)) AS pg_catalog.int8) AS "c1" FROM "p2" AS "s2" GROUP BY "s2"."c0") SELECT "t3"."c0" AS "customer", "t3"."c1" AS "qty" FROM "p3" AS "t3"'
+    ),
+    ("t2_upstream_subset", "mysql"): (
+        "WITH `p0` (`c0`, `c1`, `c2`, `c3`, `c4`, `c5`, `c6`, `c7`) AS (SELECT `m0`.`id` AS `c0`, `m0`.`customer` AS `c1`, `m0`.`amount` AS `c2`, `m0`.`nn` AS `c3`, `m0`.`flag` AS `c4`, `m1`.`id` AS `c5`, `m1`.`order_id` AS `c6`, `m1`.`qty` AS `c7` FROM `phase66`.`s03 orders` AS `m0` LEFT JOIN `phase66`.`s03 items` AS `m1` ON (`m1`.`order_id` = `m0`.`id`)), `p1` (`c0`, `c1`, `c2`) AS (SELECT `t0`.`c0` AS `c0`, `t0`.`c1` AS `c1`, CASE WHEN SUM(`t0`.`c7`) > 9223372036854775807 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) WHEN SUM(`t0`.`c7`) < -9223372036854775808 THEN CAST(-9223372036854775808 AS SIGNED) - CAST(1 AS SIGNED) ELSE CAST(SUM(`t0`.`c7`) AS SIGNED) END AS `c2` FROM `p0` AS `t0` GROUP BY `t0`.`c0`, `t0`.`c1`), `p2` (`c0`, `c1`) AS (SELECT `t1`.`c1` AS `c0`, `t1`.`c2` AS `c1` FROM `p1` AS `t1`), `p3` (`c0`, `c1`) AS (SELECT `s2`.`c0` AS `c0`, CASE WHEN SUM(`s2`.`c1`) > 9223372036854775807 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) WHEN SUM(`s2`.`c1`) < -9223372036854775808 THEN CAST(-9223372036854775808 AS SIGNED) - CAST(1 AS SIGNED) ELSE CAST(SUM(`s2`.`c1`) AS SIGNED) END AS `c1` FROM `p2` AS `s2` GROUP BY `s2`.`c0`) SELECT `t3`.`c0` AS `customer`, `t3`.`c1` AS `qty` FROM `p3` AS `t3`"
+    ),
+    ("t2_extra_upstream_count", "postgres"): (
+        'WITH "p0" ("c0", "c1", "c2", "c3", "c4", "c5", "c6", "c7") AS (SELECT "m0"."id" AS "c0", "m0"."customer" AS "c1", "m0"."amount" AS "c2", "m0"."nn" AS "c3", "m0"."flag" AS "c4", "m1"."id" AS "c5", "m1"."order_id" AS "c6", "m1"."qty" AS "c7" FROM "public"."s03 orders" AS "m0" LEFT JOIN "public"."s03 items" AS "m1" ON ("m1"."order_id" = "m0"."id")), "p1" ("c0", "c1", "c2", "c3") AS (SELECT "t0"."c0" AS "c0", "t0"."c1" AS "c1", CAST(SUM(CAST("t0"."c7" AS pg_catalog.int8)) AS pg_catalog.int8) AS "c2", COUNT(*) AS "c3" FROM "p0" AS "t0" GROUP BY "t0"."c0", "t0"."c1"), "p2" ("c0", "c1", "c2", "c3") AS (SELECT "t1"."c0" AS "c0", "t1"."c1" AS "c1", "t1"."c2" AS "c2", "t1"."c3" AS "c3" FROM "p1" AS "t1"), "p3" ("c0", "c1") AS (SELECT "s2"."c1" AS "c0", CAST(SUM(CAST("s2"."c2" AS pg_catalog.int8)) AS pg_catalog.int8) AS "c1" FROM "p2" AS "s2" GROUP BY "s2"."c1") SELECT "t3"."c0" AS "customer", "t3"."c1" AS "qty" FROM "p3" AS "t3"'
+    ),
+    ("t2_extra_upstream_count", "mysql"): (
+        "WITH `p0` (`c0`, `c1`, `c2`, `c3`, `c4`, `c5`, `c6`, `c7`) AS (SELECT `m0`.`id` AS `c0`, `m0`.`customer` AS `c1`, `m0`.`amount` AS `c2`, `m0`.`nn` AS `c3`, `m0`.`flag` AS `c4`, `m1`.`id` AS `c5`, `m1`.`order_id` AS `c6`, `m1`.`qty` AS `c7` FROM `phase66`.`s03 orders` AS `m0` LEFT JOIN `phase66`.`s03 items` AS `m1` ON (`m1`.`order_id` = `m0`.`id`)), `p1` (`c0`, `c1`, `c2`, `c3`) AS (SELECT `t0`.`c0` AS `c0`, `t0`.`c1` AS `c1`, CASE WHEN SUM(`t0`.`c7`) > 9223372036854775807 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) WHEN SUM(`t0`.`c7`) < -9223372036854775808 THEN CAST(-9223372036854775808 AS SIGNED) - CAST(1 AS SIGNED) ELSE CAST(SUM(`t0`.`c7`) AS SIGNED) END AS `c2`, COUNT(*) AS `c3` FROM `p0` AS `t0` GROUP BY `t0`.`c0`, `t0`.`c1`), `p2` (`c0`, `c1`, `c2`, `c3`) AS (SELECT `t1`.`c0` AS `c0`, `t1`.`c1` AS `c1`, `t1`.`c2` AS `c2`, `t1`.`c3` AS `c3` FROM `p1` AS `t1`), `p3` (`c0`, `c1`) AS (SELECT `s2`.`c1` AS `c0`, CASE WHEN SUM(`s2`.`c2`) > 9223372036854775807 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) WHEN SUM(`s2`.`c2`) < -9223372036854775808 THEN CAST(-9223372036854775808 AS SIGNED) - CAST(1 AS SIGNED) ELSE CAST(SUM(`s2`.`c2`) AS SIGNED) END AS `c1` FROM `p2` AS `s2` GROUP BY `s2`.`c1`) SELECT `t3`.`c0` AS `customer`, `t3`.`c1` AS `qty` FROM `p3` AS `t3`"
+    ),
+    ("ctl_t_third_level", "postgres"): (
+        'WITH "p0" ("c0", "c1", "c2", "c3", "c4", "c5", "c6", "c7") AS (SELECT "m0"."id" AS "c0", "m0"."customer" AS "c1", "m0"."amount" AS "c2", "m0"."nn" AS "c3", "m0"."flag" AS "c4", "m1"."id" AS "c5", "m1"."order_id" AS "c6", "m1"."qty" AS "c7" FROM "public"."s03 orders" AS "m0" LEFT JOIN "public"."s03 items" AS "m1" ON ("m1"."order_id" = "m0"."id")), "p1" ("c0", "c1", "c2") AS (SELECT "t0"."c0" AS "c0", "t0"."c1" AS "c1", CAST(SUM(CAST("t0"."c7" AS pg_catalog.int8)) AS pg_catalog.int8) AS "c2" FROM "p0" AS "t0" GROUP BY "t0"."c0", "t0"."c1"), "p2" ("c0", "c1", "c2") AS (SELECT "t1"."c0" AS "c0", "t1"."c1" AS "c1", "t1"."c2" AS "c2" FROM "p1" AS "t1"), "p3" ("c0", "c1") AS (SELECT "s2"."c1" AS "c0", CAST(SUM(CAST("s2"."c2" AS pg_catalog.int8)) AS pg_catalog.int8) AS "c1" FROM "p2" AS "s2" GROUP BY "s2"."c1"), "p4" ("c0", "c1") AS (SELECT "t3"."c0" AS "c0", "t3"."c1" AS "c1" FROM "p3" AS "t3"), "p5" ("c0") AS (SELECT CAST(SUM(CAST("s3"."c1" AS pg_catalog.int8)) AS pg_catalog.int8) AS "c0" FROM "p4" AS "s3") SELECT "t5"."c0" AS "all_qty" FROM "p5" AS "t5"'
+    ),
+    ("ctl_t_third_level", "mysql"): (
+        "WITH `p0` (`c0`, `c1`, `c2`, `c3`, `c4`, `c5`, `c6`, `c7`) AS (SELECT `m0`.`id` AS `c0`, `m0`.`customer` AS `c1`, `m0`.`amount` AS `c2`, `m0`.`nn` AS `c3`, `m0`.`flag` AS `c4`, `m1`.`id` AS `c5`, `m1`.`order_id` AS `c6`, `m1`.`qty` AS `c7` FROM `phase66`.`s03 orders` AS `m0` LEFT JOIN `phase66`.`s03 items` AS `m1` ON (`m1`.`order_id` = `m0`.`id`)), `p1` (`c0`, `c1`, `c2`) AS (SELECT `t0`.`c0` AS `c0`, `t0`.`c1` AS `c1`, CASE WHEN SUM(`t0`.`c7`) > 9223372036854775807 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) WHEN SUM(`t0`.`c7`) < -9223372036854775808 THEN CAST(-9223372036854775808 AS SIGNED) - CAST(1 AS SIGNED) ELSE CAST(SUM(`t0`.`c7`) AS SIGNED) END AS `c2` FROM `p0` AS `t0` GROUP BY `t0`.`c0`, `t0`.`c1`), `p2` (`c0`, `c1`, `c2`) AS (SELECT `t1`.`c0` AS `c0`, `t1`.`c1` AS `c1`, `t1`.`c2` AS `c2` FROM `p1` AS `t1`), `p3` (`c0`, `c1`) AS (SELECT `s2`.`c1` AS `c0`, CASE WHEN SUM(`s2`.`c2`) > 9223372036854775807 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) WHEN SUM(`s2`.`c2`) < -9223372036854775808 THEN CAST(-9223372036854775808 AS SIGNED) - CAST(1 AS SIGNED) ELSE CAST(SUM(`s2`.`c2`) AS SIGNED) END AS `c1` FROM `p2` AS `s2` GROUP BY `s2`.`c1`), `p4` (`c0`, `c1`) AS (SELECT `t3`.`c0` AS `c0`, `t3`.`c1` AS `c1` FROM `p3` AS `t3`), `p5` (`c0`) AS (SELECT CASE WHEN SUM(`s3`.`c1`) > 9223372036854775807 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) WHEN SUM(`s3`.`c1`) < -9223372036854775808 THEN CAST(-9223372036854775808 AS SIGNED) - CAST(1 AS SIGNED) ELSE CAST(SUM(`s3`.`c1`) AS SIGNED) END AS `c0` FROM `p4` AS `s3`) SELECT `t5`.`c0` AS `all_qty` FROM `p5` AS `t5`"
+    ),
+    ("t1_third_level", "postgres"): (
+        'WITH "p0" ("c0", "c1", "c2", "c3", "c4", "c5", "c6", "c7") AS (SELECT "m0"."id" AS "c0", "m0"."customer" AS "c1", "m0"."amount" AS "c2", "m0"."nn" AS "c3", "m0"."flag" AS "c4", "m1"."id" AS "c5", "m1"."order_id" AS "c6", "m1"."qty" AS "c7" FROM "public"."s03 orders" AS "m0" LEFT JOIN "public"."s03 items" AS "m1" ON ("m1"."order_id" = "m0"."id")), "p1" ("c0", "c1", "c2", "c3") AS (SELECT "t0"."c0" AS "c0", "t0"."c1" AS "c1", "t0"."c2" AS "c2", COUNT("t0"."c5") AS "c3" FROM "p0" AS "t0" GROUP BY "t0"."c0", "t0"."c1", "t0"."c2"), "p2" ("c0", "c1", "c2", "c3") AS (SELECT "t1"."c0" AS "c0", "t1"."c1" AS "c1", "t1"."c2" AS "c2", "t1"."c3" AS "c3" FROM "p1" AS "t1"), "p3" ("c0", "c1", "c2") AS (SELECT "s2"."c1" AS "c0", CAST(SUM(CAST("s2"."c2" AS pg_catalog.int8)) AS pg_catalog.int8) AS "c1", CAST(SUM(CAST("s2"."c3" AS pg_catalog.int8)) AS pg_catalog.int8) AS "c2" FROM "p2" AS "s2" GROUP BY "s2"."c1"), "p4" ("c0", "c1", "c2") AS (SELECT "t3"."c0" AS "c0", "t3"."c1" AS "c1", "t3"."c2" AS "c2" FROM "p3" AS "t3"), "p5" ("c0", "c1") AS (SELECT CAST(SUM(CAST("s3"."c1" AS pg_catalog.int8)) AS pg_catalog.int8) AS "c0", CAST(SUM(CAST("s3"."c2" AS pg_catalog.int8)) AS pg_catalog.int8) AS "c1" FROM "p4" AS "s3") SELECT "t5"."c0" AS "x", "t5"."c1" AS "y" FROM "p5" AS "t5"'
+    ),
+    ("t1_third_level", "mysql"): (
+        "WITH `p0` (`c0`, `c1`, `c2`, `c3`, `c4`, `c5`, `c6`, `c7`) AS (SELECT `m0`.`id` AS `c0`, `m0`.`customer` AS `c1`, `m0`.`amount` AS `c2`, `m0`.`nn` AS `c3`, `m0`.`flag` AS `c4`, `m1`.`id` AS `c5`, `m1`.`order_id` AS `c6`, `m1`.`qty` AS `c7` FROM `phase66`.`s03 orders` AS `m0` LEFT JOIN `phase66`.`s03 items` AS `m1` ON (`m1`.`order_id` = `m0`.`id`)), `p1` (`c0`, `c1`, `c2`, `c3`) AS (SELECT `t0`.`c0` AS `c0`, `t0`.`c1` AS `c1`, `t0`.`c2` AS `c2`, COUNT(`t0`.`c5`) AS `c3` FROM `p0` AS `t0` GROUP BY `t0`.`c0`, `t0`.`c1`, `t0`.`c2`), `p2` (`c0`, `c1`, `c2`, `c3`) AS (SELECT `t1`.`c0` AS `c0`, `t1`.`c1` AS `c1`, `t1`.`c2` AS `c2`, `t1`.`c3` AS `c3` FROM `p1` AS `t1`), `p3` (`c0`, `c1`, `c2`) AS (SELECT `s2`.`c1` AS `c0`, CASE WHEN SUM(`s2`.`c2`) > 9223372036854775807 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) WHEN SUM(`s2`.`c2`) < -9223372036854775808 THEN CAST(-9223372036854775808 AS SIGNED) - CAST(1 AS SIGNED) ELSE CAST(SUM(`s2`.`c2`) AS SIGNED) END AS `c1`, CASE WHEN SUM(`s2`.`c3`) > 9223372036854775807 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) WHEN SUM(`s2`.`c3`) < -9223372036854775808 THEN CAST(-9223372036854775808 AS SIGNED) - CAST(1 AS SIGNED) ELSE CAST(SUM(`s2`.`c3`) AS SIGNED) END AS `c2` FROM `p2` AS `s2` GROUP BY `s2`.`c1`), `p4` (`c0`, `c1`, `c2`) AS (SELECT `t3`.`c0` AS `c0`, `t3`.`c1` AS `c1`, `t3`.`c2` AS `c2` FROM `p3` AS `t3`), `p5` (`c0`, `c1`) AS (SELECT CASE WHEN SUM(`s3`.`c1`) > 9223372036854775807 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) WHEN SUM(`s3`.`c1`) < -9223372036854775808 THEN CAST(-9223372036854775808 AS SIGNED) - CAST(1 AS SIGNED) ELSE CAST(SUM(`s3`.`c1`) AS SIGNED) END AS `c0`, CASE WHEN SUM(`s3`.`c2`) > 9223372036854775807 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) WHEN SUM(`s3`.`c2`) < -9223372036854775808 THEN CAST(-9223372036854775808 AS SIGNED) - CAST(1 AS SIGNED) ELSE CAST(SUM(`s3`.`c2`) AS SIGNED) END AS `c1` FROM `p4` AS `s3`) SELECT `t5`.`c0` AS `x`, `t5`.`c1` AS `y` FROM `p5` AS `t5`"
     ),
 }
+# T-1's `0` is a literal that bind_safe_literals binds, so the form opens
+# under preserve_literals alone: under bind_safe_literals it is a bind-safe `?`
+# (MC G5's), MySQL keeps main's blockers (the list's control, S03N_REFUSALS)
+# and PostgreSQL emits main's SQL with the literal bound, this SQL.
+S03N_BOUND_SQL = {
+    "ctl_t_second_where": (
+        'WITH "p0" ("c0", "c1", "c2", "c3", "c4", "c5", "c6", "c7") AS (SELECT "m0"."id" AS "c0", "m0"."customer" AS "c1", "m0"."amount" AS "c2", "m0"."nn" AS "c3", "m0"."flag" AS "c4", "m1"."id" AS "c5", "m1"."order_id" AS "c6", "m1"."qty" AS "c7" FROM "public"."s03 orders" AS "m0" LEFT JOIN "public"."s03 items" AS "m1" ON ("m1"."order_id" = "m0"."id")), "p1" ("c0", "c1", "c2", "c3") AS (SELECT "t0"."c0" AS "c0", "t0"."c1" AS "c1", "t0"."c2" AS "c2", COUNT("t0"."c5") AS "c3" FROM "p0" AS "t0" GROUP BY "t0"."c0", "t0"."c1", "t0"."c2"), "p2" ("c0", "c1", "c2", "c3") AS (SELECT "t1"."c0" AS "c0", "t1"."c1" AS "c1", "t1"."c2" AS "c2", "t1"."c3" AS "c3" FROM "p1" AS "t1"), "p3" ("c0", "c1", "c2", "c3") AS (SELECT "s2"."c0" AS "c0", "s2"."c1" AS "c1", "s2"."c2" AS "c2", "s2"."c3" AS "c3" FROM "p2" AS "s2" WHERE ("s2"."c3" > CAST($1 AS pg_catalog.int8))), "p4" ("c0", "c1", "c2") AS (SELECT "t3"."c1" AS "c0", CAST(SUM(CAST("t3"."c2" AS pg_catalog.int8)) AS pg_catalog.int8) AS "c1", CAST(SUM(CAST("t3"."c3" AS pg_catalog.int8)) AS pg_catalog.int8) AS "c2" FROM "p3" AS "t3" GROUP BY "t3"."c1") SELECT "t4"."c0" AS "customer", "t4"."c1" AS "revenue", "t4"."c2" AS "lines" FROM "p4" AS "t4"'
+    ),
+}
+_S03N_IMPORT = 'from "main.pietto" import (\n    source orders,\n)\n'
+# G7's R6 read directly, the base of its relation alias.
+_S03N_R6_BASE = "query result:\n    from orders\n    group by customer\n    select:\n        customer\n        paid = sum(o.amount for o in group if o.flag or o.id > 3)\n"
+# Statements that are a form or Law C's base, names aside, each (body, the
+# body whose SQL it emits on both targets, that SQL's output labels it
+# renames): C-2's relation alias over C1 and over G7's R6's base and its
+# imported source over C1 and over G7's T1 (S03_ALIASES says of the first
+# two that they leave C1's records and document), C-1's other ORDER BY
+# spelling of each C-1 form, C-4's HAVING line on the `having` line, T-1's
+# WHERE as a `where:` block of its one test, a call of a `def` with no
+# parameters in place of the literal it returns (R3's `3`, C-4's `0` and
+# T-1's `0`; T-1's spellings under bind_safe_literals on MySQL refused as
+# the control is), the imported source over G7's T1 beside an imported such
+# `def` in place of its `3` (an import of a `def` is no import that C-2
+# counts), and G8's P4, T-5 with another output label; and one sampled
+# spelling of each group of the classes that the language page's s03n
+# paragraph admits (S03N_RESPELLINGS holds those that S03N_SPELLINGS
+# cannot state): class I, what main admits at the same part of the base
+# statement (SELECT and GROUP BY layout, spaces inside an item, the
+# per-order JOIN's `let i = (items)`, comment lines and an unread query
+# beside the statement); class L, layout and lexical spellings at s03n's
+# own parts (a comment at C-2's alias, another integer spelling of a
+# literal, `zero( )`, a comment line in a `having:` block, the import
+# written after the query); class S, shapes the paragraph's words admit
+# (C-2's import without parentheses or as `source orders as orders`, its
+# source exported in parentheses, the import beside a second import
+# statement of a `def`, a `def` with another body, declared return type
+# or placement, calling another `def`, or imported, under another name,
+# without parentheses or through a module that re-exports it, and C-3's
+# upstream items and the key under their own names as labels); and
+# class N, the renamings it names (`table` for `query`, output labels,
+# T-1's count label with its WHERE, the key relabelled and ordered by
+# that label, definition, generator and alias names, and a `def` call in
+# place of R6's `3` under C-2's alias).
+_S03N_R3_CALL = S03N_FORMS["r3_order_by"].replace("o.id > 3", "o.id > three()")
+_S03N_HAVING_CALL = S03N_FORMS["c1_having"].replace("paid >= 0", "paid >= zero()")
+_S03N_LIB_ZERO = "def zero() -> Int: return 0\nexport def zero\n"
+S03N_SPELLINGS = {
+    "ctl_c_row_alias": (
+        "query result:\n    let x = orders\n    from x\n    group by customer\n    select:\n        customer\n        paid = sum(o.amount for o in group if o.flag)\n",
+        S03_FORMS["C1"],
+        {},
+    ),
+    "imported_source": (
+        {
+            "main.pietto": "export source orders\n",
+            "other.pietto": _S03N_IMPORT + S03_FORMS["C1"],
+        },
+        S03_FORMS["C1"],
+        {},
+    ),
+    "r6_row_alias": (
+        _S03N_R6_BASE.replace("    from orders\n", "    let x = orders\n    from x\n"),
+        _S03N_R6_BASE,
+        {},
+    ),
+    "r8_imported_source": (
+        {
+            "main.pietto": "export source orders\n",
+            "other.pietto": _S03N_IMPORT + G7_FORMS["T1"],
+        },
+        G7_FORMS["T1"],
+        {},
+    ),
+    "r8_imported_def": (
+        {
+            "main.pietto": "export source orders\n"
+            "def three() -> Int: return 3\nexport def three\n",
+            "other.pietto": _S03N_IMPORT.replace(
+                "    source orders,\n", "    source orders,\n    def three,\n"
+            )
+            + G7_FORMS["T1"].replace("o.id > 3", "o.id > three()"),
+        },
+        G7_FORMS["T1"],
+        {},
+    ),
+    "ctl_c_order_by_block": (
+        S03_FORMS["C1"] + "    order by:\n        customer\n",
+        S03N_FORMS["ctl_c_order_by"],
+        {},
+    ),
+    "r3_order_by_inline": (
+        G7_FORMS["T1"] + "    order by customer\n",
+        S03N_FORMS["r3_order_by"],
+        {},
+    ),
+    "c1_having_inline": (
+        S03_FORMS["C1"] + "    having paid >= 0\n",
+        S03N_FORMS["c1_having"],
+        {},
+    ),
+    "ctl_t_second_where_block": (
+        S03N_FORMS["ctl_t_second_where"].replace(
+            "    where lines > 0\n", "    where:\n        lines > 0\n"
+        ),
+        S03N_FORMS["ctl_t_second_where"],
+        {},
+    ),
+    "r3_order_by_def": (
+        "def three() -> Int: return 3\n"
+        + S03N_FORMS["r3_order_by"].replace("o.id > 3", "o.id > three()"),
+        S03N_FORMS["r3_order_by"],
+        {},
+    ),
+    "c1_having_def": (
+        "def zero() -> Int: return 0\n"
+        + S03N_FORMS["c1_having"].replace("paid >= 0", "paid >= zero()"),
+        S03N_FORMS["c1_having"],
+        {},
+    ),
+    "ctl_t_second_where_def": (
+        "def zero() -> Int: return 0\n"
+        + S03N_FORMS["ctl_t_second_where"].replace("lines > 0", "lines > zero()"),
+        S03N_FORMS["ctl_t_second_where"],
+        {},
+    ),
+    "g8_p4": (
+        S03_FORMS["T2"].replace("query result:", "query mid:")
+        + "query result:\n    from mid\n    select:\n        x = sum(qty)\n",
+        S03N_FORMS["ctl_t_third_level"],
+        {"all_qty": "x"},
+    ),
+    # Class I.
+    "ctl_c_order_by_select_line": (
+        S03N_FORMS["ctl_c_order_by"].replace(
+            "    select:\n        customer\n        paid = sum(o.amount for o in group if o.flag)\n",
+            "    select customer, paid = sum(o.amount for o in group if o.flag)\n",
+        ),
+        S03N_FORMS["ctl_c_order_by"],
+        {},
+    ),
+    "t2_upstream_subset_group_block": (
+        S03N_FORMS["t2_upstream_subset"].replace(
+            "    group by customer\n", "    group by:\n        customer\n"
+        ),
+        S03N_FORMS["t2_upstream_subset"],
+        {},
+    ),
+    "ctl_c_upstream_generator_spaces": (
+        S03N_FORMS["ctl_c_upstream"].replace(
+            "o.amount for o in group if o.flag",
+            "o.amount  for  o  in  group  if  o.flag",
+        ),
+        S03N_FORMS["ctl_c_upstream"],
+        {},
+    ),
+    "ctl_t_third_level_join_paren": (
+        S03N_FORMS["ctl_t_third_level"].replace(
+            "    let i = items\n", "    let i = (items)\n"
+        ),
+        S03N_FORMS["ctl_t_third_level"],
+        {},
+    ),
+    "r7_upstream_comment": (
+        "# start\n" + S03N_FORMS["r7_upstream"],
+        S03N_FORMS["r7_upstream"],
+        {},
+    ),
+    "r3_order_by_unread_query": (
+        S03N_FORMS["r3_order_by"]
+        + "query unused:\n    from orders\n    select:\n        customer\n",
+        S03N_FORMS["r3_order_by"],
+        {},
+    ),
+    # Class L.
+    "r6_row_alias_comment": (
+        _S03N_R6_BASE.replace(
+            "    from orders\n", "    let x = orders  # alias\n    from x\n"
+        ),
+        _S03N_R6_BASE,
+        {},
+    ),
+    "r3_order_by_digits": (
+        S03N_FORMS["r3_order_by"].replace("o.id > 3", "o.id > 0_3"),
+        S03N_FORMS["r3_order_by"],
+        {},
+    ),
+    "c1_having_def_space": (
+        "def zero() -> Int: return 0\n"
+        + S03N_FORMS["c1_having"].replace("paid >= 0", "paid >= zero( )"),
+        S03N_FORMS["c1_having"],
+        {},
+    ),
+    "c1_having_comment_line": (
+        S03N_FORMS["c1_having"].replace(
+            "    having:\n", "    having:\n        # line\n"
+        ),
+        S03N_FORMS["c1_having"],
+        {},
+    ),
+    "imported_source_after": (
+        {
+            "main.pietto": "export source orders\n",
+            "other.pietto": S03_FORMS["C1"] + _S03N_IMPORT,
+        },
+        S03_FORMS["C1"],
+        {},
+    ),
+    # Class S.
+    "imported_source_bare": (
+        {
+            "main.pietto": "export source orders\n",
+            "other.pietto": 'from "main.pietto" import source orders\n'
+            + S03_FORMS["C1"],
+        },
+        S03_FORMS["C1"],
+        {},
+    ),
+    "imported_source_as_own": (
+        {
+            "main.pietto": "export source orders\n",
+            "other.pietto": _S03N_IMPORT.replace(
+                "source orders,", "source orders as orders,"
+            )
+            + S03_FORMS["C1"],
+        },
+        S03_FORMS["C1"],
+        {},
+    ),
+    "imported_source_export_parens": (
+        {
+            "main.pietto": "export (source orders,)\n",
+            "other.pietto": _S03N_IMPORT + S03_FORMS["C1"],
+        },
+        S03_FORMS["C1"],
+        {},
+    ),
+    "imported_source_def_statement": (
+        {
+            "main.pietto": "export source orders\nexport def zero\n"
+            "def zero() -> Int: return 0\n",
+            "other.pietto": 'from "main.pietto" import source orders\n'
+            'from "main.pietto" import def zero\n' + S03_FORMS["C1"],
+        },
+        S03_FORMS["C1"],
+        {},
+    ),
+    "c1_having_def_block": (
+        "def zero() -> Int:\n    return 0\n" + _S03N_HAVING_CALL,
+        S03N_FORMS["c1_having"],
+        {},
+    ),
+    "c1_having_def_optional": (
+        "def zero() -> Int | None: return 0\n" + _S03N_HAVING_CALL,
+        S03N_FORMS["c1_having"],
+        {},
+    ),
+    "c1_having_def_digits": (
+        "def zero() -> Int: return 0_0\n" + _S03N_HAVING_CALL,
+        S03N_FORMS["c1_having"],
+        {},
+    ),
+    "c1_having_def_argument": (
+        "def idn(x: Int) -> Int: return x\ndef zero() -> Int: return idn(0)\n"
+        + _S03N_HAVING_CALL,
+        S03N_FORMS["c1_having"],
+        {},
+    ),
+    "r3_order_by_def_paren": (
+        "def three() -> Int: return (3)\n" + _S03N_R3_CALL,
+        S03N_FORMS["r3_order_by"],
+        {},
+    ),
+    "r3_order_by_def_chain": (
+        "def three0() -> Int: return 3\ndef three() -> Int: return three0()\n"
+        + _S03N_R3_CALL,
+        S03N_FORMS["r3_order_by"],
+        {},
+    ),
+    "r3_order_by_def_after": (
+        _S03N_R3_CALL + "def three() -> Int: return 3\n",
+        S03N_FORMS["r3_order_by"],
+        {},
+    ),
+    "c1_having_def_imported": (
+        {
+            "main.pietto": 'from "lib.pietto" import (\n    def zero,\n)\n'
+            + _S03N_HAVING_CALL,
+            "lib.pietto": _S03N_LIB_ZERO,
+        },
+        S03N_FORMS["c1_having"],
+        {},
+    ),
+    "c1_having_def_bare": (
+        {
+            "main.pietto": 'from "lib.pietto" import def zero\n' + _S03N_HAVING_CALL,
+            "lib.pietto": _S03N_LIB_ZERO,
+        },
+        S03N_FORMS["c1_having"],
+        {},
+    ),
+    "ctl_t_second_where_def_renamed": (
+        {
+            "main.pietto": 'from "lib.pietto" import (\n    def zero as k,\n)\n'
+            + S03N_FORMS["ctl_t_second_where"].replace("lines > 0", "lines > k()"),
+            "lib.pietto": _S03N_LIB_ZERO,
+        },
+        S03N_FORMS["ctl_t_second_where"],
+        {},
+    ),
+    "r3_order_by_def_reexported": (
+        {
+            "main.pietto": 'from "mid.pietto" import (\n    def three,\n)\n'
+            + _S03N_R3_CALL,
+            "mid.pietto": 'from "lib.pietto" import (\n    def three,\n)\n'
+            "export def three\n",
+            "lib.pietto": "def three() -> Int: return 3\nexport def three\n",
+        },
+        S03N_FORMS["r3_order_by"],
+        {},
+    ),
+    "ctl_c_upstream_own_labels": (
+        S03N_FORMS["ctl_c_upstream"].replace(
+            "        customer\n        amount\n        flag\n",
+            "        customer = customer\n        amount = amount\n        flag = flag\n",
+        ),
+        S03N_FORMS["ctl_c_upstream"],
+        {},
+    ),
+    "ctl_c_order_by_key_own_label": (
+        S03N_FORMS["ctl_c_order_by"].replace(
+            "        customer\n        paid",
+            "        customer = customer\n        paid",
+        ),
+        S03N_FORMS["ctl_c_order_by"],
+        {},
+    ),
+    "t2_upstream_subset_key_own_label": (
+        S03N_FORMS["t2_upstream_subset"].replace(
+            "        customer\n        qty = sum(qty)",
+            "        customer = customer\n        qty = sum(qty)",
+        ),
+        S03N_FORMS["t2_upstream_subset"],
+        {},
+    ),
+    # Class N.
+    "ctl_c_order_by_table": (
+        S03N_FORMS["ctl_c_order_by"].replace("query result:", "table result:"),
+        S03N_FORMS["ctl_c_order_by"],
+        {},
+    ),
+    "t1_upstream_subset_table": (
+        S03N_FORMS["t1_upstream_subset"].replace(
+            "query per_order:", "table per_order:"
+        ),
+        S03N_FORMS["t1_upstream_subset"],
+        {},
+    ),
+    "ctl_c_order_by_label": (
+        S03N_FORMS["ctl_c_order_by"].replace("        paid =", "        total ="),
+        S03N_FORMS["ctl_c_order_by"],
+        {"paid": "total"},
+    ),
+    "ctl_t_second_where_count_label": (
+        S03N_FORMS["ctl_t_second_where"]
+        .replace("        lines = count(i.id)\n", "        n = count(i.id)\n")
+        .replace("where lines > 0", "where n > 0")
+        .replace("lines = sum(lines)", "lines = sum(n)"),
+        S03N_FORMS["ctl_t_second_where"],
+        {},
+    ),
+    "ctl_c_order_by_key_label": (
+        S03N_FORMS["ctl_c_order_by"]
+        .replace("        customer\n        paid", "        c = customer\n        paid")
+        .replace("order by customer", "order by c"),
+        S03N_FORMS["ctl_c_order_by"],
+        {"customer": "c"},
+    ),
+    "ctl_c_upstream_definition_name": (
+        S03N_FORMS["ctl_c_upstream"]
+        .replace("query up:", "query base:")
+        .replace("    from up\n", "    from base\n"),
+        S03N_FORMS["ctl_c_upstream"],
+        {},
+    ),
+    "t1_upstream_subset_definition_name": (
+        S03N_FORMS["t1_upstream_subset"]
+        .replace("query per_order:", "query po:")
+        .replace("    from per_order\n", "    from po\n"),
+        S03N_FORMS["t1_upstream_subset"],
+        {},
+    ),
+    "ctl_c_order_by_generator": (
+        S03N_FORMS["ctl_c_order_by"].replace(
+            "o.amount for o in group if o.flag", "r.amount for r in group if r.flag"
+        ),
+        S03N_FORMS["ctl_c_order_by"],
+        {},
+    ),
+    "ctl_c_row_alias_name": (
+        S03_FORMS["C1"].replace(
+            "    from orders\n", "    let y = orders\n    from y\n"
+        ),
+        S03_FORMS["C1"],
+        {},
+    ),
+    "r6_row_alias_def": (
+        "def three() -> Int: return 3\n"
+        + _S03N_R6_BASE.replace(
+            "    from orders\n", "    let x = orders\n    from x\n"
+        ).replace("o.id > 3", "o.id > three()"),
+        _S03N_R6_BASE,
+        {},
+    ),
+}
+_S03N_R7_BASE = _S03N_R6_BASE.replace("o.flag or o.id > 3", "not o.flag")
+_S03N_UP = S03N_FORMS["ctl_c_upstream"].split("query result:")[0]
+_S03N_OVER_UP = S03N_FORMS["ctl_c_upstream"][len(_S03N_UP) :]
+_S03N_HAVING = "    having:\n        paid >= 0\n"
+_S03N_ORDER = "    order by customer\n"
+_S03N_FROM = "    from per_order\n"
+_S03N_WHERE = S03N_FORMS["ctl_t_second_where"]
+_S03N_IDN = "def idn(x: Int) -> Int: return x\n"
+# Sampled spellings of an s03n form that S03N_SPELLINGS cannot state, each
+# (body, form, the header's (old, new) replacements): SELECT item order
+# (Law C's and Law T's), which permutes the columns, the selected `result`
+# written before the levels it reads, which renumbers the table aliases,
+# and `o.nn > 3` for `o.id > 3`, which reads `nn`, so that none is the
+# form's bytes; and the header world's other quoting, the form's bytes.
+S03N_RESPELLINGS = {
+    "ctl_c_order_by_item_order": (
+        S03N_FORMS["ctl_c_order_by"].replace(
+            "        customer\n        paid = sum(o.amount for o in group if o.flag)\n",
+            "        paid = sum(o.amount for o in group if o.flag)\n        customer\n",
+        ),
+        "ctl_c_order_by",
+        (),
+    ),
+    "t1_upstream_subset_item_order": (
+        S03N_FORMS["t1_upstream_subset"].replace(
+            "        customer = orders.customer\n        amount = orders.amount\n"
+            "        lines = count(i.id)\n",
+            "        lines = count(i.id)\n        amount = orders.amount\n"
+            "        customer = orders.customer\n",
+        ),
+        "t1_upstream_subset",
+        (),
+    ),
+    "ctl_c_upstream_definition_order": (_S03N_OVER_UP + _S03N_UP, "ctl_c_upstream", ()),
+    "r3_order_by_nn": (
+        S03N_FORMS["r3_order_by"].replace("o.id > 3", "o.nn > 3"),
+        "r3_order_by",
+        (),
+    ),
+    "ctl_c_order_by_header_quotes": (
+        S03N_FORMS["ctl_c_order_by"],
+        "ctl_c_order_by",
+        (('{target}.table("orders")', "{target}.table('orders')"),),
+    ),
+}
+
+
+# main.pietto of C-2's import beside an imported relationship (Z169, Z170).
+_S03N_RELATIONSHIP = (
+    "export source orders\n"
+    "relationship order_item(order: Order, item: Item): order.id == item.order_id\n"
+    "export relationship order_item\n"
+)
+
+
+def _s03n_imported(body, reading="source orders", main="export source orders\n"):
+    return {
+        "main.pietto": main,
+        "other.pietto": 'from "main.pietto" import (\n    %s,\n)\n' % reading + body,
+    }
+
+
+# The s03n list's rule two: the control, T-1's form under bind_safe_literals
+# (S03N_BOUND_SQL), and the Z cells at the edges of Law C and Law T, each
+# keeping main's MySQL blockers (S03N_REFUSAL_BLOCKERS) under both policies
+# (the control under its own, S03N_REFUSAL_POLICIES) and, but Z1 and Z2,
+# whose long label PostgreSQL refuses too, emitted on PostgreSQL. Z1 to Z23
+# are the list's; Z24 to Z76 pin each other exclusion that the list's Law,
+# its "Not in s03n" and the language page state, one rule at a time, Z77
+# to Z91 those at T-1's edges, Z92 to Z107 those at the literal of a
+# test: Law C's `3`, C-4's `0` and T-1's `0`, Z108 to Z131 the other
+# spellings that only the plan's readers refuse, Z132 to Z156 the other
+# shapes of a `let`, an import or a window that only they refuse, and Z157
+# to Z171 those at a check, caller or branch that no earlier cell reaches:
+# each check of mysql_s03_statement that refuses a spelling or shape whose
+# records and document are a statement that the list or G7's law opens
+# refuses one in a cell at least, from each caller and branch. Such a cell
+# (S03N_ALIASES: a relation alias or an import, Z13 and Z14 among them, a
+# `let` that FROM does not read, a second `let`, an alias of an alias or of
+# a query, a parenthesized relation in it, a `let` or an import at a level
+# below the selected one, an import beside another import or a `let`, an
+# unread window, over a G7 statement that the list does not name, an
+# upstream written as a `let NAME:` block, `asc` written out, a
+# parenthesized ORDER BY key, WHERE test or HAVING line, an upstream item
+# under another name, at the literal of a test a parenthesized call,
+# literal or column, a call with an argument, a call in place of the test
+# or a qualified column, a parenthesized part of TEST, sum argument or
+# SELECT item, a key, item or sum argument read through its relation's or
+# the alias's name or, at a JOIN, a key or item without its input's name, a
+# space, line break or trailing comma at a sum's or count's parentheses,
+# or a parenthesized ON comparison or operand) fails the plan's readers
+# only (D77.24); Z142's contract binds an imported source that nothing
+# reads, so Z142 has no compiled bundle either.
+# S03N_REFUSAL_EXTRA gives the wider `orders` of T-4's cells.
+S03N_REFUSALS = {
+    "Z1": S03N_FORMS["ctl_c_order_by"].replace("paid =", "p" * 257 + " ="),
+    "Z2": S03N_FORMS["ctl_t_third_level"].replace("all_qty =", "a" * 257 + " ="),
+    "Z4": S03N_FORMS["ctl_c_order_by"].replace(
+        "order by customer", "order by customer desc"
+    ),
+    "Z5": S03N_FORMS["ctl_c_upstream"].replace(
+        "    from orders\n", "    from orders\n    where nn > 0\n", 1
+    ),
+    "Z6": S03N_FORMS["ctl_t_third_level"].replace("query result:", "query top3:")
+    + "query result:\n    from top3\n    select:\n        total = sum(all_qty)\n",
+    "Z7": S03N_FORMS["t2_extra_upstream_count"] + "        m = sum(n)\n",
+    "Z8": S03_FORMS["C4"] + "    order by customer\n",
+    "Z9": S03N_FORMS["ctl_t_second_where"].replace(
+        "where lines > 0", "where amount > 0"
+    ),
+    "Z10": S03N_FORMS["ctl_c_order_by"].replace("order by customer", "order by paid"),
+    "Z11": S03N_FORMS["c1_having"] + "        customer > 1\n",
+    "Z12": _S03N_R6_BASE + "    order by customer\n",
+    "Z13": G7_FORMS["T1"].replace(
+        "    from orders\n", "    let x = orders\n    from x\n"
+    ),
+    "Z14": {
+        "main.pietto": "export source orders\n",
+        "other.pietto": _S03N_IMPORT + _S03N_R6_BASE,
+    },
+    "Z15": "query up:\n    from orders\n    select:\n        id\n        customer\n        amount\n        flag\nquery result:\n    from up\n    group by customer\n    select:\n        customer\n        paid = sum(o.amount for o in group if o.flag and o.id > 3)\n",
+    "Z16": G7_FORMS["T1"] + "    having:\n        paid >= 0\n",
+    "Z17": S03_FORMS["C1"] + "    having:\n        paid >= 1\n",
+    "Z18": S03_FORMS["C1"] + "    order by:\n        customer\n        paid\n",
+    "Z19": S03_FORMS["C1"] + "    order by paid desc\n    limit 1\n",
+    "Z20": S03_FORMS["C1"].replace("select:", "select distinct:"),
+    "Z21": S03N_FORMS["t2_upstream_subset"].replace(
+        "        qty = sum(i.qty)\nquery result",
+        "        qty = sum(i.qty)\n        n = count()\nquery result",
+    ),
+    "Z22": S03N_FORMS["t1_third_level"],
+    "Z23": S03_FORMS["T1"].replace("query result:", "query per_customer:")
+    + "query result:\n    from per_customer\n    group by customer\n    select:\n        customer\n        x = sum(revenue)\n",
+    # Law C, one exclusion each: C-4 with `>` or on the key; C-1 over a key
+    # that is no INT, over another literal than 3, with `asc` written out,
+    # a parenthesized key or LIMIT; C-4 over a header parameter (G5's).
+    "Z24": S03_FORMS["C1"] + "    having:\n        paid > 0\n",
+    "Z25": S03_FORMS["C1"] + "    having:\n        customer >= 0\n",
+    "Z26": S03_FORMS["C1"].replace("customer", "id") + "    order by id\n",
+    "Z27": G7_FORMS["T1"].replace("o.id > 3", "o.id > 4") + _S03N_ORDER,
+    "Z28": S03_FORMS["C1"] + "    order by customer asc\n",
+    "Z29": G7_FORMS["T1"] + "    order by:\n        customer asc\n",
+    "Z30": S03_FORMS["C1"] + "    order by (customer)\n",
+    "Z31": S03N_FORMS["ctl_c_order_by"] + "    limit 1\n",
+    "Z32": S03N_FORMS["c1_having"]
+    .replace("query result:", "query result(low: Int):")
+    .replace("paid >= 0", "paid >= low"),
+    # C-3's upstream with one more item, aggregating, or of another module.
+    "Z33": _S03N_UP.replace("select:\n", "select:\n        id\n") + _S03N_OVER_UP,
+    "Z34": _S03N_UP.replace(
+        "    select:\n        customer\n        amount\n",
+        "    group by customer, flag\n    select:\n        customer\n"
+        "        amount = sum(amount)\n",
+    )
+    + _S03N_OVER_UP,
+    "Z35": _s03n_imported(_S03N_OVER_UP, "query up", _S03N_UP + "export query up\n"),
+    # C-2's import under another name, or from a module that re-exports it.
+    "Z36": _s03n_imported(
+        S03_FORMS["C1"].replace("from orders", "from sales"), "source orders as sales"
+    ),
+    "Z37": {
+        "main.pietto": "export source orders\n",
+        "mid.pietto": _S03N_IMPORT + "export source orders\n",
+        "other.pietto": _S03N_IMPORT.replace("main.pietto", "mid.pietto")
+        + S03_FORMS["C1"],
+    },
+    # Each item over a base it does not name, another test or C3, and C-4
+    # beside an item subset.
+    "Z38": _S03N_R7_BASE + _S03N_ORDER,
+    "Z39": _S03N_R7_BASE.replace(
+        "    from orders\n", "    let x = orders\n    from x\n"
+    ),
+    "Z40": _s03n_imported(_S03N_R7_BASE),
+    "Z41": _S03N_R6_BASE + _S03N_HAVING,
+    "Z42": _S03N_R7_BASE + _S03N_HAVING,
+    "Z43": S03_FORMS["C1"].replace("if o.flag)", "if o.flag is None)") + _S03N_ORDER,
+    "Z44": S03_FORMS["C3"].replace(
+        "    from orders\n", "    let x = orders\n    from x\n"
+    ),
+    "Z45": S03N_FORMS["c1_having"].replace(
+        "        customer\n        paid", "        paid"
+    ),
+    # Two of Law C's items in one statement.
+    "Z46": S03N_FORMS["c1_having"] + _S03N_ORDER,
+    "Z47": S03N_SPELLINGS["ctl_c_row_alias"][0] + _S03N_ORDER,
+    "Z48": S03N_SPELLINGS["ctl_c_row_alias"][0] + _S03N_HAVING,
+    "Z49": _s03n_imported(S03N_FORMS["ctl_c_order_by"]),
+    "Z50": _s03n_imported(S03N_FORMS["c1_having"]),
+    "Z51": S03N_FORMS["ctl_c_upstream"] + _S03N_ORDER,
+    "Z52": S03N_FORMS["ctl_c_upstream"] + _S03N_HAVING,
+    # Law T: T-4's extra field read, of another type, one more of them, or
+    # declared before `flag`; two of T-2 to T-6 (a third level over T-2,
+    # T-3 or T-4 among them).
+    "Z53": S03_FORMS["T1"]
+    .replace("orders.customer, orders.amount\n", "orders.customer, orders.note\n")
+    .replace("amount = orders.amount", "amount = orders.note"),
+    "Z54": S03_FORMS["T1"],
+    "Z55": S03_FORMS["T1"],
+    "Z56": S03_FORMS["T1"],
+    "Z57": S03N_FORMS["t1_upstream_subset"],
+    "Z58": S03N_FORMS["ctl_t_third_level"].replace("        id = orders.id\n", ""),
+    "Z59": S03N_FORMS["t1_third_level"].replace("        id = orders.id\n", ""),
+    "Z60": S03N_FORMS["ctl_t_third_level"].replace(
+        "        qty = sum(i.qty)\nquery mid",
+        "        qty = sum(i.qty)\n        n = count()\nquery mid",
+    ),
+    # A third level that skips a second-level sum or adds an aggregate.
+    "Z61": S03N_FORMS["t1_third_level"].replace("        y = sum(lines)\n", ""),
+    "Z62": S03N_FORMS["ctl_t_third_level"] + "        n = count()\n",
+    # Over a chain: ORDER BY, a second-level item subset, T-3's `count()`
+    # in T1's bottom, the count of the ON field, and G8's R6, R9 and R11
+    # over S03's bottom (an INNER JOIN, a second-level `max`, no `amount`).
+    "Z63": S03N_FORMS["t1_upstream_subset"] + _S03N_ORDER,
+    "Z64": S03N_FORMS["t1_upstream_subset"].replace("        lines = sum(lines)\n", ""),
+    "Z65": S03_FORMS["T1"].replace(
+        "        lines = count(i.id)\n",
+        "        lines = count(i.id)\n        n = count()\n",
+    ),
+    "Z66": S03N_FORMS["t1_upstream_subset"].replace("count(i.id)", "count(i.order_id)"),
+    "Z67": S03_FORMS["T1"].replace("left join", "inner join"),
+    "Z68": S03N_FORMS["t1_upstream_subset"].replace(
+        "        lines = sum(lines)\n", "        top = max(amount)\n"
+    ),
+    "Z69": S03_FORMS["T1"]
+    .replace("orders.customer, orders.amount\n", "orders.customer\n")
+    .replace("        amount = orders.amount\n", "")
+    .replace("        revenue = sum(amount)\n", ""),
+    # Another of G7's forms under C-1.
+    "Z70": G7_FORMS["T4"] + _S03N_ORDER,
+    # C-3's upstream selecting the key or the summed field under another
+    # name: each item is read by its own name.
+    "Z71": _S03N_UP.replace("        customer\n", "        k = customer\n")
+    + _S03N_OVER_UP.replace("customer", "k"),
+    "Z72": _S03N_UP.replace("        amount\n", "        a = amount\n")
+    + _S03N_OVER_UP.replace("o.amount for", "o.a for"),
+    # The JOIN still uses orders.id. Only the first grouping key changes.
+    "Z73": S03N_FORMS["t2_upstream_subset"].replace(
+        "group by orders.id,", "group by orders.nn,"
+    ),
+    "Z74": S03N_FORMS["ctl_t_third_level"].replace(
+        "from mid\n    select:", "from mid\n    group by customer\n    select:"
+    ),
+    "Z75": S03N_FORMS["ctl_t_third_level"] + "        qty_again = sum(qty)\n",
+    "Z76": S03N_FORMS["c1_having"].replace(
+        "        customer\n", "        n = count()\n"
+    ),
+    "control": S03N_FORMS["ctl_t_second_where"],
+    # T-1's edges: a WHERE in T2's second level over its sum column or over
+    # T-3's count; another operator, literal or spelling, a second test or a
+    # header parameter (G5's); with HAVING or ORDER BY; with T-2, T-4 or T-6;
+    # in T-6's third level or in the per-order bottom.
+    "Z77": S03_FORMS["T2"].replace(_S03N_FROM, _S03N_FROM + "    where qty > 0\n"),
+    "Z78": S03N_FORMS["t2_extra_upstream_count"].replace(
+        _S03N_FROM, _S03N_FROM + "    where n > 0\n"
+    ),
+    "Z79": _S03N_WHERE.replace("lines > 0", "lines >= 0"),
+    "Z80": _S03N_WHERE.replace("lines > 0", "lines > 1"),
+    "Z81": _S03N_WHERE.replace("lines > 0", "0 < lines"),
+    "Z82": _S03N_WHERE.replace("lines > 0", "(lines > 0)"),
+    "Z83": _S03N_WHERE.replace("lines > 0", "lines > 0 and amount > 0"),
+    "Z84": _S03N_WHERE.replace("query result:", "query result(low: Int):").replace(
+        "lines > 0", "lines > low"
+    ),
+    "Z85": _S03N_WHERE + "    having:\n        revenue >= 0\n",
+    "Z86": _S03N_WHERE + _S03N_ORDER,
+    "Z87": S03N_FORMS["t1_upstream_subset"].replace(
+        _S03N_FROM, _S03N_FROM + "    where lines > 0\n"
+    ),
+    "Z88": _S03N_WHERE,
+    "Z89": S03N_FORMS["t1_third_level"].replace(
+        _S03N_FROM, _S03N_FROM + "    where lines > 0\n"
+    ),
+    "Z90": S03N_FORMS["t1_third_level"].replace(
+        "    from per_customer\n", "    from per_customer\n    where lines > 0\n"
+    ),
+    "Z91": S03_FORMS["T1"].replace(
+        "    left join i on i.order_id == orders.id\n",
+        "    left join i on i.order_id == orders.id\n    where orders.nn > 0\n",
+    ),
+    # At T-1's `0`, C-4's `0` and Law C's `3` (R3's): a parenthesized call
+    # or a call with an argument in place of the literal; then a
+    # parenthesized literal or column, a call in place of the test, and
+    # T-1's column read through its relation's name.
+    "Z92": "def zero() -> Int: return 0\n"
+    + _S03N_WHERE.replace("lines > 0", "lines > (zero())"),
+    "Z93": _S03N_IDN + _S03N_WHERE.replace("lines > 0", "lines > idn(0)"),
+    "Z94": "def zero() -> Int: return 0\n"
+    + S03N_FORMS["c1_having"].replace("paid >= 0", "paid >= (zero())"),
+    "Z95": _S03N_IDN + S03N_FORMS["c1_having"].replace("paid >= 0", "paid >= idn(0)"),
+    "Z96": "def three() -> Int: return 3\n"
+    + S03N_FORMS["r3_order_by"].replace("o.id > 3", "o.id > (three())"),
+    "Z97": _S03N_IDN + S03N_FORMS["r3_order_by"].replace("o.id > 3", "o.id > idn(3)"),
+    "Z98": _S03N_WHERE.replace("lines > 0", "lines > (0)"),
+    "Z99": _S03N_WHERE.replace("lines > 0", "(lines) > 0"),
+    "Z100": "def gt0(x: Int) -> Bool: return x > 0\n"
+    + _S03N_WHERE.replace("lines > 0", "gt0(lines)"),
+    "Z101": _S03N_WHERE.replace("lines > 0", "per_order.lines > 0"),
+    "Z102": S03N_FORMS["c1_having"].replace("paid >= 0", "paid >= (0)"),
+    "Z103": S03N_FORMS["c1_having"].replace("paid >= 0", "(paid) >= 0"),
+    "Z104": "def nonneg(x: Int) -> Bool: return x >= 0\n"
+    + S03N_FORMS["c1_having"].replace("paid >= 0", "nonneg(paid)"),
+    "Z105": S03N_FORMS["r3_order_by"].replace("o.id > 3", "o.id > (3)"),
+    "Z106": S03N_FORMS["r3_order_by"].replace("o.id > 3", "(o.id) > 3"),
+    "Z107": "def big(x: Int) -> Bool: return x > 3\n"
+    + S03N_FORMS["r3_order_by"].replace("o.id > 3", "big(o.id)"),
+    # Spellings of Law C's forms and of T-1's bottom whose G7 or G8
+    # counterpart, which has no clause, opens: C-4's HAVING line in
+    # parentheses; a parenthesized operand of TEST's `and`, `or` or `not`;
+    # a key or item read through its source's name; G7's C1 spellings
+    # (G7_CELLS) under C-1; a space or line break inside a sum's
+    # parentheses; and in T-1's per-order level a parenthesized ON
+    # comparison or operand, or a key read without its JOIN input's name.
+    "Z108": S03N_FORMS["c1_having"].replace("paid >= 0\n", "(paid >= 0)\n"),
+    "Z109": S03_FORMS["C1"] + "    having (paid >= 0)\n",
+    "Z110": S03N_FORMS["r3_order_by"].replace("if o.flag and", "if (o.flag) and"),
+    "Z111": S03N_FORMS["r3_order_by"].replace("o.id > 3", "(o.id > 3)"),
+    "Z112": S03N_SPELLINGS["r6_row_alias"][0].replace("if o.flag", "if (o.flag)"),
+    "Z113": S03N_SPELLINGS["r6_row_alias"][0].replace("o.id > 3", "(o.id > 3)"),
+    "Z114": _s03n_imported(G7_FORMS["T1"].replace("o.id > 3", "(o.id > 3)")),
+    "Z115": S03N_FORMS["r7_upstream"].replace("not o.flag", "not (o.flag)"),
+    "Z116": S03N_FORMS["c1_having"].replace("by customer", "by orders.customer"),
+    "Z117": S03N_FORMS["r3_order_by"].replace("by customer", "by orders.customer"),
+    "Z118": _S03N_UP.replace(
+        "        customer\n", "        customer = orders.customer\n"
+    )
+    + _S03N_OVER_UP,
+    **{
+        cell: G7_CELLS[name][0] + _S03N_ORDER
+        for cell, name in (
+            ("Z119", "c1_qualified_key"),
+            ("Z120", "c1_parenthesized_argument"),
+            ("Z121", "P8"),
+            ("Z122", "P9"),
+            ("Z123", "P10_parentheses"),
+            ("Z124", "P10_idb"),
+        )
+    },
+    "Z125": S03N_FORMS["ctl_c_order_by"].replace("sum(o.amount", "sum( o.amount"),
+    "Z126": S03N_FORMS["ctl_c_order_by"].replace("if o.flag)", "if o.flag )"),
+    "Z127": S03N_FORMS["ctl_c_order_by"].replace(
+        " if o.flag", "\n            if o.flag"
+    ),
+    "Z128": _S03N_WHERE.replace(
+        "on i.order_id == orders.id", "on (i.order_id == orders.id)"
+    ),
+    "Z129": _S03N_WHERE.replace("on i.order_id", "on (i.order_id)"),
+    "Z130": _S03N_WHERE.replace("== orders.id\n", "== (orders.id)\n"),
+    "Z131": _S03N_WHERE.replace("orders.id, orders.customer,", "orders.id, customer,"),
+    # C-2's relation alias and import in another shape: an unread alias
+    # beside a direct FROM, two aliases, an alias of an alias or a
+    # parenthesized one, and the import beside another import item or
+    # statement, of `orders` under another name, of `items` or of a shape.
+    **{
+        cell: base.replace("    from orders\n", head)
+        for cell, base, head in (
+            ("Z132", S03_FORMS["C1"], "    let x = orders\n    from orders\n"),
+            ("Z133", _S03N_R6_BASE, "    let x = orders\n    from orders\n"),
+            (
+                "Z134",
+                S03_FORMS["C1"],
+                "    let x = orders\n    let z = orders\n    from x\n",
+            ),
+            (
+                "Z135",
+                _S03N_R6_BASE,
+                "    let x = orders\n    let z = orders\n    from x\n",
+            ),
+            (
+                "Z136",
+                S03_FORMS["C1"],
+                "    let x = orders\n    let y = x\n    from y\n",
+            ),
+            ("Z137", S03_FORMS["C1"], "    let x = (orders)\n    from x\n"),
+            ("Z138", _S03N_R6_BASE, "    let x = (orders)\n    from x\n"),
+        )
+    },
+    "Z139": _s03n_imported(
+        S03_FORMS["C1"], "source orders,\n    source orders as sales"
+    ),
+    "Z140": _s03n_imported(
+        G7_FORMS["T1"], "source orders,\n    source orders as sales"
+    ),
+    "Z141": _s03n_imported(
+        _S03N_IMPORT.replace("source orders,", "source orders as sales,")
+        + S03_FORMS["C1"]
+    ),
+    "Z142": _s03n_imported(
+        S03_FORMS["C1"],
+        "source orders,\n    source items",
+        "export source orders\nexport source items\n",
+    ),
+    "Z143": _s03n_imported(
+        S03_FORMS["C1"],
+        "source orders,\n    shape Item",
+        "export source orders\nexport shape Item\n",
+    ),
+    # C-2's import beside an alias, read or not; a `let` or an import at
+    # another level of C-3 or T-1: an unread alias at the level over the
+    # one below or at the one below, an alias or an import read by C-3's
+    # upstream, an alias of the level below, and T-1 over imported sources.
+    "Z144": _s03n_imported(
+        S03_FORMS["C1"].replace("    from orders\n", "    let x = orders\n    from x\n")
+    ),
+    "Z145": _s03n_imported(
+        S03_FORMS["C1"].replace(
+            "    from orders\n", "    let x = orders\n    from orders\n"
+        )
+    ),
+    "Z146": _S03N_UP
+    + _S03N_OVER_UP.replace("    from up\n", "    let z = up\n    from up\n"),
+    "Z147": _S03N_WHERE.replace(
+        "    from per_order\n", "    let z = per_order\n    from per_order\n"
+    ),
+    "Z148": _S03N_UP.replace(
+        "    from orders\n", "    let z = orders\n    from orders\n"
+    )
+    + _S03N_OVER_UP,
+    "Z149": _S03N_WHERE.replace(
+        "    let i = items\n", "    let z = orders\n    let i = items\n"
+    ),
+    "Z150": _S03N_UP.replace("    from orders\n", "    let x = orders\n    from x\n")
+    + _S03N_OVER_UP,
+    "Z151": _s03n_imported(S03N_FORMS["ctl_c_upstream"]),
+    "Z152": _S03N_UP
+    + _S03N_OVER_UP.replace("    from up\n", "    let x = up\n    from x\n"),
+    "Z153": _S03N_WHERE.replace(
+        "    from per_order\n", "    let x = per_order\n    from x\n"
+    ),
+    "Z154": _s03n_imported(
+        _S03N_WHERE,
+        "source orders,\n    source items",
+        "export source orders\nexport source items\n",
+    ),
+    # And an unread window at Law C's form and at T-1's second level.
+    "Z155": S03_FORMS["C1"].replace(
+        "    from orders\n", "    from orders\n    let w = window(order by id)\n"
+    ),
+    "Z156": _S03N_WHERE.replace(
+        "    from per_order\n",
+        "    from per_order\n    let w = window(order by id)\n",
+    ),
+    # C-2 over a G7 statement that the list does not name: `not not` in
+    # TEST, or TEST's operands in the other order; C-3's upstream written as
+    # a `let up:` block in the selected query.
+    "Z157": S03N_SPELLINGS["ctl_c_row_alias"][0].replace(
+        "if o.flag", "if not not o.flag"
+    ),
+    "Z158": _s03n_imported(
+        G7_FORMS["T1"].replace("o.flag and o.id > 3", "o.id > 3 and o.flag")
+    ),
+    "Z159": _S03N_OVER_UP.replace(
+        "query result:\n",
+        "query result:\n    let up:\n"
+        + "".join("    " + line for line in _S03N_UP.splitlines(True)[1:]),
+    ),
+    # Checks that Z101, Z116 to Z127 and Z131 reach only from a conditional
+    # sum, a key, a WHERE operand or a source's name: under T-1 a space,
+    # line break or trailing comma at a plain sum's parentheses, a per-order
+    # item without its JOIN input's name and a sum argument read through its
+    # relation's name; a key or item read through C-2's alias's name; and
+    # T-3's `count()` with a space.
+    "Z160": _S03N_WHERE.replace("sum(amount)", "sum( amount)"),
+    "Z161": _S03N_WHERE.replace("sum(amount)", "sum(\n            amount)"),
+    "Z162": _S03N_WHERE.replace("sum(amount)", "sum(amount,)"),
+    "Z163": _S03N_WHERE.replace("customer = orders.customer", "customer = customer"),
+    "Z164": _S03N_WHERE.replace("sum(amount)", "sum(per_order.amount)"),
+    "Z165": S03N_SPELLINGS["ctl_c_row_alias"][0].replace(
+        "group by customer", "group by x.customer"
+    ),
+    "Z166": S03N_SPELLINGS["ctl_c_row_alias"][0].replace(
+        "        customer\n", "        customer = x.customer\n"
+    ),
+    "Z167": S03N_FORMS["t2_extra_upstream_count"].replace("count()", "count( )"),
+    "Z168": S03N_FORMS["t2_extra_upstream_count"].replace("count()", "count ()"),
+    # C-2's import beside an imported relationship, in a second import
+    # statement or as a second item of its own.
+    "Z169": _s03n_imported(
+        'from "main.pietto" import relationship order_item\n' + S03_FORMS["C1"],
+        main=_S03N_RELATIONSHIP,
+    ),
+    "Z170": _s03n_imported(
+        S03_FORMS["C1"],
+        "source orders,\n    relationship order_item",
+        _S03N_RELATIONSHIP,
+    ),
+    # At Law C's `3`, an operation over Int literals in its place, also of
+    # the literal's value.
+    "Z171": S03N_FORMS["r3_order_by"].replace("o.id > 3", "o.id > 1 + 2"),
+}
+S03N_REFUSAL_POLICIES = {"control": ("bind_safe_literals",)}
+_S03N_NOTE = {"orders": ("note",)}
+S03N_REFUSAL_EXTRA = {
+    "Z22": _S03N_NOTE,
+    "Z53": _S03N_NOTE,
+    "Z54": {"orders": (("note", "wide", False, None),)},
+    "Z55": {"orders": ("note", "memo")},
+    "Z56": {"orders": (("note", "wide", True, "flag"),)},
+    "Z57": _S03N_NOTE,
+    "Z88": _S03N_NOTE,
+}
+# A Z cell whose compiled records and pure document are those of a
+# statement that the list or G7's law opens (D77.24), that statement.
+S03N_ALIASES = {
+    "Z13": G7_FORMS["T1"],
+    "Z14": _S03N_R6_BASE,
+    "Z28": S03N_FORMS["ctl_c_order_by"],
+    "Z29": S03N_FORMS["r3_order_by"],
+    "Z30": S03N_FORMS["ctl_c_order_by"],
+    "Z35": S03N_FORMS["ctl_c_upstream"],
+    "Z36": S03_FORMS["C1"],
+    "Z37": S03_FORMS["C1"],
+    "Z39": _S03N_R7_BASE,
+    "Z40": _S03N_R7_BASE,
+    "Z44": S03_FORMS["C3"],
+    "Z47": S03N_FORMS["ctl_c_order_by"],
+    "Z48": S03N_FORMS["c1_having"],
+    "Z49": S03N_FORMS["ctl_c_order_by"],
+    "Z50": S03N_FORMS["c1_having"],
+    "Z71": _S03N_UP
+    + _S03N_OVER_UP.replace("        customer\n", "        k = customer\n"),
+    "Z72": S03N_FORMS["ctl_c_upstream"],
+    "Z82": S03N_FORMS["ctl_t_second_where"],
+    **{
+        cell: S03N_FORMS[form]
+        for form, cells in (
+            (
+                "ctl_t_second_where",
+                ("Z92", "Z93", "Z98", "Z99", "Z100", "Z101")
+                + ("Z128", "Z129", "Z130", "Z131")
+                + ("Z160", "Z161", "Z162", "Z163", "Z164"),
+            ),
+            (
+                "c1_having",
+                ("Z94", "Z95", "Z102", "Z103", "Z104", "Z108", "Z109", "Z116"),
+            ),
+            (
+                "r3_order_by",
+                ("Z96", "Z97", "Z105", "Z106", "Z107", "Z110", "Z111", "Z117"),
+            ),
+            ("r7_upstream", ("Z115",)),
+            ("ctl_c_upstream", ("Z118", "Z159")),
+            ("ctl_c_order_by", tuple("Z%d" % number for number in range(119, 128))),
+            ("t2_extra_upstream_count", ("Z167", "Z168")),
+        )
+        for cell in cells
+    },
+    "Z112": _S03N_R6_BASE,
+    "Z113": _S03N_R6_BASE,
+    "Z114": G7_FORMS["T1"],
+    **{cell: S03_FORMS["C1"] for cell in ("Z132", "Z134", "Z136", "Z137", "Z139")},
+    **{cell: S03_FORMS["C1"] for cell in ("Z141", "Z142", "Z143", "Z144", "Z145")},
+    **{cell: _S03N_R6_BASE for cell in ("Z133", "Z135", "Z138")},
+    "Z140": G7_FORMS["T1"],
+    **{
+        cell: S03N_FORMS["ctl_c_upstream"]
+        for cell in ("Z146", "Z148", "Z150", "Z151", "Z152")
+    },
+    **{cell: _S03N_WHERE for cell in ("Z147", "Z149", "Z153", "Z154", "Z156")},
+    "Z155": S03_FORMS["C1"],
+    "Z157": S03_FORMS["C1"].replace("if o.flag", "if not not o.flag"),
+    "Z158": G7_FORMS["T1"].replace("o.flag and o.id > 3", "o.id > 3 and o.flag"),
+    **{cell: S03_FORMS["C1"] for cell in ("Z165", "Z166", "Z169", "Z170")},
+}
+_S03N_SUM = ("PIE-B1004", "sum_int_aggregate_range_proof_missing")
+_S03N_LABEL = ("PIE-B1002", "output_label_unrepresentable", None, None)
+# main's MySQL blockers (code, detail, line, column) of each rule-two cell,
+# under either policy: only the lowest level's sums (D77.37).
+S03N_REFUSAL_BLOCKERS = {
+    "Z1": [(*_S03N_SUM, 20, 9), _S03N_LABEL],
+    "Z2": [(*_S03N_SUM, 23, 9), _S03N_LABEL],
+    **{
+        cell: [(*_S03N_SUM, line, 9)]
+        for cell, line in (
+            ("Z4", 20),
+            ("Z5", 27),
+            ("Z6", 23),
+            ("Z7", 23),
+            ("Z8", 20),
+            ("Z10", 20),
+            ("Z11", 20),
+            ("Z12", 20),
+            ("Z13", 21),
+            ("Z14", 9),
+            ("Z15", 27),
+            ("Z16", 20),
+            ("Z17", 20),
+            ("Z18", 20),
+            ("Z19", 20),
+            ("Z20", 20),
+            ("Z21", 22),
+            *((cell, 20) for cell in ("Z24", "Z25", "Z26", "Z27", "Z28", "Z29")),
+            *((cell, 20) for cell in ("Z30", "Z31", "Z32", "Z34", "Z38", "Z41")),
+            *((cell, 20) for cell in ("Z42", "Z43", "Z46", "Z70")),
+            *((cell, 9) for cell in ("Z35", "Z36", "Z37", "Z40", "Z49", "Z50")),
+            ("Z33", 27),
+            ("Z39", 21),
+            ("Z44", 19),
+            ("Z45", 19),
+            ("Z47", 21),
+            ("Z48", 21),
+            ("Z51", 26),
+            ("Z52", 26),
+            ("Z71", 26),
+            ("Z72", 26),
+            ("Z73", 22),
+            ("Z74", 23),
+            ("Z75", 23),
+            ("Z76", 20),
+            ("Z77", 23),
+            ("Z78", 23),
+            ("Z58", 22),
+            ("Z60", 23),
+            ("Z62", 23),
+            ("Z64", 29),
+            ("Z68", 29),
+            ("Z69", 29),
+            *((cell, 21) for cell in ("Z94", "Z95", "Z96", "Z97", "Z104", "Z107")),
+            *((cell, 20) for cell in ("Z102", "Z103", "Z105", "Z106")),
+            *((cell, 20) for cell in ("Z108", "Z109", "Z110", "Z111", "Z116")),
+            *((cell, 20) for cell in ("Z117", "Z119", "Z120", "Z121", "Z122")),
+            *((cell, 20) for cell in ("Z123", "Z125", "Z126", "Z127")),
+            *((cell, 21) for cell in ("Z112", "Z113", "Z124")),
+            ("Z114", 9),
+            ("Z115", 26),
+            ("Z118", 26),
+            *((cell, 21) for cell in ("Z132", "Z133", "Z137", "Z138", "Z155")),
+            *((cell, 22) for cell in ("Z134", "Z135", "Z136")),
+            *((cell, 10) for cell in ("Z139", "Z140", "Z142", "Z143", "Z144")),
+            *((cell, 10) for cell in ("Z169", "Z170")),
+            *((cell, 27) for cell in ("Z146", "Z148", "Z150", "Z152")),
+            ("Z141", 12),
+            ("Z145", 10),
+            ("Z151", 15),
+            *((cell, 21) for cell in ("Z157", "Z165", "Z166")),
+            ("Z158", 9),
+            ("Z159", 26),
+            *((cell, 23) for cell in ("Z167", "Z168")),
+            ("Z171", 20),
+        )
+    },
+    **{
+        cell: [(*_S03N_SUM, line, 9), (*_S03N_SUM, line + 1, 9)]
+        for cell, line in (
+            ("Z9", 31),
+            ("Z22", 31),
+            ("Z23", 30),
+            ("Z53", 31),
+            ("Z54", 31),
+            ("Z55", 32),
+            ("Z56", 31),
+            ("Z57", 30),
+            ("Z59", 29),
+            ("Z61", 30),
+            ("Z63", 29),
+            ("Z65", 31),
+            ("Z66", 29),
+            ("Z67", 30),
+            ("control", 31),
+            *((cell, 31) for cell in ("Z79", "Z80", "Z81", "Z82", "Z83", "Z84")),
+            *((cell, 31) for cell in ("Z85", "Z86", "Z89", "Z91")),
+            ("Z87", 30),
+            ("Z88", 32),
+            ("Z90", 30),
+            *((cell, 32) for cell in ("Z92", "Z93", "Z100")),
+            *((cell, 31) for cell in ("Z98", "Z99", "Z101")),
+            *((cell, 31) for cell in ("Z128", "Z129", "Z130", "Z131")),
+            *((cell, 32) for cell in ("Z147", "Z149", "Z153", "Z156")),
+            ("Z154", 21),
+            *((cell, 31) for cell in ("Z160", "Z162", "Z163", "Z164")),
+        )
+    },
+    # A line break inside T-1's second-level sum moves the next one down.
+    "Z161": [(*_S03N_SUM, 31, 9), (*_S03N_SUM, 33, 9)],
+}
+# PostgreSQL emits each but these, which keep main's own blocker.
+S03N_POSTGRES_BLOCKERS = {"Z1": [_S03N_LABEL], "Z2": [_S03N_LABEL]}
 
 
 # Phase77 S15: the candidate emission experiment's world (its forms.json

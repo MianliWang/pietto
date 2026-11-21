@@ -418,7 +418,8 @@ the statement may fail while PostgreSQL plans or executes it and never returns
 a wrong value; whether and when it fails depends on the execution plan. A consumer that requires a
 statically proved range refuses a document with this evidence. Every other
 requirement's `evidence` is unchanged, and no MySQL document carries it
-outside the `0.1.12` cells below, as `0.2.2` (MC G1 to G8) widens them.
+outside the `0.1.12` cells below, as `0.2.2` (MC G1 to G8 and s03n) widens
+them.
 
 The additive `ranges` roles for these PostgreSQL forms are
 `expression_range` role `int8_widen`, and `syntax` roles `int8_widen_open`,
@@ -452,7 +453,10 @@ test is `not`, `and` and `or` over a `Bool` field read, its `is None` and a
 `sum` at every level of a chain of levels in the cell as G1 and G2 widen
 it, with none of G3 to G7's clauses, aliases, imports, placeholders,
 conditional sums and JOINs (the per-order level's own JOIN aside), that the
-language page states.
+language page states; and (MC s03n) so does each sum and conditional sum of
+S03's neighbours that it states, beside ORDER BY, a HAVING line, a relation
+alias, an imported source or a plain upstream, or at each level of T1's and
+T2's chains.
 Their storage is `my_signed_int`, and an operation's `int_range` is the part
 of its exact range inside signed 64 bits; MySQL's `BIGINT` operators raise
 error 1690 (SQLSTATE 22003) outside it. The operation is written uncast, as

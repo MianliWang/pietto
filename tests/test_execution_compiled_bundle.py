@@ -2,6 +2,7 @@
 
 import json
 import math
+import re
 from types import SimpleNamespace
 
 import pytest
@@ -3174,12 +3175,7 @@ _NUMERIC_FORGED = [
                 0
             ],
         )
-        for shape in sorted(
-            {
-                *_pietto_sql_emission.G8_REFUSALS,
-                *_pietto_sql_emission.G8_S03_REFUSALS,
-            }
-        )
+        for shape in sorted(_pietto_sql_emission.G8_REFUSALS)
     ),
 ]
 # An alias of an alias, an unread alias of another relation or of a second
@@ -3225,24 +3221,19 @@ def _numeric_forged_world(shape):
     """The world, keywords and body of a forged numeric shape: a G2 to G5
     neighbour (`G2_` to `G5_` before its name) over grouping_world, a G6 one
     (`G6_`) over join_world (with G6_REFUSAL_WORLDS' keywords), a G8 one
-    (`G8_`) over levels_world (with G8_REFUSAL_WORLDS' keywords) or, for T1
-    or T2 under a third level, s03_world, a SMALLINT read beside G1, G2 or
-    G3 (`G1S_`, `G2K_`) or under G4's organization or G5's placeholders
-    (`G4S_`, `G5S_`) over division_world (or G4_SMALLINT_WORLDS' world); a
-    forged-only control (_NUMERIC_FORGED_CONTROLS) over its own world."""
+    (`G8_`) over levels_world (with G8_REFUSAL_WORLDS' keywords), a SMALLINT
+    read beside G1, G2 or G3 (`G1S_`, `G2K_`) or under G4's organization or
+    G5's placeholders (`G4S_`, `G5S_`) over division_world (or
+    G4_SMALLINT_WORLDS' world); a forged-only control
+    (_NUMERIC_FORGED_CONTROLS) over its own world."""
     if shape in _NUMERIC_FORGED_CONTROLS:
         world, body = _NUMERIC_FORGED_CONTROLS[shape]
         return world, {}, body
     if shape.startswith("G8_"):
-        s03 = _pietto_sql_emission.G8_S03_REFUSALS.get(shape[3:])
         return (
-            (
-                _pietto_sql_emission.levels_world,
-                _pietto_sql_emission.G8_REFUSAL_WORLDS.get(shape[3:], {}),
-                _pietto_sql_emission.G8_REFUSALS[shape[3:]],
-            )
-            if s03 is None
-            else (_pietto_sql_emission.s03_world, {}, s03[0])
+            _pietto_sql_emission.levels_world,
+            _pietto_sql_emission.G8_REFUSAL_WORLDS.get(shape[3:], {}),
+            _pietto_sql_emission.G8_REFUSALS[shape[3:]],
         )
     if shape.startswith("G6_"):
         return (
@@ -6762,11 +6753,9 @@ def test_forged_mysql_s03_sums_fail_every_reader(tmp_path, monkeypatch, shape):
     statement counts as a paired form, with its observation and compiled
     bundle exported under that law, fails plain verification and the live
     template (plan), the pure boundary (document) and compiled replay and
-    its template (records) once the law is back. A relation alias and an
-    imported source fail the plan's readers only: the document and records
-    are the form's apart from source positions and the source digest
-    (S03_ALIASES). ORDER BY and an upstream beside a conditional sum stay
-    outside MC G7's cell (G3 and G4 do not open it) in every reader."""
+    its template (records) once the law is back. (S03's relation alias and
+    imported source, which fail the plan's readers only, are MC s03n's
+    spellings now; its Z13 and Z14 keep that class.)"""
     import _pietto_sql_emission_portable as portable
     import _pietto_sql_emission_pure_boundary as pure
     from pietto._project import project_sql_emission_rows as rows
@@ -6805,15 +6794,6 @@ def test_forged_mysql_s03_sums_fail_every_reader(tmp_path, monkeypatch, shape):
         prepare_live_template(artifact)
     assert observed.canonical_bytes is not None
     parsed = pure.parse_emission_observation(observed.canonical_bytes)
-    if shape in _pietto_sql_emission.S03_ALIASES:
-        form = _pietto_sql_emission.S03_ALIASES[shape]
-        assert (
-            artifact.rendered.sql.decode()
-            == (_pietto_sql_emission.S03_FORM_SQL[form, "mysql"])
-        )
-        assert parsed.status is pure.Status.OK
-        assert emit_compiled(loaded, ()).rendered.sql == artifact.rendered.sql
-        return
     assert parsed.status is pure.Status.INVALID_RELATION
     assert parsed.detail in {"sum result", "conditional aggregate shape"}
     for replay in (
@@ -7031,9 +7011,10 @@ def test_tampered_mysql_s03_forms_fail_compiled_and_pure_readers(tmp_path, tampe
 # label too long, a sum of an expression, which the guarded SUM's argument
 # law takes not, the conditional count, a composed sum, an Int literal
 # outside the range, a Bool literal, a SMALLINT argument, whose conditional
-# sum is no non-null Int then), and those whose
-# relation alias, unread window or imported source leaves the records and
-# document of the same body read directly.
+# sum is no non-null Int then), and those whose unread window leaves the
+# records and document of the same body read directly. (G7's R6 and R8,
+# whose relation alias and imported source leave the records and document
+# of the body read directly, are MC s03n's spellings.)
 _G7_UNFORGEABLE = {
     "any": "PIE-B1003",
     "all": "PIE-B1003",
@@ -7045,12 +7026,7 @@ _G7_UNFORGEABLE = {
     "X10": "PIE-B1003",
     "smallint_argument": "PIE-B1002",
 }
-_G7_ALIASES = {
-    "R6": "query result:\n    from orders\n    group by customer\n    select:\n"
-    "        customer\n        paid = sum(o.amount for o in group if o.flag or o.id > 3)\n",
-    "R8": _pietto_sql_emission.G7_FORMS["T1"],
-    "window": _pietto_sql_emission.G7_FORMS["T1"],
-}
+_G7_ALIASES = {"window": _pietto_sql_emission.G7_FORMS["T1"]}
 
 
 @pytest.mark.parametrize("shape", sorted(_pietto_sql_emission.G7_REFUSALS))
@@ -7060,9 +7036,9 @@ def test_forged_mysql_g7_sums_fail_every_reader(tmp_path, monkeypatch, shape):
     test, with its observation and compiled bundle exported under that law,
     fails plain verification and the live template (plan), the pure
     boundary (document) and compiled replay and its template (records) once
-    the law is back. A relation alias, an unread window and an imported
-    source fail the plan's readers only (_G7_ALIASES); the pure boundary's
-    closed schema has no header parameter."""
+    the law is back. An unread window fails the plan's readers only
+    (_G7_ALIASES); the pure boundary's closed schema has no header
+    parameter."""
     import _pietto_sql_emission_portable as portable
     import _pietto_sql_emission_pure_boundary as pure
     from pietto._project import project_sql_emission_rows as rows
@@ -7135,6 +7111,189 @@ def test_forged_mysql_g7_sums_fail_every_reader(tmp_path, monkeypatch, shape):
             if shape in ("lower", "smallint_key_let", "smallint_key_sum")
             else "conditional aggregate shape",
         )
+    for replay in (
+        lambda: emit_compiled(loaded, values),
+        lambda: prepare_compiled_template(loaded),
+    ):
+        with pytest.raises(wire.CompiledError, match="^COMPILED_AGGREGATE_ARGUMENT$"):
+            replay()
+
+
+# MC s03n: S03's neighbours that MC G7 and G8 hand on (Law C and Law T).
+@pytest.mark.parametrize("policy", ("preserve_literals", "bind_safe_literals"))
+@pytest.mark.parametrize("form", sorted(_pietto_sql_emission.S03N_FORMS))
+def test_compiled_replay_and_the_pure_boundary_accept_the_s03n_forms(
+    tmp_path, form, policy
+):
+    """Each of the s03n list's twelve forms on MySQL: compiled replay and
+    its template derive the list's laws from the records and replay the
+    form's SQL byte for byte, and the pure boundary derives them from the
+    document and reads it as OK, under both literal policies (T-1's form
+    under preserve_literals, the one policy that opens it)."""
+    import _pietto_sql_emission_portable as portable
+    import _pietto_sql_emission_pure_boundary as pure
+    from pietto._project.project_compiled_lowering import emit_compiled
+    from pietto._project.project_execution_template import (
+        bind_values,
+        prepare_compiled_template,
+    )
+
+    if form in _pietto_sql_emission.S03N_BOUND_SQL and policy != "preserve_literals":
+        pytest.skip("the list's control: no artifact to replay")
+    _, outcome = _pietto_sql_emission.s03n_world(
+        tmp_path, "mysql", _pietto_sql_emission.S03N_FORMS[form], policy
+    )
+    artifact = outcome.artifact
+    assert artifact is not None, outcome.blockers
+    expected = _pietto_sql_emission.S03N_FORM_SQL[form, "mysql"].encode()
+    loaded = _numeric_loaded(artifact)
+    assert emit_compiled(loaded, ()).rendered.sql == expected
+    template = prepare_compiled_template(loaded)
+    assert bind_values(template, (), ()).artifact.rendered.sql == expected
+    observed = portable.export_emission_observation(artifact, artifact.request)
+    assert observed.canonical_bytes is not None
+    parsed = pure.parse_emission_observation(observed.canonical_bytes)
+    assert parsed.status is pure.Status.OK, parsed.detail
+
+
+# MC s03n's rule two that no artifact holds even with the list's law open:
+# a label too long beside it, which the label law refuses on its own.
+_S03N_UNFORGEABLE = {"Z1": "PIE-B1002", "Z2": "PIE-B1002"}
+# And a cell whose artifact has no compiled bundle: its contract binds an
+# imported source that nothing reads, which the bundle refuses for any
+# statement.
+_S03N_UNBUILT = {"Z142": "COMPILED_EXPORT_SOURCE_BINDING"}
+
+
+@pytest.mark.parametrize("cell", sorted(_pietto_sql_emission.S03N_REFUSALS))
+def test_forged_mysql_s03n_cells_fail_every_reader(tmp_path, monkeypatch, cell):
+    """An artifact of each Z cell of the s03n list and of its control, under
+    the policy that refuses it, emitted while every MySQL statement counts
+    as a paired form or an s03n neighbour, with its observation and compiled
+    bundle exported under that law, fails plain verification and the live
+    template (plan), the pure boundary (document) and compiled replay and
+    its template (records) once the law is back; the pure boundary's closed
+    schema has no header parameter (Z32, Z84). A cell whose records and
+    document are, apart from source positions and the source digest, those
+    of a statement that the list or G7's law opens (S03N_ALIASES: a
+    relation alias or an import such as Z13 and Z14, `asc` written out, a
+    parenthesized ORDER BY key or WHERE test such as Z82, an upstream item
+    under another name such as Z71 and Z72, a call or operand spelling at
+    the literal of a test, Z92 to Z107, another spelling that only the
+    plan's readers refuse, Z108 to Z131: a parenthesized HAVING line, part
+    of TEST, sum argument, SELECT item or ON comparison, a read through its
+    source's name or, at a JOIN, without its input's name, or a space or
+    line break inside a sum's parentheses, or another shape of a `let`, an
+    import or a window that only they refuse, Z132 to Z156: a `let` that
+    FROM does not read, a second `let`, an alias of an alias or of a query,
+    a parenthesized relation in it, a `let` or an import at a level below
+    the selected one, an import beside another import or a `let`, or an
+    unread window, or one at a check, caller or branch that no earlier cell
+    reaches, Z157 to Z170: C-2 over a G7 statement that the list does not
+    name, an upstream as a `let NAME:` block, a space, line break or
+    trailing comma at a plain sum's or count's parentheses, a JOIN level's
+    item without its input's name, a sum argument, key or item read
+    through its relation's or the alias's name, or C-2's import beside an
+    imported relationship; D77.24) fails the plan's
+    readers only: the pure boundary reads OK and compiled replay replays
+    that statement's bytes. Z142's contract binds an imported source that
+    nothing reads, so its compiled bundle fails to build
+    (COMPILED_EXPORT_SOURCE_BINDING) as any such statement's does. Z1 and
+    Z2 keep their long label's refusal with the law open, so no artifact
+    exists."""
+    import _pietto_sql_emission_portable as portable
+    import _pietto_sql_emission_pure_boundary as pure
+    from pietto._project import project_sql_emission_rows as rows
+    from pietto._project.project_compiled_lowering import emit_compiled
+    from pietto._project.project_execution_template import (
+        BindingError,
+        bind_values,
+        prepare_compiled_template,
+        prepare_live_template,
+    )
+    from pietto._project.project_sql_emission_verification import (
+        verify_project_sql_emission,
+    )
+
+    body = _pietto_sql_emission.S03N_REFUSALS[cell]
+    extra = _pietto_sql_emission.S03N_REFUSAL_EXTRA.get(cell)
+    (policy,) = _pietto_sql_emission.S03N_REFUSAL_POLICIES.get(
+        cell, ("preserve_literals",)
+    )
+    with monkeypatch.context() as patch:
+        patch.setattr(
+            rows, "mysql_s03_statement", lambda request: request.family == "mysql"
+        )
+        _, outcome = _pietto_sql_emission.s03_world(
+            tmp_path / "forged", "mysql", body, policy, extra=extra
+        )
+        artifact = outcome.artifact
+        if cell in _S03N_UNFORGEABLE:
+            assert artifact is None
+            assert {
+                blocker["code"]
+                for blocker in json.loads(serialize_project_sql_emission(outcome))[
+                    "blockers"
+                ]
+            } == {_S03N_UNFORGEABLE[cell]}
+            return
+        assert artifact is not None, outcome.blockers
+        observed = portable.export_emission_observation(artifact, artifact.request)
+        if cell in _S03N_UNBUILT:
+            loaded = None
+            with pytest.raises(wire.CompiledError, match="^%s$" % _S03N_UNBUILT[cell]):
+                _numeric_loaded(artifact)
+        else:
+            loaded = _numeric_loaded(artifact)
+    assert not verify_project_sql_emission(artifact, artifact.request).verified
+    with pytest.raises(BindingError, match="^BINDING_ARTIFACT$"):
+        prepare_live_template(artifact)
+    if loaded is None:
+        # The pure boundary reads the base's document; no bundle to replay.
+        _, direct = _pietto_sql_emission.s03_world(
+            tmp_path / "direct", "mysql", _pietto_sql_emission.S03N_ALIASES[cell]
+        )
+        assert direct.artifact is not None
+        assert artifact.rendered.sql == direct.artifact.rendered.sql
+        assert observed.canonical_bytes is not None
+        parsed = pure.parse_emission_observation(observed.canonical_bytes)
+        assert parsed.status is pure.Status.OK
+        return
+    values = tuple(value.value for value in artifact.fixed_values)
+    if artifact.request.plan.parameters:
+        assert observed.status is portable.ObservationStatus.OUTSIDE_SCHEMA
+        for replay in (
+            lambda: emit_compiled(loaded, values),
+            lambda: prepare_compiled_template(loaded),
+        ):
+            with pytest.raises(
+                wire.CompiledError, match="^COMPILED_AGGREGATE_ARGUMENT$"
+            ):
+                replay()
+        return
+    assert observed.canonical_bytes is not None
+    parsed = pure.parse_emission_observation(observed.canonical_bytes)
+    if cell in _pietto_sql_emission.S03N_ALIASES:
+        _, direct = _pietto_sql_emission.s03_world(
+            tmp_path / "direct", "mysql", _pietto_sql_emission.S03N_ALIASES[cell]
+        )
+        assert direct.artifact is not None
+        assert artifact.rendered.sql == direct.artifact.rendered.sql
+        assert parsed.status is pure.Status.OK
+        assert emit_compiled(loaded, ()).rendered.sql == artifact.rendered.sql
+        template = prepare_compiled_template(loaded)
+        assert (
+            bind_values(template, (), ()).artifact.rendered.sql == artifact.rendered.sql
+        )
+        return
+    # A plain sum (Law T's, or Z34's upstream's) is the first the document
+    # refuses; Law C's conditional sum otherwise.
+    assert (parsed.status, parsed.detail) == (
+        pure.Status.INVALID_RELATION,
+        "sum result"
+        if re.search(r"sum\((?!o\.\w+ for o in group if )", body)
+        else "conditional aggregate shape",
+    )
     for replay in (
         lambda: emit_compiled(loaded, values),
         lambda: prepare_compiled_template(loaded),

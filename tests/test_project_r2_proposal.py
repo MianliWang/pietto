@@ -14,6 +14,7 @@ import pytest
 pytest.importorskip("fcntl", reason="the live witness needs the POSIX job runtime")
 
 import _pietto_execution_jobs_probe as workspace_probe
+import _pietto_sql_emission as sql_emission
 import _pietto_sql_nullsafe_cells as nullsafe_cells
 from pietto._project import project_public_r2_proposal as proposal
 
@@ -1511,8 +1512,10 @@ _FIRST = (
 # MC G3's later clauses, MC G4's relation alias and aggregating upstream,
 # MC G5's header parameter, MC G6's JOIN chains and `on` literal
 # comparisons, MC G7's compound tests and conditional sums beside other
-# aggregates under a WHERE, and MC G8's chains of levels over a source and
-# over the per-order level.
+# aggregates under a WHERE, MC G8's chains of levels over a source and
+# over the per-order level, and each of MC s03n's twelve forms (its Law C's
+# conditional sum with ORDER BY, a plain upstream or HAVING, and its Law
+# T's chains over S03's per-order bottoms).
 PHASE77_MYSQL_FORMS = {
     "S05": ("agg", _STATISTIC),
     "S06_join": (
@@ -1647,6 +1650,9 @@ PHASE77_MYSQL_FORMS = {
         "    group by customer_id\n    select:\n        customer_id\n"
         "        revenue = sum(amount)\n",
     ),
+    **{
+        "s03n_" + form: ("s03n", body) for form, body in sql_emission.S03N_FORMS.items()
+    },
     "S15": (
         "remainder",
         "table result:\n    from nums\n    select:\n        id\n        r = a % b\n",

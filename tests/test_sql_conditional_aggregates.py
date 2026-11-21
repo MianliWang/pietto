@@ -749,9 +749,10 @@ def _g7_blockers(outcome):
 @pytest.mark.parametrize("shape", sorted(probe.G7_REFUSALS))
 def test_mysql_g7_neighbours_keep_main_refusal(tmp_path, shape, policy):
     """Rule two (D77.37): a statement the G7 law matches beside another
-    blocker (a label too long, a sum outside every cell, ORDER BY, a header
-    parameter, a bind-safe `?`, a relation alias, an upstream query, an
-    imported source) and one outside it (`>=`, `is None` of an Int, the
+    blocker (a label too long, a sum outside every cell, a header parameter,
+    a bind-safe `?`; MC s03n opens G7's R3 and R6 to R8, an ORDER BY, a
+    relation alias, an upstream query and an imported source over the bases
+    its Law C names) and one outside it (`>=`, `is None` of an Int, the
     conditional count, a sum in an expression, `is not None`, two fields
     compared, a literal on the left, an Int literal outside the range, a
     Bool literal, literal arithmetic, `+N`, `-(-N)`, a SMALLINT field

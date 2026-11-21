@@ -52,10 +52,11 @@
   sum, HAVING, ORDER BY, LIMIT, DISTINCT, a header parameter, a bind-safe
   `?`, a relation alias, an unread window, an upstream query, an imported
   source and a JOIN, which the G3 to G6 notes above open beside other sums
-  only. R2 `save_recoverable` and `recover` refuse a MySQL
-  query of these forms with PIE-R1004 (`detail`
-  `PUBLIC_R2_UNQUALIFIED_FORM`), as for the other forms that MySQL opened
-  after `0.1.11`.
+  only, but the ORDER BY, HAVING line, relation alias, imported source and
+  plain upstream that the `s03n` note below opens over the conditional sums it
+  names. R2 `save_recoverable` and `recover` refuse a MySQL query of these
+  forms with PIE-R1004 (`detail` `PUBLIC_R2_UNQUALIFIED_FORM`), as for the
+  other forms that MySQL opened after `0.1.11`.
 
 Changed diagnostics: a MySQL statement whose only blockers in `0.2.1` were
 PIE-B1004 `sum_int_aggregate_range_proof_missing` at sums of these forms is

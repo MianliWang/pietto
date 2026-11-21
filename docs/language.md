@@ -4689,8 +4689,8 @@ one of its aggregates, directly or through a `let`, and has no WHERE,
 HAVING, ORDER BY, LIMIT or DISTINCT; over a plain upstream the clauses
 stay as above. An alias of an alias, an unread alias of a relation that
 FROM does not read (a second import name of FROM's upstream included), a
-window that is read, a third level (but for G8's chains below), an
-upstream declared as a relation
+window that is read, a third level (but for G8's chains and the s03n
+paragraph's third levels below), an upstream declared as a relation
 `let` block of the query, an upstream with a JOIN, a clause, a header
 parameter or a bind-safe `?` (but for G5's below), a plain upstream with
 a `let` or an item that computes, an aggregating upstream with no key, no
@@ -4788,12 +4788,12 @@ states it), a level that reads anything else, a conditional sum at any level
 or `avg` as a key or under another aggregate than `sum`, a `min` or `max` as a
 key or summed, one of a field that is not `BIGINT` under `min`, `max` or `avg`,
 a lower aggregate level without a key or a `sum`, a per-order level over other
-sources, keys, carriers or JOIN (S03's and MC G6's below among them), a
-relation alias, an unread window, an imported definition, a read qualified by a
-definition's name, HAVING,
-ORDER BY, LIMIT, DISTINCT, a header parameter, a bind-safe `?` (which MC G3 to
-G5 above open over one or two levels only) and everything the paragraphs above
-exclude keep the blockers they have without G8, object for object: PIE-B1004
+sources, keys, carriers or JOIN (S03's and MC G6's below among them, but for
+what the MC s03n paragraph below opens), a relation alias, an unread window, an
+imported definition, a read qualified by a definition's name, HAVING, ORDER BY,
+LIMIT, DISTINCT, a header parameter, a bind-safe `?` (which MC G3 to G5 above
+open over one or two levels only) and everything the paragraphs above exclude
+keep the blockers they have without G8, object for object: PIE-B1004
 `sum_int_aggregate_range_proof_missing` at the sums of the lowest definition
 that holds one, where that is their blocker. Each `sum` is the cell's guarded
 `SUM`, a nullable `Int`; every level's keys, other aggregates, plain items,
@@ -4831,8 +4831,8 @@ qualified by its source's name in C1 to C4, parentheses, another test,
 `let`, JOIN kind, ON order, key or carrier, WHERE, HAVING, ORDER BY, LIMIT,
 DISTINCT, a header parameter, a third level (over these sources; MC G8
 above opens chains over the style page's) or another aggregate keeps
-PIE-B1004 `sum_int_aggregate_range_proof_missing`, unless the MC G6 or G7
-paragraph below opens it. A `sum` there is S02's
+PIE-B1004 `sum_int_aggregate_range_proof_missing`, unless the MC G6, G7 or
+s03n paragraph below opens it. A `sum` there is S02's
 guarded `SUM`, a nullable `Int`; a conditional sum is `COALESCE(` that
 guard over `CASE WHEN TEST THEN x END`, `, 0)`, a non-null `Int`, 0 when no
 row's test is True. A statement still refused reports exactly the blockers
@@ -4900,8 +4900,9 @@ is an expression or a `let` name, the conditional count, a conditional sum
 inside an expression, in a statement with a conditional sum what only G3
 to G6 above open (HAVING, ORDER BY, LIMIT, DISTINCT, a relation alias, an
 unread window, an imported source, an upstream, a header parameter, a
-bind-safe `?` and a JOIN), and everything the paragraphs above exclude
-keep the blockers they have without G7, object for object: `if o.id >= 3` keeps
+bind-safe `?` and a JOIN, but what the MC s03n paragraph below opens), and
+everything the paragraphs above exclude keep the blockers they have without G7,
+object for object: `if o.id >= 3` keeps
 PIE-B1004 `sum_int_aggregate_range_proof_missing`. Each conditional sum is
 `COALESCE(` the guarded `SUM` over `CASE WHEN TEST THEN x END` `, 0)`, a
 non-null `Int`: 0 when no row's test is True, error 1690 (SQLSTATE 22003)
@@ -4909,14 +4910,141 @@ outside signed 64 bits. Every other part of the statement, TEST included,
 is the PostgreSQL SQL of the same query in MySQL's spelling, so TEST is
 read with SQL's three-valued logic on both targets.
 
+Since `0.2.2` (MC s03n), MySQL project SQL also emits S03's neighbours that the
+MC G7 and G8 paragraphs above leave refused, over the S03 paragraph's sources,
+names, a `table` declaration and SELECT item order aside, each statement with
+exactly the items written here. First, a statement
+`from orders` `group by customer` selecting `customer` and one conditional sum
+`sum(o.amount for o in group if TEST)`, TEST C1's `o.flag`,
+`o.flag and o.id > 3`, `o.flag or o.id > 3` or `not o.flag`, with exactly
+one of: `order by customer` after the SELECT, on one line or as an
+`order by:` block of that one key, over `o.flag` and
+`o.flag and o.id > 3`; `orders` read through `let x = orders`, `from x`, over
+`o.flag` and `o.flag or o.id > 3`; `orders` declared in another module and
+imported directly from it into the selected module under its own name, the
+query in that module, which imports nothing else but a `def`, over `o.flag`
+and `o.flag and o.id > 3`; FROM reading, in
+place of `orders`, one `query` of the selected module with no WHERE and no
+GROUP BY that reads `orders` and selects exactly `customer`, `amount` and
+`flag`, each by its own name, over `o.flag` and `not o.flag`; and the
+HAVING line `paid >= 0`, as `having paid >= 0` or as a `having:` block of that
+one line, over `o.flag`. The key, sum argument, flag and comparison field use
+their declared carriers: non-null `INT`, nullable `BIGINT`, nullable `Bool` and
+non-null `BIGINT` respectively.
+Other fields of `orders` may have those carriers or go unread. Second, S03's T1
+or T2 with exactly one of: T1 with `where lines > 0` in its second level, on
+one line or as a `where:` block of that one test, a WHERE that reads the count
+column of `per_order`, under `preserve` (under `bind-safe` that `0` is a
+bind-safe `?`, which keeps the refusal); its
+`per_order` without the `id` item, still grouped by `orders.id`;
+T2's `per_order` also selecting `n = count()`, which no level reads; T1 over an
+`orders` that declares one more nullable `BIGINT` field after `flag`, which no
+level reads; and T2 or T1 with its `result` renamed and a
+third level `result` over it, with no key and no WHERE, selecting the `sum` of
+each sum column of the second level exactly once (T2's `qty`, T1's `revenue`
+and `lines`). In either part, the literal `3` in TEST, the `0` of the HAVING
+line and the `0` of T1's WHERE may each also be written as a call, not in
+parentheses, of a `def` with no parameters that returns it, such as
+`lines > zero()` with `def zero() -> Int: return 0`. That `def` may have any
+body and declared return type that return the literal itself, such as a
+`return` on a line of its own, `return (0)`, `return idn(0)`, a call of
+another such `def` or `-> Int | None`, and it may be declared after the
+query or imported, also under another name, without parentheses or through
+a module that re-exports it. These spellings, which MySQL already emits in
+the base statement, are admitted at the same part here: SELECT and GROUP BY
+layout, such as `select customer, paid = sum(...)` on one line or a
+`group by:` block, spaces inside an item, comment and blank lines, an unread
+`def` or `query` or an export beside the statement, also in the module that
+C-2 imports from, the quoting of a source's table name, comments among the
+declarations, and at the per-order JOIN those of S03's T1 and T2, such as
+`let i = (items)`. Spaces between
+tokens, comments and blank lines do not count at the parts this paragraph
+adds either, but for
+the line breaks and spaces at the parentheses of a `sum` or `count` call
+named below; nor do other integer spellings of the same value, such as
+`0_3` or `00`, definition order, the import's placement and the quoting of
+its path, or a space inside the call of such a `def`, such as `zero( )`: the
+literals are read by value, not by spelling. The words above also admit
+C-2's import without parentheses or as `source orders as orders`, and its
+source exported in parentheses, `export (source orders,)`; C-3's upstream
+items written `customer = customer`; the key written `customer = customer`,
+or relabelled and ordered by its label, such as `c = customer` with
+`order by c`; and T-1's count column under another label, which the WHERE
+reads by that label.
+Each `sum`, at every level, is the guarded `SUM` of the paragraphs above and
+each conditional sum S03's `COALESCE(` of it `, 0)`; every other part of the
+statement, the ORDER BY, the HAVING line's WHERE over the aggregation stage (as
+G3 above emits HAVING), T1's second-level WHERE, the upstream stage and the
+per-order JOIN included, is the MySQL SQL of the same statement with each sum
+written `max`, and an alias
+or an import emits the SQL of the same statement read directly. Every other
+such statement keeps the blockers it has without s03n, object for object:
+PIE-B1004 `sum_int_aggregate_range_proof_missing` at the sums of the lowest
+definition that holds one. Among them are every other WHERE in a level above
+the per-order level or in it: one that reads a field column, such as
+`where amount > 0` in T1's second level, or T2's sum or unread count; another
+operator or literal, the literal first, a parenthesized test or a second test;
+a header parameter in it; and one in a third level;
+`order by customer desc`, `asc` written out, a parenthesized key, an ORDER BY
+of the sum, of two keys or of a key that is no `INT`, and LIMIT or DISTINCT;
+another HAVING line, operator or literal, a header parameter in it, or a
+HAVING line on the key; an upstream with a WHERE, a GROUP BY or another item,
+an item under another name such as `k = customer`, or of another module; a
+source imported under another name or through a
+module that re-exports it; any of these parts over another TEST, another
+literal than `3`, C3 or C4, or over a subset of the items; a read of T1's
+extra `orders` field, an extra field of another type, a second one or one
+declared before `flag`; a fourth level, a keyed third level, or one that
+skips a sum of the second level or selects another aggregate; a read of the
+unread count, a `count()` in T1's per-order level, the count of the ON
+field, an INNER JOIN, or a second level without one of its sums or with
+another aggregate; an ORDER BY over two levels; a third level over
+a statement that these changes open; two of the changes in one statement;
+and everything the paragraphs above exclude. Emission and plain verification
+can distinguish an explicit `asc`; a parenthesized ORDER BY key, WHERE test or
+HAVING line, such as `having (paid >= 0)`; a relabelled upstream item or an
+upstream written as a `let` block inside the selected query, such as
+`let up:`; a `let`
+that FROM does not read, a second `let`, an alias of an alias or of a `query`,
+a parenthesized relation in it or a `let` in a level below the selected
+definition, such as `let x = orders` beside `from orders`, `let y = x` or
+`let x = (orders)`; an import beside another import or a `let`, such as
+`source orders as sales`, `source items` or `relationship order_item` beside
+`source orders`, or one that a level below the selected definition reads;
+the alias or the import over a statement of the G7 paragraph that
+this paragraph does not name, such as `if not not o.flag` or
+`o.id > 3 and o.flag`; a
+parenthesized part of TEST, sum argument or SELECT item, such as
+`o.flag and (o.id > 3)`, `not (o.flag)`, `if ((o.flag))`,
+`sum((o.amount) for o in group if o.flag)` or `paid = (sum(...))`; a call of a
+`def` in place of TEST, such as `if idb(o.flag)`; a key, an item or the
+argument of a `sum` without TEST read through the name of its source, its
+relation or the alias, such as `group by orders.customer`,
+`customer = orders.customer`, `group by x.customer` or
+`sum(per_order.amount)`, or in the per-order level without its JOIN
+input's name, such as `group by orders.id, customer, orders.amount` or
+`customer = customer`; a line break inside a `sum` or `count` call, a space
+around its argument or a comma after it, or a space inside or before the
+parentheses of `count()`, such as `sum( o.amount for o in group if o.flag)`,
+`sum(amount,)`, `count( )` or `count ()`; a parenthesized ON comparison or
+operand of the per-order JOIN, such as `on (i.order_id == orders.id)`; and, at
+the `3` in TEST, the `0` of the HAVING line and the `0` of T1's WHERE, a
+parenthesized call, literal or column, such as
+`lines > (zero())`, `lines > (0)` or `(lines) > 0`, a call with an argument,
+such as `lines > idn(0)`, a call in place of the whole test, such as
+`gt0(lines)`, and a column read through its relation's name, such as
+`per_order.lines > 0`. Compiled records and the pure document retain the
+underlying read for those spellings (D77.24).
+
 <a id="mysql-project-sumint-forms"></a>
 **MySQL project `sum(Int)` forms at a glance.** This summary follows the
 S03 paragraph above, which stays the rule, and states the conditions of
 the nine forms themselves. A statement that the G7 paragraph above opens,
 such as C1 to C4 with a qualified read, a WHERE, a `count`, a carrier of
-the S02 cell as G1 and G2 widen it, or C3 under `bind-safe`, is VERIFIED
-too, with the SQL that paragraph states. Put the module below as
-`shop.pietto` in a directory `shop`, beside the `pietto.toml` of the
+the S02 cell as G1 and G2 widen it, or C3 under `bind-safe`, or that the s03n
+paragraph above opens, such as C1 with `order by customer` or T2 under a third
+level, is VERIFIED too, with the SQL that paragraph states. Put the module
+below as `shop.pietto` in a directory `shop`, beside the `pietto.toml` of the
 [worked example](worked-example.md) and a `contract.json` with the
 carriers and premises listed after the table. Then `pietto emit-sql
 --project shop --all --dialect mysql --emission-contract contract.json`
@@ -5040,23 +5168,37 @@ is one of the forms only under all of these conditions:
 
 - **Items.** The emitted query selects any of its row's SELECT items, each
   at most once, one `sum` at least: `c1` without `customer` is C1 too.
-  T1's `per_order` and T2's `j3` select exactly their row's items.
+  T1's `per_order` and T2's `j3` select exactly their row's items, but
+  what the s03n paragraph above opens, and a statement that paragraph opens
+  selects exactly the items it writes.
 - **Declarations.** Each source and query is declared in the module of the
   emitted query and read by its own name. An imported source or query, a
   relation alias such as `let x = orders` read by `from x`, or a read
   qualified by its source's name in C1 to C4, such as `group by
-  orders.customer`, is not one of the forms.
+  orders.customer`, is not one of the forms; the s03n paragraph above
+  opens the alias, and the source imported directly from its module under
+  its own name, for C1.
 - **Spelling.** Each read and test is written as its row writes it: no
   parentheses, no other `let`, test, aggregate, group key, JOIN kind or ON
   order, and no WHERE, HAVING, ORDER BY, LIMIT, DISTINCT, header parameter
-  or third level, but what the MC G6 paragraph above opens for J1 to J3
-  and the G7 paragraph for C1 to C4.
+  or third level, but what the MC G6 paragraph above opens for J1 to J3,
+  the G7 paragraph for C1 to C4 and the s03n paragraph for C1, T1 and T2.
+  In a statement that the s03n paragraph opens, the spellings it lists
+  that MySQL already emits in the base statement do not count at the same
+  part, nor do spaces, comments and blank lines (but the line breaks and
+  spaces at the parentheses of a `sum` or `count` call that it names),
+  other integer spellings of a literal's value, definition order, or the
+  import's placement and path quoting; and a `def` called in place of a
+  literal may have any body and declared return type that return the
+  literal itself.
 - **Shapes.** `Order` declares `unique(id)`; without it, `check --project`
   reports PIE-S2333 at J1, J2, J3 and `per_order`, whose aggregates may read
   rows the JOIN repeats. J1 to T2 need both sources with exactly the fields
   of the example, in its order, as their JOIN carries every field, but J1
-  to J3 admit others under the MC G6 paragraph above; C1 to C4 need only
-  the fields they read, and admit others.
+  to J3 admit others under the MC G6 paragraph above and T1 one more
+  nullable `BIGINT` field of `orders` after `flag`, which no level reads,
+  under the s03n paragraph; C1 to C4
+  need only the fields they read, and admit others.
 - **Carriers.** Each field's `representation` in `contract.json` is exactly
   the one below. Another `storage`, nullability or `domain`, such as an
   `int_range` from `"0"` for `amount`, is not one of the forms; the MC G6
@@ -5106,8 +5248,9 @@ to declare. Declaring that value is the whole fix: the query is then
 VERIFIED, without its sum blockers. `per_order`, which holds no sum,
 reports only the premise's blocker.
 
-Any other MySQL project `sum` of an `Int`, outside these forms and S02's
-cell as G1 to G7 widen it and G8's chains of levels, is BLOCKED with PIE-B1004
+Any other MySQL project `sum` of an `Int`, outside these forms, S02's
+cell as G1 to G7 widen it, G8's chains of levels and s03n's conditional
+and two- or three-level forms, is BLOCKED with PIE-B1004
 `sum_int_aggregate_range_proof_missing`.
 This refusal is by design, not a defect: MySQL sums a `BIGINT` as a
 `DECIMAL`, which `CAST(... AS SIGNED)` would clamp, so a MySQL project emits
@@ -5128,8 +5271,8 @@ query totals:
     limit 2
 ```
 
-G6 admits J2 with `inner join`. T2 over a `j3` that also selects
-`n = count()` still reports the sum blocker. For a blocked sum, compare
+G6 admits J2 with `inner join`. The s03n forms admit T2 over a `j3`
+that also selects an unread `n = count()`. For a blocked sum, compare
 the query with the admitted forms above or emit it with `--dialect postgres`
 and a PostgreSQL contract.
 
@@ -5852,10 +5995,10 @@ relations: single files emit it on PostgreSQL and MySQL; an
 EXPLICIT_MODULES project emits, compiles and binds it on PostgreSQL, while
 its MySQL emission blocks each Int `sum` (PIE-B1004
 `sum_int_aggregate_range_proof_missing`), as for any project MySQL Int
-`sum` outside its cell, except the S03 forms T1 and T2 stated
-above. The style page's example, whose `amount` is non-null, is not T1;
-since `0.2.2` (MC G8) MySQL emits it, and levels above it, as the chains of
-levels stated above.
+`sum` outside its cell, except the S03 forms T1 and T2 and their MC s03n
+neighbours stated above. The style page's example, whose `amount` is non-null,
+is not T1; since `0.2.2` (MC G8) MySQL emits it, and levels above it, as the
+chains of levels stated above.
 
 GROUP BY accepts fields and `let` names that rename fields. Self-join keys
 such as `customers.id` and `peer.id` remain distinct; a bare and qualified

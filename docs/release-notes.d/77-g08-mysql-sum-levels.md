@@ -56,15 +56,13 @@
   `max` or `avg`, a lower aggregate level without a key or a `sum`, a lower
   `sum` that no `sum` above reads, a WHERE above the lowest level with a `sum`,
   a per-order level over other sources, keys, carriers or JOIN (S03's T1 and
-  T2 under a third level among them), and HAVING, ORDER BY, LIMIT, DISTINCT,
-  a header parameter, a bind-safe `?`, a relation alias, an unread window,
-  an imported definition and a read qualified by a definition's name. R2
-  `save_recoverable` and `recover` refuse a MySQL query of these chains with
-  PIE-R1004 (`detail` `PUBLIC_R2_UNQUALIFIED_FORM`), as for the other forms
-  that MySQL opened after `0.1.11`.
-- Under J12 (3), the MySQL project `sum` of an `Int` outside the forms
-  that `0.1.12`, the G1 to G7 notes and this note open stays beyond the
-  MySQL cadence, with the MySQL catch-up work package as its target.
+  T2 under a third level among them, but those that the `s03n` note below
+  opens), and HAVING, ORDER BY, LIMIT, DISTINCT, a header parameter, a
+  bind-safe `?`, a relation alias, an unread window, an imported definition
+  and a read qualified by a definition's name. R2 `save_recoverable` and
+  `recover` refuse a MySQL query of these chains with PIE-R1004 (`detail`
+  `PUBLIC_R2_UNQUALIFIED_FORM`), as for the other forms that MySQL opened
+  after `0.1.11`.
 
 Changed diagnostics: a MySQL statement whose only blockers in `0.2.1` were
 PIE-B1004 `sum_int_aggregate_range_proof_missing` at the sums of a chain of

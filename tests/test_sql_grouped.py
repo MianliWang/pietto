@@ -4165,16 +4165,16 @@ def _s03_blockers(outcome):
 def test_mysql_sums_outside_the_s03_forms_keep_main_refusal(tmp_path, shape, policy):
     """D77.24: every MySQL statement that is not, names aside, one of the
     nine paired forms, nor in the cells that MC G6 (G6_S03_CELLS) and MC G7
-    (G7_CELLS) open, keeps main's blockers, object for object, under both
-    policies (rule two, D77.37): a test outside G7's atoms, ORDER BY, a row
-    alias or an upstream query beside a conditional sum, a third level, an
-    extra or a missing upstream item, a second-level WHERE, an imported
-    source, and a form beside a composed aggregate. PostgreSQL emits each as
-    main does."""
+    (G7_CELLS) open, nor one of MC s03n's forms and spellings, keeps main's
+    blockers, object for object, under both policies (rule two, D77.37): a
+    test outside G7's atoms and a form beside a composed aggregate.
+    PostgreSQL emits each as main does."""
     body = probe.S03_REFUSALS[shape]
     _, outcome = probe.s03_world(tmp_path / "mysql", "mysql", body, policy)
     assert outcome.status == "BLOCKED" and outcome.artifact is None
     assert _s03_blockers(outcome) == probe.S03_REFUSAL_BLOCKERS[shape]
+    _, postgres = probe.s03_world(tmp_path / "postgres", "postgres", body, policy)
+    assert postgres.status == "VERIFIED", postgres.blockers
 
 
 @pytest.mark.parametrize("spelling", sorted(probe.S03_SPELLINGS))
@@ -4274,7 +4274,7 @@ def test_mysql_s03_forms_are_derived_once_per_aggregation(tmp_path, monkeypatch)
     ):
         calls = {"emission": 0, "compiled": 0, "pure": 0}
         with monkeypatch.context() as patch:
-            patch.setattr(sum_forms, "paired", lambda levels, preserve: True)
+            patch.setattr(sum_forms, "paired", lambda levels, preserve, *_: True)
             for name, module, attribute in (
                 ("emission", rows, "mysql_s03_statement"),
                 ("compiled", rows, "mysql_s03_compiled"),
@@ -4295,9 +4295,8 @@ def test_mysql_s03_forms_are_derived_once_per_aggregation(tmp_path, monkeypatch)
 
 
 _S03_WIDER_BLOCKERS = {
-    "t1_wider_orders": [
-        ("PIE-B1004", "sum_int_aggregate_range_proof_missing", 31, 9),
-        ("PIE-B1004", "sum_int_aggregate_range_proof_missing", 32, 9),
+    "t2_wider_orders": [
+        ("PIE-B1004", "sum_int_aggregate_range_proof_missing", 24, 9),
     ],
 }
 
@@ -4305,10 +4304,11 @@ _S03_WIDER_BLOCKERS = {
 @pytest.mark.parametrize("shape", sorted(probe.S03_WIDER))
 def test_mysql_s03_join_forms_need_the_paired_tables_whole(tmp_path, shape):
     """A JOIN form's SQL carries every field of both sources, so a source
-    with one more field is no form and T1's keeps main's blockers, also in
-    compiled replay and the pure boundary when forged past emission (J2's
-    is MC G6's); a conditional form reads only its own fields and stays
-    one."""
+    with one more field is no form and T2's keeps main's blockers, also in
+    plain verification, the live template, compiled replay and the pure
+    boundary when forged past emission (J2's is MC G6's, T1's over one more
+    nullable BIGINT field of `orders` MC s03n's T-4); a conditional form
+    reads only its own fields and stays one."""
     from pietto._project import project_compiled_schema as wire
     import _pietto_sql_emission_portable as portable
     import _pietto_sql_emission_pure_boundary as pure
@@ -4316,6 +4316,13 @@ def test_mysql_s03_join_forms_need_the_paired_tables_whole(tmp_path, shape):
     from pietto._project.project_compiled_build import build_compiled
     from pietto._project.project_compiled_loading import load_compiled
     from pietto._project.project_compiled_lowering import emit_compiled
+    from pietto._project.project_execution_template import (
+        BindingError,
+        prepare_live_template,
+    )
+    from pietto._project.project_sql_emission_verification import (
+        verify_project_sql_emission,
+    )
 
     form, extra = probe.S03_WIDER[shape]
     body = probe.S03_FORMS[form]
@@ -4331,6 +4338,9 @@ def test_mysql_s03_join_forms_need_the_paired_tables_whole(tmp_path, shape):
         assert artifact is not None
         built = build_compiled(artifact)
         observed = portable.export_emission_observation(artifact, artifact.request)
+    assert not verify_project_sql_emission(artifact, artifact.request).verified
+    with pytest.raises(BindingError, match="^BINDING_ARTIFACT$"):
+        prepare_live_template(artifact)
     loaded = load_compiled(
         built.payload,
         expected_pin=built.pin,
@@ -4663,10 +4673,9 @@ def test_a_conditional_sum_over_join_rows_is_refused_at_check(tmp_path, capsys, 
 def test_mysql_g8_leaves_the_s03_route_as_main(tmp_path, policy):
     """Over S03's sources G8 opens nothing: T1 and T2 keep main's bytes,
     which are also their bodies' with each sum written `max` and each such
-    MAX the guarded SUM (B3); T1 or T2 under a third level keeps main's
-    blockers, and so does each of S03's two-level neighbours that no stage
-    opens (MC G4 opens `ctl_t_plain_first_level`, its G4_ORDERS_CELLS P1).
-    PostgreSQL emits each as main does."""
+    MAX the guarded SUM (B3). S03's two-level neighbours are MC s03n's
+    (its forms, spellings and rule two below) or MC G4's
+    (`ctl_t_plain_first_level`, its G4_ORDERS_CELLS P1)."""
     import re
 
     for form in ("T1", "T2"):
@@ -4680,30 +4689,6 @@ def test_mysql_g8_leaves_the_s03_route_as_main(tmp_path, policy):
         assert sql == probe.S03_FORM_SQL[form, "mysql"]
         summed = [found == "sum" for found in re.findall(r"= (sum|max)\(", body)]
         assert sql == _guarded_maxima(maxima.artifact.rendered.sql.decode(), summed)
-    refused = {
-        **probe.G8_S03_REFUSALS,
-        **{
-            name: (probe.S03_REFUSALS[name], probe.S03_REFUSAL_BLOCKERS[name])
-            for name in (
-                "ctl_t_second_where",
-                "ctl_t_third_level",
-                "t1_upstream_subset",
-                "t2_upstream_subset",
-                "t2_extra_upstream_count",
-            )
-        },
-    }
-    for name, (body, blockers) in refused.items():
-        _, outcome = probe.s03_world(tmp_path / name, "mysql", body, policy)
-        assert outcome.status == "BLOCKED" and outcome.artifact is None
-        assert _numeric_blockers(outcome) == blockers, name
-        _, postgres = probe.s03_world(tmp_path / (name + "pg"), "postgres", body)
-        assert postgres.status == "VERIFIED", postgres.blockers
-    form, extra = probe.S03_WIDER["t1_wider_orders"]
-    _, wider = probe.s03_world(
-        tmp_path / "wider", "mysql", probe.S03_FORMS[form], policy, extra=extra
-    )
-    assert _numeric_blockers(wider) == _S03_WIDER_BLOCKERS["t1_wider_orders"]
 
 
 @pytest.mark.parametrize("policy", ("preserve_literals", "bind_safe_literals"))
@@ -4742,3 +4727,372 @@ def test_mysql_g8_per_order_level_needs_the_style_pages_keys(
         tmp_path / "postgres", "postgres", probe.G8_FORMS["S1"], policy
     )
     assert postgres.status == "VERIFIED", postgres.blockers
+
+
+# MC s03n: S03's neighbours that MC G7 and G8 hand on (the s03n list's Law C
+# and Law T). The result columns each form declares non-null on both
+# targets: the INT key and, in Law C's forms, the conditional sum (the
+# list's non_null).
+_S03N_LAW_C = (
+    "ctl_c_order_by",
+    "r3_order_by",
+    "ctl_c_upstream",
+    "r7_upstream",
+    "c1_having",
+)
+_S03N_NON_NULL = {
+    **{form: {"customer", "paid"} for form in _S03N_LAW_C},
+    **{
+        form: {"customer"}
+        for form in (
+            "ctl_t_second_where",
+            "t1_upstream_subset",
+            "t1_wider_orders",
+            "t2_upstream_subset",
+            "t2_extra_upstream_count",
+        )
+    },
+    "ctl_t_third_level": set(),
+    "t1_third_level": set(),
+}
+
+
+@pytest.mark.parametrize("policy", ("preserve_literals", "bind_safe_literals"))
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+@pytest.mark.parametrize("form", sorted(probe.S03N_FORMS))
+def test_mysql_s03n_forms_emit_the_guarded_sum(tmp_path, form, target, policy):
+    """MC s03n: a MySQL project emits each of the list's twelve forms, Law
+    C's conditional sum with ORDER BY of its key, a plain upstream or the
+    HAVING line `paid >= 0` over the bases each names, and Law T's chains
+    over S03's T1 or T2 per-order bottom with `where lines > 0` in T1's
+    second level, a key left unselected, an unread `count()`, one more
+    field of `orders` or a scalar third level, every sum S02's guarded SUM
+    and a conditional one inside S03's COALESCE, with the SQL the list
+    predicts under both literal policies, but T-1's form, whose `0` is a
+    bind-safe `?` under bind_safe_literals: there MySQL keeps main's
+    blockers (the list's control, rule two below) and PostgreSQL binds it
+    (S03N_BOUND_SQL). PostgreSQL emits main's SQL, the twelve texts are
+    pairwise distinct per target, every reader accepts each (on PostgreSQL
+    under preserve_literals, as the G6 to G8 form tests), the INT key's
+    column is my_int (pg_int4) and every sum's my_signed_int (pg_int8), and
+    only the key and Law C's sum are non-null (the list's Interface)."""
+    bound = form in probe.S03N_BOUND_SQL and policy == "bind_safe_literals"
+    if bound and target == "mysql":
+        pytest.skip("the list's control: rule two pins its refusal")
+    checked, outcome = probe.s03n_world(
+        tmp_path, target, probe.S03N_FORMS[form], policy
+    )
+    assert checked.verified
+    if target == "mysql" or policy == "preserve_literals":
+        probe.numeric_readers_accept(outcome)
+    assert outcome.artifact is not None
+    assert outcome.artifact.rendered.sql.decode() == (
+        probe.S03N_BOUND_SQL[form] if bound else probe.S03N_FORM_SQL[form, target]
+    )
+    document = json.loads(serialize_project_sql_emission(outcome))
+    assert {
+        column["label"] for column in document["columns"] if not column["nullable"]
+    } == _S03N_NON_NULL[form]
+    key, total = (
+        ("my_int", "my_signed_int") if target == "mysql" else ("pg_int4", "pg_int8")
+    )
+    assert {
+        column["label"]: column["representation"]["storage"]["kind"]
+        for column in document["columns"]
+    } == {
+        column["label"]: key if column["label"] == "customer" else total
+        for column in document["columns"]
+    }
+    texts = [probe.S03N_FORM_SQL[name, target] for name in probe.S03N_FORMS]
+    assert len(set(texts)) == len(texts)
+
+
+def test_the_s03n_world_builds_only_the_forms(tmp_path):
+    """s03n_world builds a form's body with its own extra fields alone, and
+    refuses any other body."""
+    for body in (probe.S03_FORMS["C1"], probe.S03N_FORMS["ctl_c_order_by"] + "\n"):
+        with pytest.raises(ValueError, match="^not the body of an s03n form$"):
+            probe.s03n_world(tmp_path, "mysql", body)
+    _, wider = probe.s03n_world(tmp_path, "mysql", probe.S03N_FORMS["t1_wider_orders"])
+    assert wider.artifact is not None
+    assert [
+        field.name
+        for source in wider.artifact.request.sources
+        for field in source.fields
+        if json.loads(source.selector)["name"] == "orders"
+    ][-1] == "note"
+
+
+def _s03n_mysql_spelling(postgres):
+    """main's PostgreSQL SQL of an s03n form in MySQL's spelling, each
+    checked bigint SUM S02's guarded SUM of its argument and each
+    conditional one S03's COALESCE of the guard (the list's BM)."""
+    import re
+
+    def guarded(argument):
+        return "".join(
+            (argument if position else "") + text
+            for position, (_, text) in enumerate(grouping.MYSQL_SUM_GUARD)
+        )
+
+    sql = re.sub(
+        r"COALESCE\(CAST\(SUM\(CASE WHEN (.+?) THEN CAST\((\S+) AS"
+        r" pg_catalog\.int8\) END\) AS pg_catalog\.int8\), 0\)",
+        lambda found: (
+            "COALESCE(%s, 0)"
+            % guarded(f"CASE WHEN {found.group(1)} THEN {found.group(2)} END")
+        ),
+        postgres,
+    )
+    sql = re.sub(
+        r"CAST\(SUM\(CAST\((\S+) AS pg_catalog\.int8\)\) AS pg_catalog\.int8\)",
+        lambda found: guarded(found.group(1)),
+        sql,
+    )
+    return (
+        sql.replace("AS pg_catalog.int8)", "AS SIGNED)")
+        .replace('"', "`")
+        .replace("`public`.", "`phase66`.")
+    )
+
+
+def _conditional_maxima(sql, postgres):
+    """MySQL SQL whose one MAX(arg) is S03's guarded conditional SUM of arg,
+    `COALESCE(` the guard over `CASE WHEN t THEN arg END` `, 0)`, ``t`` the
+    test that ``postgres`` (main's PostgreSQL SQL of the conditional
+    statement) writes, in MySQL's spelling (the s03n list's BC)."""
+    import re
+
+    (test,) = re.findall(
+        r"COALESCE\(CAST\(SUM\(CASE WHEN (.+?) THEN CAST\(\S+ AS pg_catalog\.int8\)",
+        postgres,
+    )
+    test = test.replace('"', "`").replace("AS pg_catalog.int8)", "AS SIGNED)")
+    (argument,) = re.findall(r"MAX\(([^()]+)\)", sql)
+    return sql.replace(
+        f"MAX({argument})",
+        "COALESCE(%s, 0)"
+        % "".join(
+            (f"CASE WHEN {test} THEN {argument} END" if position else "") + text
+            for position, (_, text) in enumerate(grouping.MYSQL_SUM_GUARD)
+        ),
+    )
+
+
+@pytest.mark.parametrize("form", sorted(probe.S03N_FORMS))
+def test_mysql_s03n_sql_is_main_max_sql_but_the_guard(tmp_path, form):
+    """BC and BT: each s03n form's MySQL SQL is main's MySQL SQL of its B
+    body, Law C's conditional sum written `max` of its argument with that
+    MAX S03's guarded conditional SUM under the form's test in MySQL's
+    spelling, or Law T's every `sum(x)` at every level written `max(x)`
+    with each such MAX S02's guarded SUM of x, which no cast wraps: so the
+    upstream stage, the JOIN stage, ORDER BY's stage and clause, the HAVING
+    line's WHERE over the aggregation stage and every key and other
+    aggregate are main's verified MySQL emission. It is also main's
+    PostgreSQL SQL in MySQL's spelling with each sum guarded, under both
+    literal policies alike (T-1's form under preserve_literals, the one
+    policy that opens it)."""
+    import re
+
+    body = probe.S03N_FORMS[form]
+    extra = probe.S03N_EXTRA.get(form)
+    maximum = (
+        re.sub(
+            r"sum\(o\.(\w+) for o in group if [^\n]*\)$", r"max(\1)", body, flags=re.M
+        )
+        if form in _S03N_LAW_C
+        else body.replace("sum(", "max(")
+    )
+    texts = set()
+    policies = ("preserve_literals", "bind_safe_literals")
+    for policy in policies[:1] if form in probe.S03N_BOUND_SQL else policies:
+        _, maxima = probe.s03_world(
+            tmp_path / ("max-" + policy), "mysql", maximum, policy, extra=extra
+        )
+        _, postgres = probe.s03n_world(
+            tmp_path / ("postgres-" + policy), "postgres", body, policy
+        )
+        assert maxima.artifact is not None and postgres.artifact is not None
+        sql = maxima.artifact.rendered.sql.decode()
+        main = postgres.artifact.rendered.sql.decode()
+        texts.add(
+            _conditional_maxima(sql, main)
+            if form in _S03N_LAW_C
+            else _guarded_maxima(
+                sql, [found == "sum" for found in re.findall(r"= (sum|max)\(", body)]
+            )
+        )
+        assert probe.S03N_FORM_SQL[form, "mysql"] == _s03n_mysql_spelling(main)
+    assert texts == {probe.S03N_FORM_SQL[form, "mysql"]}
+    assert "CAST(CASE WHEN SUM(" not in probe.S03N_FORM_SQL[form, "mysql"]
+
+
+@pytest.mark.parametrize("form", sorted(probe.S03N_FORMS))
+def test_mysql_s03n_forms_are_open_under_other_names(tmp_path, form):
+    """Relations and fields renamed one to one (S03_RENAMES, their columns
+    kept) leave each form open: the SQL is the form's with the renamed
+    output names."""
+    _, outcome = probe.s03_world(
+        tmp_path,
+        "mysql",
+        probe.S03N_FORMS[form],
+        names=probe.S03_RENAMES,
+        extra=probe.S03N_EXTRA.get(form),
+    )
+    assert outcome.artifact is not None, outcome.blockers
+    expected = probe.S03N_FORM_SQL[form, "mysql"]
+    for old, new in probe.S03_RENAMES.items():
+        expected = expected.replace(" AS `%s`" % old, " AS `%s`" % new)
+    assert outcome.artifact.rendered.sql.decode() == expected
+
+
+@pytest.mark.parametrize("policy", ("preserve_literals", "bind_safe_literals"))
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+@pytest.mark.parametrize("spelling", sorted(probe.S03N_SPELLINGS))
+def test_mysql_s03n_spellings_emit_their_base_sql(tmp_path, spelling, target, policy):
+    """C-2's relation alias over C1 and over G7's R6's base and its imported
+    source over C1 and over G7's T1, C-1's other ORDER BY spelling of each
+    C-1 form, C-4's `having paid >= 0` on one line, T-1's `where:` block
+    of `lines > 0`, a call of a `def` with no parameters in place of R3's
+    `3`, C-4's `0` and T-1's `0` (`lines > zero()`), the imported source
+    over G7's T1 beside an imported such `def` in place of its `3`, G8's
+    P4 (T-5 under another output label) and a sampled spelling of each
+    group of the s03n paragraph's classes I, L, S and N emit the bytes of
+    the statement each spells, on both targets under both policies, and
+    every reader accepts them: the alias and the import leave the base's
+    compiled records and pure document (D77.24; S03_ALIASES says so of the
+    first two), so compiled replay replays the base's bytes. On MySQL under
+    bind_safe_literals T-1's spellings keep the control's blockers,
+    positions aside."""
+    body, base, labels = probe.S03N_SPELLINGS[spelling]
+    assert body != base
+    _, outcome = probe.s03_world(tmp_path / "spelling", target, body, policy)
+    _, direct = probe.s03_world(tmp_path / "base", target, base, policy)
+    if (target, policy) == ("mysql", "bind_safe_literals") and base in [
+        probe.S03N_FORMS[form] for form in probe.S03N_BOUND_SQL
+    ]:
+        assert outcome.artifact is None and direct.artifact is None
+        assert [blocker[:2] for blocker in _numeric_blockers(outcome)] == [
+            blocker[:2] for blocker in _numeric_blockers(direct)
+        ]
+        return
+    if target == "mysql":
+        probe.numeric_readers_accept(outcome)
+    assert outcome.artifact is not None and direct.artifact is not None
+    expected = direct.artifact.rendered.sql.decode()
+    quote = '"' if target == "postgres" else "`"
+    for old, new in labels.items():
+        expected = expected.replace(
+            f" AS {quote}{old}{quote}", f" AS {quote}{new}{quote}"
+        )
+    assert outcome.artifact.rendered.sql.decode() == expected
+    if spelling in probe.S03_ALIASES:
+        assert expected == probe.S03_FORM_SQL[probe.S03_ALIASES[spelling], target]
+
+
+@pytest.mark.parametrize("policy", ("preserve_literals", "bind_safe_literals"))
+@pytest.mark.parametrize("spelling", sorted(probe.S03N_RESPELLINGS))
+def test_mysql_s03n_respellings_emit_main_sql_guarded(
+    tmp_path, monkeypatch, spelling, policy
+):
+    """The s03n spellings that S03N_SPELLINGS cannot state: SELECT item
+    order of a Law C and a Law T form, the selected `result` written
+    before its upstream, `o.nn > 3` for R3's `o.id > 3` and the header's
+    `mysql.table('orders')` emit on MySQL, under both policies, main's
+    PostgreSQL SQL of the same body in MySQL's spelling with each sum
+    guarded (the list's BM), and every reader accepts them. Only the
+    header's quoting emits the form's own bytes."""
+    body, form, header = probe.S03N_RESPELLINGS[spelling]
+    written = probe.S03_HEADER
+    for old, new in header:
+        assert written.count(old) == 1
+        written = written.replace(old, new)
+    monkeypatch.setattr(probe, "S03_HEADER", written)
+    extra = probe.S03N_EXTRA.get(form)
+    _, outcome = probe.s03_world(tmp_path / "mysql", "mysql", body, policy, extra=extra)
+    _, postgres = probe.s03_world(
+        tmp_path / "postgres", "postgres", body, policy, extra=extra
+    )
+    probe.numeric_readers_accept(outcome)
+    assert outcome.artifact is not None and postgres.artifact is not None
+    sql = outcome.artifact.rendered.sql.decode()
+    assert sql == _s03n_mysql_spelling(postgres.artifact.rendered.sql.decode())
+    assert (sql == probe.S03N_FORM_SQL[form, "mysql"]) is bool(header)
+
+
+@pytest.mark.parametrize("policy", ("preserve_literals", "bind_safe_literals"))
+@pytest.mark.parametrize("cell", sorted(probe.S03N_REFUSALS))
+def test_mysql_s03n_rule_two_keeps_main_refusal(tmp_path, cell, policy):
+    """Rule two (D77.37): the control, T-1's form under bind_safe_literals,
+    whose `0` is then a bind-safe `?` (G5's), keeps main's blockers, and so
+    does each Z cell at the edges of Law C and Law T, object for object,
+    under both policies: a long label beside the law
+    (Z1, Z2); ORDER BY `desc`, by the sum, by two keys, of a key that is no
+    INT, with `asc` written out, of a parenthesized key or with LIMIT (Z4,
+    Z10, Z18, Z26, Z28, Z29, Z30, Z31); a test's literal other than 3
+    (Z27); an upstream with a WHERE, another item, a GROUP BY or of another
+    module (Z5, Z15, Z33, Z34, Z35), or selecting the key or the summed
+    field under another name (Z71, Z72); an import under another name or
+    re-exported (Z36, Z37); a HAVING line with another operator, on the
+    key, with another literal or a header parameter, or a second line (Z24,
+    Z25, Z17, Z32, Z11); LIMIT and DISTINCT (Z19, Z20); each item over a
+    base it does not name, another test, C3, C4 or another of G7's forms
+    (Z8, Z12 to Z14, Z16, Z38 to Z44, Z70); an item subset or a count in
+    place of the selected key (Z45, Z76); two of Law C's items (Z46 to Z52);
+    T-4's extra field read, of another type, one more or before `flag`
+    (Z53 to Z56); two of T-2 to T-6, a third level over T-2, T-3 or T-4
+    among them (Z21, Z22, Z57 to Z60); a fourth level, a keyed third level,
+    one that skips or repeats a sum or adds an aggregate (Z6, Z23, Z61,
+    Z62, Z74, Z75); a first grouping key outside the JOIN (Z73); a read of
+    T-3's count (Z7); an ORDER BY above the JOIN bottom (Z63); a
+    second-level item subset or `max`, T1's bottom with a `count()`, the
+    count of the ON field, an INNER JOIN or no `amount` (Z64 to Z69); and
+    at T-1's edges a WHERE in T1's second level that reads a field column
+    (Z9), one in T2's that reads its sum column or T-3's count (Z77, Z78),
+    another operator or literal, the literal first, a parenthesized test, a
+    second test or a header parameter (Z79 to Z84), T-1 with HAVING, ORDER
+    BY, T-2, T-4 or T-6 (Z85 to Z89) and a WHERE in T-6's third level or in
+    the per-order bottom (Z90, Z91); and at T-1's `0`, C-4's `0` and Law
+    C's `3` a parenthesized call, a call with an argument, a parenthesized
+    literal or column and a call in place of the test, and T-1's column
+    read as `per_order.lines` (Z92 to Z107); and the other spellings that
+    only the plan's readers refuse: C-4's HAVING line in parentheses (Z108,
+    Z109), a parenthesized operand of TEST's `and`, `or` or `not` (Z110 to
+    Z115), a key or item read through its source's name (Z116 to Z118),
+    G7's C1 spellings under C-1 (Z119 to Z124), a space or line break
+    inside a sum's parentheses (Z125 to Z127), and under T-1 a
+    parenthesized ON comparison or operand (Z128 to Z130) or a per-order
+    key read without its JOIN input's name (Z131); and the other shapes
+    that only the plan's readers refuse: C-2's alias unread beside a
+    direct FROM, beside a second alias, of an alias or parenthesized (Z132
+    to Z138), C-2's import beside another import item or statement, of
+    `orders` under another name, of `items` or of a shape, or beside an
+    alias, read or not (Z139 to Z145), an unread `let` at C-3's or T-1's
+    levels (Z146 to Z149), an alias or an import read by C-3's upstream
+    (Z150, Z151), an alias of the level below (Z152, Z153), T-1 over
+    imported sources (Z154) and an unread window (Z155, Z156); and C-2
+    over a G7 statement that the list does not name (Z157, Z158), C-3's
+    upstream as a `let up:` block (Z159), under T-1 a space, line break
+    or trailing comma at a plain sum's parentheses, a per-order item
+    without its JOIN input's name or a sum argument read through its
+    relation's name (Z160 to Z164), a key or item read through C-2's
+    alias's name (Z165, Z166), T-3's `count()` with a space (Z167, Z168),
+    C-2's import beside an imported relationship, in a second statement
+    or item (Z169, Z170), and at Law C's `3` an operation over Int
+    literals, such as `1 + 2` (Z171). Only the lowest level's sums are
+    listed, never a higher level's that main does not list.
+    PostgreSQL emits each but the two long labels as main does."""
+    if policy not in probe.S03N_REFUSAL_POLICIES.get(cell, (policy,)):
+        pytest.skip("refused under its own policy only")
+    body = probe.S03N_REFUSALS[cell]
+    extra = probe.S03N_REFUSAL_EXTRA.get(cell)
+    _, outcome = probe.s03_world(tmp_path / "mysql", "mysql", body, policy, extra=extra)
+    assert outcome.status == "BLOCKED" and outcome.artifact is None
+    assert _numeric_blockers(outcome) == probe.S03N_REFUSAL_BLOCKERS[cell]
+    _, postgres = probe.s03_world(
+        tmp_path / "postgres", "postgres", body, policy, extra=extra
+    )
+    if cell in probe.S03N_POSTGRES_BLOCKERS:
+        assert _numeric_blockers(postgres) == probe.S03N_POSTGRES_BLOCKERS[cell]
+    else:
+        assert postgres.status == "VERIFIED", postgres.blockers
