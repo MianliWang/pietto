@@ -1,6 +1,6 @@
 ### DuckDB Arrow route — `Int` and `Float` arithmetic in the projection
 
-A query or table over one `duckdb.arrow` source can now select `a + b`,
+A query or table over `duckdb.arrow` sources can now select `a + b`,
 `a - b` and `a * b` of two `Int` or two `Float` values, and `-a` and `+a` of
 a `Float`, where each operand is a source field (a `group by` key in a
 grouped query), a literal, a number literal with a `-` sign (`price *

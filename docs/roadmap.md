@@ -263,9 +263,12 @@ parts write NULLS clauses that place NULL as PostgreSQL does. At their
 midpoints the owner sent JOINs and the other forms of each second tier to
 the owner's plan for the later phases (PL.54), where they come before
 the Phase82 freeze, each with its own Gate 1, and Phase79's completion
-audit waits for DuckDB's (PL.57, PL.58). DuckDB B2's first tier
+audit waited for DuckDB's (PL.57, PL.58). DuckDB B2's first tier
 is published, ending at `107df991` (PL.52); its midpoint was answered after
-T06–T08 had run, since its dispatch had no stop there. SQLite B2's first tier
+T06–T08 had run, since its dispatch had no stop there. DuckDB's second
+tier is published, ending at `df8817d3`, and its
+[completion audit](phases/phase-79/t2-completion-audit.md) closes Phase79
+(D79.23). SQLite B2's first tier
 is complete: S06–S12 are published as one batch ending at `31859bc6`
 (PL.59); R1, the tier's one PostgreSQL replay (PL.47), passed on
 2026-11-17 once the host reached Docker Desktop's Engine; and its closeout

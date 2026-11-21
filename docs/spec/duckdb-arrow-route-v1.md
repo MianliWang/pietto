@@ -67,8 +67,8 @@ batch's size D79.30 corrects), and its JOINs and several inputs land as
 D79.28 states; the owner passed the texts of both as previewed and admitted
 one source read twice (D79.29).
 
-Construction state: B1 PUBLISHED, B2's first tier QUALIFIED, B2's second
-tier QUALIFIED (types, arithmetic, batch reading, several inputs and
+Construction state: B1 PUBLISHED, B2's first tier PUBLISHED, B2's second
+tier PUBLISHED (types, arithmetic, batch reading, several inputs and
 JOINs). For B1, S02
 landed the shared connector and dialect
 sets and the family firewall, S03 the independent adapter with the DuckDB
@@ -77,7 +77,9 @@ S06 the native qualification, and S08 applied the shared-page hunks below.
 B1 reached `main` on 2026-11-14 in one fast-forward push ending at
 `94b4097a` and ships in `0.2.0`; the
 [B1 audit](../phases/phase-79/completion-audit.md) records its Gate 2 and
-natural CI. B2 is not published: T02 landed grouping, the
+natural CI. B2's first tier reached `main` in one push ending at
+`107df991`, and its second tier in one push ending at `df8817d3`; both
+ship in `0.2.2`. T02 landed grouping, the
 aggregates and `having`, T03 `order by` and `limit`, T04 the predicates,
 literals and parameters, and T05 the capture limits and the session; T06
 qualified them natively (preregistration v6, every unit accepted on its first
@@ -940,7 +942,7 @@ rules 5 and 7–10 name the forms B2 opens. Tier 2 rewrites those of rules 7,
 7a, 9 and 10 to name the types and the arithmetic it opens, and adds rule
 7c's, which the owner approved as previewed (PL.47, D79.26); and it
 rewrites those of rules 5, 6 and 22 for several sources and their JOINs,
-which the owner sees before they bind (PL.47, D79.28). Rule
+which the owner approved as previewed (PL.47, D79.29). Rule
 16 counts the nodes of every form: the statement and its relation, a value
 and a label per column and the read inside each aggregate that has one or
 each operand of its arithmetic, a read per group key, one node per logical
