@@ -1257,6 +1257,44 @@ def test_other_joins_are_rule_5_at_the_join(tmp_path: Path, join: str) -> None:
     assert emitted["blockers"][0]["suggestion"] == B2_SUGGESTIONS[SHAPE_REFUSED[1]]
 
 
+@pytest.mark.parametrize("kind", ("right", "inner"))
+def test_a_refused_join_is_rule_5_beside_rules_9_and_8b(
+    tmp_path: Path, kind: str
+) -> None:
+    """D79.28 and D79.29: a refused JOIN is rule 5's alone at its clause,
+    beside rule 9 for a parameter that only its `on` reads, at the
+    statement, and rule 8b for a NUL `Text` literal there, at the literal;
+    a `right join` or an `inner join` whose `on` reads either."""
+    join = f"{kind} join customers on orders.amount == customers.id and"
+    for head, test, also, site in (
+        (
+            "query result(least: Int):",
+            "customers.id == least",
+            "duckdb_parameter_not_admitted",
+            (19, 1),
+        ),
+        (
+            "table result:",
+            'customers.name == "a\x00b"',
+            "duckdb_text_literal_nul_not_admitted",
+            (21, 81),
+        ),
+    ):
+        body = (
+            f"{head}\n    from orders\n    {join} {test}\n"
+            "    select:\n        id = orders.id\n"
+        )
+        status, emitted = _joined(tmp_path / also, body)
+        found = [
+            (*blocker, (b["location"]["line"], b["location"]["column"]))
+            for blocker, b in zip(blockers(emitted), emitted["blockers"])
+        ]
+        assert (status, found) == (
+            "BLOCKED",
+            [(*SHAPE_REFUSED, (21, 5)), ("PIE-B1003", also, site)],
+        )
+
+
 _ANY = "any(c.id == orders.amount for c in customers)"
 _INNER = "inner join buyers on buyers.id == orders.id"
 _LEFT = "left join buyers on buyers.id == orders.id"
