@@ -39,7 +39,7 @@ sdist unless the row says otherwise.
 | `psycopg-binary` | 3.3.8 | `execute-postgres`, except on PyPy | `License-Expression: LGPL-3.0-only`. It has wheels only, no sdist. |
 | `mysql-connector-python` | 26.10.0 | `execute-mysql` | `License: GNU GPLv2 (with FOSS License Exception)` and the classifier `License :: OSI Approved :: GNU General Public License (GPL)`. Its license file grants GPLv2 with additional permissions, including the Universal FOSS Exception 1.0. |
 | `adbc-driver-postgresql` and `adbc-driver-manager` | 1.13.0 | `execute-postgres-adbc` | `License-Expression: Apache-2.0` |
-| `duckdb` | 2.0.0 | `execute-duckdb` | No `License` or `License-Expression` field; the classifier `License :: OSI Approved :: MIT License`. |
+| `duckdb` | 2.0.1 | `execute-duckdb` | No `License` or `License-Expression` field; the classifier `License :: OSI Approved :: MIT License`. |
 | `pandas` | 3.1.1 | `interop-pandas` | `License-Expression: BSD-3-Clause`. Its 18 further license files cover code it vendors. |
 | `polars` | 2.1.0 | `interop-polars` | `License:` the MIT license text, with copyright lines for Ritchie Vink and, for some portions, NVIDIA CORPORATION & AFFILIATES; and the classifier `License :: OSI Approved :: MIT License`. |
 | `polars-runtime-32` | 2.1.0 | `interop-polars`, through `polars` | No `License` or `License-Expression` field; the classifier `License :: OSI Approved :: MIT License`. Its license file has the same text as that of `polars`. |

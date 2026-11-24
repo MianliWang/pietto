@@ -92,7 +92,7 @@ query high(floor: Int):
 ```json
 {
   "format": "pietto.emission-contract.v1",
-  "target": {"family": "duckdb", "release": "2.0.0"},
+  "target": {"family": "duckdb", "release": "2.0.1"},
   "sources": [{
     "selector": {"module": "main.pietto", "kind": "source", "name": "readings"},
     "relation": {"namespace": "arrow", "name": "readings"},

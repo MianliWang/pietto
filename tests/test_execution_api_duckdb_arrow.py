@@ -100,7 +100,7 @@ SESSION_TABLE = (
     ("enable_external_access", "false", "false"),
     ("lock_configuration", "true", "true"),
 )
-# The values the spec reads back unchanged at 2.0.0, in its order, then the
+# The values the spec reads back unchanged at 2.0.1, in its order, then the
 # aliases of threads and memory_limit.
 SESSION_UNCHANGED = (
     ("allowed_configs", "[]"),
@@ -114,7 +114,7 @@ SESSION_UNCHANGED = (
     ("disabled_filesystems", ""),
     ("enable_profiling", None),
     ("enable_logging", "0"),
-    ("logging_storage", "memory"),
+    ("logging_sink", "memory"),
     ("access_mode", "automatic"),
     ("default_collation", ""),
     ("worker_threads", "1"),
@@ -1662,7 +1662,7 @@ class _Relation:
 def test_a_batch_without_rows_is_skipped_and_one_beyond_batch_rows_fails(
     projection_query: execution.CompiledQuery, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Session steps 3 and 4 (D79.30), which DuckDB `2.0.0`'s reader never
+    """Session steps 3 and 4 (D79.30), which DuckDB `2.0.1`'s reader never
     reaches, so a reader that does stands in for it: a batch with no rows
     is skipped, never delivered, and a batch of more than `batch_rows` rows
     fails the statement with PIE-R3005 DUCKDB_RESULT_CHECK."""
@@ -2068,9 +2068,9 @@ def test_setup_failures_refuse_the_route_before_its_statement(
     projection_query: execution.CompiledQuery, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A driver that is absent or another release, an engine of another
-    profile, a setting that fails or reads back otherwise, a registration
-    that fails: the statement never runs, and a session that was opened is
-    closed (AD79.01; the spec's session steps 1, 2 and 5)."""
+    profile, a setting that fails, reads back otherwise or is absent, a
+    registration that fails: the statement never runs, and a session that
+    was opened is closed (AD79.01; the spec's session steps 1, 2 and 5)."""
     pa = _engine()
     query = projection_query
     calls, hooks = _recorded(monkeypatch)
@@ -2082,7 +2082,7 @@ def test_setup_failures_refuse_the_route_before_its_statement(
     cases: list[tuple[str, Any, str, str, list[tuple[str, ...]]]] = [
         (
             "DRIVER",
-            ("pietto-no-such-duckdb", "2.0.0", "duckdb"),
+            ("pietto-no-such-duckdb", "2.0.1", "duckdb"),
             "PIE-R2001",
             "EXECUTION_DEPENDENCY_MISSING",
             [],
@@ -2096,7 +2096,7 @@ def test_setup_failures_refuse_the_route_before_its_statement(
         ),
         (
             "ENGINE",
-            [("v2.0.0", "0000000000")],
+            [("v2.0.1", "0000000000")],
             "PIE-R2002",
             "DUCKDB_DRIVER_PROFILE",
             closed,
@@ -2111,6 +2111,23 @@ def test_setup_failures_refuse_the_route_before_its_statement(
         (
             "READ_BACK",
             (*route.READ_BACK, ("threads", "2")),
+            "PIE-R2006",
+            "DUCKDB_SESSION_CONTEXT",
+            closed,
+        ),
+        # A row the engine does not have is refused, never skipped: 2.0.0's
+        # name of logging_sink, and an absent row whose stated value is NULL,
+        # as enable_profiling's is, so absence is never read as NULL.
+        (
+            "READ_BACK",
+            (*route.READ_BACK, ("logging_storage", "memory")),
+            "PIE-R2006",
+            "DUCKDB_SESSION_CONTEXT",
+            closed,
+        ),
+        (
+            "READ_BACK",
+            (*route.READ_BACK, ("pietto_no_such_setting", None)),
             "PIE-R2006",
             "DUCKDB_SESSION_CONTEXT",
             closed,

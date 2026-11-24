@@ -41,7 +41,7 @@ from pietto._project.project_sql_emission_scopes import reference_source_ports
 __all__: tuple[str, ...] = ()
 
 FAMILY = "duckdb"
-RELEASE = "2.0.0"
+RELEASE = "2.0.1"
 SCAN = "arrow_registration"
 # Each storage kind and its members (docs/spec/duckdb-arrow-route-v1.md).
 STORAGES = {

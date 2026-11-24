@@ -1,5 +1,5 @@
 """The producer and runner of the Phase79 DuckDB native qualification
-(preregistration v7, sections 6 to 8).
+(preregistration v8, sections 6 to 8).
 
 `unit` runs one installation unit in the preregistered order: the run-start
 check, the run's frozen.sha256, the checker's self-test, the oracle's
@@ -109,8 +109,8 @@ def _start(frozen: Path, evidence: Path, erratum: str | None) -> list[str]:
     start = evidence / "start"
     start.mkdir()
     sources = {
-        "frozen-preregistration-v7.md": frozen / "preregistration-v7.md",
-        "working-preregistration-v7.md": frozen.parent / "preregistration-v7.md",
+        "frozen-preregistration-v8.md": frozen / "preregistration-v8.md",
+        "working-preregistration-v8.md": frozen.parent / "preregistration-v8.md",
         "freeze-record.md": frozen / "freeze-record.md",
         "FROZEN.sha256": frozen / "FROZEN.sha256",
     }
@@ -126,25 +126,25 @@ def _start(frozen: Path, evidence: Path, erratum: str | None) -> list[str]:
     )
     entry = _first_entry(start / "freeze-record.md")
     voids = [
-        f"{name} is not the v7 of the freeze record's first entry"
-        for name in ("frozen-preregistration-v7.md", "working-preregistration-v7.md")
-        if digests[name] != entry.get("preregistration-v7.md")
+        f"{name} is not the v8 of the freeze record's first entry"
+        for name in ("frozen-preregistration-v8.md", "working-preregistration-v8.md")
+        if digests[name] != entry.get("preregistration-v8.md")
     ]
     if digests["FROZEN.sha256"] != entry.get("FROZEN.sha256"):
         voids.append("FROZEN.sha256 is not the one of the freeze record's first entry")
     if voids:
         return voids
     try:
-        child = _child(start / "frozen-preregistration-v7.md")
+        child = _child(start / "frozen-preregistration-v8.md")
     except StopIteration:
-        return ["no C02a child in the frozen v7"]
+        return ["no C02a child in the frozen v8"]
     (evidence / "c02a-child.py").write_bytes(child)
     files = {NAMES[role]: TESTS / NAMES[role] for role in NAMES}
     files.update(
         {
             "expected.json": frozen / "expected.json",
             "c02a-child.py": evidence / "c02a-child.py",
-            "preregistration-v7.md": start / "frozen-preregistration-v7.md",
+            "preregistration-v8.md": start / "frozen-preregistration-v8.md",
         }
     )
     sums = {name: _sha(path) for name, path in files.items()}
@@ -1023,7 +1023,7 @@ def c03(ctx: Context, sub: str) -> dict:
         return owners(distribution, module)
 
     patch = {
-        "a": {"DRIVER": ("pietto-no-such-duckdb", "2.0.0", "duckdb")},
+        "a": {"DRIVER": ("pietto-no-such-duckdb", "2.0.1", "duckdb")},
         "b": {"DRIVER": ("duckdb", "1.0.0", "duckdb")},
         "c": {},
         "d": {"owner_versions": unowned},
@@ -1044,7 +1044,7 @@ def c03(ctx: Context, sub: str) -> dict:
 def c04(ctx: Context, sub: str) -> dict:
     with (
         _Recorder(ctx.route) as recorder,
-        _patched(ctx.route, ENGINE=[("v2.0.0", "0000000000")]),
+        _patched(ctx.route, ENGINE=[("v2.0.1", "0000000000")]),
     ):
         facts = _attempt(
             ctx,

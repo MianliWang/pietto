@@ -1271,14 +1271,14 @@ def _shapes() -> list[tuple[str, str, Any, Any]]:
             "another engine profile",
             "U3",
             lambda r: _id(
-                r, "duckdb", "pragma_version", value=["v2.0.0", "0000000000"]
+                r, "duckdb", "pragma_version", value=["v2.0.1", "0000000000"]
             ),
             2,
         ),
         (
             "duckdb in U0",
             "U0",
-            lambda r: _id(r, "duckdb", value={"version": "2.0.0"}),
+            lambda r: _id(r, "duckdb", value={"version": "2.0.1"}),
             2,
         ),
         (

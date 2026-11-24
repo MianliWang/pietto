@@ -12,7 +12,8 @@ other pages claim for each platform.
 It describes `0.2.2`, whose
 [release notes](release-notes.md#sqlite-project-mode-duckdb-joins-and-mysql-catch-up-public-alpha-release-notes--022)
 give each change, and the range-proved `Int` arithmetic, windows and JOINs
-of SQLite projects ([SQLite single files](#sqlite-single-files)) that no
+of SQLite projects ([SQLite single files](#sqlite-single-files)) and the
+`duckdb==2.0.1` pin of the [DuckDB local path](#duckdb-local-path) that no
 release carries yet. Each row was recorded by running one
 plain example of the family through these commands, with a project emission
 contract that declares every premise
@@ -264,15 +265,18 @@ the legend above.
   route ([execution](execution.md#duckdb-arrow-route)).
 - **Support.** The emission is tested wherever CI runs, Windows included;
   the request checks run only on Linux, where CI runs the execution tests.
-  The route needs the `execute-duckdb` extra (`duckdb==2.0.0`,
-  `pyarrow==26.0.1`); its native evidence is Phase79's in-process matrix,
+  The route needs the `execute-duckdb` extra (`duckdb==2.0.1`,
+  `pyarrow==26.0.1`; the published `0.2.2` selects `duckdb==2.0.0`); its
+  native evidence is Phase79's in-process matrix,
   S06's for B1, every unit accepted on 2026-11-14 (D79.07), T06's for
   B2's first tier, every unit accepted on 2026-11-16 (PL.47), and U06's
   for its second tier, the types, the arithmetic, the batch reading and
-  the several inputs and JOINs, every unit accepted on 2026-11-18, on
-  CPython 3.13.13 and 3.12.13, Linux x86-64, and the `arrow-ready` cell of
-  natural CI, which runs one B1, three B2 and three second-tier queries.
-  Other DuckDB releases and platforms are not qualified.
+  the several inputs and JOINs, every unit accepted on 2026-11-18, all
+  on `duckdb` `2.0.0`, then preregistration v8's on `2.0.1` (every unit
+  accepted on its first attempt on 2026-11-27), on CPython 3.13.13 and 3.12.13,
+  Linux x86-64, and the `arrow-ready` cell of natural CI, which runs one B1,
+  three B2 and three second-tier queries. Other DuckDB releases and platforms
+  are not qualified.
 
 ## Platforms and qualification
 
@@ -306,7 +310,7 @@ one with its limits. Phase81 decides the Windows scope and the CPython matrix
 | PostgreSQL and MySQL execution: `postgres_rows`, `postgres_adbc` and `mysql_rows`, with the workspace and saved-result calls (alpha) | qualified: CPython 3.13.13 with the lock's exact artifacts on the qualified integration host, PostgreSQL 18.6 and MySQL 8.4.12; the workspace and saved-result calls also need the job store's exact SQLite build and ext4 mounted read-write | not claimed: native execution is `NOTRUN`, and the workspace and saved-result calls raise `ModuleNotFoundError` for `fcntl` | not claimed: the workspace and saved-result calls are Linux-only | [Support matrix](execution.md#support-matrix), [Known limitations](execution.md#known-limitations), row 3 of [Validation runner acceptance](spec/validation-runner-acceptance-v1.md) |
 | `sqlite_file` route with the `arrow` extra (alpha) | runs only on release `3.53.1` with the measured source id and compile options, on x86-64; qualified in process under CPython 3.13.13 and 3.12.13 | not claimed: refused | not claimed: refused | [SQLite file route](execution.md#sqlite-file-route), [SQLite target validation](development.md#sqlite-target-validation) |
 | DuckDB emission (`--dialect duckdb`) | CI-tested | CI-tested | not claimed | [DuckDB local path](#duckdb-local-path) |
-| `duckdb_arrow` route with the `execute-duckdb` extra (alpha) | qualified: CPython 3.13.13 and 3.12.13 with `duckdb==2.0.0` and `pyarrow==26.0.1`, glibc 2.28 or later; CI runs the request checks and seven real queries | not claimed: not qualified | not claimed: not qualified | [Support matrix](execution.md#support-matrix), [DuckDB native qualification](development.md#duckdb-native-qualification) |
+| `duckdb_arrow` route with the `execute-duckdb` extra (alpha) | qualified: CPython 3.13.13 and 3.12.13 with `duckdb==2.0.1` (the published `0.2.2`: `2.0.0`) and `pyarrow==26.0.1`, glibc 2.28 or later; CI runs the request checks and seven real queries | not claimed: not qualified | not claimed: not qualified | [Support matrix](execution.md#support-matrix), [DuckDB native qualification](development.md#duckdb-native-qualification) |
 | `pietto.interop` with an `interop-*` extra beside `arrow` (alpha) | qualified: only the pins of its table with `pyarrow==26.0.1`, CPython 3.12 and 3.13, glibc 2.28 or later | not claimed: not qualified; CI runs only the interop tests that need no PyArrow | not claimed: not qualified | [Installing](interop.md#installing), the [CI workflow](../.github/workflows/ci.yml) |
 
 - No page claims CPython 3.14, another Python implementation or another

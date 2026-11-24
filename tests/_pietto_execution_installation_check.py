@@ -71,7 +71,7 @@ REQUIRES = frozenset(
         ("adbc-driver-postgresql", (), "==1.13.0", "execute-postgres-adbc"),
         ("adbc-driver-manager", (), "==1.13.0", "execute-postgres-adbc"),
         ("pyarrow", (), "==26.0.1", "execute-duckdb"),
-        ("duckdb", (), "==2.0.0", "execute-duckdb"),
+        ("duckdb", (), "==2.0.1", "execute-duckdb"),
         ("pandas", (), "==3.1.1", "interop-pandas"),
         ("polars", (), "==2.1.0", "interop-polars"),
         ("numpy", (), "==2.5.4", "interop-numpy"),

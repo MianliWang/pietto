@@ -789,7 +789,7 @@ def test_duckdb_emission_prints_writes_and_batches_its_own_document(
     code, text, err = run(argv(root, "duckdb", format="text", output=str(target)))
     assert (code, err, target.read_bytes()) == (0, "", out)
     assert text.decode().startswith(
-        "pietto.sql-emission.v1 VERIFIED\ntarget: duckdb 2.0.0\n"
+        "pietto.sql-emission.v1 VERIFIED\ntarget: duckdb 2.0.1\n"
     )
     assert f"\nsql:\n{duckdb.PROJECTION_SQL}\nend sql\n" in text.decode()
     code, data, err = run(batch_argv(root, "duckdb"))
@@ -804,7 +804,7 @@ def test_duckdb_emission_prints_writes_and_batches_its_own_document(
     assert err == (
         "pietto.sql-emission.v1 BLOCKED\n"
         "blocker PIE-B1003 UNSUPPORTED_RULE: target_release_not_reviewed\n"
-        '  hint: the reviewed duckdb release is "2.0.0"\n'
+        '  hint: the reviewed duckdb release is "2.0.1"\n'
     )
 
 

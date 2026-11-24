@@ -4,7 +4,7 @@
 
 This is an **alpha** contract until the Phase82 freeze. It is Phase79's first
 vertical, B1: a read-only executor of one projection over one Arrow table that
-the caller supplies, compiled for DuckDB `2.0.0` and run in process. It admits
+the caller supplies, compiled for DuckDB `2.0.1` and run in process. It admits
 an explicit-module project only, one `duckdb.arrow` source, a direct
 projection of `Int`, `Text`, `Bool` and finite `Float` fields and at most one
 comparison of an `Int` field with one non-null `Int` query parameter
@@ -23,9 +23,10 @@ input tables ([admission](#admission)); and it reads every result in
 batches. It refuses an input table of more than 1,048,576 rows, or inputs
 whose selected columns measure more than 256 MiB together
 ([capture](#capture)). B1 and both tiers of B2 are qualified only for
-`duckdb` `2.0.0` with `pyarrow` `26.0.1` on CPython 3.12 and 3.13, Linux
+`duckdb` `2.0.1` with `pyarrow` `26.0.1` on CPython 3.12 and 3.13, Linux
 x86-64 with glibc 2.28 or later; every other release and platform is not
-qualified. Its
+qualified. The published `0.2.2` pins `duckdb` `2.0.0`, on which they were
+qualified first (D79.32). Its
 names, fields, detail words and limits may
 change in any later release, each with a release-note line and no deprecation
 period.
@@ -93,7 +94,10 @@ accepted on its first attempt on 2026-11-18), U07 added three of their
 queries to the `arrow-ready` cell of natural CI, and U08 applied their
 remaining shared-page hunks below. The
 [Phase79 completion audit](../phases/phase-79/t2-completion-audit.md)
-records them.
+records them. The DuckDB `2.0.1` upgrade (D79.32) moved the pin, the
+engine profile, the contract target and one read-back name, and
+preregistration v8 ran the native matrix again on `2.0.1` (every unit accepted
+on its first attempt on 2026-11-27).
 
 ## Admission
 
@@ -150,8 +154,8 @@ infinity, a wrapped integer or a zero where binary64 underflowed.
   were observed to fail on overflow; the range proof does not rely on it.
 - A `Float` `+`, `-` or `*` fails with `PIE-R3003` and the detail
   `DUCKDB_FLOAT_OVERFLOW` where its result is outside binary64 (DuckDB
-  `2.0.0` returns an infinity, as observed), and a `*` fails with the
-  detail `DUCKDB_FLOAT_UNDERFLOW` where two non-zero operands give 0, which
+  `2.0.0` and `2.0.1` return an infinity, as observed), and a `*` fails with
+  the detail `DUCKDB_FLOAT_UNDERFLOW` where two non-zero operands give 0, which
   DuckDB returns where PostgreSQL fails with SQLSTATE 22003. Either
   failure's text is that of any `PIE-R3003` with its detail. Its hint,
   which this page and the [diagnostics](diagnostics.md) page give and the
@@ -167,7 +171,7 @@ infinity, a wrapped integer or a zero where binary64 underflowed.
   `where` removes, or that lies beyond the `limit`, depends on DuckDB's plan,
   as for `sum` (failing beyond a `limit` was observed).
 
-`sum` and `avg` of a `Float` stay refused: DuckDB `2.0.0` returns an infinity
+`sum` and `avg` of a `Float` stay refused: DuckDB `2.0.1` returns an infinity
 when a `DOUBLE` sum overflows, where Pietto has no infinite value. T00 also
 observed a checked spelling, `CASE WHEN isinf(sum(x)) THEN error(...) ELSE
 sum(x) END`, which failed exactly on overflow, like PostgreSQL's checked
@@ -227,11 +231,11 @@ values. Everything else keeps the rules of
 
 | Member | DuckDB value |
 | --- | --- |
-| `target` | `{"family": "duckdb", "release": "2.0.0"}` (D79.05). The family must equal `--dialect`, or the command fails with `emission_contract_schema`; another release is BLOCKED with `PIE-B1003` `target_release_not_reviewed`. |
+| `target` | `{"family": "duckdb", "release": "2.0.1"}` (D79.05, D79.32). The family must equal `--dialect`, or the command fails with `emission_contract_schema`; another release, `2.0.0` included, is BLOCKED with `PIE-B1003` `target_release_not_reviewed`. |
 | `sources[].relation` | *Derived:* `{"namespace": "arrow", "name": KEY}`. Another namespace is BLOCKED with `PIE-B1001` `source_identifier_unrepresentable`; a name other than the connector's key with `PIE-B1001` `duckdb_arrow_key_mismatch`. |
 | `sources[].scan` | `"arrow_registration"` (D79.05). It is the only DuckDB value, and it is refused on the other families: either mismatch fails with `emission_contract_schema` at `sources/N/scan`. |
 | `sources[].fields[].column` | The name of the field of the caller's Arrow table that the source field reads, matched exactly at execution. Every shape field is described once, in shape order, as on the other targets (`complete_ordered_source_schema_required`). |
-| `MAX_PARAMETERS` | *Derived:* 65,535, the D70.07 placeholder ceiling, in place of the DuckDB-specific value that D79.05 expected. DuckDB `2.0.0` showed no ceiling of its own at or below 262,144: it prepared and bound 262,144 positional parameters in one statement. |
+| `MAX_PARAMETERS` | *Derived:* 65,535, the D70.07 placeholder ceiling, in place of the DuckDB-specific value that D79.05 expected. DuckDB `2.0.0` and `2.0.1` showed no ceiling of their own at or below 262,144: each prepared and bound 262,144 positional parameters in one statement. |
 
 Each source field's `representation` (*derived*):
 
@@ -250,7 +254,7 @@ Each source field's `representation` (*derived*):
 `nullability_mismatch`, and a storage or domain that does not fit its logical
 type with `PIE-B1002` `physical_storage_or_domain_mismatch`, the details the
 other targets use. A `Text` group or order key is compared by its bytes,
-which is what `C` names: DuckDB `2.0.0` uses byte order by default
+which is what `C` names: DuckDB `2.0.1` uses byte order by default
 (`'B' < 'a'`, `'é' > 'z'`) and also accepts it as `COLLATE c`.
 
 Premises (*derived*):
@@ -295,7 +299,8 @@ verifier, and consumes `ProjectSQLPlan`).
   and JOIN order); two sources with one key, and two reads of one source,
   are two registered names over one capture. DuckDB resolves names case-insensitively and lets a
   registered name shadow a system view such as `pg_tables` (observed on
-  `2.0.0`), so the SQL never contains the caller's key or column names.
+  `2.0.0` and `2.0.1`), so the SQL never contains the caller's key or column
+  names.
 - Source fields are numbered from 0 across the source reads, in FROM and
   JOIN order and in shape order within each, and field `k` is the capture
   column `"c<k>"` of its read's registered name, so no two reads share a
@@ -329,7 +334,7 @@ verifier, and consumes `ProjectSQLPlan`).
   name, `"pietto_arrow_<i>"."c<k>"`, and
   never name a select label, an unqualified column or a position; `HAVING`
   and `ORDER BY` restate the expression of each selected output they read.
-  On `2.0.0` a bare name in `HAVING` or `ORDER BY` finds a select label
+  On `2.0.1` a bare name in `HAVING` or `ORDER BY` finds a select label
   before a column, and quoted names compare without case, so a label such as
   `c0` or `C0` would otherwise stand for a capture column; a qualified name
   or an expression always finds the column. Duplicate labels need no rule of
@@ -341,7 +346,7 @@ verifier, and consumes `ProjectSQLPlan`).
   fails the statement when the sum leaves signed 64 bits, so no `HUGEINT`
   reaches a result. This checked cast is the target evidence of `sum`.
 - **Text order.** No `COLLATE` clause is written. `Text` compares, groups
-  and orders by its UTF-8 bytes, which is code point order, under `2.0.0`'s
+  and orders by its UTF-8 bytes, which is code point order, under `2.0.1`'s
   default collation, the empty string, which the lock keeps and the session
   reads back ([session](#session-and-attempt)). This is the
   contract's collation `C` (*derived*).
@@ -468,7 +473,7 @@ is a `datetime.date`, not a `datetime`, from year 1000; a `Timestamp` a
 `datetime` without `tzinfo` in the civil interval; a `Decimal(p, s)` a finite
 `decimal.Decimal` that `p` and `s` hold without rounding. A `Decimal` value
 reaches DuckDB as its canonical text, without exponent or trailing zeros,
-which `CAST($n AS DECIMAL(p,s))` reads exactly; DuckDB `2.0.0` types a
+which `CAST($n AS DECIMAL(p,s))` reads exactly; DuckDB `2.0.1` types a
 bound `decimal.Decimal` of more than 38 digits, trailing zeros included, as
 a `DOUBLE` (*derived*).
 
@@ -615,8 +620,8 @@ most 65,536 rows and 16 MiB of the whole table's `Table.nbytes`, both
 checked before the schema.
 
 `-0.0` is admitted under the `Float` value contract, where `-0.0 == 0.0`; on
-`2.0.0` DuckDB delivered its sign bit unchanged (*derived*, inform). Each
-`execute()` captures afresh, and the caller keeps the table.
+`2.0.0` and `2.0.1` DuckDB delivered its sign bit unchanged (*derived*,
+inform). Each `execute()` captures afresh, and the caller keeps the table.
 
 ## Session and attempt
 
@@ -624,12 +629,12 @@ The session opens when the handle is first entered. Each attempt has its own
 `:memory:` DuckDB database and connection; nothing is pooled, cached or
 reused. Every failure from here on is an `AttemptFailed` (AD79.01).
 
-1. **Driver identity.** The installed `duckdb` distribution is `2.0.0` and
+1. **Driver identity.** The installed `duckdb` distribution is `2.0.1` and
    owns the files of the imported `duckdb` and `_duckdb` modules, by the rule
    of the other routes' drivers; otherwise `PIE-R2001`
    `EXECUTION_DEPENDENCY_MISSING` or `PIE-R2002` `EXECUTION_DRIVER_VERSION`.
-   The engine's `pragma_version()` row reports version `v2.0.0` and source
-   id `d54cbbe3df`; otherwise `PIE-R2002` `DUCKDB_DRIVER_PROFILE`
+   The engine's `pragma_version()` row reports version `v2.0.1` and source
+   id `8d78114e90`; otherwise `PIE-R2002` `DUCKDB_DRIVER_PROFILE`
    (accepted by the owner).
 2. **Settings.** The route sets each value below with `SET`, in table order,
    on a fresh connection, then reads every row of both read-back lists from
@@ -649,12 +654,12 @@ reused. Every failure from here on is an `AttemptFailed` (AD79.01).
    its hash table then; the JOIN's probe, the final projection and the
    output after the reader's first chunk are computed as the batches are
    read, so an error, a cancellation or the deadline can also arrive during
-   a read (*derived*, observed on `2.0.0`). Every
+   a read (*derived*, observed on `2.0.0` and `2.0.1`). Every
    call goes to the connection that step 2 set up, never to a `cursor()`,
    which is a connection of its own (see [pin facts](#pin-facts)). It never
    uses `to_arrow_table()`, which reads the whole result before any limit
    applies, `execute(...).to_arrow_table()`, which warns about an extra copy
-   on `2.0.0`, or the deprecated `fetch_arrow_table()`.
+   on `2.0.1`, or the deprecated `fetch_arrow_table()`.
 4. **Result.** Each step of the iteration reads the reader's next batch,
    checks it and delivers it; a batch with no rows is skipped. A batch has
    the compiled result's labels and order, types `int64`, `string`, `bool`,
@@ -672,7 +677,8 @@ reused. Every failure from here on is an `AttemptFailed` (AD79.01).
    can measure one more byte for every eight rows of each such column than
    the same rows cut from the whole result before the second tier, and
    `outcome.bytes` grows by as much; a `max_bytes` or `batch_bytes`
-   boundary is reached that much earlier (*derived*, observed on `2.0.0`).
+   boundary is reached that much earlier (*derived*, observed on `2.0.0`
+   and `2.0.1`).
 5. **End.** Whatever ends the attempt (success, early close, cancellation,
    deadline, result failure or setup failure), the route closes the reader
    if one is open, since an open reader can still read after its connection
@@ -712,7 +718,7 @@ is this page's choice within D79.06's "explicit", and that of `memory_limit`
 is PL.47's.
 
 `enable_external_access = false` must come after `temp_directory`: on
-`2.0.0`, `SET temp_directory` after it fails with `Modifying the
+`2.0.0` and `2.0.1`, `SET temp_directory` after it fails with `Modifying the
 temp_directory has been disabled by configuration`. A connect-time
 configuration of only these two values succeeded and read both back, but one
 of all 17 values that `connect(config=...)` accepts one by one failed with
@@ -722,26 +728,27 @@ that same message, with `lock_configuration` in it and without; and
 So the route uses `SET` only, in table order: that order succeeded on the pin
 and read every row of both lists back as stated.
 
-These are read back too and must equal their `2.0.0` values, which no
+These are read back too and must equal their `2.0.1` values, which no
 setting above may change: `allowed_configs`, `allowed_directories`,
 `allowed_paths` and `extension_directories` `[]`; `custom_extension_repository`,
 `autoinstall_extension_repository`, `log_query_path`, `profiling_output` and
 `disabled_filesystems` the empty string; `enable_profiling` NULL;
-`enable_logging` `0`; `logging_storage` `memory`; `access_mode` `automatic`;
-`default_collation` the empty string, which the route does not set and under
-which `Text` compares in code point order (see [SQL](#sql); PL.47 adds this
-read-back to D79.06). `worker_threads` and `max_memory` are the aliases of
-`threads` and `memory_limit`, which the table changes from the host's values,
-and are read back as those values above: `1` and `1.0 GiB`.
+`enable_logging` `0`; `logging_sink` `memory`, the setting that `2.0.0`
+named `logging_storage` with the same value (D79.32); `access_mode`
+`automatic`; `default_collation` the empty string, which the route does not set
+and under which `Text` compares in code point order (see [SQL](#sql); PL.47
+adds this read-back to D79.06). `worker_threads` and `max_memory` are the
+aliases of `threads` and `memory_limit`, which the table changes from the
+host's values, and are read back as those values above: `1` and `1.0 GiB`.
 
-A `:memory:` database cannot be opened read-only on `2.0.0` (`Cannot launch
+A `:memory:` database cannot be opened read-only on `2.0.1` (`Cannot launch
 in-memory database in read-only mode!`). The session is read-only because the
 route runs only the compiled `SELECT`.
 
 `threads = 1` gives each attempt one engine thread (*derived*), and
 `memory_limit` is fixed at 1 GiB (PL.47), in place of B1's rule of 16 times
 the capture limit; both are fixed private policy. A statement that needs
-more memory fails with `PIE-R3003` (`OutOfMemoryException` on `2.0.0`), and
+more memory fails with `PIE-R3003` (`OutOfMemoryException` on `2.0.1`), and
 nothing spills. The reader holds one batch at a time outside
 `memory_limit`, so besides the caller's tables and the batches that the
 caller keeps, one `execute()` holds at its peak the copies of at most 256 MiB
@@ -780,7 +787,7 @@ a result at its first batch beyond the limit instead.
 
 DuckDB errors become the existing `AttemptFailed` and `Failure` (AD79.01):
 `phase` names the step, `cause` is the class name of the exception that the
-route receives, and `sqlstate` is `None`; no vendor code is kept. On `2.0.0`
+route receives, and `sqlstate` is `None`; no vendor code is kept. On `2.0.1`
 an error raised while a batch is read reaches the route as `OSError`,
 whatever DuckDB's own class, even when no batch has been delivered yet, and
 one raised while the reader is created keeps its class, such as
@@ -788,15 +795,15 @@ one raised while the reader is created keeps its class, such as
 Which of the two an error is depends on DuckDB's plan: a `sum` outside
 signed 64 bits in a grouped query was `ConversionException` when its group
 lay in the grouping's first output chunk and `OSError` when it lay in a
-later one (*derived*, observed on `2.0.0`). No DuckDB message enters any
-Pietto text.
+later one (*derived*, observed on `2.0.0` and `2.0.1`). No DuckDB message
+enters any Pietto text.
 The lead stated AD79.01 to the owner as inform on 2026-11-11.
 
 | Event | Failure |
 | --- | --- |
 | A DuckDB error while the statement runs or its result is read, an integer overflow and `OutOfMemoryException` included | `PIE-R3003` |
 | A checked `Float` operation's error ([arithmetic](#arithmetic)) | `PIE-R3003` with the detail `DUCKDB_FLOAT_OVERFLOW` or `DUCKDB_FLOAT_UNDERFLOW` |
-| The caller cancels the attempt; the route interrupts the connection (`InterruptException` on `2.0.0` while the reader is created, `OSError` while a batch is read) | `PIE-R3009` |
+| The caller cancels the attempt; the route interrupts the connection (`InterruptException` on `2.0.1` while the reader is created, `OSError` while a batch is read) | `PIE-R3009` |
 | `limits.seconds` expires; the route interrupts the connection | `PIE-R3001` |
 | A DuckDB error while the session is set up or the capture registered | `PIE-R2006` `DUCKDB_SESSION_CONTEXT` (accepted by the owner) |
 | Returned types, labels, nullability or values do not match the compiled result | `PIE-R3005` `DUCKDB_RESULT_CHECK` |
@@ -898,7 +905,7 @@ that premise detail with the DuckDB value of the premise table in it.
 | # | Code | Detail | Fails when | Site | Suggestion |
 | ---: | --- | --- | --- | --- | --- |
 | 1 | `PIE-B1005` | `inconsistent_declared_scope` | Two declarations of one premise key in one scope have different values | The later declaration | Existing |
-| 2 | `PIE-B1003` | `target_release_not_reviewed` | `target.release` is not `"2.0.0"` | None, as today | `the reviewed duckdb release is "2.0.0"` |
+| 2 | `PIE-B1003` | `target_release_not_reviewed` | `target.release` is not `"2.0.1"` | None, as today | `the reviewed duckdb release is "2.0.1"` |
 | 3 | `PIE-B1003` | `literal_policy_not_admitted_on_target` | The literal policy is not `preserve` | The statement | `DuckDB emission takes --literal-policy preserve only` |
 | 4 | `PIE-B1003` | `premise_not_admitted_on_target` | An `identifier_case`, `session_sql_mode` or `session_time_zone` premise is declared | The declaration | `remove this premise; the DuckDB route does not use it` |
 | 5 | `PIE-B1003` | `duckdb_relation_shape_not_admitted` | The plan is unavailable, or the statement has a stage beyond those of the relational shape above, a JOIN that the JOINs row does not admit included | The first such stage, an admitted JOIN excepted: a `where` of `any(...)` before or between the JOINs at its test, any other `any(...)` at the `any(...)` itself | `DuckDB emission admits duckdb.arrow source reads joined by inner or left joins on equalities of fields of one type, such as inner join customers on orders.customer_id == customers.id, then where, group by, having, select, order by and limit; right, full and cross joins, other on conditions, Decimal join keys, windows, qualify, distinct, set operations, relation lets and derived sources are not available on DuckDB` |
@@ -963,10 +970,11 @@ a VERIFIED document, and a forged one is refused (`PIE-B1008` at emission,
 
 ## Pin facts
 
-The DuckDB facts this page relies on were observed offline on CPython 3.13.13
-in the authorized probe environment, against `duckdb` `2.0.0` and `pyarrow`
-`26.0.1`, on 2026-11-10. The raw outputs are owner-held working records
-outside Git. CPython 3.12 comes from the packaging lane and natural CI.
+The DuckDB facts this page relies on were first observed offline on CPython
+3.13.13 in the authorized probe environment, against `duckdb` `2.0.0` and
+`pyarrow` `26.0.1`, on 2026-11-10, and observed again on `2.0.1`
+([below](#duckdb-201-pin-facts-d7932)). The raw outputs are owner-held working
+records outside Git. CPython 3.12 comes from the packaging lane and natural CI.
 
 - **Identity.** The cached `duckdb-2.0.0-cp312-abi3-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl`
   with sha256 `ab51ec57d329d6f3df37c0287b55d71c3fc07bb54b61d1afed09104f953b1431`
@@ -1070,6 +1078,64 @@ outside Git. CPython 3.12 comes from the packaging lane and natural CI.
   2^63-1 over a table with a NULL key; an input-row permutation gave the same
   bag, the relation API emitted no warning, and a 4,096-column projection
   ran.
+
+### DuckDB 2.0.1 pin facts (D79.32)
+
+D79.02's install probe for `2.0.1` ran offline on 2026-11-25 on CPython
+3.13.13 and 3.12.13, against `duckdb` `2.0.1` and `pyarrow` `26.0.1` from the
+lock, each probe in its own process with empty `HOME`, `TMPDIR` and working
+directories, the extension and file cells in a network namespace with no
+interface but `lo`; the same probe ran on `2.0.0` beside it. It is not
+qualification evidence; preregistration v8's run is (every unit accepted on its
+first attempt on 2026-11-27). Its raw outputs are owner-held working records
+outside Git.
+
+- **Identity.** The installed `duckdb` `2.0.1` (`cp312-abi3`,
+  manylinux_2_27/2_28 x86-64, sha256
+  `39ffeb136abed770a496e5592a464f18a07b1543e7ddb1ff6453215e179f1647` in the
+  lock and the `arrow-ready` allowlist) has 68 hashed `RECORD` entries, all
+  matching the installed files, and owns the loaded `duckdb` and `_duckdb`
+  module files. `import duckdb` loads no PyArrow, NumPy or pandas. The engine
+  reports `v2.0.1`, source id `8d78114e90` and platform `linux_amd64`, with
+  the same four extensions statically linked. The metadata still has no
+  `License` field, and its MIT classifier is unchanged.
+- **Settings.** `duckdb_settings()` has 167 rows, where `2.0.0` had 170.
+  `2.0.1` drops `delim_join_as_cte`, `error_on_division_by_zero`,
+  `experimental_metadata_reuse`, `force_column_metadata_reuse`,
+  `legacy_disable_null_type`, `logging_storage`,
+  `regex_match_operator_semantics` and `table_function_identifier_conversion`,
+  none of which the route sets; it adds `logging_sink`, with the value
+  `memory` that `logging_storage` had, `http_retry_quota_throttled`,
+  `http_retry_throttled_wait_ms`, `parquet_can_have_nan` and
+  `parquet_use_page_index`; and the default of `allow_extension_repositories`
+  becomes `hosts`, where it was `undecided`, which the route sets to
+  `forbidden` and reads back. The route therefore reads back `logging_sink`
+  where it read `logging_storage`; with the old name every attempt failed
+  with `PIE-R2006` `DUCKDB_SESSION_CONTEXT`, since a read-back row that the
+  engine lacks is refused.
+- **Lock.** Set in the table's order, every value succeeded and all 36 rows
+  of both read-back lists read back as stated. The 200 statements after the
+  lock all failed as on `2.0.0`, 160 naming the locked setting and 40 with
+  `SET LOCAL is not implemented.` or `RESET LOCAL is not implemented.`, and
+  all 167 rows read back unchanged. A `cursor()` again reads
+  `python_enable_replacements` and `enable_progress_bar_print` as `true`.
+- **No extension, file or network effect.** Every `INSTALL`, `LOAD`,
+  absent-extension function, file, glob, `COPY`, `ATTACH`, `EXPORT` and
+  `https://` cell failed with the `2.0.0` message, the directory now
+  `…/.duckdb/extensions/v2.0.1/linux_amd64`, and the three directories stayed
+  empty. `duckdb_functions()` has 1,166 names, the same before and after:
+  `2.0.1` adds `add_grammar_extension`, `remove_grammar_extension`,
+  `duckdb_live_query_metrics`, `parquet_page_index` and
+  `map_type_id_to_pg_oid`, and turns the macro `fmod` into a function. Under
+  the route's settings `add_grammar_extension` and `remove_grammar_extension`
+  fail because the configuration is locked, and `parquet_page_index` of a path
+  fails as any file access does.
+- **No caller-frame scan, no spill, `MAX_PARAMETERS`, values.** A caller's
+  local table is not found; a sort beyond a 48 MiB limit fails with
+  `OutOfMemoryException` and writes no file, while under the defaults it
+  spills into `.tmp`; 262,144 positional parameters prepare and bind;
+  `Table.nbytes` gives the same measures; and every statement that this page
+  marks as observed on `2.0.0` and `2.0.1` gave the same result on both.
 
 ### B2 pin facts (T00)
 

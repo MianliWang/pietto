@@ -331,7 +331,7 @@ def source_entry(
 def contract(*sources: dict[str, Any]) -> dict[str, Any]:
     return {
         "format": "pietto.emission-contract.v1",
-        "target": {"family": "duckdb", "release": "2.0.0"},
+        "target": {"family": "duckdb", "release": "2.0.1"},
         "sources": list(sources) or [source_entry()],
         "environment": [
             statement("client_encoding", "UTF8"),

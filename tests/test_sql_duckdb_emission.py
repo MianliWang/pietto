@@ -115,7 +115,7 @@ def test_a_filtered_query_is_one_select_over_the_registered_capture(
         f' WHERE "c1" {OPERATORS[operator]} CAST($1 AS BIGINT)'
     )
     assert document["target"]["family"] == "duckdb"
-    assert document["target"]["release"] == "2.0.0"
+    assert document["target"]["release"] == "2.0.1"
     assert document["fixed_values"] == [] and document["binding_obligations"] == []
     (use,) = document["parameter_uses"]
     assert document["sql"][use["range"]["start"] : use["range"]["end"]] == "$1"
@@ -971,7 +971,7 @@ FIELD0 = "sources/0/fields/0/representation"
 CONTRACTS = {
     "release": (
         "target/release",
-        "1.4.0",
+        "2.0.0",
         [("PIE-B1003", "target_release_not_reviewed")],
     ),
     "identifier_case": (
@@ -1572,7 +1572,7 @@ def test_an_unfulfilled_single_match_obligation_is_rule_18(tmp_path: Path) -> No
 
 def test_suggestions_are_the_routes_or_the_existing_texts() -> None:
     assert adapter.suggestion("PIE-B1003", "target_release_not_reviewed") == (
-        'the reviewed duckdb release is "2.0.0"'
+        'the reviewed duckdb release is "2.0.1"'
     )
     assert adapter.suggestion(
         "PIE-B1004", "parameter_protocol_declaration_missing"
@@ -1805,7 +1805,7 @@ def test_compile_query_is_built_from_the_verified_document(verified: Any) -> Non
     )
     assert (query.dialect, query.release, query.literal_policy, query.origin) == (
         "duckdb",
-        "2.0.0",
+        "2.0.1",
         "preserve",
         "live",
     )

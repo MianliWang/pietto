@@ -40,8 +40,8 @@ from pietto.execution._errors import failure, request_failure
 __all__: tuple[str, ...] = ()
 
 PYARROW = ("pyarrow", "26.0.1", "pyarrow")
-DRIVER = ("duckdb", "2.0.0", "duckdb")
-ENGINE = [("v2.0.0", "d54cbbe3df")]
+DRIVER = ("duckdb", "2.0.1", "duckdb")
+ENGINE = [("v2.0.1", "8d78114e90")]
 # Of each input (D79.19).
 MAX_ROWS = 1_048_576
 # The civil interval of a `Date` in days and of a `Timestamp` in microseconds
@@ -88,7 +88,7 @@ SETTINGS = (
     ("enable_external_access", "false", "false"),
     ("lock_configuration", "true", "true"),
 )
-# Read back too, at their 2.0.0 values, which no setting above may change.
+# Read back too, at their 2.0.1 values, which no setting above may change.
 UNCHANGED = (
     ("allowed_configs", "[]"),
     ("allowed_directories", "[]"),
@@ -101,7 +101,7 @@ UNCHANGED = (
     ("disabled_filesystems", ""),
     ("enable_profiling", None),
     ("enable_logging", "0"),
-    ("logging_storage", "memory"),
+    ("logging_sink", "memory"),
     ("access_mode", "automatic"),
     # Text compares in code point order under it; the SQL writes no COLLATE.
     ("default_collation", ""),
@@ -337,7 +337,7 @@ def prepare(template, access, *, limits, isolation, values, parameters):
 
 
 def _driver():
-    """Step 1's distribution check: the installed duckdb 2.0.0 owns the
+    """Step 1's distribution check: the installed duckdb 2.0.1 owns the
     imported duckdb and _duckdb modules (PIE-R2001, PIE-R2002)."""
     pins = (DRIVER,)
     origins = (("duckdb", DRIVER[1], "_duckdb"),)
@@ -570,7 +570,7 @@ class DuckDBAttempt:
             self.deadline_expired = deadline
             self._cancel_requested = True
             if self._running and self._connection is not None:
-                # Stops the running statement (InterruptException on 2.0.0).
+                # Stops the running statement (InterruptException on 2.0.1).
                 self._connection.interrupt()
                 self._cancel_sent = True
                 threading.Thread(target=self._resend, daemon=True).start()

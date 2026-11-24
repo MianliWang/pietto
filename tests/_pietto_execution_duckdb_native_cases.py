@@ -169,7 +169,7 @@ def contract(project: str) -> dict:
     }
     return {
         "format": "pietto.emission-contract.v1",
-        "target": {"family": "duckdb", "release": "2.0.0"},
+        "target": {"family": "duckdb", "release": "2.0.1"},
         "sources": [source],
         "environment": statement,
     }

@@ -251,7 +251,7 @@ def _firewall_contract(family: str) -> str:
             for key in ("row_domain_matches", "read_only_object")
         ],
     }
-    releases = {"postgres": "18.6", "duckdb": "2.0.0", "sqlite": "3.53.1"}
+    releases = {"postgres": "18.6", "duckdb": "2.0.1", "sqlite": "3.53.1"}
     return json.dumps(
         {
             "format": "pietto.emission-contract.v1",

@@ -243,7 +243,7 @@ DUCKDB_QUERIES = (
 DUCKDB_INPUTS = {"dated": ("tags",), "joined": ("items", "tags")}
 DUCKDB_CONTRACT = """{
   "format": "pietto.emission-contract.v1",
-  "target": {"family": "duckdb", "release": "2.0.0"},
+  "target": {"family": "duckdb", "release": "2.0.1"},
   "sources": [{
     "selector": {"module": "main.pietto", "kind": "source", "name": "items"},
     "relation": {"namespace": "arrow", "name": "items"},

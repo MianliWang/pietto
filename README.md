@@ -280,8 +280,9 @@ release.
   ([execution](https://github.com/MianliWang/pietto/blob/main/docs/execution.md)).
 - A local analysis path on DuckDB (alpha): `execute(route="duckdb_arrow")`
   is a read-only executor of one query over Arrow tables that the
-  program supplies, run in process on DuckDB `2.0.0` with the
-  `execute-duckdb` extra. It runs one query of an explicit-module project
+  program supplies, run in process on DuckDB `2.0.1` with the
+  `execute-duckdb` extra (the published `0.2.2` selects `duckdb==2.0.0`).
+  It runs one query of an explicit-module project
   that reads `duckdb.arrow("key")` sources of `Int`, `Text`, `Bool`,
   finite `Float`, `Date`, `Timestamp` and `Decimal(p, s)` fields with `p`
   at most 38, joined by `inner` and `left` JOINs on equalities of fields:

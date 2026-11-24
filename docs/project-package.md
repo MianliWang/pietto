@@ -694,7 +694,7 @@ values, absent selectors, BLOCKED and the batch limit are returned documents.
 
 The contract `target` is `{"family": "postgres", "release": "18.6"}`,
 `{"family": "mysql", "release": "8.4.12"}`,
-`{"family": "duckdb", "release": "2.0.0"}` or
+`{"family": "duckdb", "release": "2.0.1"}` or
 `{"family": "sqlite", "release": "3.53.1"}`. Its family must equal `--dialect`,
 or the command fails with `emission_contract_schema`; another release is
 BLOCKED with `PIE-B1003`. A DuckDB source has the `scan`

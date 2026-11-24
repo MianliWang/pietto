@@ -21,7 +21,7 @@ from pathlib import Path
 
 import _pietto_execution_duckdb_native_cases as cases
 
-SPEC_SHA256 = "f52aa9b210ef1c19cc0aa11406b7606a03c4c98c61ed66d27e1fe0d1700efa30"
+SPEC_SHA256 = "4c4f06a2be5d3ed0784b1121eaad6139e085ed147a96b4a9f0108a8d80d56fe6"
 CHILD_SHA256 = "f8c040460b3abb55d7563cffbe754b98afc7cac3ab6c726cbf5bf81fa5cdf1a7"
 LCRU = "LOCAL_CLOSED_REMOTE_UNOBSERVED"
 OPENED = [["connect", ":memory:"], ["register", "pietto_arrow_0"]]
@@ -87,7 +87,7 @@ READ_BACK = (
     ("disabled_filesystems", ""),
     ("enable_profiling", None),
     ("enable_logging", "0"),
-    ("logging_storage", "memory"),
+    ("logging_sink", "memory"),
     ("access_mode", "automatic"),
     ("default_collation", ""),
     ("worker_threads", "1"),
@@ -147,13 +147,13 @@ IDENTITY = {
     "platform": "linux-x86_64",
     "glibc_min": [2, 28],
     "duckdb": {
-        "version": "2.0.0",
+        "version": "2.0.1",
         "tags": [
             "cp312-abi3-manylinux_2_27_x86_64",
             "cp312-abi3-manylinux_2_28_x86_64",
         ],
         "record_hashed": 68,
-        "pragma_version": ["v2.0.0", "d54cbbe3df"],
+        "pragma_version": ["v2.0.1", "8d78114e90"],
         "platform": "linux_amd64",
     },
     "pyarrow": {

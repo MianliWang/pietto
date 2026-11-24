@@ -39,7 +39,7 @@ TARGETS = {
         },
         "duckdb.arrow",
     ),
-    "duckdb": ("2.0.0", None, "postgres.table"),
+    "duckdb": ("2.0.1", None, "postgres.table"),
 }
 
 

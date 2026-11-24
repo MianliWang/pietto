@@ -94,7 +94,7 @@ def metadata_bytes() -> bytes:
             b"Requires-Dist: adbc-driver-manager==1.13.0; extra == 'execute-postgres-adbc'\n",
             b"Provides-Extra: execute-duckdb\n",
             b"Requires-Dist: pyarrow==26.0.1; extra == 'execute-duckdb'\n",
-            b"Requires-Dist: duckdb==2.0.0; extra == 'execute-duckdb'\n",
+            b"Requires-Dist: duckdb==2.0.1; extra == 'execute-duckdb'\n",
             b"Provides-Extra: interop-pandas\n",
             b"Requires-Dist: pandas==3.1.1; extra == 'interop-pandas'\n",
             b"Provides-Extra: interop-polars\n",

@@ -54,7 +54,7 @@ EXTRAS = {
         "adbc-driver-manager==1.13.0",
     ],
     # D79.02 and D80.05: each interop extra pins only its target library.
-    "execute-duckdb": ["pyarrow==26.0.1", "duckdb==2.0.0"],
+    "execute-duckdb": ["pyarrow==26.0.1", "duckdb==2.0.1"],
     "interop-pandas": ["pandas==3.1.1"],
     "interop-polars": ["polars==2.1.0"],
     "interop-numpy": ["numpy==2.5.4"],
@@ -152,7 +152,7 @@ def test_selections_are_exactly_the_dispatch_extras_and_core_is_unchanged():
         "adbc-driver-manager": "1.13.0",
         "adbc-driver-postgresql": "1.13.0",
         "antlr4-python3-runtime": "4.13.2",
-        "duckdb": "2.0.0",
+        "duckdb": "2.0.1",
         "matplotlib": "3.11.2",
         "mysql-connector-python": "26.10.0",
         "numpy": "2.5.4",
@@ -279,7 +279,7 @@ def _cell_closure(tmp_path, monkeypatch, cell, closure):
 @pytest.mark.parametrize(
     "cell,closure",
     (
-        ("execute-duckdb", "duckdb==2.0.0\npyarrow==26.0.1\n"),
+        ("execute-duckdb", "duckdb==2.0.1\npyarrow==26.0.1\n"),
         ("interop-numpy", "numpy==2.5.4\npyarrow==26.0.1\n"),
     ),
 )
