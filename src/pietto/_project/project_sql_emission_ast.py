@@ -630,7 +630,11 @@ def _emission_blockers(request: PreparedEmission, _guarded):
             return (span.path or "", span.line, span.column)
 
         result[refused_start:] = sorted((*result[refused_start:], *reads), key=at)
-    if (
+    if admitted and not refused:
+        # A projection chain realizes no rows: its header declarations are
+        # refused here, where realize_rows refuses them on the rows route.
+        result.extend(_header_parameter_blockers(plan, request.family))
+    elif (
         not admitted
         and not refused
         and (
@@ -2084,6 +2088,26 @@ def _join_node_count(unit) -> int:
     return total
 
 
+def _header_parameter_blockers(plan, family):
+    """Each header parameter declaration the target refuses, in header order,
+    read or not, before any placeholder is allocated: a type without a
+    carrier on this target, and each MySQL Decimal, Date and Timestamp one
+    unless every such read is in its cell (rows.mysql_typed_cells)."""
+    closed = family == "mysql" and not rows.mysql_typed_cells(plan)
+    return tuple(
+        Blocker(
+            "PIE-B1003",
+            "query_parameter_type_not_admitted_on_target",
+            None,
+            parameter.declaration.span,
+        )
+        for parameter in plan.parameters
+        if parameters.parameter_physical(family, parameter.tag) is None
+        or closed
+        and parameter.tag in parameters.HEADER_PHYSICAL[family]
+    )
+
+
 def realize_rows(request):
     """Realize every stage body once; construction and checking share this walk."""
     plan = request.plan
@@ -2141,23 +2165,7 @@ def realize_rows(request):
     for value in sorted(plan.collects, key=lambda c: c.export.position):
         collect_reads.setdefault(value.block, []).append(value)
     collected = {value.producer for value in plan.collects}
-    # A header parameter type without a carrier on this target is refused at
-    # its declaration, read or not, before any placeholder is allocated; so is
-    # each MySQL Decimal, Date and Timestamp one unless every such read is in
-    # its cell (rows.mysql_typed_cells).
-    closed = family == "mysql" and not rows.mysql_typed_cells(plan)
-    problems.extend(
-        Blocker(
-            "PIE-B1003",
-            "query_parameter_type_not_admitted_on_target",
-            None,
-            parameter.declaration.span,
-        )
-        for parameter in plan.parameters
-        if parameters.parameter_physical(family, parameter.tag) is None
-        or closed
-        and parameter.tag in parameters.HEADER_PHYSICAL[family]
-    )
+    problems.extend(_header_parameter_blockers(plan, family))
     problems.extend(ordered_inline_read_blockers(plan, family))
     if problems:
         return RowRealization(tuple(problems), None)

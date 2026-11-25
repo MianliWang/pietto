@@ -52,7 +52,9 @@ TYPED_BODY = """query result(since: Timestamp, day: Date | None, key: UUID, floo
 """
 
 
-def typed_case(root: Path, target: str, body: str = TYPED_BODY) -> Any:
+def typed_case(
+    root: Path, target: str, body: str = TYPED_BODY, policy: str = "preserve_literals"
+) -> Any:
     """Build ``body`` over ``TYPED_FIELDS`` with the exact source carriers, the
     identifier-case premise and the native parameter protocol."""
     entry, _, block = body.partition("\n")
@@ -60,6 +62,7 @@ def typed_case(root: Path, target: str, body: str = TYPED_BODY) -> Any:
         root / target,
         target,
         block,
+        policy,
         fields=TYPED_FIELDS,
         entry=entry,
         environment=(
@@ -127,6 +130,14 @@ MYSQL_TYPED_REFUSED = {
     "upstream": "query up:\n    from rows\n    select:\n        id\n        d\n"
     "query result(day: Date):\n    from up\n    where d == day\n"
     "    select:\n        id\n",
+    # Never read by a query whose SELECT items are fields and literals alone,
+    # over its source or a plain upstream query: a projection chain, which
+    # realizes no rows.
+    "unread_projection": f"{_HEADER}\n    from rows\n    select:\n        id\n"
+    "        d\n        k = 1\n",
+    "unread_upstream_projection": "query up:\n    from rows\n    select:\n"
+    "        id\n        d\nquery result(day: Date):\n    from up\n"
+    "    select:\n        id\n",
     # In their cells, but another rule refuses the query (D77.37).
     "add_months": f"{_HEADER}\n    from rows\n    where d == day\n    select:\n"
     "        id\n        m = add_months(d, 1)\n        a = since\n        c = floor\n",
@@ -141,6 +152,8 @@ MYSQL_TYPED_REFUSED = {
     "    where u == key or u == key\n    select:\n        id\n",
     "uuid_select": "query result(key: UUID):\n    from rows\n    select:\n"
     "        id\n        c = key\n",
+    "uuid_unread_projection": "query result(key: UUID, day: Date):\n"
+    "    from rows\n    select:\n        id\n",
     "uuid_where_beside_cells": TYPED_BODY,
     "uuid_select_beside_cells": "query result(day: Date, since: Timestamp, key: UUID, "
     "floor: Decimal(9, 2)):\n    from rows\n    select:\n        id\n"

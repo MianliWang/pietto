@@ -2935,7 +2935,22 @@ it declares. MySQL has no `UUID` parameter carrier. Emitting any other MySQL
 query that declares one of these four types, read or not, is BLOCKED with
 PIE-B1003 `query_parameter_type_not_admitted_on_target` at each such
 declaration, as before; a query whose reads all sit in those positions but
-that another rule refuses reports that same list.
+that another rule refuses reports that same list. Emission reports these
+entries only for a query whose body it comes to write, as a projection, as
+rows or as a JOIN; a query that it refuses before that reports its other
+refusals without them. Such a query is one with a plan-stage refusal, such
+as `order` (`order by None is None`) or `expression_evidence_unavailable` (an
+output `z = None`); one whose stages carry more columns than half its
+generated-node limit, refused with PIE-B1007 `generated_structure_limit`
+before it is assessed; one whose statement has a table-function input (such
+as a read of a `generate_series` query), a Collect read, an Unnest or an
+outer aggregate composition (`aggregate_composition_not_admitted_on_target`,
+such as `n = count() + 1`); one refused with
+`scalar_meaning_requires_field_projection`; and one whose shape emission does
+not write (`operator_not_implemented_in_slice6`,
+`scalar_projection_requires_later_slice`, `set_body_shape_not_admitted`,
+`join_shape_not_admitted_in_slice7` or `non_field_projection_or_later_shape`),
+as for a JOIN whose `on` calls `coalesce`.
 
 DuckDB project SQL (Phase79's second tier, which no release carries yet)
 writes a `Decimal(p, s)`, `Date` or `Timestamp` read as

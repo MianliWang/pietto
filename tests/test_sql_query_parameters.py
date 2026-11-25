@@ -9,15 +9,23 @@ for a binding; nothing in the SQL text depends on a value.
 
 from __future__ import annotations
 
+import contextlib
+import errno
+import io
+import itertools
 import json
+import os
 import re
+import sys
 from collections import Counter
-from dataclasses import replace
+from collections.abc import Callable
+from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 import pytest
 
+from _pietto_plan_profiles import _database, _profile
 import _pietto_sql_emission as probe
 from _pietto_sql_query_parameters import PROTOCOL
 from _pietto_sql_query_parameters import parameterized_case as _case
@@ -27,7 +35,11 @@ from _pietto_sql_query_parameters import (
     typed_case,
 )
 import _pietto_target_conformance_cases as conformance
+from pietto import _batch_output as batch_output
+from pietto import cli
+from pietto._project import project_sql_emission_cli as emission_cli
 from pietto._project import project_sql_emission_parameters as parameters
+from pietto._project import project_sql_emission_rows as rows
 from pietto._project.project_sql_emission import serialize_project_sql_emission
 from pietto._project.project_sql_emission_ast import resource_limits
 from pietto._project.project_sql_emission_cli import _render_verified
@@ -36,10 +48,14 @@ from pietto._project.project_sql_emission_verification import (
 )
 from pietto._project.project_sql_plan import ProjectSQLPlan
 from pietto._project.project_sql_plan_expressions import ProjectSQLParameterRead
+from pietto._project.project_sql_plan_target_assessment import (
+    prepare_project_sql_target_request,
+)
 from pietto._project.project_sql_plan_verification import (
     ProjectSQLPlanVerificationIssue,
     verify_project_sql_plan,
 )
+from pietto.compiler import compile_all_sql, compile_sql
 
 INT_MIN, INT_MAX = str(-(1 << 63)), str((1 << 63) - 1)
 PLACEHOLDER = {"postgres": "pg_int8", "mysql": "my_signed_int"}
@@ -1852,3 +1868,1546 @@ def test_a_refused_mysql_typed_statement_reports_mains_document(
     assert [b.detail for b in outcome.blockers] == [
         "query_parameter_type_not_admitted_on_target"
     ] * len(typed)
+
+
+# Projection chains: SELECT items that are fields and literals alone, over
+# the source or a plain upstream query, which no row realization reads; each
+# is (upstream, FROM, SELECT).
+_PROJECTION_CHAINS = (
+    ("", "    from rows\n", "    select:\n        id\n"),
+    ("", "    from rows\n", "    select:\n        id\n        d\n        k = -1\n"),
+    (
+        "query up:\n    from rows\n    select:\n        id\n        d\n",
+        "    from up\n",
+        "    select:\n        id\n",
+    ),
+)
+
+
+@pytest.mark.parametrize("policy", ("preserve_literals", "bind_safe_literals"))
+@pytest.mark.parametrize(
+    ("tag", "field"),
+    (
+        ("Date", "d"),
+        ("Date | None", "d2"),
+        ("Timestamp", "ts"),
+        ("Decimal(9, 2)", "money"),
+        ("UUID", "u"),
+    ),
+    ids=("date", "nullable_date", "timestamp", "decimal", "uuid"),
+)
+def test_a_mysql_projection_chain_refuses_each_typed_declaration(
+    tmp_path: Path, tag: str, field: str, policy: str
+) -> None:
+    """A MySQL projection chain that never reads its Decimal, Date, Timestamp
+    or UUID declaration reports the document of the same body with a WHERE:
+    PIE-B1003 at the declaration. PostgreSQL emits it, and a read in its
+    cell still emits on MySQL, except of a UUID."""
+
+    def emitted(name: str, target: str, body: str) -> Any:
+        return typed_case(tmp_path / name, target, body, policy)[1]
+
+    header = f"query result(p: {tag}):\n"
+    for index, (upstream, source, items) in enumerate(_PROJECTION_CHAINS):
+        body = upstream + header + source + items
+        chain = emitted(f"chain{index}", "mysql", body)
+        where = emitted(
+            f"where{index}",
+            "mysql",
+            upstream + header + source + "    where id > 1\n" + items,
+        )
+        assert chain.status == where.status == "BLOCKED"
+        assert serialize_project_sql_emission(chain) == (
+            serialize_project_sql_emission(where)
+        )
+        assert [
+            (b.code, b.detail, b.location.line, b.location.column)
+            for b in chain.blockers
+        ] == [
+            (
+                "PIE-B1003",
+                "query_parameter_type_not_admitted_on_target",
+                9 + upstream.count("\n"),
+                14,
+            )
+        ]
+        postgres = emitted(f"postgres{index}", "postgres", body)
+        assert postgres.status == "VERIFIED", postgres.blockers
+    for index, read in enumerate(
+        (
+            "    select:\n        id\n        a = p\n",
+            f"    where {field} == p\n    select:\n        id\n",
+        )
+    ):
+        outcome = emitted(f"read{index}", "mysql", header + "    from rows\n" + read)
+        assert outcome.status == ("BLOCKED" if tag == "UUID" else "VERIFIED")
+
+
+def _listed(outcome: Any) -> list[tuple[Any, ...]]:
+    """Each blocker of ``outcome`` as (code, detail, line, column), without
+    the position when it has no location."""
+    return [
+        (
+            b.code,
+            b.detail,
+            *((b.location.line, b.location.column) if b.location else ()),
+        )
+        for b in outcome.blockers
+    ]
+
+
+def _built(
+    monkeypatch: pytest.MonkeyPatch,
+    contract: Callable[[dict[str, Any]], object] | None = None,
+    source: Callable[[str], str] | None = None,
+    target_request: Any = None,
+) -> None:
+    """Build each case that ``typed_case`` builds with ``contract`` editing
+    its contract in place, ``source`` rewriting its main module and
+    ``target_request`` as its target request."""
+    real = probe.build_case
+
+    def build_case(
+        directory: Path, files: dict[str, str], document: str, policy: str
+    ) -> Any:
+        edited = json.loads(document)
+        if contract is not None:
+            contract(edited)
+        if source is not None:
+            files = {**files, "main.pietto": source(files["main.pietto"])}
+        return real(
+            directory,
+            files,
+            probe.encoded(edited).decode(),
+            policy,
+            target_request=target_request,
+        )
+
+    monkeypatch.setattr(probe, "build_case", build_case)
+
+
+def _premise(
+    key: str, value: Any = None, *, source: bool = False
+) -> Callable[[dict[str, Any]], None]:
+    """An edit that drops each premise ``key`` of a contract's environment,
+    or of its source with ``source``, or gives each one ``value``."""
+
+    def edit(contract: dict[str, Any]) -> None:
+        holder, name = (
+            (contract["sources"][0], "premises")
+            if source
+            else (contract, "environment")
+        )
+        holder[name] = [
+            p if p["key"] != key else {**p, "value": value}
+            for p in holder[name]
+            if p["key"] != key or value is not None
+        ]
+
+    return edit
+
+
+def _limits(*limits: dict[str, int]) -> Callable[[dict[str, Any]], None]:
+    """An edit that adds each of ``limits`` as a contract's resource limits."""
+    return lambda contract: contract["environment"].extend(
+        {"key": "resource_limits", "scope": "statement", "value": value}
+        for value in limits
+    )
+
+
+@dataclass(frozen=True)
+class _Beside:
+    """A refusal beside a refused MySQL projection chain's typed declarations:
+    the blockers listed before and after them; the list of the same chain
+    without a header, when it is not those (a refusal that the declarations
+    replace); the edits that make the chain meet it (``_built``'s, the last
+    SELECT item, the literal policy and an upstream query read in place of
+    the source); and whether a body with a WHERE lists the same document."""
+
+    before: tuple[tuple[Any, ...], ...] = ()
+    after: tuple[tuple[Any, ...], ...] = ()
+    plain: tuple[tuple[Any, ...], ...] | None = None
+    contract: Callable[[dict[str, Any]], object] | None = None
+    source: Callable[[str], str] | None = None
+    target_request: Callable[[], Any] | None = None
+    item: str = "k = -1"
+    policy: str = "preserve_literals"
+    upstream: bool = False
+    twin: bool = True
+
+
+def _mysql(name: str = "declared", base: Any = None) -> Any:
+    """A MySQL 8.4.12 profile, an overlay of ``base`` when it is given."""
+    return _profile(_database("mysql", "8.4.12"), name=name, base=base)
+
+
+# Each refusal that emission lists beside a MySQL projection chain's typed
+# declarations, in the order it checks them: a row for each detail that a
+# premise conflict, _emission_blockers or a helper it calls can list for a
+# chain, and one for each of the two returns of
+# representation_not_in_initial_domain. The other details need a statement
+# that is not a chain (the refusals of _REFUSED_BEFORE_THE_BODY, a body
+# without a source, a pending enforcement, a Float membership) or PostgreSQL
+# (a table function's binding), or no source program reaches them:
+# scalar_meaning_correspondence (inconsistent prepared inputs, listed
+# alone), logical_type_evidence_missing (every alias, enum and Decimal field
+# keeps its type evidence) and each literal-sign detail but
+# literal_leaf_representation (a chain item is a field or a literal under
+# signs, a sign applies only to an Int or a Float of its own type, and no
+# leaf is negative). Last, a row for each refusal that emission checks only
+# once _emission_blockers lists nothing, the contract's SQL and artifact byte
+# limits, which the declarations replace. Its other checks there recheck its
+# own output (plan_ast_correspondence and the other PIE-B1008 issues of
+# verify_project_sql_emission, and serialization's artifact_correspondence),
+# and _emission_blockers refuses first a chain over the node or parameter
+# limit they count; the checks that a public entry runs on an emitted query,
+# project_path among them, are in _ONCE_A_QUERY_EMITS. The body with a WHERE
+# stops at its typed declarations before its literal checks, and its
+# structure limit refuses it before it is assessed, without them.
+_BESIDE_A_CHAIN: dict[str, _Beside] = {
+    "premise_conflict": _Beside(
+        before=(("PIE-B1005", "inconsistent_declared_scope"),),
+        contract=_limits({"nodes": 900}, {"nodes": 901}),
+    ),
+    "release": _Beside(
+        before=(("PIE-B1003", "target_release_not_reviewed"),),
+        contract=lambda c: c["target"].update(release="8.4.11"),
+    ),
+    # A target request with a profile, which no public entry passes.
+    "profile_target": _Beside(
+        after=(("PIE-B1005", "target_evidence_scope_conflict"),),
+        target_request=lambda: prepare_project_sql_target_request(
+            _database("mysql", "8.4.12"), base=_profile(_database("mysql", "8.4.11"))
+        ),
+    ),
+    "profile_composition": _Beside(
+        after=(("PIE-B1006", "original_profile_composition_unresolved"),),
+        target_request=lambda: prepare_project_sql_target_request(
+            _database("mysql", "8.4.12"),
+            base=_mysql(),
+            overlays=(_mysql("overlay", _mysql("other")),),
+        ),
+    ),
+    "literal_sign": _Beside(
+        after=(("PIE-B1002", "literal_leaf_representation", 14, 9),),
+        item="k = 9223372036854775808",
+        twin=False,
+    ),
+    "operator_missing": _Beside(
+        after=(("PIE-B1004", "operator_environment_declaration_missing"),),
+        contract=_premise("operator_environment"),
+    ),
+    "operator_mismatch": _Beside(
+        after=(("PIE-B1005", "operator_environment_declaration_mismatch"),),
+        contract=_premise("operator_environment", "user_defined"),
+    ),
+    "protocol_missing": _Beside(
+        after=(("PIE-B1004", "parameter_protocol_declaration_missing"),),
+        contract=_premise("parameter_protocol"),
+        policy="bind_safe_literals",
+    ),
+    "protocol_mismatch": _Beside(
+        after=(("PIE-B1005", "parameter_protocol_declaration_mismatch"),),
+        contract=_premise("parameter_protocol", "postgres_extended"),
+        policy="bind_safe_literals",
+    ),
+    "occurrence_limit": _Beside(
+        after=(("PIE-B1007", "parameter_occurrence_limit"),),
+        contract=_limits({"parameters": 0}),
+        policy="bind_safe_literals",
+    ),
+    "structure_limit": _Beside(
+        after=(("PIE-B1007", "generated_structure_limit"),),
+        contract=_limits({"nodes": 9}),
+        twin=False,
+    ),
+    "naming_missing": _Beside(
+        after=(("PIE-B1004", "identifier_case_declaration_missing"),),
+        contract=_premise("identifier_case"),
+        upstream=True,
+    ),
+    "naming_mismatch": _Beside(
+        after=(("PIE-B1005", "identifier_case_declaration_mismatch"),),
+        contract=_premise("identifier_case", "lower_case_table_names=1"),
+        upstream=True,
+    ),
+    "target_evidence": _Beside(
+        after=(
+            ("PIE-B1006", "negative_original_target_evidence"),
+            ("PIE-B1001", "source_family_mismatch", 8, 1),
+        ),
+        source=lambda s: s.replace("mysql.table", "postgres.table"),
+    ),
+    "source_mapping": _Beside(
+        after=(("PIE-B1001", "source_mapping_missing", 8, 1),),
+        contract=lambda c: c["sources"].clear(),
+    ),
+    "source_schema": _Beside(
+        after=(("PIE-B1001", "complete_ordered_source_schema_required", 8, 1),),
+        contract=lambda c: c["sources"][0]["fields"].reverse(),
+    ),
+    "source_identifier": _Beside(
+        after=(("PIE-B1001", "source_identifier_unrepresentable"),),
+        contract=lambda c: c["sources"][0]["relation"].update(name="r" * 80),
+    ),
+    "row_domain": _Beside(
+        after=(("PIE-B1001", "row_domain_matches_declaration_required"),),
+        contract=_premise("row_domain_matches", source=True),
+    ),
+    "read_only": _Beside(
+        after=(("PIE-B1001", "read_only_object_declaration_required"),),
+        contract=_premise("read_only_object", source=True),
+    ),
+    "encoding_missing": _Beside(
+        after=(("PIE-B1004", "client_encoding_declaration_missing"),),
+        contract=_premise("client_encoding"),
+    ),
+    "encoding_mismatch": _Beside(
+        after=(("PIE-B1005", "client_encoding_mismatch"),),
+        contract=_premise("client_encoding", "latin1"),
+    ),
+    "column": _Beside(
+        after=(("PIE-B1001", "column_identifier_unrepresentable_or_colliding"),),
+        contract=lambda c: c["sources"][0]["fields"][1].update(column="ID"),
+    ),
+    "enum_field": _Beside(
+        after=(("PIE-B1003", "representation_not_in_initial_domain", 7, 5),),
+        source=lambda s: (
+            s.replace("    money: Decimal(9, 2)\n", "    money: Status\n")
+            + "enum Status:\n    active\n    closed\n"
+        ),
+    ),
+    "temporal_alias": _Beside(
+        after=(
+            ("PIE-B1004", "logical_temporal_or_uuid_meaning_missing", 3, 5),
+            ("PIE-B1004", "logical_temporal_or_uuid_meaning_missing", 6, 5),
+        ),
+        source=lambda s: (
+            s.replace("    ts: Timestamp\n", "    ts: Stamp\n")
+            + "type Stamp = Timestamp\n"
+        ),
+    ),
+    "nullability": _Beside(
+        after=(("PIE-B1002", "nullability_mismatch", 4, 5),),
+        contract=lambda c: c["sources"][0]["fields"][2]["representation"].update(
+            nullable=True
+        ),
+    ),
+    "plain_decimal": _Beside(
+        after=(("PIE-B1004", "validated_decimal_parameters_missing", 7, 5),),
+        source=lambda s: s.replace(
+            "    money: Decimal(9, 2)\n", "    money: Decimal\n"
+        ),
+    ),
+    # A built-in type outside the initial domain: the second return.
+    "bytes_field": _Beside(
+        after=(("PIE-B1003", "representation_not_in_initial_domain", 7, 5),),
+        source=lambda s: s.replace("    money: Decimal(9, 2)\n", "    money: Bytes\n"),
+    ),
+    "storage": _Beside(
+        after=(("PIE-B1002", "physical_storage_or_domain_mismatch", 3, 5),),
+        contract=lambda c: c["sources"][0]["fields"][1]["representation"].update(
+            storage={"kind": "my_date"}
+        ),
+    ),
+    "field_premise": _Beside(
+        after=(("PIE-B1005", "field_domain_premise_mismatch"),),
+        contract=lambda c: c["environment"].append(
+            {
+                "key": "value_domain",
+                "scope": {
+                    "kind": "expression",
+                    "source": {
+                        "module": "main.pietto",
+                        "kind": "source",
+                        "name": "rows",
+                    },
+                    "site": {"kind": "expression_site", "position": 0},
+                    "context": {"kind": "select_block", "position": 0},
+                },
+                "value": {"kind": "bool01"},
+            }
+        ),
+    ),
+    "label": _Beside(
+        after=(("PIE-B1002", "output_label_unrepresentable"),),
+        item="l" * 300 + " = -1",
+    ),
+    "sql_bytes": _Beside(
+        plain=(("PIE-B1007", "sql_byte_limit"),),
+        contract=_limits({"sql_bytes": 20}),
+    ),
+    "artifact_bytes": _Beside(
+        plain=(("PIE-B1007", "public_artifact_byte_limit"),),
+        contract=_limits({"artifact_bytes": 200}),
+    ),
+}
+
+
+@pytest.mark.parametrize("beside", tuple(_BESIDE_A_CHAIN))
+def test_a_refused_mysql_projection_chain_places_its_typed_declarations(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, beside: str
+) -> None:
+    """A MySQL projection chain that another rule also refuses lists PIE-B1003
+    at each Decimal, Date, Timestamp and UUID declaration in header order,
+    after its premise conflicts and an unreviewed release and before every
+    other refusal, its own literal-sign ones included. Those refusals are the
+    list of the same chain without a header, but for a refusal that emission
+    checks only once nothing else refuses a query, the contract's SQL or
+    artifact byte limit, which the declarations replace. That is where a body
+    with a WHERE lists them, and it reports the chain's document unless it
+    stops at its declarations before a literal check or is refused before it
+    is assessed."""
+    row = _BESIDE_A_CHAIN[beside]
+    _built(
+        monkeypatch,
+        row.contract,
+        row.source,
+        None if row.target_request is None else row.target_request(),
+    )
+    header = (
+        "query result(since: Timestamp, n: Int, key: UUID, day: Date, "
+        "floor: Decimal(9, 2)):\n"
+    )
+    # An upstream query declared after the chain keeps the header's line.
+    read, upstream = (
+        (
+            "    from up\n",
+            "query up:\n    from rows\n    select:\n        id\n        d\n",
+        )
+        if row.upstream
+        else ("    from rows\n", "")
+    )
+    items = f"    select:\n        id\n        d\n        {row.item}\n"
+
+    def emitted(name: str, entry: str, where: str = "") -> Any:
+        body = entry + read + where + items + upstream
+        return typed_case(tmp_path / name, "mysql", body, row.policy)[1]
+
+    chain = emitted("chain", header)
+    typed = [
+        ("PIE-B1003", "query_parameter_type_not_admitted_on_target", 9, column)
+        for column in (14, 40, 51, 62)
+    ]
+    assert _listed(chain) == [*row.before, *typed, *row.after]
+    assert _listed(emitted("plain", "query result:\n")) == list(
+        (*row.before, *row.after) if row.plain is None else row.plain
+    )
+    if row.twin:
+        where = emitted("where", header, "    where id > 1\n")
+        assert serialize_project_sql_emission(chain) == (
+            serialize_project_sql_emission(where)
+        )
+
+
+class _Run(NamedTuple):
+    """An entry's outcome: its exit code, standard output and standard error,
+    and whether it wrote its --output."""
+
+    code: int
+    stdout: bytes
+    stderr: str
+    written: bool
+
+
+def _arguments(root: Path, *options: str) -> list[str]:
+    """``emit-sql --project`` of the MySQL query ``result`` at ``root``, in
+    ``main.pietto`` unless the options give a module, or with ``--all`` its
+    batch, in JSON unless the options give a format."""
+    module = any(option.startswith("--module=") for option in options)
+    selected = (
+        ("--all",)
+        if "--all" in options
+        else (
+            *(() if module else ("--module=main.pietto",)),
+            "--kind=query",
+            "--name=result",
+        )
+    )
+    shown = any(option.startswith("--format=") for option in options)
+    return [
+        f"--project={root}",
+        *selected,
+        "--dialect=mysql",
+        "--emission-contract=contract.json",
+        *(() if shown else ("--format=json",)),
+        *(option for option in options if option != "--all"),
+    ]
+
+
+def _emitted_by(root: Path, *options: str) -> _Run:
+    """The run of these arguments through ``run_project_emit_sql``."""
+    result = emission_cli.run_project_emit_sql(_arguments(root, *options))
+    return _Run(result.exit_code, result.stdout, result.stderr, result.written)
+
+
+def _to_file(root: Path, output: Path) -> _Run:
+    return _emitted_by(root, f"--output={output}")
+
+
+def _to_directory(root: Path, output: Path) -> _Run:
+    return _emitted_by(root, "--all", f"--output={output}")
+
+
+class _FullStdout:
+    """A standard output on a full device: each write fails, on its binary
+    buffer too."""
+
+    @property
+    def buffer(self) -> _FullStdout:
+        return self
+
+    def write(self, data: object) -> int:
+        raise OSError(errno.ENOSPC, "No space left on device")
+
+    def flush(self) -> None:
+        return None
+
+
+class _UnencodableStdout:
+    """A standard output installed without a binary buffer, whose encoding
+    cannot hold the text."""
+
+    def write(self, text: str) -> int:
+        raise UnicodeEncodeError("ascii", text, 0, 1, "ordinal not in range(128)")
+
+    def flush(self) -> None:
+        return None
+
+
+def _printed_by(stdout: Any, root: Path, output: Path, *options: str) -> _Run:
+    """The run of these arguments through ``pietto.cli.main`` with ``stdout``
+    as its standard output, which keeps nothing; whether ``output`` exists
+    stands for whether the run wrote it."""
+    error = io.StringIO()
+    with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(error):
+        code = cli.main(["emit-sql", *_arguments(root, *options)])
+    return _Run(code, b"", error.getvalue(), output.exists())
+
+
+def _batch_of(root: Path, _: Path) -> _Run:
+    """``compile_all_sql`` of the MySQL project at ``root``, as a run."""
+    emission = compile_all_sql(root, dialect="mysql", emission_contract="contract.json")
+    return _Run(emission_cli.EXITS[emission.status], emission.document, "", False)
+
+
+def _refusal(run: _Run) -> tuple[int, str | None]:
+    """The exit code and the last refusal of a run: the kind and message of
+    its last CLI error, the error pietto.cli writes for its standard output
+    (after a refused rendering, if any), or None."""
+    note = re.search(r"(?:\A|\n)pietto(?: emit-sql)?: error: (.*)\n\Z", run.stderr)
+    if note is not None:
+        return run.code, note[1]
+    if not run.stdout.startswith(b"{"):
+        return run.code, None
+    document = json.loads(run.stdout)
+    errors = (document.get("failure", document) or {}).get("cli_errors", [])
+    if not errors:
+        return run.code, None
+    return run.code, f"{errors[-1]['kind']}: {errors[-1]['message']}"
+
+
+def _renderings(stdout: bytes) -> list[bytes]:
+    """The first line of each text rendering on a standard output: its
+    format and status."""
+    return [
+        line for line in stdout.splitlines() if line.startswith(b"pietto.sql-emission.")
+    ]
+
+
+def _unnamed(root: Path, output: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    try:
+        Path(os.fsdecode(os.fsencode(root) + b"/\xff.pietto")).write_bytes(b"")
+    except (OSError, UnicodeError):
+        pytest.skip("this file system refuses a file name that is not UTF-8")
+
+
+def _unnamed_module(root: Path, output: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # The queries move to a module whose name is not UTF-8, beside an empty
+    # file whose name, also not UTF-8, comes first.
+    main = root / "main.pietto"
+    shapes, query, queries = main.read_text().partition("query result")
+    try:
+        Path(os.fsdecode(os.fsencode(root) + b"/\xff.pietto")).write_text(
+            f'from "main.pietto" import source rows\n{query}{queries}'
+        )
+        Path(os.fsdecode(os.fsencode(root) + b"/\x80.pietto")).write_bytes(b"")
+    except (OSError, UnicodeError):
+        pytest.skip("this file system refuses a file name that is not UTF-8")
+    main.write_text(f"{shapes}export source rows\n")
+
+
+def _replaced(root: Path, output: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    validate, checks = emission_cli._validate_output, []
+
+    def again(path: Path) -> Any:
+        # The write checks the destination again; since the check before
+        # emission it has become a symbolic link.
+        if path == output:
+            checks.append(path)
+            if len(checks) == 2:
+                output.symlink_to(output.with_name("elsewhere"))
+        return validate(path)
+
+    monkeypatch.setattr(emission_cli, "_validate_output", again)
+
+
+def _read_only(root: Path, output: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    output.write_text("kept")
+    output.chmod(0o444)
+    if os.access(output, os.W_OK):
+        pytest.skip("this user may write a read-only file")
+
+
+def _another_users(root: Path, output: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    if sys.platform == "win32":
+        pytest.skip("needs POSIX owners")
+    output.write_text("kept")
+    owner = output.stat().st_uid
+    # The command runs as a user who is neither the file's owner nor root.
+    monkeypatch.setattr(os, "geteuid", lambda: owner + 1)
+
+
+def _locked(root: Path, output: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    output.parent.chmod(0o555)
+    if os.access(output.parent, os.W_OK):
+        pytest.skip("this user may write a read-only directory")
+
+
+def _uncleaned(root: Path, output: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def refuse(*arguments: Any, **keywords: Any) -> None:
+        raise OSError(errno.EPERM, "Operation not permitted")
+
+    # The temporary file can neither replace the output nor be removed.
+    monkeypatch.setattr(emission_cli.os, "replace", refuse)
+    monkeypatch.setattr(Path, "unlink", refuse)
+
+
+def _directory(root: Path, output: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    if not batch_output.supported():
+        pytest.skip("Linux descriptor publication required")
+
+
+def _drift(root: Path, output: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _directory(root, output, monkeypatch)
+    monkeypatch.setattr(emission_cli, "_protected_current", lambda _: False)
+
+
+def _locked_directory(
+    root: Path, output: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _directory(root, output, monkeypatch)
+    _locked(root, output, monkeypatch)
+
+
+def _no_temporary_files(
+    root: Path, output: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _directory(root, output, monkeypatch)
+
+    def refuse(directory: int) -> int:
+        # A file system without O_TMPFILE, such as some mounted drives.
+        raise batch_output.UnsupportedPlatform("anonymous file publication unavailable")
+
+    monkeypatch.setattr(batch_output, "_anonymous", refuse)
+
+
+def _unreviewed(root: Path, output: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    path = root / "contract.json"
+    contract = json.loads(path.read_text())
+    contract["target"]["release"] = "8.4.11"
+    path.write_text(json.dumps(contract))
+
+
+@dataclass(frozen=True)
+class _Emits:
+    """A stage after emission that only a VERIFIED document reaches, or the
+    batch's output limit: the run of an entry for a project root and a fresh
+    output path; what the chain gets there as 0.2.1 emitted it, and what it
+    gets (``_refusal``); how many Date declarations it has and whether it
+    reads an upstream query; a step on each project before the runs (its
+    root, its output path and the test's monkeypatch); and whether the batch
+    limit is set midway between the sizes of the chain's batch and the batch
+    as 0.2.1 emitted it."""
+
+    run: Callable[[Path, Path], _Run]
+    control: tuple[int, str | None]
+    typed: tuple[int, str | None] = (1, None)
+    declarations: int = 1
+    upstream: bool = True
+    prepare: Callable[[Path, Path, pytest.MonkeyPatch], object] | None = None
+    limit: bool = False
+
+
+_STDOUT = "standard output could not be written"
+_LIMIT = (
+    "batch_output_limit: Batch JSON exceeds the 64 MiB output limit; narrow the"
+    " exact selectors."
+)
+
+
+# Each stage after emission that only a VERIFIED document reaches, which a
+# chain's typed declarations now keep it from, and the batch's output limit,
+# which the size of each item's document decides, in the order the entries
+# run them. First, the encoding of the document, which names every project
+# file: another project file whose name is not UTF-8 is refused as
+# project_path. A refused document is checked instead for its own locations:
+# a blocker or diagnostic located in such a file refuses it as project_path,
+# naming that file, so a chain in such a module names its own module where
+# 0.2.1 named the first such file, as the body with a WHERE does.
+# Then the 64 MiB limit: a batch fits it once the declarations replace a
+# longer document, and passes it where their list is the longer one, with 64
+# of them or beside another refusal. Then the write of emit-sql's --output
+# file, a row for each of its refusals (the contract as the file, a
+# destination that has become a symbolic link since the check before
+# emission, a read-only file, a file of another user, a failed write and a
+# temporary file that is not removed) and one for the file written; and the
+# write of the batch's --output directory, for a VERIFIED batch, a row for
+# each of its refusals (project inputs that change, a failed write, a file
+# system without safe directory output) and one for the directory written.
+# Last, the streams: in --format text, the rendering of a VERIFIED document,
+# alone or in a batch, with an --output file or directory or without, on
+# standard output, which pietto.cli writes only when it is not empty, so
+# that a full standard output, or one that cannot encode the text, is an
+# error (a closed pipe or descriptor gives the full one's), and which still
+# gets the rendering of another VERIFIED item of the batch; and the ending
+# of that error, which says, in either format, that the --output file or
+# directory written is kept. Realization's SQL and artifact byte limits are
+# rows of _BESIDE_A_CHAIN. compile_query's template stage, whose refusal the
+# compiled-bundle test pins, gives way as a whole, and main's re-derivation
+# of a VERIFIED MySQL statement for compile_query refuses nothing of its
+# own. The handler of a RecursionError, at any stage, needs a sign chain
+# deeper than the parser admits.
+_ONCE_A_QUERY_EMITS: dict[str, _Emits] = {
+    "project_path": _Emits(
+        lambda root, _: _emitted_by(root),
+        (
+            2,
+            "project_path: Project source path must be valid UTF-8 to emit SQL:"
+            ' "\\udcff.pietto"; rename it.',
+        ),
+        prepare=_unnamed,
+    ),
+    "project_path_own_module": _Emits(
+        lambda root, _: _emitted_by(root, "--module=\udcff.pietto"),
+        (
+            2,
+            "project_path: Project source path must be valid UTF-8 to emit SQL:"
+            ' "\\udc80.pietto"; rename it.',
+        ),
+        typed=(
+            2,
+            "project_path: Project source path must be valid UTF-8 to emit SQL:"
+            ' "\\udcff.pietto"; rename it.',
+        ),
+        prepare=_unnamed_module,
+    ),
+    "batch_limit_fits": _Emits(_batch_of, (2, _LIMIT), limit=True),
+    "batch_limit_declarations": _Emits(
+        _batch_of,
+        (0, None),
+        typed=(2, _LIMIT),
+        declarations=64,
+        upstream=False,
+        limit=True,
+    ),
+    "batch_limit_refused": _Emits(
+        _batch_of, (1, None), typed=(2, _LIMIT), prepare=_unreviewed, limit=True
+    ),
+    "output_path": _Emits(
+        lambda root, _: _emitted_by(root, f"--output={root / 'contract.json'}"),
+        (
+            2,
+            "output_path: Output path must differ from the project configuration,"
+            " sources and emission contract.",
+        ),
+    ),
+    "output_replaced": _Emits(
+        _to_file,
+        (2, "output_path: Output path must not be a symbolic link."),
+        prepare=_replaced,
+    ),
+    "output_read_only": _Emits(
+        _to_file, (2, "output_write: Output file is read-only."), prepare=_read_only
+    ),
+    "output_another_users": _Emits(
+        _to_file,
+        (2, "output_write: Output file belongs to another user."),
+        prepare=_another_users,
+    ),
+    "output_failed": _Emits(
+        _to_file,
+        (2, "output_write: Output file could not be written."),
+        prepare=_locked,
+    ),
+    "output_uncleaned": _Emits(
+        _to_file,
+        (2, "output_write: Temporary output file could not be removed."),
+        prepare=_uncleaned,
+    ),
+    "output_file": _Emits(_to_file, (0, None)),
+    "batch_drift": _Emits(
+        _to_directory,
+        (2, "output_write: Project inputs changed before output was written."),
+        prepare=_drift,
+    ),
+    "batch_failed": _Emits(
+        _to_directory,
+        (2, "output_write: Output directory could not be written."),
+        prepare=_locked_directory,
+    ),
+    "batch_platform": _Emits(
+        _to_directory,
+        (
+            2,
+            "batch_output_platform: Safe batch directory output requires supported"
+            " Linux filesystem capabilities; use stdout instead.",
+        ),
+        prepare=_no_temporary_files,
+    ),
+    "batch_directory": _Emits(_to_directory, (0, None), prepare=_directory),
+    "text": _Emits(lambda root, _: _emitted_by(root, "--format=text"), (0, None)),
+    "batch_text": _Emits(
+        lambda root, _: _emitted_by(root, "--all", "--format=text"),
+        (0, None),
+        upstream=False,
+    ),
+    "text_stdout_full": _Emits(
+        lambda root, output: _printed_by(_FullStdout(), root, output, "--format=text"),
+        (2, _STDOUT),
+    ),
+    "text_stdout_unencodable": _Emits(
+        lambda root, output: _printed_by(
+            _UnencodableStdout(), root, output, "--format=text"
+        ),
+        (2, "terminal output could not be encoded"),
+    ),
+    "batch_text_stdout_full": _Emits(
+        lambda root, output: _printed_by(
+            _FullStdout(), root, output, "--all", "--format=text"
+        ),
+        (2, _STDOUT),
+        upstream=False,
+    ),
+    "text_output_file": _Emits(
+        lambda root, output: _emitted_by(root, "--format=text", f"--output={output}"),
+        (0, None),
+    ),
+    "text_stdout_full_output_file": _Emits(
+        lambda root, output: _printed_by(
+            _FullStdout(), root, output, "--format=text", f"--output={output}"
+        ),
+        (2, f"{_STDOUT}; the replaced artifact file is kept"),
+    ),
+    "batch_text_output_directory": _Emits(
+        lambda root, output: _emitted_by(
+            root, "--all", "--format=text", f"--output={output}"
+        ),
+        (0, None),
+        upstream=False,
+        prepare=_directory,
+    ),
+    "batch_text_beside": _Emits(
+        lambda root, _: _emitted_by(root, "--all", "--format=text"), (0, None)
+    ),
+    "batch_text_beside_stdout_full": _Emits(
+        lambda root, output: _printed_by(
+            _FullStdout(), root, output, "--all", "--format=text"
+        ),
+        (2, _STDOUT),
+        typed=(2, _STDOUT),
+    ),
+    "stdout_full_output_file": _Emits(
+        lambda root, output: _printed_by(
+            _FullStdout(), root, output, f"--output={output}"
+        ),
+        (2, f"{_STDOUT}; the replaced artifact file is kept"),
+        typed=(2, _STDOUT),
+    ),
+    "stdout_full_output_directory": _Emits(
+        lambda root, output: _printed_by(
+            _FullStdout(), root, output, "--all", f"--output={output}"
+        ),
+        (2, f"{_STDOUT}; the replaced artifact file is kept"),
+        typed=(2, _STDOUT),
+        prepare=_directory,
+    ),
+}
+
+
+@pytest.mark.parametrize("entry", tuple(_ONCE_A_QUERY_EMITS))
+def test_a_typed_mysql_projection_chain_reaches_no_stage_of_an_emitted_query(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, entry: str
+) -> None:
+    """A MySQL projection chain that declares a Date reaches no stage after
+    emission that only a VERIFIED document reaches, where the chain as 0.2.1
+    emitted it reaches that stage: emit-sql writes no --output file or
+    directory and reports none of their refusals, nor project_path for
+    another project file whose name is not UTF-8 (in a module whose name is
+    not UTF-8, it names that module); in --format text it writes nothing of
+    its own to standard output, so a standard output that fails is no error
+    unless another VERIFIED item's rendering goes there, and in JSON the
+    error of one says no --output is kept; and it lists PIE-B1003 alone, as
+    the body with a WHERE does. The batch's output limit counts the chain's
+    document: a batch fits that the chain's VERIFIED document took past the
+    limit, and one whose list of these blockers is the longer passes it."""
+    row = _ONCE_A_QUERY_EMITS[entry]
+    read = "    from up\n" if row.upstream else "    from rows\n"
+    upstream = (
+        "query up:\n    from rows\n    select:\n        id\n        d\n"
+        if row.upstream
+        else ""
+    )
+    roots, outputs = {}, {}
+    header = ", ".join(f"p{index}: Date" for index in range(row.declarations))
+    for name, where in (
+        ("typed", ""),
+        ("where", "    where id > 1\n"),
+        ("control", ""),
+    ):
+        body = f"query result({header}):\n{read}{where}    select:\n        id\n"
+        typed_case(tmp_path / name, "mysql", body + upstream)
+        roots[name] = tmp_path / name / "mysql"
+        outputs[name] = tmp_path / f"{name}-output" / "artifact"
+        outputs[name].parent.mkdir()
+
+    def run(name: str, call: Callable[[Path, Path], Any]) -> Any:
+        if name != "control":
+            return call(roots[name], outputs[name])
+        # The chain as 0.2.1 emitted it: the law of the typed cells forced, so
+        # that no Date declaration is refused.
+        with monkeypatch.context() as patch:
+            patch.setattr(rows, "mysql_typed_cells", lambda plan: True)
+            return call(roots[name], outputs[name])
+
+    def size(root: Path, _: Path) -> int:
+        return len(
+            compile_all_sql(
+                root, dialect="mysql", emission_contract="contract.json"
+            ).document
+        )
+
+    def listed(name: str) -> list[str]:
+        return sorted(os.listdir(outputs[name].parent))
+
+    try:
+        for name in roots:
+            if row.prepare is not None:
+                row.prepare(roots[name], outputs[name], monkeypatch)
+        if row.limit:
+            typed, control = (run(name, size) for name in ("typed", "control"))
+            monkeypatch.setattr(emission_cli, "MAX_BATCH_BYTES", (typed + control) // 2)
+        existed = {name: output.exists() for name, output in outputs.items()}
+        before = listed("typed")
+        runs: dict[str, _Run] = {name: run(name, row.run) for name in roots}
+        after = listed("typed")
+    finally:
+        for output in outputs.values():
+            output.parent.chmod(0o700)
+
+    def selected(result: _Run) -> tuple[Any, ...]:
+        # The query's own document, where the run printed one, and in text
+        # the head of each rendering: an upstream query's names its
+        # project's files, which differ.
+        if not result.stdout.startswith(b"{"):
+            return (result.code, _renderings(result.stdout), *result[2:])
+        document = json.loads(result.stdout)
+        items = document.get("items", [{"document": document}])
+        return (
+            _refusal(result),
+            document["status"],
+            items[:1],
+            result.stderr,
+            result.written,
+        )
+
+    chain, control = runs["typed"], runs["control"]
+    assert selected(chain) == selected(runs["where"])
+    assert _refusal(chain) == row.typed
+    assert not chain.written and after == before
+    if row.typed == (1, None) and chain.stdout.startswith(b"{"):
+        document = json.loads(chain.stdout)
+        items = document.get("items", [{"document": document}])
+        assert [
+            (
+                b["code"],
+                b["subject"]["detail"],
+                b["location"]["line"],
+                b["location"]["column"],
+            )
+            for b in items[0]["document"]["blockers"]
+        ] == [("PIE-B1003", "query_parameter_type_not_admitted_on_target", 9, 14)]
+        assert [item["document"]["status"] for item in items[1:]] == (
+            ["VERIFIED"] * (len(items) - 1)
+        )
+    elif row.typed == (1, None):
+        # In --format text, the BLOCKED document is rendered on standard
+        # error alone; standard output gets every other item's rendering, as
+        # 0.2.1 wrote it after the chain's.
+        assert _renderings(chain.stdout) == _renderings(control.stdout)[1:]
+        assert [
+            line for line in chain.stderr.splitlines() if line.startswith("blocker ")
+        ] == [
+            "blocker PIE-B1003 UNSUPPORTED_RULE:"
+            " query_parameter_type_not_admitted_on_target (main.pietto:9:14)"
+        ]
+    assert _refusal(control) == row.control
+    assert control.written == (outputs["control"].exists() and not existed["control"])
+    if row.control == (0, None):
+        assert control.stdout.startswith((b"{", b"pietto.sql-emission.v2 VERIFIED\n"))
+
+
+class _Cell(NamedTuple):
+    """A cell of the cross product: the route, the format, the output, the
+    neighbour, and whether the names of the chain's module and of the
+    neighbour's file are UTF-8."""
+
+    route: str
+    format: str
+    output: str
+    neighbour: str
+    module: str
+    beside: str
+
+
+class _Report(NamedTuple):
+    """How a run reports the chain: its exit code; the status, CLI errors,
+    blockers and diagnostics of the chain's own document, or of the document
+    that refuses the run before the chain's body, or the error pietto.cli
+    writes in place of a document (status None); the status of each other
+    item of its batch; and whether emission comes to the chain's body, which
+    a batch refused before it lists as no item at all."""
+
+    code: int
+    status: str | None
+    errors: tuple[str, ...] = ()
+    blockers: tuple[str, ...] = ()
+    diagnostics: tuple[str, ...] = ()
+    others: tuple[str, ...] = ()
+    body: bool = True
+
+
+_IMPORTED = 'from "main.pietto" import source rows\n'
+# The neighbour, the block of a query `beside` in a file of its own.
+_NEIGHBOURS: dict[str, str | None] = {
+    # An empty file.
+    "none": None,
+    # A query that emits.
+    "verified": "    from rows\n    select:\n        id\n",
+    # A query refused at its body, by a label MySQL cannot spell.
+    "blocked": f"    from rows\n    select:\n        id\n        {'l' * 300} = 1\n",
+    # A query refused before its body, at the plan stage.
+    "before": "    from rows\n    select:\n        id\n    order by None is None\n",
+    # A warning (PIE-S2385) at z, in a query refused before its body too.
+    "warning": "    from rows\n    select:\n        id\n        z = None\n",
+    # An error, which refuses the project before any query's body.
+    "error": "    from rows\n    select:\n        nope\n",
+}
+# The names of the chain's module and of the neighbour's file.
+_NAMED = {
+    "module": {"utf8": "ä.pietto".encode(), "unnamed": b"\xff.pietto"},
+    "beside": {"utf8": "é.pietto".encode(), "unnamed": b"\x80.pietto"},
+}
+_TYPED = "PIE-B1003 query_parameter_type_not_admitted_on_target ä.pietto:2:14"
+_OWN_FILE = (
+    "project_path: Project source path must be valid UTF-8 to emit SQL:"
+    ' "\\udcff.pietto"; rename it.'
+)
+_BESIDE_FILE = (
+    "project_path: Project source path must be valid UTF-8 to emit SQL:"
+    ' "\\udc80.pietto"; rename it.'
+)
+_LISTED = _Report(1, "BLOCKED", blockers=(_TYPED,))
+_WARNED = _LISTED._replace(diagnostics=("PIE-S2385 é.pietto:6:13",))
+_OWN = _Report(2, "INPUT_REJECTED", (_OWN_FILE,))
+_BESIDE_LISTED = _Report(2, "INPUT_REJECTED", (_BESIDE_FILE,), (_TYPED,))
+_BESIDE = _Report(2, "INPUT_REJECTED", (_BESIDE_FILE,))
+_ERRED = _Report(1, "BLOCKED", diagnostics=("PIE-S2102 é.pietto:5:9",), body=False)
+_BESIDE_ERRED = _BESIDE._replace(body=False)
+_CRASH = _Report(2, None, ("terminal output could not be encoded",), body=False)
+_U, _X = "utf8", "unnamed"
+
+
+# Every cell of the cross product of the axes that decide how a run reports a
+# MySQL projection chain that its Date declaration refuses, read from
+# run_project_emit_sql, _emit_owner, _normalized_failure, the batch and the
+# writes of its output, and pietto.cli: the route (one query, selected by
+# --module, --kind and --name; the batch of the chain's module, selected by
+# --all and --module; and --all); the format; the output (standard output,
+# --output naming an existing file, which one query replaces, and --output
+# naming a directory: an existing one for one query, a new one, which the
+# batch creates, for a batch); the neighbour (above); and the names of the
+# chain's module and of the neighbour's file, in UTF-8 or not. Each cell
+# reports what the same header over a WHERE reports and writes nothing. The
+# table gives each report on standard output, by route; an --output a route
+# refuses before emission (a directory for one query, an existing file for a
+# batch) replaces it, and any other --output changes nothing. In JSON the
+# report is the document; in text, the chain's rendering is the first on
+# standard error, another item's goes to standard error, or to standard
+# output when it is VERIFIED. The Python entries (compile_sql and
+# compile_query for one query, compile_all_sql for a batch) report what JSON
+# on standard output does. Where a selected owner's module name is not UTF-8,
+# a batch fails to encode its owner, as 0.2.1 did: pietto.cli reports that
+# the terminal output could not be encoded, and compile_all_sql raises. No
+# cell is out of reach. A fault of a standard stream acts on these reports
+# afterwards, in pietto.cli, as rows of _ONCE_A_QUERY_EMITS pin it.
+_CROSSED: dict[tuple[str, str, str], tuple[_Report, _Report, _Report]] = {
+    ("none", _U, _U): (_LISTED, _LISTED, _LISTED),
+    ("none", _U, _X): (_LISTED, _LISTED, _LISTED),
+    ("none", _X, _U): (_OWN, _CRASH, _CRASH),
+    ("none", _X, _X): (_OWN, _CRASH, _CRASH),
+    ("verified", _U, _U): (
+        _LISTED,
+        _LISTED,
+        _LISTED._replace(others=("VERIFIED",)),
+    ),
+    ("verified", _U, _X): (_LISTED, _LISTED, _CRASH),
+    ("verified", _X, _U): (_OWN, _CRASH, _CRASH),
+    ("verified", _X, _X): (_OWN, _CRASH, _CRASH),
+    ("blocked", _U, _U): (_LISTED, _LISTED, _LISTED._replace(others=("BLOCKED",))),
+    ("blocked", _U, _X): (_LISTED, _LISTED, _CRASH),
+    ("blocked", _X, _U): (_OWN, _CRASH, _CRASH),
+    ("blocked", _X, _X): (_OWN, _CRASH, _CRASH),
+    ("before", _U, _U): (_LISTED, _LISTED, _LISTED._replace(others=("BLOCKED",))),
+    ("before", _U, _X): (_LISTED, _LISTED, _CRASH),
+    ("before", _X, _U): (_OWN, _CRASH, _CRASH),
+    ("before", _X, _X): (_OWN, _CRASH, _CRASH),
+    ("warning", _U, _U): (_WARNED, _WARNED, _WARNED._replace(others=("BLOCKED",))),
+    ("warning", _U, _X): (_BESIDE_LISTED, _BESIDE_LISTED, _CRASH),
+    ("warning", _X, _U): (
+        _OWN._replace(diagnostics=_WARNED.diagnostics),
+        _CRASH,
+        _CRASH,
+    ),
+    ("warning", _X, _X): (_BESIDE, _CRASH, _CRASH),
+    ("error", _U, _U): (_ERRED, _ERRED, _ERRED),
+    ("error", _U, _X): (_BESIDE_ERRED, _BESIDE_ERRED, _BESIDE_ERRED),
+    ("error", _X, _U): (_ERRED, _ERRED, _ERRED),
+    ("error", _X, _X): (_BESIDE_ERRED, _BESIDE_ERRED, _BESIDE_ERRED),
+}
+_ROUTES = ("single", "batch", "all")
+_REFUSED_OUTPUT = {
+    ("single", "dir"): _Report(
+        2,
+        "INPUT_REJECTED",
+        ("output_path: Output path must be a regular file.",),
+        body=False,
+    ),
+    **{
+        (route, "file"): _Report(
+            2,
+            "INPUT_REJECTED",
+            ("output_path: Output directory must not already exist.",),
+            body=False,
+        )
+        for route in ("batch", "all")
+    },
+}
+
+
+@pytest.fixture(scope="module")
+def crossed_base(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """The configuration, contract and shape of a MySQL typed case."""
+    root = tmp_path_factory.mktemp("crossed")
+    typed_case(root, "mysql", "query result:\n    from rows\n    select:\n        id\n")
+    return root / "mysql"
+
+
+def _crossed_project(base: Path, root: Path, cell: _Cell, where: str) -> str:
+    """Build the cell's project at ``root``: main.pietto declares the source,
+    the chain (over ``where``) has the module the cell names and the
+    neighbour a file of its own. Return the chain's module path."""
+    root.mkdir(parents=True)
+    for name in ("pietto.toml", "contract.json"):
+        (root / name).write_bytes((base / name).read_bytes())
+    shapes = (base / "main.pietto").read_text().partition("query result")[0]
+    (root / "main.pietto").write_text(f"{shapes}export source rows\n")
+    block = _NEIGHBOURS[cell.neighbour]
+    files = {
+        _NAMED["module"][cell.module]: f"{_IMPORTED}query result(p0: Date):\n"
+        f"    from rows\n{where}    select:\n        id\n",
+        _NAMED["beside"][cell.beside]: ""
+        if block is None
+        else f"{_IMPORTED}query beside:\n{block}",
+    }
+    for name, text in files.items():
+        try:
+            path = Path(os.fsdecode(os.fsencode(root) + b"/" + name))
+            path.write_text(text, encoding="utf-8")
+        except (OSError, UnicodeError):
+            pytest.skip("this file system refuses a file name that is not UTF-8")
+    return os.fsdecode(_NAMED["module"][cell.module])
+
+
+def _shown(arguments: list[str]) -> tuple[int, bytes, str]:
+    """The exit code, standard output and standard error of ``pietto
+    emit-sql`` with these arguments."""
+    raw, error = io.BytesIO(), io.StringIO()
+    stdout = io.TextIOWrapper(raw, encoding="utf-8", newline="")
+    with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(error):
+        code = cli.main(["emit-sql", *arguments])
+    stdout.flush()
+    return code, raw.getvalue(), error.getvalue()
+
+
+def _tree(directory: Path) -> list[tuple[str, bytes | None]]:
+    """Each path under ``directory``, with a file's bytes."""
+    return sorted(
+        (
+            str(path.relative_to(directory)),
+            path.read_bytes() if path.is_file() else None,
+        )
+        for path in directory.rglob("*")
+    )
+
+
+def _seen(run: _Run, form: str) -> tuple[Any, ...]:
+    """A run as its WHERE twin's must match it: the document or rendering of
+    a VERIFIED item names its project's sources, which differ, so only its
+    status counts."""
+    if form == "text":
+        return (run.code, _renderings(run.stdout), run.stderr, run.written)
+    if not run.stdout.startswith(b"{"):
+        return tuple(run)
+    document = json.loads(run.stdout)
+    for item in document.get("items", ()):
+        if item["document"]["status"] == "VERIFIED":
+            item["document"] = "VERIFIED"
+    return (run.code, document, run.stderr, run.written)
+
+
+def _located(subject: str, location: dict[str, Any] | None) -> str:
+    if location is None or location["path"] is None:
+        return subject
+    return f"{subject} {location['path']}:{location['line']}:{location['column']}"
+
+
+def _rendered(stderr: str, stdout: bytes) -> tuple[Any, ...]:
+    """The first rendering on standard error, the chain's, as its status,
+    CLI errors, blockers and diagnostics, and the status of each other
+    rendering, on either stream."""
+    renderings: list[list[str]] = []
+    for line in stderr.splitlines():
+        if line.startswith("pietto.sql-emission."):
+            renderings.append([])
+        renderings[-1].append(line)
+    errors, blockers, diagnostics = [], [], []
+    own, *rest = renderings or [[]]
+    for line in own[1:]:
+        if line.startswith("error "):
+            errors.append(line.removeprefix("error "))
+        elif blocker := re.fullmatch(r"blocker (\S+) \S+: (\S+)(?: \((.+)\))?", line):
+            blockers.append(" ".join(part for part in blocker.groups() if part))
+        elif diagnostic := re.match(r"(\S+) (PIE-\w+) \w+: ", line):
+            diagnostics.append(f"{diagnostic[2]} {diagnostic[1]}")
+    others = [lines[0].split()[1] for lines in rest]
+    others += [line.split()[1].decode() for line in _renderings(stdout)]
+    return (
+        own[0].split()[1] if own else None,
+        tuple(errors),
+        tuple(blockers),
+        tuple(diagnostics),
+        tuple(others),
+    )
+
+
+def _reported(run: _Run, form: str) -> tuple[Any, ...]:
+    """A run's report of the chain: the fields of a _Report but ``body``."""
+    note = re.fullmatch(r"pietto: error: (.*)\n", run.stderr)
+    if not run.stdout and note is not None:
+        return (run.code, None, (note[1],), (), (), ())
+    if form == "text":
+        return (run.code, *_rendered(run.stderr, run.stdout))
+    assert run.stderr == ""
+    document = json.loads(run.stdout)
+    items = document.get("items")
+    own = document if items is None else document["failure"]
+    for item in items or ():
+        if item["owner"]["name"] == "result":
+            own = item["document"]
+    return (
+        run.code,
+        own["status"],
+        tuple(f"{error['kind']}: {error['message']}" for error in own["cli_errors"]),
+        tuple(
+            _located(
+                f"{blocker['code']} {blocker['subject']['detail']}", blocker["location"]
+            )
+            for blocker in own["blockers"]
+        ),
+        tuple(
+            _located(diagnostic["code"], diagnostic["location"])
+            for diagnostic in own["diagnostics"]
+        ),
+        tuple(
+            item["document"]["status"]
+            for item in items or ()
+            if item["owner"]["name"] != "result"
+        ),
+    )
+
+
+@pytest.mark.parametrize(
+    "cell",
+    [
+        _Cell(*axes)
+        for axes in itertools.product(
+            _ROUTES,
+            ("json", "text"),
+            ("stdout", "file", "dir"),
+            tuple(_NEIGHBOURS),
+            (_U, _X),
+            (_U, _X),
+        )
+    ],
+    ids="-".join,
+)
+def test_a_typed_mysql_projection_chain_reports_as_its_where_twin_in_every_cell(
+    tmp_path: Path, crossed_base: Path, cell: _Cell
+) -> None:
+    """In every cell of route, format, output, neighbour and the names of
+    the chain's module and of the neighbour's file, a MySQL projection chain
+    that declares a Date reports what the same header over a WHERE reports,
+    as the table gives it, and writes nothing; the Python entries report it
+    as JSON on standard output does."""
+    if cell.route != "single" and cell.output != "stdout":
+        if not batch_output.supported():
+            pytest.skip("Linux descriptor publication required")
+    runs, modules = {}, {}
+    for name, where in (("chain", ""), ("where", "    where id > 1\n")):
+        root = tmp_path / name / "mysql"
+        modules[name] = _crossed_project(crossed_base, root, cell, where)
+        output = tmp_path / name / "output" / "artifact"
+        output.parent.mkdir()
+        if cell.output == "file":
+            output.write_text("kept")
+        elif cell.output == "dir" and cell.route == "single":
+            output.mkdir()
+        selected = {
+            "single": (f"--module={modules[name]}", "--kind=query", "--name=result"),
+            "batch": ("--all", f"--module={modules[name]}"),
+            "all": ("--all",),
+        }[cell.route]
+        before = _tree(output.parent)
+        code, stdout, stderr = _shown(
+            [
+                f"--project={root}",
+                *selected,
+                "--dialect=mysql",
+                "--emission-contract=contract.json",
+                f"--format={cell.format}",
+                *(() if cell.output == "stdout" else (f"--output={output}",)),
+            ]
+        )
+        runs[name] = _Run(code, stdout, stderr, _tree(output.parent) != before)
+    chain = runs["chain"]
+    report = (
+        _REFUSED_OUTPUT.get((cell.route, cell.output))
+        or _CROSSED[cell.neighbour, cell.module, cell.beside][_ROUTES.index(cell.route)]
+    )
+    assert _seen(chain, cell.format) == _seen(runs["where"], cell.format)
+    assert _reported(chain, cell.format) == report[:-1]
+    assert not chain.written
+    if cell.format == "json" and cell.route != "single" and report.status:
+        assert bool(json.loads(chain.stdout)["items"]) == report.body
+    if cell.format != "json" or cell.output != "stdout":
+        return
+    root, module = tmp_path / "chain" / "mysql", modules["chain"]
+    if cell.route == "single":
+        import pietto.execution as execution
+
+        emission = compile_sql(
+            root,
+            module=module,
+            kind="query",
+            name="result",
+            dialect="mysql",
+            emission_contract="contract.json",
+        )
+        assert (emission_cli.EXITS[emission.status], emission.document) == chain[:2]
+        with pytest.raises(execution.CompileRejected) as rejected:
+            execution.compile_query(
+                root,
+                module=module,
+                kind="query",
+                name="result",
+                dialect="mysql",
+                emission_contract="contract.json",
+            )
+        assert (rejected.value.status, rejected.value.emission) == (
+            report.status,
+            chain.stdout,
+        )
+        text = _Run(chain.code, b"", f"{rejected.value}\n", False)
+        assert _reported(text, "text") == report[:-1]
+        return
+    selectors = {"module": module} if cell.route == "batch" else {}
+    if report is _CRASH:
+        with pytest.raises(UnicodeEncodeError):
+            compile_all_sql(
+                root, dialect="mysql", emission_contract="contract.json", **selectors
+            )
+        return
+    emission = compile_all_sql(
+        root, dialect="mysql", emission_contract="contract.json", **selectors
+    )
+    assert (emission_cli.EXITS[emission.status], emission.document) == chain[:2]
+
+
+@dataclass(frozen=True)
+class _Before:
+    """A MySQL query that emission refuses before it comes to write its body:
+    its block, the refusals it lists, and the edits that build it (the
+    queries and tables declared before it, and ``_built``'s)."""
+
+    block: str
+    refusals: tuple[tuple[str, str], ...]
+    upstream: str = ""
+    contract: Callable[[dict[str, Any]], object] | None = None
+    source: Callable[[str], str] | None = None
+
+
+# Queries that MySQL emission refuses before it comes to write their body as
+# a projection, as rows or as a JOIN. Preparation refuses the first three: a
+# plan-stage refusal, where two kinds stand for all, since no plan is left to
+# read a header from, and the structure limit before assessment. Then a row
+# for each detail that such a route of _emission_blockers, or a helper it
+# calls there, lists: the nested and scalar meaning refusals, a table-function
+# input and each ordered read refused beside it, and each detail of a shape
+# emission does not write, its retained ON included. The others have no
+# source program: scalar_meaning_correspondence (inconsistent prepared
+# inputs), match_comparison_operator_not_admitted (the grammar spells only
+# admitted comparisons) and match_reference_outside_pre_match_scope (a port
+# of another block); and neither the suite nor a probe reaches
+# set_body_shape_not_admitted or non_field_projection_or_later_shape.
+_REFUSED_BEFORE_THE_BODY: dict[str, _Before] = {
+    "plan_output": _Before(
+        "    from rows\n    select:\n        id\n        z = None\n",
+        (("PIE-B1003", "expression_evidence_unavailable"),),
+    ),
+    "plan_order": _Before(
+        "    from rows\n    select:\n        id\n    order by None is None\n",
+        (("PIE-B1003", "order"),),
+    ),
+    "structure_limit": _Before(
+        "    from rows\n    where id > 1\n    select:\n        id\n",
+        (("PIE-B1007", "generated_structure_limit"),),
+        contract=_limits({"nodes": 3}),
+    ),
+    "table_function": _Before(
+        "    from up\n    select:\n        n\n",
+        (("PIE-B1003", "table_function_not_admitted_on_target"),),
+        upstream="query up:\n    from generate_series(1, 3, 1) as n\n    select:\n"
+        "        n\n",
+    ),
+    # A read of a capturing let with ORDER BY and LIMIT beside the series.
+    "ordered_read": _Before(
+        "    let c:\n        capture rows\n        from other\n"
+        "        where other.id == rows.id\n        select:\n            id\n"
+        "        order by:\n            id\n        limit 1\n    from rows\n"
+        "    where id in c and exists t\n    select:\n        id\n",
+        (
+            ("PIE-B1003", "table_function_not_admitted_on_target"),
+            ("PIE-B1003", "mysql_correlated_order_or_limit_read_not_admitted"),
+        ),
+        upstream="table t:\n    from generate_series(1, 3, 1) as n\n    select:\n"
+        "        n\nquery other:\n    from rows\n    select:\n        id\n",
+    ),
+    "collect": _Before(
+        "    let recent:\n        from rows\n        select:\n            id\n"
+        "        order by id\n    from rows\n    select:\n        id\n"
+        "        xs = collect recent\n",
+        (("PIE-B1003", "collect_not_admitted_on_target"),),
+    ),
+    "unnest": _Before(
+        "    from cw\n    let o = unnest(cw.xs)\n    cross join o\n    select:\n"
+        "        id = cw.id\n",
+        (
+            ("PIE-B1003", "collect_not_admitted_on_target"),
+            ("PIE-B1003", "unnest_not_admitted_on_target"),
+        ),
+        upstream="query cw:\n    let recent:\n        from rows\n        select:\n"
+        "            id\n        order by id\n    from rows\n    select:\n"
+        "        id\n        xs = collect recent\n",
+    ),
+    "aggregate_composition": _Before(
+        "    from rows\n    group by id\n    select:\n        id\n"
+        "        n = count() + 1\n",
+        (("PIE-B1003", "aggregate_composition_not_admitted_on_target"),),
+    ),
+    "scalar_meaning": _Before(
+        "    from rows\n    let r = rows\n    cross join r\n"
+        "    where r.u == rows.u\n    select:\n        a = rows.id\n",
+        (("PIE-B1003", "scalar_meaning_requires_field_projection"),),
+    ),
+    # A GROUP BY over a LEFT JOIN.
+    "operator": _Before(
+        "    from rows\n    let r = rows\n"
+        "    left join r on coalesce(r.id, rows.id) == rows.id\n"
+        "    group by rows.id\n    select:\n        a = rows.id\n        n = count()\n",
+        (
+            ("PIE-B1003", "operator_not_implemented_in_slice6"),
+            ("PIE-B1003", "match_condition_not_in_row_domain"),
+            ("PIE-B1003", "join_shape_not_admitted_in_slice7"),
+        ),
+    ),
+    "shape": _Before(
+        "    from rows\n    let r = rows\n"
+        "    left join r on coalesce(r.id, rows.id) == rows.id\n    select:\n"
+        "        a = rows.id\n",
+        (
+            ("PIE-B1003", "scalar_projection_requires_later_slice"),
+            ("PIE-B1003", "match_condition_not_in_row_domain"),
+            ("PIE-B1003", "join_shape_not_admitted_in_slice7"),
+        ),
+    ),
+    # Each side of the ON reads an enum field.
+    "match_reference_type": _Before(
+        "    from rows\n    let r = rows\n    left join r on rows.money == r.money"
+        " and coalesce(r.id, rows.id) == rows.id\n    select:\n        a = rows.id\n",
+        (
+            ("PIE-B1003", "scalar_projection_requires_later_slice"),
+            ("PIE-B1004", "match_reference_logical_type_missing"),
+            ("PIE-B1004", "match_reference_logical_type_missing"),
+            ("PIE-B1003", "match_condition_not_in_row_domain"),
+            ("PIE-B1003", "join_shape_not_admitted_in_slice7"),
+            ("PIE-B1003", "representation_not_in_initial_domain"),
+        ),
+        source=lambda s: (
+            s.replace("    money: Decimal(9, 2)\n", "    money: Status\n")
+            + "enum Status:\n    active\n    closed\n"
+        ),
+    ),
+    "match_binary": _Before(
+        "    from rows\n    let r = rows\n"
+        "    left join r on rows.id + 1 == coalesce(r.id, rows.id)\n    select:\n"
+        "        a = rows.id\n",
+        (
+            ("PIE-B1003", "scalar_projection_requires_later_slice"),
+            ("PIE-B1003", "match_binary_operator_not_admitted"),
+            ("PIE-B1003", "match_condition_not_in_row_domain"),
+            ("PIE-B1003", "join_shape_not_admitted_in_slice7"),
+        ),
+    ),
+}
+
+
+@pytest.mark.parametrize("route", tuple(_REFUSED_BEFORE_THE_BODY))
+def test_a_mysql_query_refused_before_its_body_lists_no_typed_declaration(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, route: str
+) -> None:
+    """A MySQL query that emission refuses before it comes to write its body
+    reports its other refusals without PIE-B1003 at its Date and UUID
+    declarations: the list of the same query without a header."""
+    row = _REFUSED_BEFORE_THE_BODY[route]
+    _built(monkeypatch, row.contract, row.source)
+    typed, plain = (
+        typed_case(tmp_path / name, "mysql", row.upstream + header + row.block)[1]
+        for name, header in (
+            ("typed", "query result(day: Date, key: UUID):\n"),
+            ("plain", "query result:\n"),
+        )
+    )
+    assert typed.status == "BLOCKED"
+    assert [(b.code, b.detail) for b in typed.blockers] == list(row.refusals)
+    assert _listed(typed) == _listed(plain)

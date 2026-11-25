@@ -6727,13 +6727,16 @@ def test_forged_mysql_typed_reads_outside_their_cells_fail_every_reader(
 )
 def test_a_forged_mysql_uuid_parameter_fails_every_reader(tmp_path, monkeypatch, shape):
     """S09 withdrew MySQL's UUID parameter carrier (D77.07). An artifact of
-    each former UUID cell, emitted while the carrier is back, with its
-    compiled bundle, fails plain verification and the live template (plan)
-    and compiled loading and load_bundle (records) once the carrier is gone.
-    The pure boundary (document) refuses it as outside its schema even while
-    the carrier is back, since it admits no header parameter."""
+    each former UUID cell, and of a UUID declaration never read, emitted
+    while the carrier is back and the plan law admits every MySQL typed
+    read, with its compiled bundle, fails plain verification and the live
+    template (plan) and compiled loading and load_bundle (records) once the
+    carrier is gone. The pure boundary (document) refuses it as outside its
+    schema even while the carrier is back, since it admits no header
+    parameter."""
     import pietto.execution as execution
     from pietto._project import project_sql_emission_parameters as parameters
+    from pietto._project import project_sql_emission_rows as rows
     import _pietto_sql_emission_portable as portable
     from pietto._project.project_compiled_build import build_compiled
     from pietto._project.project_compiled_loading import load_compiled
@@ -6748,6 +6751,7 @@ def test_a_forged_mysql_uuid_parameter_fails_every_reader(tmp_path, monkeypatch,
     with monkeypatch.context() as patch:
         patch.setitem(parameters.HEADER_PHYSICAL["mysql"], "UUID", "my_uuid_bytes")
         patch.setitem(parameters.HEADER_SQL_TYPES, "my_uuid_bytes", "BINARY(16)")
+        patch.setattr(rows, "mysql_typed_cells", lambda plan: True)
         _, outcome = typed_case(tmp_path, "mysql", MYSQL_TYPED_REFUSED[shape])
         artifact = outcome.artifact
         assert artifact is not None, outcome.blockers
@@ -6776,6 +6780,39 @@ def test_a_forged_mysql_uuid_parameter_fails_every_reader(tmp_path, monkeypatch,
         "PIE-R1008",
         "COMPILED_PARAMETER",
     )
+
+
+@pytest.mark.parametrize(
+    "shape",
+    ("unread_projection", "unread_upstream_projection", "uuid_unread_projection"),
+)
+def test_compile_query_reports_an_unread_mysql_typed_projection_blocked(
+    tmp_path, shape
+):
+    """compile_query refuses a MySQL projection chain that never reads its
+    Decimal, Date, Timestamp or UUID declarations with emission's BLOCKED
+    document, before any bundle is built, rather than reaching a compiled
+    load whose replay refuses it (PIE-R1004, COMPILED_PHYSICAL_DOMAIN or,
+    for a UUID, COMPILED_PARAMETER)."""
+    import pietto.execution as execution
+
+    _, outcome = typed_case(tmp_path, "mysql", MYSQL_TYPED_REFUSED[shape])
+    assert outcome.status == "BLOCKED"
+    with pytest.raises(execution.CompileRejected) as rejected:
+        execution.compile_query(
+            tmp_path / "mysql",
+            module="main.pietto",
+            kind="query",
+            name="result",
+            dialect="mysql",
+            emission_contract="contract.json",
+        )
+    assert rejected.value.status == "BLOCKED"
+    blockers = json.loads(rejected.value.emission)["blockers"]
+    assert blockers == json.loads(serialize_project_sql_emission(outcome))["blockers"]
+    assert {b["subject"]["detail"] for b in blockers} == {
+        "query_parameter_type_not_admitted_on_target"
+    }
 
 
 def _swapped_comparison(record):
