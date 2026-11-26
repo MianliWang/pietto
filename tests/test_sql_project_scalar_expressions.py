@@ -2025,6 +2025,105 @@ def test_mysql_project_lpad_and_now_outside_their_cells_stay_refused(
     ]
 
 
+# PL.49: guards of the MySQL lpad and now() cell laws that another rule
+# keeps emission from asking, each with the real plans on which it alone
+# keeps the law's answer (how the law is asked, then the LPAD_NOW_REFUSALS
+# bodies): "place" places every lpad and now() call of the MySQL plan
+# directly; "operand" reads the lpad text operands MySQL emission asks
+# about; "grouped" reads the grouped key operands of the same body's
+# PostgreSQL emission, since MySQL refuses the composition first.
+_CAPTURE_ORDER_ONLY = (
+    "labelled",
+    LPAD_NOW_REFUSALS["capture_body_limit_only"][1],
+    "table result:\n    let matched:\n        capture lhs\n        from rhs\n"
+    "        where rhs.id == lhs.id\n        select:\n            label\n"
+    "        order by label\n    from lhs\n    select:\n        id\n"
+    '        m = scalar matched.label\n        a = lpad(label, 5, "0")\n',
+)
+LPAD_NOW_SOLE_GUARDS = {
+    "grouped_select": ("place", ("grouped_lpad", "grouped_now", "grouped_having")),
+    "ordered_capture_body": ("place", (_CAPTURE_ORDER_ONLY,)),
+    "limited_capture_body": ("place", ("capture_body_limit_only",)),
+    "joined_or_named_column": (
+        "operand",
+        ("join_inner", "join_left", "relation_let_from", "upstream_named"),
+    ),
+    "grouped_key": ("grouped", ("grouped_lpad",)),
+}
+
+
+@pytest.mark.parametrize(
+    "guard, form",
+    [
+        (guard, form)
+        for guard, (_, forms) in LPAD_NOW_SOLE_GUARDS.items()
+        for form in forms
+    ],
+    ids=lambda value: value if type(value) is str else "order_only",
+)
+def test_mysql_lpad_and_now_cell_laws_keep_their_own_conditions(
+    tmp_path, monkeypatch, guard, form
+):
+    """Each condition of the MySQL lpad and now() cell laws holds on its own:
+    a grouped SELECT, an ordered or limited capture body, a JOIN or named
+    input column and a grouped key are outside every cell when the law is
+    asked directly, though another rule refuses those plans first."""
+    from pietto._project.project_sql_plan import ProjectSQLPlan
+    from pietto.ir.model import SymbolNamespace
+
+    kind, _ = LPAD_NOW_SOLE_GUARDS[guard]
+    world, policy, body = form if type(form) is tuple else LPAD_NOW_REFUSALS[form]
+    if kind == "grouped":
+        reads = []
+        operands = rows._operands
+
+        def spied_operands(request, columns, arguments, uses, reference_type):
+            values, problem = operands(
+                request, columns, arguments, uses, reference_type
+            )
+            reads.extend(
+                value
+                for value in values or ()
+                if type(value) is rows.SQLStageReference
+                and value.column.aggregate is not None
+            )
+            return values, problem
+
+        monkeypatch.setattr(rows, "_operands", spied_operands)
+        _, outcome = probe.lpad_now_world(tmp_path, world, "postgres", body, policy)
+        assert outcome.status == "VERIFIED", outcome.blockers
+        assert reads and all(read.column.field is not None for read in reads)
+        assert {rows.mysql_operand_kind(read) for read in reads} == {"other"}
+        return
+    asked = []
+    law = rows.mysql_scalar_cell
+
+    def spied(plan, expression, values):
+        if expression.callee_symbol.name == "lpad":
+            asked.append(values)
+        return law(plan, expression, values)
+
+    monkeypatch.setattr(rows, "mysql_scalar_cell", spied)
+    checked, outcome = probe.lpad_now_world(tmp_path, world, "mysql", body, policy)
+    assert outcome.status == "BLOCKED"
+    if kind == "operand":
+        assert asked
+        assert {rows.mysql_operand_kind(values[0]) for values in asked} == {"other"}
+        return
+    assert isinstance(checked.plan, ProjectSQLPlan)
+    calls = [
+        expression
+        for expression in checked.plan.expressions
+        if (symbol := getattr(expression, "callee_symbol", None)) is not None
+        and symbol.namespace is SymbolNamespace.CALLABLE
+        and symbol.name in {"lpad", "now"}
+    ]
+    assert calls
+    assert [rows.mysql_scalar_place(checked.plan, call) for call in calls] == [
+        None
+    ] * len(calls)
+
+
 @pytest.mark.parametrize("width", (0, 256, 257, 16383, 16384, -1))
 @pytest.mark.parametrize("target", TARGETS)
 def test_mysql_project_lpad_width_stops_at_256(tmp_path, target, width):

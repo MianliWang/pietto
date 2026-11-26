@@ -5067,6 +5067,10 @@ class _CountedRecords:
             self.count += 1
             yield item
 
+    def get(self, address, default=None):
+        self.count += 1
+        return self.records.get(address, default)
+
 
 class _CountedExpressions(tuple):
     """Plan expressions that count each item an iteration of them yields."""
@@ -5913,6 +5917,170 @@ def test_mysql_cell_stages_come_from_each_body_not_its_label(tmp_path, monkeypat
         assert rows.mysql_compiled_scalar_cells(staged(*changes), entry) == {}
 
 
+# PL.49: conditions of the MySQL compiled scalar cell law that only the build
+# keeps true, each with a bundle (LPAD_NOW_PAIRS form, or LPAD_NOW_REFUSALS
+# body forged with the scalar law open) and one record edit that loads under
+# its own pin and that only that condition refuses.
+_COMPILED_CELL_EDITS = {
+    "terminal_owned_by_its_source": ("pair", "s12_lpad_field"),
+    "slot_without_native_use": ("forged", "bind_safe_context"),
+    "operand_through_another_owner": ("pair", "s12_capture_context"),
+    "date_of_an_lpad": ("pair", "s12_context"),
+    "upstream_owned_by_the_query": ("forged", "capture_reads_an_upstream"),
+}
+
+
+def _compiled_cell_edit(name, records, entry):
+    """The edited records and the value the edit is about."""
+
+    def kind(record, *operator):
+        return record.address.kind == "operation" and (
+            record.get("operator") == ("scalar_call", *operator)
+        )
+
+    edited = dict(records)
+    if name == "terminal_owned_by_its_source":
+        (source,) = (
+            r
+            for r in records.values()
+            if r.address.kind == "declaration" and r.get("kind") == "source"
+        )
+        terminal = records[entry.get("terminal")]
+        edited[terminal.address] = _with_field(terminal, "owner", source.address)
+        return edited, terminal.address
+    if name == "slot_without_native_use":
+        native = max(
+            (a for a in records if a.kind == "native_use"), key=lambda a: a.position
+        )
+        del edited[native]
+        return edited, native
+    if name == "operand_through_another_owner":
+        (lpad,) = (r for r in records.values() if kind(r, "lpad"))
+        port = records[records[lpad.get("operands")[0]].get("port")]
+        other = min(
+            (
+                r
+                for r in records.values()
+                if r.address.kind == "read"
+                and records[r.get("port")].get("owner").kind == "row"
+                and records[r.get("port")].get("logical")[0] == "Text"
+            ),
+            key=lambda r: r.address.position,
+        )
+        assert records[other.get("port")].get("owner") != port.get("owner")
+        operands = (other.address, *lpad.get("operands")[1:])
+        edited[lpad.address] = _with_field(lpad, "operands", operands)
+        return edited, lpad.address
+    if name == "date_of_an_lpad":
+        (date_of,) = (r for r in records.values() if kind(r, "date_of"))
+        now = records[date_of.get("operands")[0]]
+        first = min(
+            (r for r in records.values() if kind(r, "lpad")),
+            key=lambda r: r.address.position,
+        )
+        for field in ("operator", "operands", "logical"):
+            now = _with_field(now, field, first.get(field))
+        edited[now.address] = now
+        return edited, now.address
+    (upstream,) = (
+        r
+        for r in records.values()
+        if r.address.kind == "declaration" and r.get("label") == "base"
+    )
+    (row,) = (
+        r
+        for r in records.values()
+        if r.address.kind == "row" and r.get("owner") == upstream.address
+    )
+    edited[row.address] = _with_field(row, "owner", entry.get("declaration"))
+    return edited, row.address
+
+
+@pytest.mark.parametrize("name", _COMPILED_CELL_EDITS)
+def test_mysql_compiled_cell_law_conditions_hold_on_edited_records(
+    tmp_path, monkeypatch, name
+):
+    """A forger's MySQL bundle, edited so that the terminal row belongs to its
+    source, a bind-safe slot loses its native marker, an lpad reads its text
+    through another row's port, the now() under date_of becomes an lpad, or an
+    upstream row claims the selected query, loads under its own pin; the
+    compiled scalar law given those records opens no cell for the edited
+    value, and compiled replay, its template and load_bundle refuse it."""
+    import pietto.execution as execution
+    from pietto._project import project_sql_emission_rows as rows
+    from pietto._project.project_compiled_build import build_compiled
+    from pietto._project.project_compiled_loading import load_compiled
+    from pietto._project.project_compiled_lowering import emit_compiled
+    from pietto._project.project_execution_template import prepare_compiled_template
+
+    source, form = _COMPILED_CELL_EDITS[name]
+    with monkeypatch.context() as patch:
+        if source == "forged":
+            world, policy, body = LPAD_NOW_REFUSALS[form]
+            patch.setattr(rows, "mysql_scalar_cell", _in_a_cell(rows.mysql_scalar_cell))
+        else:
+            world = "pair" if form == "s12_capture_context" else "words"
+            policy, body = "preserve_literals", LPAD_NOW_PAIRS[form]
+        _, outcome = lpad_now_world(tmp_path, world, "mysql", body, policy)
+        assert outcome.artifact is not None, outcome.blockers
+        built = build_compiled(outcome.artifact)
+    loaded = load_compiled(
+        built.payload,
+        expected_pin=built.pin,
+        accepted_producer=built.producer,
+        accepted_compatibility=built.compatibility,
+    )
+    records, query = dict(loaded.records), loaded.description.query
+    entry = records[query]
+    edited, at = _compiled_cell_edit(name, records, entry)
+    cells = rows.mysql_compiled_scalar_cells(edited, edited[query])
+    if name == "operand_through_another_owner":
+        assert rows.mysql_compiled_scalar_cells(records, entry)[at][2][0] == "field"
+        assert cells[at][2][0] == "other"
+    elif name == "date_of_an_lpad":
+        assert at in rows.mysql_compiled_scalar_cells(records, entry)
+        assert at not in cells
+    else:
+        assert cells == {}
+    description = wire.decode(built.payload)
+    payload = wire.encode(
+        wire.Description(
+            description.compatibility,
+            description.producer,
+            description.query,
+            tuple(
+                (member, tuple(edited[r.address] for r in kept if r.address in edited))
+                for member, kept in description.members
+            ),
+        )
+    )
+    pin = wire.content_pin(payload)
+    forged = load_compiled(
+        payload,
+        expected_pin=pin,
+        accepted_producer=built.producer,
+        accepted_compatibility=built.compatibility,
+    )
+    emitted = "COMPILED_BINDING_SLOTS" if name == "slot_without_native_use" else None
+    with pytest.raises(
+        wire.CompiledError, match=f"^{emitted or 'COMPILED_PHYSICAL_DOMAIN'}$"
+    ):
+        emit_compiled(forged, ())
+    with pytest.raises(wire.CompiledError, match="^COMPILED_PHYSICAL_DOMAIN$"):
+        prepare_compiled_template(forged)
+    with pytest.raises(execution.RequestRejected) as rejected:
+        execution.load_bundle(
+            payload,
+            expected_pin=pin,
+            accepted_producer=built.producer,
+            accepted_compatibility=built.compatibility[-1],
+        )
+    assert (rejected.value.code, rejected.value.detail) == (
+        "PIE-R1004",
+        "COMPILED_PHYSICAL_DOMAIN",
+    )
+
+
 def _token(kind, role, subject, text):
     return {"kind": kind, "role": role, "subject": subject, "start": 0, "end": 0}, text
 
@@ -6736,6 +6904,33 @@ def test_mysql_typed_cells_are_derived_in_linear_work(tmp_path, monkeypatch):
     for k in (8, 16, 32):
         assert reads[k] <= min(reads[k // 2] + 0.15, 3)
         assert compiled[k] <= min(compiled[k // 2] + 0.15, 3)
+
+
+@pytest.mark.parametrize("m", (4, 16))
+def test_mysql_compiled_cell_laws_skip_a_bundle_without_their_calls(tmp_path, m):
+    """PL.49: a MySQL bundle whose terminal row holds no lpad, now() or
+    date_of value and that declares no typed header parameter costs compiled
+    replay's two cell laws a few lookups, not a pass over its records: the
+    scalar law follows the terminal's chain and reads its values, the typed
+    law looks up parameter 0."""
+    from pietto._project import project_sql_emission_rows as rows
+
+    lets = "".join(
+        f"    let a{i} = {'text' if i == 0 else f'a{i - 1}'}\n" for i in range(m)
+    )
+    items = "".join(f"        p{i} = a{m - 1}\n" for i in range(m * m))
+    body = "table result:\n    from words\n" + lets + "    select:\n" + items
+    _, outcome = lpad_now_world(tmp_path, "words", "mysql", body)
+    assert outcome.status == "VERIFIED", outcome.blockers
+    loaded = _loaded(outcome.artifact)
+    entry = loaded.records[loaded.description.query]
+    terminal = loaded.records[entry.get("terminal")]
+    scalar = _CountedRecords(loaded.records)
+    assert rows.mysql_compiled_scalar_cells(scalar, entry) == {}
+    assert scalar.count <= 2 * m + len(terminal.get("values")) + 4
+    typed = _CountedRecords(loaded.records)
+    assert rows.mysql_compiled_typed_cells(typed, entry) is True
+    assert typed.count == 1
 
 
 # Phase77 S03: MySQL conditional, JOIN and two-level sums in their forms.

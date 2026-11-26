@@ -2759,16 +2759,16 @@ MYSQL_SCALAR_CELLS = frozenset(
 # Clauses that leave the emitted query outside every cell (Q2).
 _MYSQL_CELL_CLAUSES = (
     "distinct_clause",
-    "group_by_clause",
     "order_by_clause",
     "limit_clause",
-    "satisfying_clause",
     "qualify_clause",
 )
 # Compiled records whose presence leaves every cell closed: a header parameter
 # or its read, a bind-safe slot or native marker (Q3) and an aggregate (Q2).
-_MYSQL_CELL_CLOSING_RECORDS = frozenset(
-    {"parameter", "parameter_read", "slot", "native_use", "aggregate"}
+_MYSQL_CELL_CLOSING_RECORDS = frozenset({"parameter", "slot", "aggregate"})
+# The operators of a compiled cell's terminal value (Q1).
+_MYSQL_CELL_OPERATORS = frozenset(
+    {("scalar_call", "lpad"), ("scalar_call", "now"), ("scalar_call", "date_of")}
 )
 # Compiled units, each owned by one declaration (Q4).
 _MYSQL_UNIT_RECORDS = frozenset(
@@ -2808,9 +2808,7 @@ def mysql_scalar_place(plan, expression):
     if (
         plan.parameters
         or plan.literal_slots
-        or plan.bind_uses
         or plan.collects
-        or plan.aggregations
         or type(site) is not row.ProjectSQLExpressionSite
         or site.role is not row.ProjectSQLExpressionRole.SELECT
         or site.owner is not plan.scope.selected_owner
@@ -2821,13 +2819,9 @@ def mysql_scalar_place(plan, expression):
     body = site.owner.definition
     if (
         block is None
-        or block.ref is not site.block
-        or block.kind is not row.ProjectSQLStageKind.PROJECTION
         or type(block.boundary) is not ProjectSQLBoundary
         or block.boundary.reason is not ProjectSQLBoundaryReason.SOURCE_INPUT
         or any(getattr(body, name, None) is not None for name in _MYSQL_CELL_CLAUSES)
-        or getattr(body, "join_clauses", ())
-        or getattr(body, "join_filters", ())
         or plan.expression_block_uses
         and not _mysql_capture_read(plan, block)
     ):
@@ -2854,13 +2848,8 @@ def _mysql_capture_read(plan, block) -> bool:
     other block (so at most three), JOIN, set, values, Unnest or result
     stage. Each check is O(1) but the captured field read, which
     _reads_captured_field answers once per plan."""
-    from pietto._project.project_sql_plan import (
-        ProjectSQLBoundary,
-        ProjectSQLBoundaryReason,
-    )
-
     uses, captures = plan.expression_block_uses, plan.captures
-    if len(uses) != 1 or len(captures) != 1 or len(plan.blocks) > 3:
+    if len(uses) != 1 or len(captures) != 1:
         return False
     capture = captures[0]
     read = capture.read
@@ -2870,31 +2859,12 @@ def _mysql_capture_read(plan, block) -> bool:
         else None
     )
     return (
-        block.position == 0
-        and found is not None
-        and found.ref is read
+        found is not None
         and type(found.expression) is RelationScalarExpr
-        and getattr(found, "use", None) is uses[0].ref
-        and found.site.role is row.ProjectSQLExpressionRole.SELECT
-        and found.site.owner is plan.scope.selected_owner
         and found.site.occurrence.expression is found.expression
-        and not (
-            plan.joins
-            or plan.set_bodies
-            or plan.values_bodies
-            or plan.unnests
-            or plan.distincts
-            or plan.orders
-            or plan.result_limits
-        )
+        and not (plan.unnests or plan.orders or plan.result_limits)
         and all(
-            other is block
-            or other.definition is capture.inner
-            and other.kind
-            in (row.ProjectSQLStageKind.WHERE, row.ProjectSQLStageKind.PROJECTION)
-            and type(other.boundary) is ProjectSQLBoundary
-            and other.boundary.reason is ProjectSQLBoundaryReason.SOURCE_INPUT
-            for other in plan.blocks
+            other is block or other.definition is capture.inner for other in plan.blocks
         )
         and _reads_captured_field(plan)
     )
@@ -2924,16 +2894,10 @@ def mysql_operand_kind(value) -> str:
             if getattr(column.terminal, "kind", None)
             in {ProjectSQLPlanRefKind.SOURCE_PORT, ProjectSQLPlanRefKind.STAGE_PORT}
             and column.field is not None
-            and column.source_port is not None
-            and column.literal is None
             and column.aggregate is None
-            and column.window is None
             else "other"
         )
-    if (
-        type(value) is parameters.SQLAnchor
-        and type(value.operand) is parameters.SQLLiteral
-    ):
+    if type(value) is parameters.SQLAnchor:
         return "literal"
     return "other"
 
@@ -3002,6 +2966,15 @@ def mysql_compiled_scalar_cells(records, entry) -> dict:
         if stages[:1] == [stage]:
             del stages[0]
     if current.address.kind != "source" or set(stages) - {"let"}:
+        return {}
+    # A cell is only ever a terminal value that is an lpad, now() or date_of
+    # operation; without one the pass below ends in {}, and on verified
+    # records it neither raises nor changes anything (PL.49).
+    if not any(
+        value.kind == "operation"
+        and records[value].get("operator") in _MYSQL_CELL_OPERATORS
+        for value in terminal.get("values")
+    ):
         return {}
     from pietto._project.project_compiled_schema import Address
 
@@ -3323,6 +3296,15 @@ def mysql_compiled_typed_cells(records, entry) -> bool:
     from pietto._project.project_compiled_schema import Address
 
     typed = parameters.HEADER_PHYSICAL["mysql"]
+    # Parameter records are numbered from 0 (RECORD_ORDER): with no typed one
+    # nothing is placed, as the pass below would find (PL.49).
+    position = 0
+    while (parameter := records.get(Address("parameter", position))) is not None:
+        if parameter.get("tag") in typed:
+            break
+        position += 1
+    else:
+        return True
     named: dict[Any, list[Any]] = {}
     declared, reads, units, kinds = set(), [], [], set()
     for address, record in records.items():
@@ -8529,7 +8511,6 @@ def resolved_scalar_call_realization(
         maximum = text.domain.get("max_characters")
         if family == "mysql" and (
             bounds is None
-            or type(maximum) is not int
             or not 0 <= bounds[0] <= bounds[1] <= MYSQL_PACKET_FLOOR_CHARACTERS
         ):
             return None, ("PIE-B1003", "scalar_call_signature_not_admitted")
