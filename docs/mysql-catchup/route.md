@@ -152,8 +152,10 @@ the new forms to R2's refusal tests (D77.73); and updates the capability
 page, the `language.md` cell description, the J12 (3) list and its
 release-note fragment. MC's fragments take the number 77, as those of Wave
 A, E-C and the Phase77 follow-up package did: `77-g01-<topic>.md` to
-`77-g08-<topic>.md` for the families, `77-e04-<topic>.md` for E4 and
-`77-d19-<topic>.md` for D19 (DERIVED_MECHANICAL).
+`77-g08-<topic>.md` for the families, `77-e04-<topic>.md` for E4,
+`77-s03-<topic>.md` for the s03n list and `77-d19-<topic>.md` for D19,
+which did not ship: D19 did not extend the precheck, and its test-only
+commit has no fragment (DERIVED_MECHANICAL).
 
 | Slice | Delivers | Depends on |
 | --- | --- | --- |
@@ -166,6 +168,7 @@ A, E-C and the Phase77 follow-up package did: `77-g01-<topic>.md` to
 | G6 | Family G6 | G5 |
 | G7 | Family G7 | G6 |
 | G8 | Family G8 | G7 |
+| s03n | The s03n list: S03's neighbours that G7 and G8 hand on (PL.74), T1's second-level WHERE included (PL.91) | G8 |
 | D19 | The R2 measurement on MySQL, then the extended precheck | G8; a head that carries SQLite B2's S11 |
 | P49 | PL.49's two items | D19 |
 | Z | Closure: the phase-end acquisition review, the capability page and the completion audit | P49 |
@@ -234,7 +237,7 @@ family freezes.
   A family's first freeze counts toward MC.09's three; a rebind that stops
   before its freeze record, or that follows only a move of the candidate
   head with no campaign run on the old freeze, does not count (MC.17).
-  G1's first campaign matched 17 of its 18 forms; its I6 counterexample is
+  G1's first campaign matched 13 of its 14 forms; its I6 counterexample is
   an existing defect of `main`, not of G1's law, so G1 does not end:
   `main` is repaired first and G1 runs again on its second freeze (PL.67,
   which revises MC.09 for I6 only). Under that repair every grouped MySQL
@@ -342,8 +345,8 @@ about 15:30Z on 2026-11-16, the lines stood as follows.
 
 ## Closure and handoff
 
-MC closes with its completion audit, after the phase-end acquisition review.
-The audit hands off:
+MC closes with its [completion audit](completion-audit.md), after the
+phase-end acquisition review. The audit hands off:
 
 - the families and E4 forms opened, each with its law and qualification run;
 - the forms still refused, each with its decision (MC.09, MC.10), and the

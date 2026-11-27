@@ -44,8 +44,12 @@
   with PIE-R1004 (`detail` `PUBLIC_R2_UNQUALIFIED_FORM`) before any
   workspace access or connection (see the
   [R2 boundary](../execution.md#known-limitations)).
-- Native evidence: these forms open only on E4B's chain J qualification,
-  each on PostgreSQL 18.6 and MySQL 8.4.12.
+- Native evidence: E4B's chain J qualification on PostgreSQL 18.6 and
+  MySQL 8.4.12 matched on both databases: its raw stage over MySQL `DOUBLE`
+  (`e4b-join`), on the raw prepared and raw text routes, and its emitted
+  stage over this change's SQL (`e4b-join-emitted`), on the public, raw
+  prepared and raw text routes, over each S06 `Float`-keyed JOIN cell that
+  these forms open and over JOINs on `Int` and `Text` keys.
 - Beyond the MySQL cadence under J12 (3): what this note keeps refused and
   no other E4B note opens keeps its refusal with no target (MC.10).
 

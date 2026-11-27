@@ -43,9 +43,15 @@
   workspace access or connection, and one with an ORDER BY key with its
   earlier PIE-R1004 `REFINEMENT_COMPARISON_DOMAIN` when they prepare it
   (see the [R2 boundary](../execution.md#known-limitations)).
-- Native evidence: these forms open only on E4B's chain C qualification,
-  its raw stage over MySQL `DOUBLE` and its emitted stage over this change's
-  SQL, each on PostgreSQL 18.6 and MySQL 8.4.12.
+- Native evidence: E4B's chain C qualification on PostgreSQL 18.6 and
+  MySQL 8.4.12 opens these forms. Its raw stage over MySQL `DOUBLE`
+  (`e4b-c`), on the raw prepared and raw text routes, matched on both
+  databases in every group that opens a position. Its one mismatch is its
+  preregistered witness, a `count` of a non-null value, which MySQL
+  returned where PostgreSQL failed with SQLSTATE 22003: the mechanism above
+  for which a `count` of a `+`, `-` or `*` stays refused. Its emitted stage
+  over this change's SQL (`e4b-c-emitted`) matched on both databases on the
+  public, raw prepared and raw text routes.
 - The [deferred subjects](../roadmap.md#deferred-subjects) give E4B's
   chain C owner a target before the Phase82 freeze for the refused counts
   of a `Float` `+`, `-` or `*` and for counts under a WHERE. Either MySQL

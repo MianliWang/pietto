@@ -35,8 +35,8 @@
   dropped, each read unqualified, each import declared in place and each
   `sum` written `max` at both levels, which MySQL already emits. Each `sum`
   of an aggregating upstream is a column of its aggregation stage that the
-  query reads under no filter, so an out-of-range one is expected to fail
-  the statement on both targets (not yet observed: see below). Each R13
+  query reads under no filter, so an out-of-range one fails the statement
+  on both targets, as the G4 campaign observed on every route. Each R13
   requirement of a `sum` carries the evidence
   `target_checked_signed64_narrowing`.
 - PostgreSQL SQL and every other public PostgreSQL output are unchanged.
@@ -50,8 +50,9 @@
   leave the records and document of the plain read, its upstream a `query`
   of its module, so emission alone refuses those outside the cell.
 - The two-database qualification of these forms, the G4 campaign of the
-  MySQL catch-up work package on PostgreSQL 18.6 and MySQL 8.4.12, has not
-  run on this change.
+  MySQL catch-up work package on PostgreSQL 18.6 and MySQL 8.4.12,
+  matched on both databases on the public, raw prepared and raw text
+  routes.
 - Every other MySQL project `sum(Int)` keeps the refusal it has without
   this note, object for object (PIE-B1004
   `sum_int_aggregate_range_proof_missing` where that is its blocker). Among

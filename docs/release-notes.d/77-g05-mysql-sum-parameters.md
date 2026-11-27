@@ -38,10 +38,9 @@
   parameters.
 - The two-database qualification of these forms, the G5 campaign of the
   MySQL catch-up work package on PostgreSQL 18.6 and MySQL 8.4.12 over the
-  public, raw prepared and text routes, has not run on this change. That
-  the G3 note's evaluation rules hold with a bound value in place of each
-  literal, under prepared execution too, is expected from the SQL, not
-  observed.
+  public, raw prepared and text routes, matched on both databases, and the
+  G3 note's evaluation rules held with a bound value in place of each
+  literal, under prepared execution too.
 - Every other MySQL project `sum(Int)` keeps the refusal it has without
   this note, object for object (PIE-B1004
   `sum_int_aggregate_range_proof_missing` where that is its blocker). Among

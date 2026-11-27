@@ -62,9 +62,9 @@
   [R2 boundary](../execution.md#known-limitations)).
 - The two-database qualification of these forms is MC's E4 campaign on
   PostgreSQL 18.6 and MySQL 8.4.12 (MC.04, MC.05, MC.06): its raw
-  primitive stage over MySQL `DOUBLE` has run and matched on both
-  databases, and its emitted stage over this change's SQL has not run on
-  this change.
+  primitive stage over MySQL `DOUBLE` and its emitted stage over this
+  change's SQL both matched on both databases, `*` with its guard, so no
+  operator of the cell stays refused.
 - Beyond the MySQL cadence under J12 (3): E4's wider positions open only in
   [E4B's cells](../language.md#mysql-float-wider-cells), whose own notes
   list them, each on its own chain's qualification; every other position of

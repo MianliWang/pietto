@@ -89,8 +89,9 @@
   relation's name leaves as the underlying read, and which hold no name of
   an upstream item.
 - The two-database qualification of these statements, the `s03n` campaign of
-  the MySQL catch-up work package on PostgreSQL 18.6 and MySQL 8.4.12, has not
-  run on this change.
+  the MySQL catch-up work package on PostgreSQL 18.6 and MySQL 8.4.12,
+  matched on both databases on the public, raw prepared and raw text
+  routes.
 - Every other such MySQL project `sum(Int)` keeps the refusal it has without
   this note, object for object, with PIE-B1004
   `sum_int_aggregate_range_proof_missing` only at the sums of the lowest
@@ -120,7 +121,8 @@
   forms that MySQL opened after `0.1.11`.
 - Under J12 (3), the MySQL project `sum` of an `Int` outside the forms that
   `0.1.12`, the G1 to G8 notes and this note open stays beyond the MySQL
-  cadence, with the MySQL catch-up work package as its target.
+  cadence with no target: the MySQL catch-up work package closed with it
+  refused, and the Phase82 freeze rules on it (MC.10).
 
 Changed diagnostics: a MySQL statement whose only blockers in `0.2.1` were
 PIE-B1004 `sum_int_aggregate_range_proof_missing` at the sums of these

@@ -43,9 +43,14 @@
   `REFINEMENT_COMPARISON_DOMAIN` or `PUBLIC_R2_COMPUTED_GROUP_KEY`, before
   any workspace access or connection (see the
   [R2 boundary](../execution.md#known-limitations)).
-- Native evidence: these forms open only on E4B's chain C qualification,
-  the parameter ones on a harness that binds a `Float` per `?`, each on
-  PostgreSQL 18.6 and MySQL 8.4.12.
+- Native evidence: E4B's chain C qualification on PostgreSQL 18.6 and
+  MySQL 8.4.12 opens these forms: its raw stage over MySQL `DOUBLE`
+  (`e4b-c`) and its emitted stage over this change's SQL (`e4b-c-emitted`)
+  matched on both databases in each of these forms' groups, the emitted one
+  on the public, raw prepared and raw text routes. The parameter forms ran
+  on a harness that binds one `Float` per `?`: on each route the bound
+  values were the oracle's, and the text route's literals, `-0.0`,
+  `2^-1074` and `±DBL_MAX` among them, read back bit for bit.
 - Beyond the MySQL cadence under J12 (3): what this note keeps refused and
   no other E4B note opens keeps its refusal with no target (MC.10), a `*`
   beside a parameter among them (PL.76).

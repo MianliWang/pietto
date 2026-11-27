@@ -39,9 +39,12 @@
   workspace access or connection, and one with such an ORDER BY key with
   its earlier PIE-R1004 `REFINEMENT_COMPARISON_DOMAIN` when they prepare it
   (see the [R2 boundary](../execution.md#known-limitations)).
-- Native evidence: these forms open only on E4B's chain B qualification, its raw
-  stage over MySQL `DOUBLE` and its emitted stage over this change's SQL,
-  each on PostgreSQL 18.6 and MySQL 8.4.12.
+- Native evidence: E4B's chain B qualification on PostgreSQL 18.6 and
+  MySQL 8.4.12 matched on both databases: its raw stage over MySQL `DOUBLE`
+  (`e4b`), on the raw prepared and raw text routes, and its emitted stage
+  over this change's SQL (`e4b-emitted`), on the public, raw prepared and
+  raw text routes, so `+`, `-`, `*` and the sign each open in all three
+  positions and in every shape above, `*` with its guard.
 - Beyond the MySQL cadence under J12 (3): what this note keeps refused and
   no other E4B note opens keeps its refusal with no target (MC.10).
 

@@ -34,8 +34,9 @@
   its document, each with the test's operators, literals and field
   storages.
 - The two-database qualification of these forms, the G7 campaign of the
-  MySQL catch-up work package on PostgreSQL 18.6 and MySQL 8.4.12, has not
-  run on this change.
+  MySQL catch-up work package on PostgreSQL 18.6 and MySQL 8.4.12,
+  matched on both databases on the public, raw prepared and raw text
+  routes.
 - Every other MySQL project conditional `sum` keeps the refusal it has
   without this note, object for object (PIE-B1004
   `sum_int_aggregate_range_proof_missing` where that is its blocker). Among

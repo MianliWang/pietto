@@ -113,13 +113,14 @@ included, and the owner has authorized its publication (PL.55, PL.56);
 Phase81's commits reach `main` only after the `0.2.2` release commit
 (PL.57).
 The first tiers of SQLite B2 and DuckDB B2 and the interop relief enter
-`0.2.2` (PL.47, PL.55), and so do DuckDB B2's second tier, JF's J1 and
-the batches of E4B, the part of C04's E4 that MC.04 left to the owner's
-plan, that are pushed before `0.2.2`'s final assembly starts; SQLite B2's
-second tier publishes after `0.2.2` (PL.61, PL.64). Phase82
-and Phase83 also use `0.2.x`, and no release is called `1.0`: every release
-before Phase90 is a `0.2.x`, and Phase90, the Rust rewrite, releases as
-`0.3.0` (PL.51). The extension follows its own version line.
+`0.2.2` (PL.47, PL.55), and so do DuckDB B2's second tier and JF's
+J1, and E4B, the part of C04's E4 that MC.04 left to the owner's plan,
+whose lists had all qualified when `0.2.2`'s final assembly started (PL.85
+(2)); SQLite B2's second tier publishes after `0.2.2` (PL.61, PL.64), and
+no `0.2.3` is planned before Phase81 is done (PL.94). Phase82 and Phase83
+also use `0.2.x`, and no release is called `1.0`: every release before
+Phase90 is a `0.2.x`, and Phase90, the Rust rewrite, releases as `0.3.0`
+(PL.51). The extension follows its own version line.
 
 `0.2.0` requires PostgreSQL and MySQL within the MySQL cadence below, one
 local analysis path (the limited DuckDB path of Phase79, not a complete third
@@ -152,32 +153,30 @@ up in later batches; until then each MySQL path fails closed with a
 deterministic diagnostic. Semantics and IR stay dialect-neutral, a form opens
 on MySQL only after a passing two-database run (D74.09), and the capability
 page and the release notes list what MySQL refuses. Project `sum(Int)`
-(J12, D76.10) is an approved exception with the target Phase77, which
-opened it only in the S01 and S03 forms. Its other forms stay refused, and
-each release lists them under J12 (3) as not yet met, until the MySQL
-catch-up work package MC opens them form by form, extending S01's guarded
-SUM, each with its own two-database qualification (D77.76). MC also takes
-C04's E4, MySQL `Float` `+`, `-`, `*` and sign on fields, opening a form
-only where its finite results match and its overflow fails on both
-databases (D77.78), and MySQL R2's first page that ends `FAILED` without a
-public reason, which it measures on a real MySQL before it extends D77.80's
-precheck (PL.40, D19). MC is the catch-up phase that those rows name, a
-work package with no phase number (MC.01); it comes before Phase81 and
-ships in `0.2.2`. Its Gate 1 is recorded (MC.01–MC.18) and MC is active:
-all eight `sum(Int)` families G1–G8 (MC.02), E4's narrow cell with a
-guarded `*` (MC.04, MC.05), D19 and PL.49's two items, on its own ledger
-(MC.07); see the [MC route](mysql-catchup/route.md).
-G1's first campaign found an existing defect of `main` in S02's cell; its
-repair, which writes every grouped MySQL `SMALLINT` or `INT` `min` and `max`
-as `CAST(... AS SIGNED)` and declares it a `my_signed_int`, with R22 widened
-to merge such an operand on MySQL, goes first in `0.2.2`'s existing-defect
-batch, and G1 then runs again on a new freeze (PL.67, PL.71, PL.73). G3–G8's
-slices may be implemented in parallel with pipelined freezes (PL.74).
-`stddev` of an `Int` (J12, D76.10) is one with no target phase (D77.34), and
-MySQL nested results (D71.05) one with the target of the separate later
-nested work package (D77.32). The MySQL `UUID` header parameter stays
-withdrawn, with no target (D77.79). Each release request lists the MySQL forms
-beyond the cadence (D76.09).
+(J12, D76.10) is an approved exception: Phase77 opened it in the S01 and
+S03 forms, and the MySQL catch-up work package MC, which closed with its
+[completion audit](mysql-catchup/completion-audit.md), opened more of its
+forms family by family, each only after its own two-database
+qualification (D77.76, MC.03). Every MySQL project `sum(Int)` form that MC
+did not open keeps the exception with no target, listed under J12 (3) in
+each release, and the [Phase82 freeze ledger](#phase82-freeze-ledger)
+rules on it (MC.10). E4B, the part of C04's E4 that MC.04 left to the
+owner's plan (PL.58 (4), PL.75), opened E4's wider positions in
+[E4B's cells](language.md#mysql-float-wider-cells), each chain after its
+own raw and emitted campaigns (PL.78, PL.79). A MySQL `count` of a `Float`
+`+`, `-` or `*`, and any E4B `count` under a WHERE, wait for one of two
+fixes before the Phase82 freeze (PL.82); a `*` beside a header parameter
+(PL.76), a `Float` operation in a JOIN `on` (PL.68) and every other
+position of PostgreSQL's E4 keep their refusal with no target, listed
+under J12 (3) (MC.10). MySQL R2's first page that ends `FAILED` without a
+public reason stays as it is, since D19 did not extend D77.80's precheck:
+PL.40 D19 returns to the owner after the release
+([MC completion audit](mysql-catchup/completion-audit.md#d19)). `stddev`
+of an `Int` (J12, D76.10) is one with no target phase (D77.34), and MySQL
+nested results (D71.05) one with the target of the separate later nested
+work package (D77.32). The MySQL `UUID` header parameter stays withdrawn,
+with no target (D77.79). Each release request lists the MySQL forms beyond
+the cadence (D76.09).
 
 ### Editor work package
 
@@ -395,14 +394,15 @@ Batch 2 (M11–M16), one maintenance batch after the `v0.2.1` tag that
 CI scheduler fix for module fixtures built in several shards (F3), under the
 [CI workload governance](architecture/ci-workload-governance-v1.md)
 (PL.40, D14; PL.49). The pass left three items to later owners (PL.49),
-and two remain: the naming exception of
+and one remains: the naming exception of
 `tests/_pietto_mysql_native_prepared.py` waits until a line refreezes the
 qualification packages that name it, the nested work package or a later
-one, since MC refreezes none of them (MC.13); and the surviving mutants of
-Phase77 S12's allowlisted guards in `src/pietto/_project` go with the
-repeated MySQL cell derivation to the MySQL catch-up work package MC
-(MC.01). The pure verifier fidelity repair (PL.20, D77.54) settled those
-in the pure reader, as the
+one, since MC refreezes none of them (MC.13). MC settled the surviving
+mutants of Phase77 S12's allowlisted guards in `src/pietto/_project` with
+the repeated MySQL cell derivation ([MC completion
+audit](mysql-catchup/completion-audit.md#pl49s-two-items)), and the pure
+verifier fidelity repair (PL.20, D77.54) settled those in the pure reader,
+as the
 [Slice14 contract](spec/phase66-slice14-private-emission-observation-process-integration-v1.md#coverage)
 records. Phase81 takes the import time of
 `pietto.execution` (PL.40, D15). Each completion audit records the Gate 2
@@ -436,10 +436,10 @@ before its owner's Gate 1 takes it.
 | SQL-to-Pietto conversion | the tentative candidate 105 below |
 | SQLite's second tier: JOINs, range-proved `Int` arithmetic and windows (S13–S15) | the owner's plan, before the Phase82 freeze, with its own Gate 1 and ledger; the cutoff for admitting it is Phase82's Gate 1 (PL.58 (4)); the decision on the freeze ledger's JOIN key and grain row comes before any slice that opens a JOIN (PL.54, PL.58; [Phase78 audit](phases/phase-78/completion-audit.md#handoff)) |
 | SQLite run-time guarded and `Float` arithmetic, `/` and `%`; `Text` that holds NUL; SQLite bundles, saved results, relay, jobs and R2; other SQLite builds and platforms; the SQLite capability-facts profile | a later Gate 1 with a use case for the arithmetic; a later SQLite execution Gate 1 for NUL; the later execution and recovery owners; the Phase82 support matrix, where each is not qualified; the editor capability-facts Gate 1; each untaken one a Phase82 freeze input ([B2 deferred owners](phases/phase-78/route.md#b2-deferred-owners)) |
-| The other MySQL project `sum(Int)` forms | the MySQL catch-up work package MC before Phase81, form by form with its own qualification (D77.76, MC.01, MC.02; see [MySQL cadence](#mysql-cadence) and the [MC route](mysql-catchup/route.md)) |
-| MySQL `count` of a `Float` `+`, `-` or `*` in E4B's cells, and any E4B `count` under a WHERE, kept refused since MySQL may count a row without computing an argument it types non-nullable (a `NOT NULL` column under a nullable declaration), where PostgreSQL fails: first complete fix, MySQL SQL that computes the argument whatever the column's nullability | E4B's chain C owner, with new MySQL bytes and a chain C witness, before the Phase82 freeze (D77.78, MC.04, PL.58) |
-| The same `count`: second complete fix, MySQL source admission that refuses a `NOT NULL` column under a nullable declaration for each field such a `count` reads, on every reader's route | the MySQL source admission owner with E4B's chain C owner, with a chain C witness of a nullable declaration over a `NOT NULL` column, before the Phase82 freeze (D77.78, MC.04, PL.58) |
-| Every other position of PostgreSQL's E4 on MySQL, outside E4B's positions, such as two levels of nesting, `/` or an aggregate other than `count` of an operation | no target (MC.04, MC.10) |
+| The MySQL project `sum(Int)` forms that MC did not open | no target: an approved exception listed under J12 (3) in each release, and the Phase82 freeze ledger's MC.10 row (D77.76, MC.10; [MC completion audit](mysql-catchup/completion-audit.md#handoff)) |
+| MySQL `count` of a `Float` `+`, `-` or `*` in E4B's cells, and any E4B `count` under a WHERE, kept refused since MySQL may count a row without computing an argument it types non-nullable (a `NOT NULL` column under a nullable declaration), where PostgreSQL fails: first complete fix, MySQL SQL that computes the argument whatever the column's nullability | E4B's chain C owner, with new MySQL bytes and a chain C witness, before the Phase82 freeze (D77.78, MC.04, PL.58, PL.82) |
+| The same `count`: second complete fix, MySQL source admission that refuses a `NOT NULL` column under a nullable declaration for each field such a `count` reads, on every reader's route | the MySQL source admission owner with E4B's chain C owner, with a chain C witness of a nullable declaration over a `NOT NULL` column, before the Phase82 freeze (D77.78, MC.04, PL.58, PL.82) |
+| Every other position of PostgreSQL's E4 on MySQL, outside E4B's positions, such as two levels of nesting, `/` or an aggregate other than `count` of an operation, a `*` beside a header parameter or `Float` arithmetic in a JOIN `on` | no target (MC.04, MC.10, PL.68, PL.76) |
 | `verify_project_sql_plan` runs without a memo, 4 to 29 times per case | `_project/project_sql_plan_verification.py` and its emission callers, in Phase81 (PL.40, D15); a memo needs the owner ([Phase77 S26](phases/phase-77/route.md#s26-closure-record)) |
 
 ## Phase82 freeze ledger
@@ -476,6 +476,8 @@ each completion audit adds the freeze inputs of its phase here.
 | SQLite SQL and the `sqlite_file` route: single-file `emit-sql FILE --dialect sqlite` with the successful CLI JSON v1 `dialect` value `"sqlite"`, the PIE-B1000 SQLite reasons, the declared premises and `Bool` literals written `1` or `0`; the `sqlite.table("name")` spelling with its PIE-S2306 texts; the project dialect `sqlite` with the contract target `{"family": "sqlite", "release": "3.53.1"}`, the `main` namespace, the scan `"relation_rows"` and the storage kinds, the compile refusals and their order with their details and suggestions, and the first tier's forms with their SQL spellings (`COLLATE BINARY`, the NULLS clauses, `AVG(CAST(x AS REAL))`, the one-sided `sum`); `compile_query(dialect="sqlite")` and `execute(route="sqlite_file")` with `SQLiteFileInput` and `premise=None`, its defences and its value and integrity check, the limits of 128 MiB, 1,048,576 rows per source table and `limits.seconds`, the side files of a WAL file's read, and its detail words, `SQLITE_ERRORCODE_<n>` and `SQLITE_INTEGER_OVERFLOW` among them | frozen, kept alpha, or kept unsupported; the Phase82 support matrix lists the qualified SQLite build on Linux x86-64 under CPython 3.13.13 and 3.12.13, and every other build and platform as not qualified | D78.01–D78.04, D78.12, PL.47, PL.54, PL.59; Phase78 B1 closeout; [Phase78 audit](phases/phase-78/completion-audit.md) |
 | The DuckDB Arrow route: the `duckdb.arrow("key")` spelling with its PIE-S2306 texts, the project dialect `duckdb`, the contract target `{"family": "duckdb", "release": "2.0.0"}` with `scan` `"arrow_registration"`, the `arrow` namespace and the `arrow_*` storage kinds, the DuckDB compile refusals and their order with B2's details and suggestions, B2's forms (grouping with `count`, `sum`, `min` and `max`, `having`, `order by` with its NULLS clauses, the static `limit`, and predicates over literals and parameters of four types) and the second tier's (`Date`, `Timestamp` and `Decimal(p, s)` fields with `p` at most 38 and their `arrow_date32`, `arrow_timestamp_us` and `arrow_decimal128` storages, `Int` arithmetic by range proof and `Float` arithmetic with its overflow and underflow checks in the final projection, and `inner` and `left` equality JOINs, one source read twice included) with their SQL spellings and `physical_type` values, `execute(route="duckdb_arrow")` with a `DuckDBArrowInput` or a tuple of them and `premise=None`, the capture limits of 1,048,576 rows per input and 256 MiB of the selected columns over all inputs with their check order and the declared key check, the reading of every result in batches with its charge and `transaction`, the session settings with the 1 GiB `memory_limit` and the `default_collation` read-back, the detail words and the `execute-duckdb` extra | frozen, kept alpha, or kept unsupported; the Phase82 support matrix lists `duckdb` `2.0.0` with `pyarrow` `26.0.1` on the qualified platforms and every other release and platform as not qualified | D79.01–D79.15, D79.17–D79.30, AD79.01, PL.47, PL.50; [Phase79 B1 audit](phases/phase-79/completion-audit.md), [B2 audit](phases/phase-79/b2-completion-audit.md), [Phase79 completion audit](phases/phase-79/t2-completion-audit.md) |
 | `RequestRejected` also carries the PIE-R2xxx refusals of the checks that `execute()` runs itself (`PIE-R2003` on `mysql_rows` and `postgres_adbc`, `PIE-R2001` and `PIE-R2002` of the loaded PyArrow on `duckdb_arrow`, `PIE-R2002` `SQLITE_BUILD` on `sqlite_file`), and the PIE-R1004 width refusal (`LIMIT`) covers only the PostgreSQL and MySQL routes | each freezes with the execution error classes, or changes before the freeze | D79.11; [Phase79 B1 audit](phases/phase-79/completion-audit.md) |
+| The MySQL project `sum(Int)` forms that the MySQL catch-up work package MC did not open, and the E4 forms that neither E4's narrow cell nor E4B opens, `Float` arithmetic in a JOIN `on` (PL.68) and a `*` beside a header parameter (PL.76) among them | the support matrix states MySQL as unsupported for each, or gives it a target after the freeze | MC.10, PL.68, PL.76; [MC completion audit](mysql-catchup/completion-audit.md#handoff) |
+| Whether PostgreSQL fails a statement over an out-of-range `Float` value that the plan may leave uncomputed, as in the shapes that E4B keeps refused because the plan fixes their computed rows (a `let` that a WHERE beside it does not read, a comparison beside another WHERE condition): the [`Float` law](language.md#float-values) does not say, while the `Int` law says that whether and when such a statement fails depends on the plan ([Aggregates and grouping](language.md#aggregates-and-grouping)) | the `Float` law's wording, decided at Phase82's Gate 1, which may take the `Int` law's; an uncertainty of `main`, not an observed defect | PL.75 (2); [MC completion audit](mysql-catchup/completion-audit.md#e4b) |
 
 ## Project-mode follow-up
 

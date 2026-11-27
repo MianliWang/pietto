@@ -37,8 +37,9 @@
   records and the pure boundary from its document, each with every JOIN's
   kind, inputs and `on`.
 - The two-database qualification of these forms, the G6 campaign of the
-  MySQL catch-up work package on PostgreSQL 18.6 and MySQL 8.4.12, has not
-  run on this change.
+  MySQL catch-up work package on PostgreSQL 18.6 and MySQL 8.4.12,
+  matched on both databases on the public, raw prepared and raw text
+  routes.
 - Every other MySQL project `sum(Int)` over a JOIN keeps the refusal it has
   without this note, object for object. Among them are a FULL JOIN
   (PIE-B1003 `mysql_full_join_approved_non_support`), a CROSS JOIN, an `on`

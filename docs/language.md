@@ -4777,12 +4777,11 @@ the cell's guarded `SUM` inside the aggregation stage, and HAVING, ORDER
 BY, LIMIT and DISTINCT read its column there, as the PostgreSQL SQL of the
 same query reads its checked sum: the clauses, the keys, the other
 aggregates, FROM, WHERE and GROUP BY are the MySQL SQL of the same query
-with each `sum` written `max`. The G3
-two-database qualification has not run yet, so what follows is expected
-from that SQL, not observed: a HAVING line that reads a `sum` reads it in
-every group, so an out-of-range sum fails the statement even where the
-line would drop that group, and every group that HAVING keeps is computed
-whether or not the LIMIT returns it.
+with each `sum` written `max`. The G3 two-database qualification
+observed what follows on both databases and every route: a HAVING line
+that reads a `sum` reads it in every group, so an out-of-range sum fails
+the statement even where the line would drop that group, and every group
+that HAVING keeps is computed whether or not the LIMIT returns it.
 
 Since `0.2.2` (MC G4), a statement in that cell may also name and reach
 its rows in other ways. Each `query` or `table` may declare relation
@@ -4827,11 +4826,10 @@ without G4, object for object. Each `sum`, at either
 level, is the cell's guarded `SUM`; everything else is the MySQL SQL of
 the same statement with each relation alias and unread window dropped,
 each read unqualified, each import declared in place and each `sum`
-written `max` at both levels. The G4 two-database qualification has not
-run yet, so what follows is expected from that SQL, not observed: each
-`sum` of an aggregating upstream is a column of its aggregation stage that
-the query reads under no filter, so an out-of-range one fails the whole
-statement.
+written `max` at both levels. The G4 two-database qualification observed
+what follows on both databases and every route: each `sum` of an
+aggregating upstream is a column of its aggregation stage that the query
+reads under no filter, so an out-of-range one fails the whole statement.
 
 Since `0.2.2` (MC G5), a statement in that cell may also hold placeholders.
 The selected query may declare header parameters of type `Bool`, `Int`,
@@ -4866,10 +4864,10 @@ physical type and server index and every fixed value included, is the
 MySQL SQL of the same statement under the same header and policy with
 each `sum` written `max`, and a parameter that nothing reads puts nothing
 in the SQL. A compiled template re-derives the statement for each binding
-and replays the same bytes. The G5 two-database qualification has not run
-yet, so what follows is expected from that SQL, not observed: G3's
-evaluation rules above hold with each bound value in place of the literal it
-stands for, under prepared execution as under the text protocol.
+and replays the same bytes. The G5 two-database qualification observed
+what follows on both databases: G3's evaluation rules above hold with
+each bound value in place of the literal it stands for, under prepared
+execution as under the text protocol.
 
 Since `0.2.2` (MC G8), MySQL project SQL also emits each `sum` of an `Int` of a
 statement whose definitions form a chain of levels: the selected `query` or

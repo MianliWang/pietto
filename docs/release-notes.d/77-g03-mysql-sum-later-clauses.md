@@ -25,11 +25,11 @@
   PostgreSQL SQL of the same query reads its checked sum; they, the keys,
   the other aggregates, FROM, WHERE and GROUP BY are the MySQL SQL of the
   same query with each `sum` written `max`, which MySQL already emits.
-  Expected from that SQL, not yet observed on the databases: a HAVING line
-  that reads a `sum` reads it in every group, so an out-of-range sum fails
-  the statement even where the line would drop that group, and every group
-  that HAVING keeps is computed whether or not the LIMIT returns it. Each
-  R13 requirement of a `sum` carries the evidence
+  Observed on both databases and every route in the G3 campaign: a HAVING
+  line that reads a `sum` reads it in every group, so an out-of-range sum
+  fails the statement even where the line would drop that group, and every
+  group that HAVING keeps is computed whether or not the LIMIT returns it.
+  Each R13 requirement of a `sum` carries the evidence
   `target_checked_signed64_narrowing`.
 - PostgreSQL SQL and every other public PostgreSQL output are unchanged.
   Compiled bundles and live templates replay the same SQL. Emission derives
@@ -38,8 +38,9 @@
   from its records, following each clause's reads to the aggregate's keys
   and values.
 - The two-database qualification of these forms, the G3 campaign of the
-  MySQL catch-up work package on PostgreSQL 18.6 and MySQL 8.4.12, has not
-  run on this change.
+  MySQL catch-up work package on PostgreSQL 18.6 and MySQL 8.4.12,
+  matched on both databases on the public, raw prepared and raw text
+  routes.
 - Every other MySQL project `sum(Int)` keeps the refusal it has without
   this note, object for object (PIE-B1004
   `sum_int_aggregate_range_proof_missing` where that is its blocker). Among
