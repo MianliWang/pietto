@@ -5,6 +5,7 @@ fixed-vocabulary text without credentials, and no exception chaining."""
 from __future__ import annotations
 
 import copy
+from dataclasses import replace
 import os
 from pathlib import Path
 import pickle
@@ -19,8 +20,15 @@ import pietto.execution as execution
 from pietto._project import project_arrow_result
 from pietto._project import project_duckdb_sql as duckdb_sql
 from pietto._project import project_execution as ex
+from pietto._project import project_mysql_view_source as view_source
 from pietto._project.project_compiled_schema import CompiledError
 from pietto._project.project_execution_template import BindingError
+from pietto._project.project_mysql_view_source_verification import (
+    SourceObject,
+    security_paths,
+    verify_closure,
+    verify_view,
+)
 from pietto._project.project_result_contract import ResultError
 from pietto.execution import _errors as errors
 
@@ -35,6 +43,11 @@ class DriverError(Exception):
     def __init__(self, message, sqlstate=None):
         super().__init__(message)
         self.sqlstate = sqlstate
+
+
+class ForeignValueError(ValueError):
+    """A foreign ValueError subclass, as Arrow raises, whose message must never
+    be read although it has the form of a private word."""
 
 
 def test_documented_runtime_codes_are_exactly_the_implemented_codes():
@@ -177,8 +190,13 @@ def test_value_and_bundle_refusal_text_is_fixed_vocabulary():
         (DriverError("statement timeout", "57014"), {}, "PIE-R3002"),
         (DriverError("relation missing", "42P01"), {}, "PIE-R3003"),
         (DriverError("server closed the connection", None), {}, "PIE-R3003"),
+        (ForeignValueError("EXECUTION_RESOURCE_LIMIT"), {}, "PIE-R3003"),
         (ResultError("EXECUTION_RESOURCE_LIMIT"), {}, "PIE-R3004"),
         (ex.ExecutionError("POSTGRES_SOURCE_RESOURCE_LIMIT"), {}, "PIE-R3004"),
+        (ex.ExecutionError("MYSQL_VIEW_OBJECT_LIMIT"), {}, "PIE-R3004"),
+        (ex.ExecutionError("MYSQL_VIEW_DEFINITION_SIZE"), {}, "PIE-R3004"),
+        (ex.ExecutionError("MYSQL_VIEW_DEPENDENCY_CYCLE"), {}, "PIE-R3999"),
+        (ex.ExecutionError("MYSQL_SOURCE_ENGINE"), {}, "PIE-R3999"),
         (ResultError("VALUE_DOMAIN"), {}, "PIE-R3005"),
         (ResultError("EXECUTION_METADATA"), {}, "PIE-R3005"),
         (ex.ExecutionError("EXECUTION_FINALIZATION"), {}, "PIE-R3006"),
@@ -204,6 +222,100 @@ def test_attempt_failures_are_classified_deterministically(error, facts, code):
     assert refusal.code == code
     assert refusal.phase == "read"
     assert refusal.cause == type(error).__name__
+
+
+MYSQL_KEY = ("s", "v")
+MYSQL_VIEW = (
+    "CREATE ALGORITHM=UNDEFINED DEFINER=`root`@`%` SQL SECURITY INVOKER VIEW `v`"
+    " AS select `t`.`id` AS `id` from `t`"
+)
+
+
+def _mysql_reader_refusal(word):
+    """The refusal with ``word`` that Pietto's MySQL source reader raises."""
+    limits = view_source.ViewLimits
+    view = view_source.recognize_view(MYSQL_KEY, MYSQL_VIEW)
+    call = MYSQL_VIEW.replace("`t`.`id` AS", "abs(`t`.`id`) AS")
+    table = SourceObject(
+        ("s", "t"), "BASE TABLE", "InnoDB", (("id", "VIRTUAL GENERATED", ""),), None, ()
+    )
+    cycle = view_source.recognize_view(MYSQL_KEY, MYSQL_VIEW.replace("`t`", "`v`"))
+    refuse = {
+        "MYSQL_VIEW_LEXICAL_CONTEXT": lambda: verify_view(
+            replace(view, collation="utf8mb4_0900_ai_ci")
+        ),
+        "MYSQL_VIEW_UNQUALIFIED_CALL": lambda: verify_view(
+            view_source.recognize_view(MYSQL_KEY, call)
+        ),
+        "MYSQL_VIEW_NESTING": lambda: view_source.lex(
+            "select " + "(" * 49 + "1" + ")" * 49
+        ),
+        "MYSQL_SOURCE_READ_TIME_GENERATED": lambda: verify_closure(
+            (table.key,), (table,), ()
+        ),
+        "MYSQL_VIEW_DEPENDENCY_CYCLE": lambda: verify_closure(
+            (MYSQL_KEY,),
+            (SourceObject(MYSQL_KEY, "VIEW", None, (("id", "", ""),), cycle, ()),),
+            (),
+        ),
+        "MYSQL_VIEW_DEFINITION_SIZE": lambda: view_source.lex(
+            MYSQL_VIEW, limits(bytes=8)
+        ),
+        "MYSQL_VIEW_TOKEN_LIMIT": lambda: view_source.lex(MYSQL_VIEW, limits(tokens=8)),
+        "MYSQL_VIEW_EDGE_LIMIT": lambda: view_source.recognize_view(
+            MYSQL_KEY, MYSQL_VIEW, limits=limits(edges=0)
+        ),
+        "MYSQL_VIEW_RESOURCE_LIMIT": lambda: verify_view(view, limits=limits(depth=0)),
+        "MYSQL_VIEW_SECURITY_LIMIT": lambda: security_paths(
+            (MYSQL_KEY,), (), "reader@%", "NONE", limits=limits(edges=0)
+        ),
+        "MYSQL_VIEW_OBJECT_LIMIT": lambda: verify_closure(
+            (table.key,), (table,), (), limits=limits(objects=0)
+        ),
+    }[word]
+    with pytest.raises(view_source.ViewSourceError) as caught:
+        refuse()
+    assert caught.value.args == (word,)
+    return caught.value
+
+
+@pytest.mark.parametrize(
+    "word,code",
+    (
+        ("MYSQL_VIEW_LEXICAL_CONTEXT", "PIE-R2007"),
+        ("MYSQL_VIEW_UNQUALIFIED_CALL", "PIE-R2007"),
+        # A bound of depth whose word also names an unbalanced parenthesis.
+        ("MYSQL_VIEW_NESTING", "PIE-R2007"),
+        ("MYSQL_SOURCE_READ_TIME_GENERATED", "PIE-R2007"),
+        # A bound of depth whose word also names a cycle among views.
+        ("MYSQL_VIEW_DEPENDENCY_CYCLE", "PIE-R2007"),
+        ("MYSQL_VIEW_DEFINITION_SIZE", "PIE-R3004"),
+        ("MYSQL_VIEW_TOKEN_LIMIT", "PIE-R3004"),
+        ("MYSQL_VIEW_EDGE_LIMIT", "PIE-R3004"),
+        ("MYSQL_VIEW_RESOURCE_LIMIT", "PIE-R3004"),
+        ("MYSQL_VIEW_SECURITY_LIMIT", "PIE-R3004"),
+        ("MYSQL_VIEW_OBJECT_LIMIT", "PIE-R3004"),
+    ),
+)
+def test_a_mysql_source_reader_refusal_keeps_its_word(word, code):
+    """mysql_rows admits a view source only in its native profile, for example
+    created under utf8mb4_0900_bin, and a table without a VIRTUAL generated
+    column; Pietto's own refusal is not a server error. One with one of the
+    six words of its reader's fixed bounds is a resource limit, as on
+    PostgreSQL and SQLite; nesting deeper than the reader parses keeps
+    MYSQL_VIEW_NESTING's PIE-R2007, and the reader's
+    MYSQL_VIEW_DEPENDENCY_CYCLE keeps its PIE-R2007. Past the deadline,
+    PIE-R3001 wins with the same word as its detail."""
+    error = _mysql_reader_refusal(word)
+    for deadline, expected in ((False, code), (True, "PIE-R3001")):
+        refusal = errors.attempt_failure(
+            error, phase="admission", deadline=deadline, connected=True
+        )
+        category, explanation = errors.CODES[expected]
+        assert str(refusal) == (
+            f"{expected} {category}: {explanation} (detail={word},"
+            " phase=admission, cause=ViewSourceError)"
+        )
 
 
 def _sqlite_error(kind, message, code):

@@ -189,9 +189,11 @@ fixes before the Phase82 freeze (PL.82); a `*` beside a header parameter
 (PL.76), a `Float` operation in a JOIN `on` (PL.68) and every other
 position of PostgreSQL's E4 keep their refusal with no target, listed
 under J12 (3) (MC.10). MySQL R2's first page that ends `FAILED` without a
-public reason stays as it is, since D19 did not extend D77.80's precheck:
-PL.40 D19 returns to the owner after the release
-([MC completion audit](mysql-catchup/completion-audit.md#d19)). `stddev`
+public reason stays as it is, since D19 did not extend D77.80's precheck
+([MC completion audit](mysql-catchup/completion-audit.md#d19)): MC2, the
+MySQL catch-up after the freeze, measures it again with D19's three
+repairs and the corrected codes of MySQL's source refusals, and D19's
+extension does not ship before then (PL.106). `stddev`
 of an `Int` (J12, D76.10) is one with no target phase (D77.34), and MySQL
 nested results (D71.05) one with the target of the separate later nested
 work package (D77.32). The MySQL `UUID` header parameter stays withdrawn,

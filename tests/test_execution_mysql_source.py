@@ -86,6 +86,47 @@ def test_same_literal_is_not_a_call_and_lexer_spans_are_exact():
         view("select " + "NOT " * 70 + "1 AS `x`")
 
 
+def test_token_and_reference_bounds_hold_at_the_documented_numbers():
+    """docs/execution.md#mysql-rows: a view text of more than 32,768 tokens
+    and more than 1,024 relation references in one view or in all of them
+    are refused."""
+    text = "select " + ",".join("1" * 16384)
+    assert len(model.lex(text)) == 32768
+    with pytest.raises(model.ViewSourceError) as caught:
+        model.lex(text + " 1")
+    assert caught.value.args == ("MYSQL_VIEW_TOKEN_LIMIT",)
+    part = "select `x`.`id` AS `id` from `t` `x`"
+    assert len(view(" union all ".join([part] * 1024)).references) == 1024
+    with pytest.raises(model.ViewSourceError) as caught:
+        view(" union all ".join([part] * 1025))
+    assert caught.value.args == ("MYSQL_VIEW_EDGE_LIMIT",)
+
+    def balanced(count):  # shallow enough for the syntax tree's bounds
+        if count == 1:
+            return part
+        half = count // 2
+        return f"({balanced(half)}) union all ({balanced(count - half)})"
+
+    context = ("server", "account", "role", "database", "transaction")
+    root = view("select `x`.`id` AS `id` from `a` `x`")
+    table = SourceObject(
+        ("phase66", "t"), "BASE TABLE", "InnoDB", (("id", "", ""),), None, context
+    )
+
+    def closure(count):  # the source reads `a` once, and `a` reads `t` count times
+        nested = view(balanced(count), name="a")
+        return (
+            SourceObject(root.key, "VIEW", None, (("id", "", ""),), root, context),
+            SourceObject(nested.key, "VIEW", None, (("id", "", ""),), nested, context),
+            table,
+        )
+
+    assert len(verify_closure((root.key,), closure(1023), context)) == 1024
+    with pytest.raises(model.ViewSourceError) as caught:
+        verify_closure((root.key,), closure(1024), context)
+    assert caught.value.args == ("MYSQL_VIEW_EDGE_LIMIT",)
+
+
 def objects():
     context = ("server", "account", "role", "database", "transaction")
     root = view(

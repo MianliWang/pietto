@@ -1578,6 +1578,50 @@ route, cursor API or whole-result materializer.
   `user`. Each attempt observes its own data and control sessions, requalifies
   its compiled sources, and treats the schemas declaration as an explicit managed
   deployment premise, not a grant or proof of compliance.
+- **Views and tables as sources.** Each attempt reads `SHOW CREATE VIEW` for
+  every source that is a view and every view that such a view reads, and
+  admits the view only when MySQL reports `character_set_client` `utf8mb4` and
+  `collation_connection` `utf8mb4_0900_bin` for it. MySQL keeps these values
+  from the session that ran `CREATE VIEW`, not from the server's or the
+  schema's defaults: the `mysql` client started with
+  `--default-character-set=utf8mb4` creates views under `utf8mb4_0900_ai_ci`
+  even on a server started with `--collation-server=utf8mb4_0900_bin`. Create
+  or replace such a view after `SET NAMES utf8mb4 COLLATE utf8mb4_0900_bin`. A
+  table among the sources, or read by such a view, must not have a `VIRTUAL`
+  generated column; a `STORED` one is admitted. Such a refusal fails the
+  attempt as it opens: entering the handle that `execute()` returns raises
+  `PIE-R2007` with the refusal's word as the detail, such as
+  `MYSQL_VIEW_LEXICAL_CONTEXT` for a view's recorded values or
+  `MYSQL_SOURCE_READ_TIME_GENERATED` for a `VIRTUAL` generated column, and
+  `save` and `save_recoverable` end with `terminal` `FAILED`. Reading
+  `SHOW CREATE VIEW` needs MySQL's `SHOW VIEW` privilege on each such view as
+  well as `SELECT`: with `SELECT` alone, MySQL refuses it (error `1142`) and
+  the attempt fails as it opens with `PIE-R3003` and SQLSTATE `42000`. Pietto
+  reads these definitions within fixed bounds that no option changes. Sources
+  beyond one of the following fail the attempt the same way with `PIE-R3004`
+  and the bound's word as the detail: more than 128 tables and views among the
+  sources and the objects that their views read (`MYSQL_VIEW_OBJECT_LIMIT`),
+  more than 262,144 bytes of their `SHOW CREATE` text
+  (`MYSQL_VIEW_DEFINITION_SIZE`), a view text of more than 32,768 tokens
+  (`MYSQL_VIEW_TOKEN_LIMIT`), more than 1,024 relation references in one view
+  or in all of them (`MYSQL_VIEW_EDGE_LIMIT`), a view's syntax tree beyond the
+  reader's depth or size bound (`MYSQL_VIEW_RESOURCE_LIMIT`), and invocation
+  paths through the views beyond its depth or count bound
+  (`MYSQL_VIEW_SECURITY_LIMIT`). Two other bounds of depth are reported with
+  words that also name another refusal, and take that word's code: parentheses
+  or expressions in a view's text nested deeper than the reader parses, such
+  as more than 48 nested parentheses, are `PIE-R2007` with
+  `MYSQL_VIEW_NESTING`, the word of an unbalanced parenthesis, and a table or
+  view that the reader reaches more than 48 levels below a source is
+  `PIE-R3999` with `MYSQL_VIEW_DEPENDENCY_CYCLE`, the word of a cycle among
+  views. The reader takes the query's sources in contract order, then the
+  registry relation of each R2 source input in the same order. It reads each
+  view once, on the first path that reaches it, following each view's
+  references in the order of its text, and does not read below that view again
+  on a later path. A table or view that only such a later path puts more than
+  48 levels below a source, under a view that the reader has already read on a
+  shorter path, is bounded only as part of that invocation path, `PIE-R3004`
+  with `MYSQL_VIEW_SECURITY_LIMIT`.
 - **Selected dependency and ambient inputs.** Only
   `mysql-connector-python==26.10.0`, its own `mysql.connector.connection` file,
   and `pyarrow==26.0.1` are accepted. A missing selected dependency is

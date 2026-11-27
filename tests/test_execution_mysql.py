@@ -1,9 +1,11 @@
 """Offline MySQL request/owner/protocol boundaries; no database acquisition."""
 
+import json
 from dataclasses import replace
 
 import pytest
 
+import _pietto_sql_emission as emission
 from _pietto_execution_mysql_access import access
 from _pietto_execution_guard_cases import manifest, case_preparation
 from _pietto_execution_refinement import capabilities, refined
@@ -20,6 +22,7 @@ from pietto._project.project_guard_runtime import (
     prepare_guarded_execution,
     ObservedGuardRequest,
 )
+from pietto._project.project_mysql_view_source import ViewSourceError
 from pietto._project.project_refinement import prepare_refinement, TieRefinement
 from pietto._project.project_refinement_enumeration import prepare_refined_execution
 
@@ -614,6 +617,202 @@ def test_catalog_persistent_table_does_not_qualify_temporary_shadow(
     with pytest.raises(ExecutionError, match="MYSQL_SOURCE_PERSISTENT_IDENTITY"):
         context.qualify_sources(owner)
     assert owner._qualification is None
+
+
+def _source_closure(root, shape, size):
+    """The views (by name, their texts' bodies) and tables of a source."""
+
+    def view(*below):
+        return " union all ".join(
+            f"select `x`.`id` AS `id` from `{b}` `x`" for b in below
+        )
+
+    if shape == "bytes":
+        return {}, {root: size}
+    if shape == "objects":
+        tables = [f"t{i}" for i in range(size - 5)]
+        views = {f"g{i}": view(*tables[i::4]) for i in range(4)}
+        return views | {root: view(*views)}, dict.fromkeys(tables)
+    if shape == "chain":
+        path = [root] + [f"d{i}" for i in range(1, size)] + ["t"]
+    else:
+        path = [f"b{i}" for i in range(1, size[0] + 1)] + ["a", "t"]
+    views = {a: view(b) for a, b in zip(path, path[1:])}
+    if shape == "diamond":
+        views[root] = view(*(("a", "b1") if size[1] == "a" else ("b1", "a")))
+    return views, {"t": None}
+
+
+@pytest.mark.parametrize(
+    "shape,size,expected",
+    (
+        ("chain", 47, 48),
+        ("chain", 48, (ViewSourceError, "MYSQL_VIEW_SECURITY_LIMIT")),
+        ("chain", 49, (ExecutionError, "MYSQL_VIEW_DEPENDENCY_CYCLE")),
+        ("diamond", (47, "a"), (ViewSourceError, "MYSQL_VIEW_SECURITY_LIMIT")),
+        ("diamond", (47, "b1"), (ExecutionError, "MYSQL_VIEW_DEPENDENCY_CYCLE")),
+        ("diamond", (48, "a"), (ExecutionError, "MYSQL_VIEW_DEPENDENCY_CYCLE")),
+        ("objects", 128, 128),
+        ("objects", 129, (ExecutionError, "MYSQL_VIEW_OBJECT_LIMIT")),
+        ("bytes", 262144, 1),
+        ("bytes", 262145, (ExecutionError, "MYSQL_VIEW_DEFINITION_SIZE")),
+    ),
+)
+def test_source_reader_bounds_hold_at_the_documented_numbers(
+    tmp_path, monkeypatch, shape, size, expected
+):
+    """docs/execution.md#mysql-rows: more than 128 tables and views, more than
+    262,144 bytes of SHOW CREATE text and a table or view that the reader
+    reaches more than 48 levels below a source are refused as the attempt
+    reads the definitions. A chain puts t `size` levels below the source. In
+    a diamond, the source reads a, which reads t, and b1 -> ... -> bk -> a;
+    the reader reads a once, on the first path. With k = 47, a is 48 levels
+    down the chain: the reader reaches t 49 levels down only when b1 comes
+    first; with a first, only the invocation path is too deep. With k = 48,
+    the reader reaches a itself 49 levels down, whichever comes first. An
+    admitted closure stops only at the live qualification."""
+    from pietto._project.project_execution import MySQLDeploymentPremise
+    from pietto._project import project_execution_mysql_context as context
+    from pietto._project.project_execution_source import identifier
+
+    artifact = refined(tmp_path, "mysql", "G_emission_table_bag", "bag").original
+    a = access()
+    owner = MySQLExecution(
+        prepare_execution(
+            artifact,
+            a,
+            mysql_deployment=MySQLDeploymentPremise(
+                a, artifact.request.sources, ("phase66",)
+            ),
+        )
+    )
+    monkeypatch.setattr(owner, "_refresh", lambda: None)
+    views, tables = _source_closure(artifact.request.sources[0].name, shape, size)
+    keys = []
+
+    def read(_, sql, args=()):
+        if sql == "SELECT @@sql_quote_show_create":
+            return (), ((1,),)
+        if "information_schema.TABLES" in sql:
+            keys.append(args[1])
+            return (), (
+                ("VIEW", None) if args[1] in views else ("BASE TABLE", "InnoDB"),
+            )
+        if "information_schema.COLUMNS" in sql:
+            return (), (("id", "", ""),)
+        name = keys[-1]
+        quoted = identifier(name, family="mysql")
+        if sql.startswith("SHOW CREATE VIEW"):
+            head = "CREATE ALGORITHM=UNDEFINED DEFINER=`root`@`%` SQL SECURITY INVOKER"
+            text = f"{head} VIEW {quoted} AS {views[name]}"
+            return (), ((name, text, "utf8mb4", "utf8mb4_0900_bin"),)
+        text = f"CREATE TABLE {quoted} (`id` bigint) ENGINE=InnoDB"
+        length = tables[name]
+        if length is not None:
+            text += " COMMENT='" + "a" * (length - len(text.encode()) - 11) + "'"
+            assert len(text.encode()) == length
+        return (), ((name, text),)
+
+    monkeypatch.setattr(context, "read_control", read)
+    if type(expected) is int:
+        with pytest.raises(ExecutionError, match="MYSQL_SOURCE_QUALIFICATION_IDENTITY"):
+            context.qualify_sources(owner)
+        assert len(owner._sources) == expected
+    else:
+        with pytest.raises(expected[0]) as caught:
+            context.qualify_sources(owner)
+        assert type(caught.value) is expected[0] and caught.value.args == expected[1:]
+        assert owner._qualification is None
+
+
+@pytest.mark.parametrize(
+    "reverse,refused,count,expected",
+    (
+        (False, {}, 4, ("PIE-R3999", "MYSQL_SOURCE_QUALIFICATION_IDENTITY")),
+        (True, {}, 4, ("PIE-R3999", "MYSQL_SOURCE_QUALIFICATION_IDENTITY")),
+        (
+            False,
+            {"phase66 set right é": "VIEW", "registry phase66 set left é": "MyISAM"},
+            2,
+            ("PIE-R2007", "MYSQL_VIEW_LEXICAL_CONTEXT"),
+        ),
+    ),
+)
+def test_source_reader_reads_sources_then_registry_relations_in_contract_order(
+    tmp_path, monkeypatch, reverse, refused, count, expected
+):
+    """docs/execution.md#mysql-rows: the reader takes the query's sources in
+    contract order, then the registry relation of each R2 source input in the
+    same order, so the first refusal on that order decides the code. A union
+    reads two sources, whose contract entries are kept or reversed; with every
+    object admitted, the reader reads all four, and the closure stops only at
+    the live qualification. With the later source a view that MySQL records
+    under utf8mb4_0900_ai_ci and the first registry relation a MyISAM table,
+    it stops at the view: PIE-R2007, not the table's PIE-R3999."""
+    from pietto._project.project_execution import MySQLDeploymentPremise
+    from pietto._project import project_execution_mysql_context as context
+    from pietto._project.project_execution_source import identifier
+    from pietto.execution import _errors as errors
+
+    item = emission.fixture("mysql", "S_set_forms", "union_all")
+    contract = json.loads(item["contract"])
+    if reverse:
+        contract["sources"].reverse()
+    names = [s["relation"]["name"] for s in contract["sources"]]
+    checked, outcome = emission.build_case(
+        tmp_path, item["source"], json.dumps(contract, ensure_ascii=False)
+    )
+    artifact = outcome.artifact
+    assert checked.verified and artifact is not None
+    query = prepare_refinement(
+        artifact,
+        tuple(
+            replace(c, registry_name="registry " + c.source.name)
+            for c in capabilities(artifact)
+        ),
+        policy=TieRefinement(),
+    )
+    a = access()
+    owner = MySQLExecution(
+        prepare_refined_execution(
+            query,
+            a,
+            mysql_deployment=MySQLDeploymentPremise(
+                a, artifact.request.sources, ("phase66",)
+            ),
+        )
+    )
+    monkeypatch.setattr(owner, "_refresh", lambda: None)
+    keys = []
+
+    def read(_, sql, args=()):
+        if sql == "SELECT @@sql_quote_show_create":
+            return (), ((1,),)
+        if "information_schema.TABLES" in sql:
+            keys.append(args)
+            kind = refused.get(args[1], "InnoDB")
+            return (), (("VIEW", None) if kind == "VIEW" else ("BASE TABLE", kind),)
+        if "information_schema.COLUMNS" in sql:
+            return (), (("id", "", ""),)
+        name = keys[-1][1]
+        quoted = identifier(name, family="mysql")
+        if sql.startswith("SHOW CREATE VIEW"):
+            head = "CREATE ALGORITHM=UNDEFINED DEFINER=`root`@`%` SQL SECURITY INVOKER"
+            text = f"{head} VIEW {quoted} AS select `x`.`id` AS `id` from `t` `x`"
+            return (), ((name, text, "utf8mb4", "utf8mb4_0900_ai_ci"),)
+        engine = refused.get(name, "InnoDB")
+        return (), ((name, f"CREATE TABLE {quoted} (`id` bigint) ENGINE={engine}"),)
+
+    monkeypatch.setattr(context, "read_control", read)
+    with pytest.raises((ExecutionError, ViewSourceError)) as caught:
+        context.qualify_sources(owner)
+    order = [*names, *("registry " + name for name in names)]
+    assert keys == [("phase66", name) for name in order[:count]]
+    refusal = errors.attempt_failure(
+        caught.value, phase="admission", deadline=False, connected=True
+    )
+    assert (refusal.code, refusal.detail) == expected
+    assert (owner._qualification is None) == bool(refused)
 
 
 def test_open_verification_is_inside_attempt_deadline_before_connect(

@@ -19,6 +19,7 @@ from pietto._project.project_compiled_schema import CompiledError
 from pietto._project.project_execution_source import SourceAdmissionError
 from pietto._project.project_execution_template import BindingError
 from pietto._project.project_guard_preparation import GuardPreparationError
+from pietto._project.project_mysql_view_source import ViewSourceError
 from pietto._project.project_result_contract import ResultError
 from pietto._project.project_scalar_meaning import ScalarMeaningError
 
@@ -183,6 +184,7 @@ _OWNER_ERRORS = (
     ResultError,
     ScalarMeaningError,
     SourceAdmissionError,
+    ViewSourceError,
     ValueError,
     TimeoutError,
 )
@@ -274,6 +276,13 @@ _ATTEMPT = {
     "EXECUTION_DEADLINE": "PIE-R3001",
     "EXECUTION_RESOURCE_LIMIT": "PIE-R3004",
     "POSTGRES_SOURCE_RESOURCE_LIMIT": "PIE-R3004",
+    # The fixed bounds of the MySQL source reader, whoever raises them.
+    "MYSQL_VIEW_DEFINITION_SIZE": "PIE-R3004",
+    "MYSQL_VIEW_EDGE_LIMIT": "PIE-R3004",
+    "MYSQL_VIEW_OBJECT_LIMIT": "PIE-R3004",
+    "MYSQL_VIEW_RESOURCE_LIMIT": "PIE-R3004",
+    "MYSQL_VIEW_SECURITY_LIMIT": "PIE-R3004",
+    "MYSQL_VIEW_TOKEN_LIMIT": "PIE-R3004",
     "GUARD_RESOURCE_LIMIT": "PIE-R3004",
     "LIMIT": "PIE-R3004",
     "SQLITE_FILE_LIMIT": "PIE-R3004",
@@ -516,9 +525,11 @@ def attempt_failure(error, *, phase, deadline, connected, driver=False):
             (c for prefix, c in _ATTEMPT_PREFIXES if word.startswith(prefix)), None
         )
         if code is None:
-            code = {ResultError: "PIE-R3005", SourceAdmissionError: "PIE-R2007"}.get(
-                type(error), "PIE-R3999"
-            )
+            code = {
+                ResultError: "PIE-R3005",
+                SourceAdmissionError: "PIE-R2007",
+                ViewSourceError: "PIE-R2007",
+            }.get(type(error), "PIE-R3999")
     elif isinstance(error, ImportError):
         code = "PIE-R2002"
     elif not connected:
