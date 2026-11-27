@@ -25,7 +25,7 @@ fixes; the lead states them to the owner as inform before this page binds
 (see [open items](#open-items)). A text outside the tables of this page, or
 a new diagnostic code, needs the owner.
 
-Construction state: FIRST TIER QUALIFIED. S06 wrote this page before any B2 code.
+Construction state: FIRST TIER PUBLISHED. S06 wrote this page before any B2 code.
 S07 added the shared connector entry and the three family mappings, so a
 project's `check` accepts a `sqlite.table` source and PostgreSQL, MySQL and
 DuckDB emission refuse it as [compile refusals](#compile-refusals) states.

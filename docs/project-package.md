@@ -1242,15 +1242,15 @@ platform-neutral tests on Windows x86-64, which is no Windows support claim;
 other platforms and Python versions are not covered by this evidence
 ([platforms and qualification](capabilities.md#platforms-and-qualification)).
 
-The published `0.2.1` wheel and sdist on PyPI are byte-identical to the files
+The published `0.2.2` wheel and sdist on PyPI are byte-identical to the files
 attached to the
-[v0.2.1 GitHub pre-release](https://github.com/MianliWang/pietto/releases/tag/v0.2.1),
+[v0.2.2 GitHub pre-release](https://github.com/MianliWang/pietto/releases/tag/v0.2.2),
 together with `SHA256SUMS`, which lists the SHA-256 of the wheel
-`pietto-0.2.1-py3-none-any.whl` and the sdist `pietto-0.2.1.tar.gz`.
+`pietto-0.2.2-py3-none-any.whl` and the sdist `pietto-0.2.2.tar.gz`.
 To check files downloaded from that release, keep their names and run
 `sha256sum --ignore-missing -c SHA256SUMS` in the download directory. GitHub
 also offers an automatic source archive under the same name as the sdist,
-`pietto-0.2.1.tar.gz`; it is a snapshot of the v0.2.1 repository tag, not the
+`pietto-0.2.2.tar.gz`; it is a snapshot of the v0.2.2 repository tag, not the
 sdist, and it is not listed in `SHA256SUMS`. Earlier releases keep their own
 files and `SHA256SUMS` on their GitHub pre-releases.
 

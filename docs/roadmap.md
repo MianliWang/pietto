@@ -108,10 +108,8 @@ column (D77.42) and `now()` in `relay_live` and R2 (D77.43, D77.49); `0.1.11` wa
 `0.2.0`, which was published on 2026-11-15 (PL.36, PL.37), and `0.2.1`,
 which carries the leftovers of Phase80 and earlier with the MySQL `Float`
 `same_value` in a JOIN `on` (PL.43), was published the same day (PL.45,
-PL.46). `0.2.2` carries all the work before Phase81, the MySQL catch-up
-included (PL.55); its release commit follows the other commits of its
-release batch, and it is published only when its tag, GitHub pre-release
-and PyPI carry the accepted files, under PL.56's gates (PL.84, PL.96).
+PL.46). `0.2.2`, which carries all the work before Phase81, the MySQL
+catch-up included (PL.55), was published on 2026-11-27 (PL.96, PL.97).
 Phase81's commits reach `main` only after the `0.2.2` release commit
 (PL.57).
 The first tiers of SQLite B2 and DuckDB B2 and the interop relief are in
@@ -119,10 +117,12 @@ The first tiers of SQLite B2 and DuckDB B2 and the interop relief are in
 J1, and E4B, the part of C04's E4 that MC.04 left to the owner's plan,
 whose lists had all qualified when `0.2.2`'s final assembly started (PL.85
 (2)); SQLite B2's second tier publishes after `0.2.2` (PL.61, PL.64), and
-no `0.2.3` is planned before Phase81 is done (PL.94). Phase82 and Phase83
-also use `0.2.x`, and no release is called `1.0`: every release before
-Phase90 is a `0.2.x`, and Phase90, the Rust rewrite, releases as `0.3.0`
-(PL.51). The extension follows its own version line.
+`0.2.3` is released after Phase81's slice P16 closes and before the Phase82
+freeze (PL.94, PL.98 (3)). The release ledger REL covers `0.2.3` and every
+later `0.2.x` release before `0.3.0` but the freeze release (PL.98 (4)).
+Phase82 and Phase83 also use `0.2.x`, and no release is called `1.0`:
+every release before Phase90 is a `0.2.x`, and Phase90, the Rust rewrite,
+releases as `0.3.0` (PL.51). The extension follows its own version line.
 
 `0.2.0` requires PostgreSQL and MySQL within the MySQL cadence below, one
 local analysis path (the limited DuckDB path of Phase79, not a complete third
@@ -133,9 +133,10 @@ extension versions.
 Until the Phase82 freeze a release may carry breaking changes: it lists them
 at the top of its release notes with a pin to the previous exact version and
 keeps recompiling, reading saved results and running again apart, and
-bundles and saved jobs are not migrated before the Phase82 compatibility
-decision (D76.13). The VS Code extension has versions of its own (see the
-editor work package). Each release is approved on its own.
+bundles and saved jobs, which stay bound to the exact installed code, are
+not migrated (D76.13, PL.101 (1)). The VS Code extension has versions of
+its own (see the editor work package). Each release is approved on its
+own.
 
 ### After the Phase82 freeze
 
@@ -144,8 +145,25 @@ contract states what a later `0.2.x` release may add and what stays, and an
 addition that can break a working program or reader, such as a new reserved
 name or a JSON field, counts as a compatibility change. After the freeze a
 `0.2.x` release only adds compatibly, and a breaking change waits for
-`0.3.0` (PL.51). Phases 84–90 and the tentative owners below work inside
-those rules.
+`0.3.0` (PL.51), except a correctness or fail-open repair, which its
+release lists at the top of its notes, with each change of public SQL or a
+carrier authorized item by item (PL.100 (iii)). Phase82 writes into
+its compatibility policy the rules that the owner answered on 2026-11-26
+(PL.100): an input may gain optional keys, while a new output member comes
+only in a parallel schema version that a caller chooses; diagnostic codes
+and locked orders freeze, while their texts may change; a reserved word or
+built-in name is added only where no existing program fails; opening a
+documented refusal, where every program that succeeded keeps its
+diagnostics, SQL, JSON and results, and a new public name, where existing
+names keep their behavior, are compatible additions; SQL bytes stay stable
+except under such repairs and security repairs, and an optimizer's rewrite
+comes only behind an explicitly enabled option; and a deprecation is
+written in the documentation only. A target release accepted at the
+freeze stays accepted within `0.2.x` (PL.101 (2)). As the lead reads the
+owner's answer, which the owner may correct, `0.2.x` has no support window
+after `0.3.0`, and no compatibility across versions is promised before
+`1.0` (PL.100 (ix)). Phases 84–90 and the tentative owners below work
+inside those rules.
 
 ### MySQL cadence
 
@@ -304,8 +322,8 @@ out the extras (PL.40, D5).
 Phase81 follows the new route of the owner's draft plan for the later
 phases, which bundles several phases for parallel scheduling and which the
 lead reviewed, in its next revision, r17, which the lead drafted and the
-owner reviewed and dispatched on 2026-11-17; Phase81's Gate 0 may start,
-and its implementation runs beside `0.2.2` (PL.54, PL.58, PL.65, PL.66).
+owner reviewed and dispatched on 2026-11-17; Phase81's Gate 0 could start,
+and its implementation ran beside `0.2.2` (PL.54, PL.58, PL.65, PL.66).
 On 2026-11-16 the owner answered the lead's
 Phase81 Gate 1 sheet (PL.50), taking every recommendation except that the
 release tools move into the repository, and later adopted every answer
@@ -325,8 +343,8 @@ a bounded, seeded generator and shrinker with no new dependency and no
 network. The release tools move into `scripts/`, where CI runs only their
 dry run and self-tests. Phase81 keeps the sheet's ledger,
 `C206/F618/D11,950/S14`, under PL.15, and PL.52's push authorization
-applies to its batches once the `0.2.2` release commit is pushed, before
-which no Phase81 commit is pushed (PL.57, PL.58).
+applies to its batches since the `0.2.2` release commit was pushed, before
+which no Phase81 commit was pushed (PL.57, PL.58).
 
 Phase81 decides the CPython matrix (3.14 into CI and the verified profile;
 until then 3.12 and 3.13, with no upper bound on `requires-python`), the
@@ -449,31 +467,34 @@ before its owner's Gate 1 takes it.
 ## Phase82 freeze ledger
 
 Phase82 rules on each row; it does not collect them anew. From Phase76 on,
-each completion audit adds the freeze inputs of its phase here.
+each completion audit adds the freeze inputs of its phase here. On
+2026-11-26 the owner approved as proposed the disposition of each row in
+the lead's plan for Phase81–90, which Phase82's Gate 1 records (PL.99
+(2)).
 
 | Subject | Ruling Phase82 makes | Recorded by |
 | --- | --- | --- |
 | `pietto.compiler` (the Python compile API) | freezes (owner, 2026-11-07) | D75.02 |
 | `pietto.project-relation-columns.v1`, with the kinds `type_alias` and `unknown` and the `module` field of type objects | freezes (owner, 2026-11-07) | D75.01 (owner answer B1-1, 2026-11-07) |
-| The `fmt` output, its layout items (the gaps between the tokens of a line, a head comment paragraph attached to the first declaration), a line width, options and a JSON output | the output freezes after its layout items | D75.05, D75.14 |
-| `pietto lsp`, editor partial analysis and the five editor-only messages; whether `pietto.cli.main(argv)` is a documented entry point | only the diagnostic protocol freezes; the messages get a catalog without PIE codes; the entry point is decided | D75.09–D75.12, Phase76 handoff |
+| The `fmt` output, its layout items (the gaps between the tokens of a line, a head comment paragraph attached to the first declaration), a line width, options and a JSON output | decided (PL.101 (3)): the output freezes after `fmt` normalizes its layout items, or as it stands if that work passes its stop point | D75.05, D75.14, PL.101 |
+| `pietto lsp`, editor partial analysis and the five editor-only messages; whether `pietto.cli.main(argv)` is a documented entry point | only the diagnostic protocol freezes; the messages get a catalog without PIE codes; the entry point is decided (PL.99 (4)): `pietto.cli.main(argv)` becomes a documented entry point | D75.09–D75.12, Phase76 handoff, PL.99 |
 | The E-C alpha surfaces of `pietto lsp` (formatting of the open buffer, workspace symbols, import-path document links, completion from the static vocabulary and the open buffer's identifiers, and the hover and definition facts of LSP editor facts v1); the VS Code extension's use of `pietto.cli.main(argv)` to start the server | each surface freezes with its alpha contract or changes before the freeze; the entry point is decided with the `pietto lsp` row above | ED.03, ED.09, ED.11 |
 | `pietto.sql.emit_postgres_sql` | stays public and enters the API inventory | owner, 2026-11-07 |
 | `pietto.interop`: its five adapters (six functions), the D80.03 admission table as the interop relief widened it ([Field admission](interop.md#field-admission): a `UUID` as its 16 bytes in pandas and Polars, `decimal256` in pandas only, one level of nesting in both, a nullable `Float` in `to_numpy` and nullable `Int` and `Float` fields in the plots as NaN, and `Float` values in `to_scipy_csr`), with nested fields beyond its one level refused, the D80.04 exception order, and the five `interop-*` extras with their pins | the surface freezes with its alpha contract or changes before the freeze; a pin refresh re-checks whether Polars reads `decimal256`, and if Polars gains a UUID dtype, which the dtype comparison then refuses, its mapping goes to the owner; other pandas and Polars nesting is admitted by a Gate 1 before then or stays refused | D80.02–D80.06, D80.08, D80.09, AD80.01, PL.47, PL.53; [Phase80 audit](phases/phase-80/completion-audit.md) |
-| The header rule and its tokens retained by Phase76 | removed under the migration/hint compatibility contract | D75.06, D76.12; [Phase76 audit](phases/phase-76/completion-audit.md) |
+| The header rule and its tokens retained by Phase76 | decided (PL.101 (4)): removed under the migration/hint compatibility contract, with `migrate` and the PIE-P1000 hints equal to their bytes just before the removal | D75.06, D76.12, PL.101; [Phase76 audit](phases/phase-76/completion-audit.md) |
 | The nested public format; grouping extensions, automatic fan-out repair and a public aggregate state | frozen, or kept unsupported | Phase71 route, Phase74 handoff |
-| `def` and `relationship` items in PACKAGE_ROOT modules; a built-in table function | admitted, or kept refused | D74.07, D74.12 |
+| `def` and `relationship` items in PACKAGE_ROOT modules; a built-in table function | for the `def` and `relationship` items, decided (PL.98 (2)): kept refused, which a later `0.2.x` may open compatibly (PL.100 (v)), and Phase90's Gate 1 reviews it again at the latest; for a built-in table function, admitted, or kept refused | D74.07, D74.12, PL.98 |
 | PostgreSQL extension functions, the function/plugin SPI, user-written table functions, database-native array and JSON columns, the `postgres_adbc` nested route | the Phase82 support matrix lists each one no Gate 1 took as not supported | D76.11, D80.06, PL.51 |
 | Project `matches(...)`; `Decimal` division and `avg`; `round` of a `Float` with digits | a contract, or a refusal that stays | D76.03, D76.05, D80.06 |
 | The PostgreSQL TLS profile of `PostgresAccess.ca_file` | a support-matrix row | D76.07 |
 | Single files and projects | `language.md` states the rule before the freeze: single files open project-only forms one at a time, DISTINCT first, with no promise that they stay a subset of projects | owner, 2026-11-07 |
-| Bundles and saved jobs across versions; an upgrade-impact tool | the Phase82 compatibility and migration policy, and whether the tool comes before the freeze | D76.13, Phase76 reminder 7, PL.51 |
+| Bundles and saved jobs across versions; an upgrade-impact tool | decided (PL.101 (1)): the Phase82 compatibility and migration policy keeps them bound to the exact installed code, so that one from other code is refused with PIE-R1005 rather than misread; there is no migration and no upgrade-impact tool before the freeze, and no promise that a version's bundle or job loads on every supported installation of it | D76.13, Phase76 reminder 7, PL.51, PL.101 |
 | Nullability v2 | frozen at the v1 rules; v2 is a breaking item for `0.3.0` (PL.69) | D73.13, owner, 2026-11-07, PL.50, PL.51, PL.69 |
 | The CPython matrix and the Windows claim | frozen as Phase81 decides them | owner, 2026-11-07 |
 | The release notes' history before the freeze, which keeps its file layout until then | archived by the Phase82 freeze | PL.40 (D10), PL.51 |
 | Compiled replay and live analysis give different JOIN key and grain facts for equal SQL bytes | decided (PL.61): live semantic analysis is the only authority, and adapters read the facts only from the verified plan; JF's J2 aligns the compiled replay with the same law before Phase82's Gate 1, and Phase82 audits the closed decision | Phase74 handoff, Phase76 reminder 8, PL.61, PL.62 |
 | A forged compiled aggregate whose argument reads a `let:` name in a form that `compile_query` refuses for that aggregate, such as `sum(t)` with `let t = value % 2`, loads with consistent SQL | fixed: `load_bundle` refuses such a bundle (`PIE-R1004`): the compiled replay and its semantic verifier judge a `let:` name that is a whole aggregate argument by the value it holds, except under `min` and `max`, which read it as a field, refuse a computed `let:` value inside an argument's own operation, as an aggregate `order by` key, or in the test or the summed field of a conditional count or sum and the test of `any` or `all` over a group, and read a window's value only from a field; a `let:` name that only renames a field reads as that field, so an edited bundle that reads one where `compile_query` refuses the name, such as `sum(d + 1)` with `let d = value`, loads as a known equivalence of the field form, such as `sum(value + 1)`, with equivalent SQL; Phase82 audits the closed row | Phase74 handoff, Phase76 reminder 8, PL.70 |
-| The VS Code extension's sync script imports the generated lexer and parser from `pietto.generated` and two functions from `pietto.indentation`, modules that no public contract names | whether the script must stop importing them, and which public entry point replaces them if so | PL.38, PL.44 |
+| The VS Code extension's sync script imports the generated lexer and parser from `pietto.generated` and two functions from `pietto.indentation`, modules that no public contract names | decided (PL.99 (4)): a limited tool contract names only what the script reads, and the other modules are internal | PL.38, PL.44, PL.99 |
 | The fixed civil `Timestamp` meaning of a `now()` output; the statement time that R2 records and `recover` binds | each freezes with the result contract and the R2 workspace, or changes before the freeze | D77.42, D77.49; [Phase77 audit](phases/phase-77/completion-audit.md) |
 | MySQL R2 refuses every form that `0.1.11` refused (`PUBLIC_R2_UNQUALIFIED_FORM`, by rule two) and every paired form (`PUBLIC_R2_PAIRED_FORM`) | a support-matrix row for R2 by target, or narrowed by forms that a native R2 qualification covers | D77.46, D77.67, D77.68 |
 | MySQL forms that open only byte for byte as a paired form (Wave A) | the Phase82 support matrix states them as paired forms, or a structural rule replaces them | D77.36; [Phase77 audit](phases/phase-77/completion-audit.md) |
@@ -481,7 +502,8 @@ each completion audit adds the freeze inputs of its phase here.
 | The DuckDB Arrow route: the `duckdb.arrow("key")` spelling with its PIE-S2306 texts, the project dialect `duckdb`, the contract target `{"family": "duckdb", "release": "2.0.0"}` with `scan` `"arrow_registration"`, the `arrow` namespace and the `arrow_*` storage kinds, the DuckDB compile refusals and their order with B2's details and suggestions, B2's forms (grouping with `count`, `sum`, `min` and `max`, `having`, `order by` with its NULLS clauses, the static `limit`, and predicates over literals and parameters of four types) and the second tier's (`Date`, `Timestamp` and `Decimal(p, s)` fields with `p` at most 38 and their `arrow_date32`, `arrow_timestamp_us` and `arrow_decimal128` storages, `Int` arithmetic by range proof and `Float` arithmetic with its overflow and underflow checks in the final projection, and `inner` and `left` equality JOINs, one source read twice included) with their SQL spellings and `physical_type` values, `execute(route="duckdb_arrow")` with a `DuckDBArrowInput` or a tuple of them and `premise=None`, the capture limits of 1,048,576 rows per input and 256 MiB of the selected columns over all inputs with their check order and the declared key check, the reading of every result in batches with its charge and `transaction`, the session settings with the 1 GiB `memory_limit` and the `default_collation` read-back, the detail words and the `execute-duckdb` extra | frozen, kept alpha, or kept unsupported; the Phase82 support matrix lists `duckdb` `2.0.0` with `pyarrow` `26.0.1` on the qualified platforms and every other release and platform as not qualified | D79.01–D79.15, D79.17–D79.30, AD79.01, PL.47, PL.50; [Phase79 B1 audit](phases/phase-79/completion-audit.md), [B2 audit](phases/phase-79/b2-completion-audit.md), [Phase79 completion audit](phases/phase-79/t2-completion-audit.md) |
 | `RequestRejected` also carries the PIE-R2xxx refusals of the checks that `execute()` runs itself (`PIE-R2003` on `mysql_rows` and `postgres_adbc`, `PIE-R2001` and `PIE-R2002` of the loaded PyArrow on `duckdb_arrow`, `PIE-R2002` `SQLITE_BUILD` on `sqlite_file`), and the PIE-R1004 width refusal (`LIMIT`) covers only the PostgreSQL and MySQL routes | each freezes with the execution error classes, or changes before the freeze | D79.11; [Phase79 B1 audit](phases/phase-79/completion-audit.md) |
 | The MySQL project `sum(Int)` forms that the MySQL catch-up work package MC did not open, and the E4 forms that neither E4's narrow cell nor E4B opens, `Float` arithmetic in a JOIN `on` (PL.68) and a `*` beside a header parameter (PL.76) among them | the support matrix states MySQL as unsupported for each, or gives it a target after the freeze | MC.10, PL.68, PL.76; [MC completion audit](mysql-catchup/completion-audit.md#handoff) |
-| Whether PostgreSQL fails a statement over an out-of-range `Float` value that the plan may leave uncomputed, as in the shapes that E4B keeps refused because the plan fixes their computed rows (a `let` that a WHERE beside it does not read, a comparison beside another WHERE condition): the [`Float` law](language.md#float-values) does not say, while the `Int` law says that whether and when such a statement fails depends on the plan ([Aggregates and grouping](language.md#aggregates-and-grouping)) | the `Float` law's wording, decided at Phase82's Gate 1, which may take the `Int` law's; an uncertainty of `main`, not an observed defect | PL.75 (2); [MC completion audit](mysql-catchup/completion-audit.md#e4b) |
+| Whether PostgreSQL fails a statement over an out-of-range `Float` value that the plan may leave uncomputed, as in the shapes that E4B keeps refused because the plan fixes their computed rows (a `let` that a WHERE beside it does not read, a comparison beside another WHERE condition): the [`Float` law](language.md#float-values) does not say, while the `Int` law says that whether and when such a statement fails depends on the plan ([Aggregates and grouping](language.md#aggregates-and-grouping)) | decided (PL.101 (5)): the `Float` law's PostgreSQL side is documented as the `Int` law is written, with no change of behavior; an uncertainty of `main`, not an observed defect | PL.75 (2), PL.101; [MC completion audit](mysql-catchup/completion-audit.md#e4b) |
+| A field of the PostgreSQL and MySQL deployment premises that verifies the declared keys only, off by default | decided (PL.101 (6)): added within `0.2.x`, with today's bytes while it is off; its default turns on only in `0.3.0` | PL.101 |
 
 ## Project-mode follow-up
 
