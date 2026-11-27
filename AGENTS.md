@@ -7,8 +7,11 @@ source into a parsed AST, semantic facts, immutable IR, and explicitly selected
 PostgreSQL or MySQL SQL, with CLI text or JSON output.
 
 Pietto is not a database, runtime language, job scheduler, concurrency
-framework, transaction manager, query optimizer, web UI, DML executor, or a
-way to run arbitrary Python, network, or file I/O from Pietto programs.
+framework, transaction manager, runtime query optimizer, web UI, DML executor,
+or a way to run arbitrary Python, network, or file I/O from Pietto programs.
+Its compile-time optimizer chooses only among SQL forms proven equivalent to
+the authored query, from explicit compiler inputs such as a statistics
+snapshot; it never connects to, observes, hints or executes a database.
 
 Communicate with users in Chinese by default. Keep code, identifiers, paths,
 commands, diagnostics, and commit messages in English.

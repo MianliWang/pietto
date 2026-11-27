@@ -72,14 +72,14 @@ map.
 | 85 | Dependency solver/canonical lockfile/reproducible resolution |
 | 86 | RDKit/geospatial/sparse/DLPack/device-framework adapters |
 | 87 | Catalog/constraints/statistics/runtime-data-quality/chase |
-| 88 | Logical optimizer memo and join-order/hypergraph search |
-| 89 | Physical strategies including Yannakakis/WCOJ/Free Join/predicate transfer |
+| 88 | Compile-time logical optimizer: memo, join-order/hypergraph search and equivalence rewrites over a closed rule set; automatic flatten |
+| 89 | SQL-expressible physical strategies for the Phase88 optimizer: Yannakakis semi-join reduction and exact predicate transfer; WCOJ and Free Join need an execution engine and stay out |
 | 90 | Profiling-driven Rust kernels, PyO3/maturin, parity and wheel matrix |
 
-Rows 88 and 89 stand in tension with `AGENTS.md`, which says Pietto is not a
-query optimizer; their Gate 1 resolves it, by narrowing the row or by an
-owner change of `AGENTS.md`, before any work starts. The editor line is a
-work package of its own beside these phases (see below).
+On 2026-11-26 the owner changed `AGENTS.md`: Pietto has a compile-time
+optimizer and never a runtime one, so rows 88 and 89 work inside that
+boundary (PL.102, PL.105). The editor line is a work package of its own
+beside these phases (see below).
 
 Phase77's implementation is complete under its
 [completion audit](phases/phase-77/completion-audit.md), whose handoff
@@ -504,6 +504,7 @@ the lead's plan for Phase81–90, which Phase82's Gate 1 records (PL.99
 | The MySQL project `sum(Int)` forms that the MySQL catch-up work package MC did not open, and the E4 forms that neither E4's narrow cell nor E4B opens, `Float` arithmetic in a JOIN `on` (PL.68) and a `*` beside a header parameter (PL.76) among them | the support matrix states MySQL as unsupported for each, or gives it a target after the freeze | MC.10, PL.68, PL.76; [MC completion audit](mysql-catchup/completion-audit.md#handoff) |
 | Whether PostgreSQL fails a statement over an out-of-range `Float` value that the plan may leave uncomputed, as in the shapes that E4B keeps refused because the plan fixes their computed rows (a `let` that a WHERE beside it does not read, a comparison beside another WHERE condition): the [`Float` law](language.md#float-values) does not say, while the `Int` law says that whether and when such a statement fails depends on the plan ([Aggregates and grouping](language.md#aggregates-and-grouping)) | decided (PL.101 (5)): the `Float` law's PostgreSQL side is documented as the `Int` law is written, with no change of behavior; an uncertainty of `main`, not an observed defect | PL.75 (2), PL.101; [MC completion audit](mysql-catchup/completion-audit.md#e4b) |
 | A field of the PostgreSQL and MySQL deployment premises that verifies the declared keys only, off by default | decided (PL.101 (6)): added within `0.2.x`, with today's bytes while it is off; its default turns on only in `0.3.0` | PL.101 |
+| Statements that the emitted SQL keeps an authored form or order, such as a correlated read never rewritten to a JOIN or decorrelated, `not in` never an ANTI JOIN, and the authored JOIN order | frozen for the default compile; an explicitly enabled compile-time optimizer option may emit a form proven equivalent to the authored one that `language.md` lists for that option, while results, diagnostics, types, nullability and the errors a statement can raise stay as promised | owner, 2026-11-26; PL.102, PL.105 |
 
 ## Project-mode follow-up
 

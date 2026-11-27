@@ -15,7 +15,8 @@ execution. Pietto is not itself a:
 - job scheduler;
 - general Python runtime;
 - remote package registry or dependency solver;
-- full optimizer or physical execution engine;
+- runtime query optimizer or physical execution engine (its compile-time
+  optimizer stays on the side-plane below);
 - DML, DDL, or migration runtime.
 
 Compiler core has no ambient network, database, credential, transaction,

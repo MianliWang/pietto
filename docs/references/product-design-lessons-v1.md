@@ -30,6 +30,13 @@ matters.
 | R15 | Differential Query Plans | `DEFER` | Compare separately forced physical plans under an explicit BAG-result oracle when execution exists. | Database execution, optimizer hints, physical-plan identity, multiplicity-destroying normalization, or flaky campaigns. | Phase 81 |
 | R16 | SQLancer++ | `DEFER` | Adaptive generation can broaden target coverage only with explicit oracle applicability and revision evidence. | Capability inferred from random acceptance, persistent adaptive observations as semantics, or network/database tests. | Phase 81 |
 
+On 2026-11-26 the owner admitted a compile-time optimizer (`AGENTS.md`).
+For R02, R03 and R04, "join search", "General rule planner" and "optimizer
+rules" now name their runtime, open-ended or registry forms: Pietto's
+Phases 88–89 search join orders and apply rewrites at compile time only,
+over a closed rule set with a version, and only among forms proven
+equivalent to the authored query.
+
 These lessons inform the [product architecture](../architecture/product-architecture-v1.md)
 and [phase initiation gate](../architecture/phase-initiation-gate-v1.md). The
 owning Pietto contracts still decide whether and when any lesson applies.
