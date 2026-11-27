@@ -3061,8 +3061,8 @@ not write (`operator_not_implemented_in_slice6`,
 `join_shape_not_admitted_in_slice7` or `non_field_projection_or_later_shape`),
 as for a JOIN whose `on` calls `coalesce`.
 
-DuckDB project SQL (Phase79's second tier, which no release carries yet)
-writes a `Decimal(p, s)`, `Date` or `Timestamp` read as
+DuckDB project SQL (Phase79's second tier, which `0.2.2` is the first
+release to carry) writes a `Decimal(p, s)`, `Date` or `Timestamp` read as
 `CAST($n AS DECIMAL(p,s))`, `CAST($n AS DATE)` or `CAST($n AS TIMESTAMP)`,
 as one side of a `where` comparison whose other side reads a source field of
 the parameter's type, and of its precision and scale for a `Decimal`, `p` at

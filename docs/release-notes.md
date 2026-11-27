@@ -1,5 +1,2392 @@
 # Pietto release notes
 
+## SQLite project mode, DuckDB joins and MySQL catch-up public alpha release notes — 0.2.2
+
+**Status:** These notes cover the `0.2.2` public alpha. The release commit
+assembles the notes and updates the package version. It follows the other
+commits of its release batch on the published `main` head, which carries
+`0.2.1` and the work published since. That batch holds the MySQL catch-up
+work package (MC) with E4B, the repair of unread typed MySQL header
+parameters, MC's closure records, records of Phase78 and of DuckDB B2,
+and the repairs of DuckDB B2's second tier. The release commit changes
+only version owners and documentation.
+Publication requires the accepted wheel and sdist on GitHub and PyPI and
+the annotated `v0.2.2` tag. Before it, the changed production bytes get
+fresh full target receipts (MC.16 (1)): PostgreSQL's on the release tree
+and MySQL's from the natural CI `Target mysql` job of the batch head. As
+for earlier releases, the compiler and package are covered on CPython 3.12
+and 3.13 for Linux x86-64.
+CI also runs the platform-neutral tests with CPython 3.12 and 3.13 on
+Windows x86-64, and batch `emit-sql --project ROOT --all --output DIR` stays
+Linux-only; other platforms and Python versions are not covered.
+[Platforms and qualification](capabilities.md#platforms-and-qualification)
+gathers these claims for each capability.
+
+### Breaking changes against 0.2.1
+
+Until the Phase82 freeze a `0.2.x` release may carry breaking changes. To
+keep the behaviour of `0.2.1`, pin that exact version, for example
+`pip install "pietto==0.2.1"`, or
+`pip install "pietto[execute-postgres]==0.2.1"` with an extra, or
+`pietto==0.2.1` in a requirements file. Recompiling, reading saved results
+and running again stay separate, as the upgrading steps below describe.
+
+- **Compiled bundles and saved jobs** made under `0.2.1` or earlier are
+  refused under `0.2.2` by code identity, as with every release:
+  `load_bundle` refuses such a bundle with PIE-R1005, and every call given
+  such a saved job but `inspect_job` refuses it with PIE-R1009
+  `JOB_COMPATIBILITY`. New bundles keep the version marks `(8, 1, 8, 1)`.
+  Pietto neither migrates nor rewrites them: keep an exact `pietto==0.2.1`
+  environment for retained `0.2.1` bundles and saved jobs, or recompile
+  from source.
+- **SQLite single-file `Bool` literals.** Single-file SQLite SQL now writes a
+  `Bool` literal as `1` or `0`, where `0.2.1` wrote `TRUE` or `FALSE`.
+  SQLite reads `TRUE` and `FALSE` as a column of that name, in any letter
+  case, when the table has one, and in `WHERE` as an output so named, so
+  such a statement could return wrong rows. Every single-file statement
+  with a `Bool` literal changes its SQL, and its result only where such a
+  name exists. See [SQLite project mode (alpha)](#sqlite-project-mode-alpha).
+- **DuckDB diagnostics and results.** Suggestions now describe the available
+  projections, sources, joins, filters, parameters and field types.
+  Grouped queries and joins report the specific rules they break. An Arrow
+  input within the row limit that fails both schema and byte checks now
+  reports `DUCKDB_ARROW_SCHEMA` ahead of `DUCKDB_ARROW_CAPTURE_LIMIT`.
+  DuckDB also reads results in batches. An error in a later batch can occur
+  after earlier batches have been delivered. Closing before the reader
+  reports its end leaves the transaction status `UNKNOWN`, even after
+  the last batch. See [DuckDB batch reading](#duckdb-arrow-route--results-read-one-batch-at-a-time).
+- **`to_polars` refuses repeated labels with `ValueError`.**
+  `pietto.interop.to_polars` now refuses a batch with a repeated field label
+  before it imports Polars, with the `ValueError` that `to_pandas` raises;
+  Polars' own `polars.exceptions.DuplicateError` no longer reaches the
+  caller, so a program that caught it must catch the `ValueError` instead.
+  See [Repeated labels in `to_polars`](#repeated-labels-in-to_polars).
+- **SQLite diagnostics and CLI usage.** A project `sqlite.table` call with
+  invalid arguments now reports PIE-S2306 with updated text. A valid source
+  checks, but compiling a statement that reads it for PostgreSQL, MySQL or
+  DuckDB reports PIE-B1001 `source_family_mismatch` alongside PIE-B1006
+  `negative_original_target_evidence`. Project-mode usage now includes
+  `sqlite`. In single files, PIE-B1000 names the remaining unsupported form
+  or field type when a statement using `having`, `count_distinct` or `avg`
+  still fails. See [SQLite compatibility](#sqlite-project-mode-alpha).
+- **Interop error messages.** A refused UUID or nested field now names the
+  frame functions that accept it when applicable. For a Decimal above
+  precision 38 the suggested function is `to_pandas`. A refused SciPy
+  value field now names the admitted types, `Int` and `Float`. See the
+  [interop guide](interop.md#refusals-and-fixes).
+- **Project Float literals.** PostgreSQL and MySQL project emission now
+  refuse a product of two nonzero Float literals that rounds to zero with
+  PIE-B1002 `float_result_not_finite`. Binding such a pair to the two
+  literal slots also fails with PIE-R1004 `BINDING_INVALID`.
+- **MySQL `min`, `max` and rank columns.** A grouped MySQL project `min`
+  or `max` of a `SMALLINT` or `INT` field is now written
+  `CAST(MIN(x) AS SIGNED)` (or `MAX`) whatever it reads, and its column is
+  a `my_signed_int`, an Arrow `int64` on the `mysql_rows` route, where
+  `0.2.1` declared `my_int` or `my_smallint`, `int32` or `int16`. MySQL
+  SQL, single-file and project, now casts each `row_number`, `rank`,
+  `dense_rank` and `ntile` result to `SIGNED`. Values do not change, and
+  statements that `execute` failed with PIE-R3005 now run; a program that
+  compares their SQL or reads the extremes' Arrow types must follow. See
+  [MySQL aggregate carriers](#a-mysql-min-or-max-of-an-int-is-a-bigint)
+  and [MySQL rank results](#a-mysql-rank-is-cast-to-signed), which also
+  list the window and set columns over them that change.
+- **Changed MySQL project diagnostics.** MySQL project emission now
+  refuses a query that declares a `Decimal(p, s)`, `Date`, `Timestamp` or
+  `UUID` header parameter and never reads it, when its SELECT items are
+  only fields and literals, over its source or over upstream queries or
+  tables that select the same way, as the language page has stated since
+  `0.1.10`: it reports PIE-B1003
+  `query_parameter_type_not_admitted_on_target` at each such declaration,
+  as the same header over a body with a WHERE does. `0.2.1` reported such
+  a query `VERIFIED` with SQL that has no placeholder for the parameter,
+  and `emit-sql --project` exited 0. `compile_query` already refused it
+  with PIE-R1004 `QUERY_NOT_EXECUTABLE`, so no execution entry ran that
+  SQL; it now raises `CompileRejected` with these blockers. A batch of
+  `emit-sql --project --all` or `compile_all_sql` that holds such a query
+  is no longer `VERIFIED`, so `--output DIR` writes nothing. A query that
+  another rule refuses lists them too, where a body with a WHERE lists
+  them; one that `0.2.1` refused only at a stage after emission, such as
+  an `--output` write, now reports them in its place, as such a body
+  does; and a query that emission refuses before it writes the body
+  keeps the blockers it had. No code or detail is new, and no JSON shape
+  changes. See
+  [MySQL typed parameters](#mysql-refuses-a-typed-parameter-that-a-plain-projection-never-reads).
+
+### Highlights
+
+SQLite projects gain a file execution route, DuckDB accepts grouped queries
+and joins over Arrow inputs, MySQL projects emit `sum` of an `Int` and
+`Float` arithmetic in many more forms, and more Arrow field types can be
+converted directly by the interop functions. The subsections below give the changes
+from `0.2.1` and their limits. The sections for `0.2.1` and earlier describe published releases.
+
+- **SQLite project mode (alpha).** An explicit-module project compiles
+  SQLite SQL for a `sqlite.table` source with `where`, `group by`,
+  `having`, `order by`, `limit` and its admitted aggregates, and single
+  files gain `having`, `count_distinct` and `avg` of an `Int`.
+  `compile_query(dialect="sqlite")` compiles these projects for the
+  `sqlite_file` route. With `pietto[arrow]`, `execute` reads the file named
+  by `SQLiteFileInput(path)` in one read-only transaction on the qualified
+  Linux x86-64 SQLite 3.53.1 build. See the
+  [SQLite file execution route](#sqlite-file-execution-route-alpha).
+- **DuckDB projects.** Queries over `duckdb.arrow` sources can group,
+  aggregate, filter groups, order and limit rows. They can also join sources
+  on field equalities with `inner join` and `left join`, read `Date`,
+  `Timestamp` and `Decimal` fields, and use the admitted `Int` and `Float`
+  arithmetic in a projection. Execution reads results one batch at a time.
+- **Interop relief.** `to_pandas` and `to_polars` admit `UUID` fields and one
+  level of nesting, `to_pandas` keeps a `Decimal` above precision 38,
+  `to_numpy` takes a nullable `Float` field, `plot_line` and `plot_scatter`
+  take nullable `Int` and `Float` fields, and `to_scipy_csr` takes a `Float`
+  value; the [interop guide](interop.md) gives what each function admits.
+- **MySQL catch-up.** MySQL projects emit a `sum` of an `Int` in eight
+  more families of forms: of `INT` and non-null fields and of `let` names,
+  beside other aggregates and by more keys, with HAVING, ORDER BY, LIMIT
+  and DISTINCT, through relation aliases, imports and an upstream, with
+  header parameters and bind-safe literals, over JOINs, as conditional sums
+  with compound tests, and over several levels. They also emit `Float`
+  `+`, `-`, `*` and sign in E4's narrow cell and in E4B's wider cells: two
+  fields and one nesting, a `count` of a sign, `let` values, WHERE
+  comparisons and ORDER BY keys, a header parameter operand, computed
+  GROUP BY keys and a whole item on a JOIN row. Each opened only after its
+  own campaign on PostgreSQL 18.6 and MySQL 8.4.12 judged its emitted SQL
+  matched and two independent audits let that verdict stand. See
+  [MySQL `sum(Int)` forms](#mysql-project-sumint-of-an-int-field-a-non-null-field-and-a-let),
+  [E4's cell](#mysql-project-float-arithmetic-in-e4s-narrow-cell) and
+  [E4B's cells](#mysql-project-float-arithmetic-in-a-let-a-where-and-an-order-by-key).
+  S03's neighbours that those families leave refused opened the same way,
+  T1's second-level WHERE over the per-order count included; see
+  [S03's neighbours](#mysql-project-sumint-beside-s03s-clauses-organizations-and-levels).
+- **Compiled bundles.** `load_bundle` now checks aggregate and window
+  arguments against forms that `compile_query` can produce. Edited bundles
+  can report PIE-R1004 `COMPILED_AGGREGATE_ARGUMENT` or
+  `COMPILED_WINDOW_ARGUMENT`. See [compiled aggregate arguments](#bundles-with-an-aggregate-argument-compile_query-refuses).
+
+### Upgrading from 0.2.1
+
+- **Source.** `0.2.2` retires no spelling and changes neither the
+  grammar nor the output of `fmt`, so no source needs to change.
+- **New refusals.** DuckDB emission refuses a Text literal containing NUL
+  with `duckdb_text_literal_nul_not_admitted`. The SQLite project command
+  now checks its source, contract and selected SQL forms. A single-file
+  `avg` or `count_distinct` of a Float field reports PIE-B1000. The project codes and details appear in the
+  [SQLite project section](#sqlite-project-mode-alpha).
+  MySQL project emission refuses a `Decimal(p, s)`, `Date`, `Timestamp`
+  or `UUID` header parameter that a query whose SELECT items are only
+  fields and literals never reads, as the breaking changes above state.
+  The MySQL catch-up and E4B add no refusal: a MySQL statement that they
+  do not open reports the blockers it has without them, object for object.
+- **SQL text changes.** Single-file SQLite writes a Bool literal as `1` or
+  `0`. MySQL casts grouped project `min` and `max` of a `SMALLINT` or
+  `INT` field to `SIGNED`. In both single files and projects it also casts
+  `row_number`, `rank`, `dense_rank` and `ntile` results to `SIGNED`.
+  See [MySQL aggregate carriers](#a-mysql-min-or-max-of-an-int-is-a-bigint)
+  and [MySQL rank results](#a-mysql-rank-is-cast-to-signed).
+  The MySQL catch-up and E4B add MySQL SQL only for statements that
+  `0.2.1` refused, and change no PostgreSQL SQL. Of the golden files only
+  `emit_sqlite_single_file.sql` and its `.json` change, for the `Bool`
+  literal. In project JSON v2 the MySQL extremes and ranks gain the
+  `result_cast` `SIGNED`, with the `syntax` roles
+  `aggregate_result_cast_open` and `aggregate_result_cast_close`, or
+  `window_result_cast_open` and `window_result_cast_close`, and E4's
+  guarded `*` the `syntax` roles `product_guard_open` to
+  `product_guard_close` ([project JSON v2](spec/project-cli-json-v2.md)).
+- **Programs refused before.** In `0.2.1`, a valid project `sqlite.table`
+  source failed `check` with PIE-S2306 and project CLI usage rejected
+  `--dialect sqlite`. DuckDB's former PIE-B1003 rules refused grouped and
+  joined relations, computed projections and fields beyond Int, Text, Bool
+  and Float. The DuckDB subsections list the newly admitted shapes.
+  The interop functions now convert fields for which `0.2.1` raised
+  `ValueError`, including nullable Float in `to_numpy` and non-nullable
+  Float values in `to_scipy_csr`. See [field admission](interop.md#field-admission).
+  On MySQL, each `sum` of an `Int` in the forms of the catch-up's
+  families G1 to G8 reported PIE-B1004
+  `sum_int_aggregate_range_proof_missing` in `0.2.1`, and each `Float`
+  operation of E4's and E4B's cells reported PIE-B1003
+  `float_literal_operands_required` at the operation, its `let` or its
+  WHERE, `unary_sign_requires_int_operand` at a sign, or
+  `comparison_type_pair_not_admitted` at the `on` beside a `Float`-keyed
+  JOIN. A statement whose only blockers those were now emits where the
+  whole statement is one of the forms that a MySQL subsection opens, and
+  only there: a statement that pairs such a `sum` or operation with an
+  item, clause, aggregate or bind-safe literal that none of those forms
+  takes beside it keeps them; each MySQL subsection's table lists its
+  cases.
+  The sums of the s03n list of S03's neighbours reported PIE-B1004 in
+  `0.2.1` too, such as S03's T1 with `where lines > 0` in its second level
+  under `preserve`.
+- **Execution.** DuckDB capture allows up to 1,048,576 rows per input and
+  256 MiB across the selected columns of all inputs. The previous limits
+  were 65,536 rows and 16 MiB for the whole table. The DuckDB session uses
+  a 1 GiB `memory_limit` and checks that `default_collation` is empty.
+  The SQLite file route checks the caller's file and reads one statement
+  in a read-only transaction. See [SQLite file execution](#sqlite-file-execution-route-alpha)
+  and [DuckDB execution](execution.md#duckdb-arrow-route).
+- **Dependencies.** The core package and extras declare the same dependency
+  requirements as `0.2.1`. The development lock updates `packaging` from
+  26.2 to 26.3, `ruff` from 0.17.4 to 0.17.5 and `tzdata` from 2026.4 to
+  2026.6.
+- **Compiled bundles and saved jobs.** See the breaking changes above.
+  Reading saved results follows their own format, code-identity and trust
+  contract, and running again is a new database execution; recompiling does
+  neither.
+- Tools that compare exact diagnostics or JSON should update their expected
+  SQLite usage and refusal text, DuckDB blocker lists and suggestions, MySQL
+  aggregate and rank SQL, the MySQL blockers that the catch-up lifts, and
+  interop error messages. DuckDB consumers that
+  check result bytes or transaction status should follow the batch-reading
+  changes above.
+- The output of `fmt` and the alpha surfaces `pietto lsp`, `pietto.compiler`,
+  the relation-column document, SQLite SQL, the
+  [DuckDB Arrow route](spec/duckdb-arrow-route-v1.md) and `pietto.interop`
+  may still change before the Phase82 freeze; each change is listed in these
+  release notes.
+
+### A Float literal product that rounds to zero is refused
+
+Project SQL folds `+`, `-` and `*` of two `Float` literals when it is
+emitted. A product of two non-zero literals that rounds to zero, such as the
+square of 1e-195 written as a decimal literal, is now BLOCKED with
+`PIE-B1002` `float_result_not_finite` on PostgreSQL and MySQL and under both
+literal policies, as an overflowing one already was. Plain verification and
+compiled replay apply the same rule, and so does a binding: the two `Float`
+literal slots of a bind-safe template refuse such a pair of values, such as
+1e-195 and 1e-195 or 5e-324 and 0.5, with `PIE-R1004` `BINDING_INVALID` on
+both targets. On MySQL, a nested product of literals that was already
+BLOCKED, such as `2.0 * (a * b)` with such an inner product, now reports the
+inner product's `float_result_not_finite` instead of `PIE-B1003`
+`float_literal_operands_required`, and a sign over such a product, such as
+`-(a * b)`, reports it instead of `PIE-B1003`
+`unary_sign_requires_int_operand`.
+
+Before, such a statement was VERIFIED, although the targets' rules for `*`
+disagree on it: PostgreSQL's float8 `*` fails it with SQLSTATE 22003
+(`value out of range: underflow`), also with the factors as bound
+parameters, while MySQL's DOUBLE `*` returns `0.0`. So one statement would
+give a different result on each target. A subnormal product, a product with
+a zero factor and a sum or difference that is exactly zero keep their value,
+as neither target fails them.
+
+Compiling a query now folds only the operands that emission folds: two
+direct literals, each possibly signed. Before, it also folded a `let` that
+holds a `Float` literal, which the SQL reads as a column and PostgreSQL
+checks when the statement runs. So on PostgreSQL a `let x` that holds
+10^300, written out as a decimal literal, with `r = x * x` was VERIFIED, but
+`compile_query` refused it with `PIE-R1004` `COMPILED_PHYSICAL_DOMAIN`. It
+now compiles, and every reader accepts it, as it accepts a `let` that holds
+1e-195, which the underflow rule would otherwise have refused the same way.
+
+- Breaking: a statement with such a product, which was VERIFIED, is now
+  BLOCKED on both targets. On MySQL it ran and returned `0.0`, such as the
+  square of 1e-195; on PostgreSQL it failed with SQLSTATE 22003 when it
+  ran.
+- Breaking: the two `Float` literal slots of a bind-safe template now refuse
+  a pair of values whose product rounds to zero, such as 1e-195 and 1e-195,
+  with `PIE-R1004` `BINDING_INVALID`, where MySQL returned `0.0` and
+  PostgreSQL failed with SQLSTATE 22003.
+- Breaking: on MySQL, a nested product or a sign over such a product, which
+  was already BLOCKED, reports `PIE-B1002` `float_result_not_finite` in
+  place of a `PIE-B1003` detail.
+
+Compatibility: these outputs change:
+
+| Code or output | Case | Before | After |
+| --- | --- | --- | --- |
+| PIE-B1002 `float_result_not_finite` | a product of two non-zero `Float` literals that rounds to zero, on PostgreSQL and MySQL | VERIFIED; MySQL returned `0.0`, PostgreSQL failed with SQLSTATE 22003 | BLOCKED |
+| PIE-R1004 `BINDING_INVALID` | a bind-safe template's two `Float` literal slots bound to such a pair, such as 1e-195 and 1e-195 or 5e-324 and 0.5 | bound; MySQL returned `0.0`, PostgreSQL failed with SQLSTATE 22003 | refused |
+| MySQL blocker | `2.0 * (a * b)` or `-(a * b)` over such a product `a * b` | `PIE-B1003` `float_literal_operands_required` or `unary_sign_requires_int_operand` | `PIE-B1002` `float_result_not_finite` |
+| PIE-R1004 `COMPILED_PHYSICAL_DOMAIN` | `compile_query` on PostgreSQL of a `let x` that holds 10^300 with `r = x * x` | refused | compiles |
+
+No diagnostic code or detail is added, and no CLI JSON v1, project JSON v2 or
+artifact shape changes. Single-file SQL, which writes such literals as SQL
+number text, is not affected.
+
+### A MySQL `min` or `max` of an `INT` is a `BIGINT`
+
+On MySQL, every grouped project `min` or `max` of a `SMALLINT` or `INT`
+field is now emitted as `CAST(MIN(x) AS SIGNED)` (or `MAX`), whatever its
+aggregation reads: a base table, a view, or a stage (a WHERE, a `let`,
+another query or a JOIN). Its column is a `my_signed_int` with the field's
+own range, an Arrow `int64` on the `mysql_rows` route, as a MySQL
+`sum(Int)` is. Its values are unchanged.
+
+Before, such a column was declared with the field's carrier, `my_int` or
+`my_smallint`, but MySQL 8.4 returns a MIN or MAX over a view's column or a
+merged stage's column as `BIGINT`, and emission cannot tell a view from a
+table, so `execute` on the `mysql_rows` route failed every such statement
+with `PIE-R3005` (`EXECUTION_METADATA`), and a program that ran the emitted
+SQL itself got a `BIGINT` column that the emission's `columns` did not
+describe. This held for `0.2.1` too. The `0.1.12` (Phase77 S02) cell was
+among them: `where id > 3`, `group by k`, `x = sum(a)`, `lo = min(c)` over
+an `INT` field `c`. One cast for every source keeps one carrier whatever
+MySQL returns.
+
+A MySQL set operation now also joins a `my_signed_int` operand, a computed
+signed 64-bit `Int` such as this extreme, an `Int` operation or an integer
+literal, with `SMALLINT`, `INT` or `BIGINT` operands of one width, which
+MySQL types `BIGINT`, in `union`, `intersect` and `except`, `all` or
+`distinct`: the column is a `my_signed_int` over the operands' merged range,
+an Arrow `int64`, whatever the operand order. With the `SIGNED` cast of a
+`row_number`, `rank`, `dense_rank` or `ntile` result, a `union all`
+of such a rank and such an extreme, such as `row_number()` or `ntile(2)`
+beside `min(i)` of a nullable `INT` `i` under `where id > 3` and
+`group by j`, is now VERIFIED as a nullable `my_signed_int` from
+-2147483648 to 9223372036854775807, in either order, and runs. Every other
+mix of widths, such as an `INT` and a `BIGINT` column, a rank beside an
+`INT` or `SMALLINT` column, or a `my_signed_int` beside both an `INT` and a
+`BIGINT` column, stays BLOCKED with `PIE-B1002`
+(`set_column_physical_representation_mismatch`), and PostgreSQL's set rules
+are unchanged.
+
+- Breaking: every such MySQL `min` or `max` has new stable SQL, and its
+  column is declared `my_signed_int` and `int64` where it was `my_int` and
+  `int32` (`my_smallint` and `int16` for a `SMALLINT`). This includes
+  statements that ran before: a `min` or `max` read straight from a base
+  table, or over a query that ends in `limit`, which MySQL materializes,
+  returned an `int32` or `int16` column and now returns an `int64` one.
+- Breaking: a MySQL `lag`, `lead`, `first_value`, `last_value` or
+  `nth_value` over such an extreme of a `SMALLINT`, such as `max(s)` in an
+  upstream grouped table, now reads a `my_signed_int` and is a `my_bigint`
+  (`int64`) where it was a `my_int` (`int32`), as MySQL types a window value
+  over a `BIGINT` column; its values are unchanged.
+- Breaking: a MySQL set column whose first operand is a `my_bigint`, such as
+  a `BIGINT` field, a `count` or a rank, and which has a `my_signed_int`
+  operand, such as `lo = rn` and then `lo = 1`, took the first operand's
+  carrier and is now a `my_signed_int` in either order. Its Arrow type stays
+  `int64`, and its SQL and values are unchanged.
+- Unchanged: every PostgreSQL extreme; every MySQL extreme of a `BIGINT`,
+  `DOUBLE`, `DECIMAL`, `DATE` or `DATETIME`; every `min` or `max` over a
+  window, on either target; and single-file SQL, which this change does not
+  touch.
+
+Compatibility: PostgreSQL SQL, carriers and set rules are unchanged. These
+MySQL project outputs change:
+
+| Code or output | Case | Before | After |
+| --- | --- | --- | --- |
+| SQL | a grouped `min` or `max` of a `SMALLINT` or `INT`, over any source | `MIN(x)` or `MAX(x)` | `CAST(MIN(x) AS SIGNED)` or `CAST(MAX(x) AS SIGNED)` |
+| project JSON v2 aggregate | that extreme | no `result_cast`; no cast roles in `ranges` | `result_cast` `SIGNED`; `ranges` add the `syntax` roles `aggregate_result_cast_open` and `aggregate_result_cast_close` |
+| `columns[].representation.storage` | that extreme, and a set column of it beside a column of its width | `my_int` or `my_smallint` | `my_signed_int` |
+| Arrow type on `mysql_rows` | the same | `int32` or `int16`; `execute` failed with `PIE-R3005` over a view or a merged stage | `int64`; `execute` returns its rows |
+| `columns[].representation.storage` | a window value read of that extreme of a `SMALLINT` | `my_int` | `my_bigint`; Arrow `int64` |
+| `columns[].representation.storage` | a set column whose first operand is a `my_bigint` and which has a `my_signed_int` operand | `my_bigint` | `my_signed_int`; Arrow `int64` either way |
+| PIE-B1002 `set_column_physical_representation_mismatch` | a set column of a literal, an `Int` operation or a sign beside `SMALLINT` or `INT` operands of one width; of such an extreme beside a column of another width; of a rank beside such an extreme | refused | VERIFIED; `execute` runs it |
+
+No diagnostic code or detail is added and no JSON schema changes.
+
+### A MySQL rank is cast to `SIGNED`
+
+MySQL SQL, single-file and project, now writes each `row_number`, `rank`,
+`dense_rank` and `ntile` window result as
+`CAST(ROW_NUMBER() OVER (...) AS SIGNED)` (`RANK`, `DENSE_RANK`,
+`NTILE(n)`), and so does the refined statement that R2 `save_recoverable`
+and `recover` read. A project column keeps its `my_bigint` carrier from 0 to
+9223372036854775807, an Arrow `int64` on the `mysql_rows` route, and its
+values are unchanged.
+
+MySQL 8.4 returns these four as `BIGINT UNSIGNED`, so it computed a binary
+`+`, `-` or `*` over one in unsigned arithmetic (unary `-` it computes
+signed), while Pietto declared the result a signed `my_signed_int`.
+`rn - 5` or `5 - rn` over a rank `rn` failed with MySQL error 1690
+(`BIGINT UNSIGNED value is out of range`) as soon as a value fell below
+zero, and returned an unsigned column otherwise, so `execute` on the
+`mysql_rows` route failed every such statement with `PIE-R3005`
+(`EXECUTION_METADATA`), and a program that ran the emitted SQL itself got
+that error. A set operation of a rank beside a signed operand, such as a
+`union all` of a rank and an integer literal or a `BIGINT` column, returned
+`DECIMAL`, which failed the same way. This held for `0.2.1` too, for
+single-file MySQL SQL, and for R2's refined statement. Each of these project
+statements now runs and returns its signed values: a native MySQL 8.4.12 run
+of the four functions under binary `-` and set operations through the public
+`execute` matched type codes and values, and one of R2's first page of
+`rn - 5`, `5 - rn` and a `union all` of a rank and a literal returned the
+original statement's signed values for each of the four. Single-file SQL
+writes the same cast around the same window call.
+
+So every MySQL statement, single-file or project, that reads one of these
+four functions has different stable SQL. The cast declares no new carrier:
+the rank stays a `my_bigint`, and a set operation of one merges the
+operands' ranges under R22, so a `union all` of a rank and an integer
+literal is a `my_signed_int` from 0 to 9223372036854775807, and of a rank
+and a `BIGINT` column a `my_bigint`, now sent as a signed `BIGINT` rather
+than a `DECIMAL`. A rank beside a grouped `min` of an `INT` field, now a
+cast `my_signed_int` as described above for MySQL `min` and `max`, is
+VERIFIED and runs; a rank beside a
+`SMALLINT` or `INT` column stays BLOCKED with `PIE-B1002`
+(`set_column_physical_representation_mismatch`), as no common type is taken.
+PostgreSQL's SQL and the `percent_rank` and `cume_dist` results are
+unchanged. No diagnostic code or detail is added, and no CLI JSON v1,
+project JSON v2 or artifact shape changes.
+
+### MySQL refuses a typed parameter that a plain projection never reads
+
+MySQL project emission reported VERIFIED, with SQL that has no placeholder
+for the parameter, for a query that declares a `Decimal(p, s)`, `Date`,
+`Timestamp` or `UUID` header parameter and never reads it, when its SELECT
+items are only fields and literals, signed or not, over its source or over
+upstream queries or tables that select the same way, such as:
+
+```pietto
+query result(day: Date):
+    from words
+    select:
+        id
+        k = 1
+```
+
+The [language page](language.md#query-header-parameters-in-explicit-module-projects)
+and the notes of [`0.1.10`](#typed-project-query-parameters)
+and [`0.1.12`](#mysql-project-decimal-date-and-timestamp-parameters)
+state that MySQL emission refuses such a declaration, read or not, and
+compiled replay did refuse it, so `pietto.execution.compile_query` never
+returned such a query and no execution entry ran its SQL. Emission now
+refuses it too: PIE-B1003 `query_parameter_type_not_admitted_on_target` at
+each such declaration in header order, the same document that the same
+header over a body with a WHERE reports. Like that body's, its document
+then reaches no stage after emission that only a `VERIFIED` document
+reaches (the list below the table), so it reports none of their refusals
+and writes nothing, though, as that body's, it is still refused with
+`project_path` where one of its own blockers or diagnostics is located in a
+project file whose name is not UTF-8 (the fifth row). In
+`emit-sql --project --all` and `pietto.compiler.compile_all_sql`, only that
+query's own document changes, and every other item's document is as before
+where the batch listed items, but the batch is no longer `VERIFIED`, so
+`--output DIR` writes nothing, not even another query's artifact, and its
+64 MiB output limit counts the new document (the last row).
+
+Changed diagnostics (programs no execution entry ran; every other program,
+PostgreSQL's included, is unchanged):
+
+| Entry | Before (`0.2.1`, measured at `f82bb79e`) | After |
+| --- | --- | --- |
+| `pietto emit-sql --project`, with or without `--all` | `VERIFIED` with that SQL, exit 0, and `--output` written | `BLOCKED` with the blockers above, exit 1, and nothing written |
+| `pietto.compiler.compile_sql` | a `VERIFIED` document with that SQL | a `BLOCKED` document with the blockers above |
+| `pietto.execution.compile_query` | `RequestRejected` with PIE-R1004 `QUERY_NOT_EXECUTABLE` (detail `COMPILED_PHYSICAL_DOMAIN`, or `COMPILED_PARAMETER` for a query that declares a `UUID`) | `CompileRejected` with the blockers above |
+| any of these for such a query that another rule refuses, such as one whose contract names an unreviewed MySQL release, other than at a stage of the next row | that rule's blockers | the same blockers with the ones above where a body with a WHERE reports them: after a premise conflict (`inconsistent_declared_scope`) and `target_release_not_reviewed`, and before every other blocker, the query's own literal-sign refusals included, such as `literal_leaf_representation` for an item `k = 9223372036854775808` |
+| any of these for such a query refused only at a stage after emission that only a `VERIFIED` document reaches, each listed below | that stage's refusal: PIE-B1007 `sql_byte_limit` or `public_artifact_byte_limit` alone; `INPUT_REJECTED` with `project_path`, `output_path`, `output_write` or `batch_output_platform` (exit 2; a batch refused this way lists no item); or exit 2 with the error of a standard output that could not be written or encoded, which ends `; the replaced artifact file is kept` once an `--output` file or directory was written | the blockers above alone, as a body with a WHERE reports them, exit 1 (in JSON, a standard output that cannot be written is still exit 2, with the error alone), and nothing written, unless one of them or a diagnostic of the document is located in a project file whose name is not UTF-8: then, as for that body, `INPUT_REJECTED` with `project_path` naming that file (exit 2) and the blockers located elsewhere, so that a query in such a module names its own module where `0.2.1` named the project's first such file, and a query beside a warning located in such a file lists the blockers above beside `project_path` |
+| `pietto emit-sql --project --all` and `pietto.compiler.compile_all_sql`, whose batch has a 64 MiB output limit | the batch with those documents, or `INPUT_REJECTED` with `batch_output_limit` (exit 2) where they took it past the limit | the batch with the documents above, which can fit the limit where those did not (then `BLOCKED`, exit 1, unless another item is `INPUT_REJECTED`), or pass it where they fit (`INPUT_REJECTED` with `batch_output_limit`, exit 2) for a list longer than the document it replaces, as for a query that declares many of these parameters or that another rule refuses |
+
+The stages after emission that only a `VERIFIED` document reaches, which
+such a query no longer reaches, are, in the order the entries run them:
+
+- realization's byte limits, 8 MiB of SQL or a 16 MiB document, or less
+  under the contract's `resource_limits` (PIE-B1007 `sql_byte_limit` or
+  `public_artifact_byte_limit`);
+- the encoding of the document, which names the project's source files:
+  another project file whose name is not UTF-8 is refused with
+  `project_path` (a refused document is checked instead for its own
+  locations, as the fifth row says: a blocker or diagnostic located in such
+  a file refuses it with `project_path` naming that file);
+- the write of `emit-sql --output FILE`, refused with `output_path` for a
+  project file or the contract, or for a destination that, since it was
+  checked before emission, has become one that `--output` refuses, such as
+  a symbolic link, and with `output_write` for a read-only file, a file of
+  another user, a failed write or a temporary file that cannot be removed;
+  otherwise the file is written;
+- the write of `emit-sql --project --all --output DIR`, made only for a
+  `VERIFIED` batch, refused with `output_write` for project inputs that
+  change before it is written or for a failed write, such as under a parent
+  directory this user may not write, and with `batch_output_platform` on a
+  file system without safe directory output; otherwise the directory is
+  written;
+- in `--format text`, standard output, which gets only the rendering of a
+  `VERIFIED` document, a refused one going to standard error, and is
+  written only when it is not empty: a closed or full standard output or a
+  closed pipe gives `pietto emit-sql: error: standard output could not be
+  written`, and a stream installed without a binary buffer that cannot
+  encode the text gives `pietto: error: terminal output could not be
+  encoded`, each with exit 2 (under `--all`, standard output is still
+  written for another `VERIFIED` item);
+- in either format, the ending `; the replaced artifact file is kept` of
+  the error of a standard output that could not be written, once an
+  `--output` file or directory was written;
+- `compile_query`'s execution template, whose refusal is the PIE-R1004 of
+  the third row, and everything that follows it.
+
+Emission reports these blockers only for a query whose body it comes to
+write, as a projection, as rows or as a JOIN. A MySQL query that declares
+such a parameter and that emission refuses before that keeps exactly the
+blockers it had, without these: one with a plan-stage refusal, such as
+`order` for `order by None is None` or `expression_evidence_unavailable` for
+an output `z = None`; one refused with PIE-B1007 `generated_structure_limit`
+before it is assessed; one whose statement has a table-function input (such
+as a read of a `generate_series` query), a Collect read, an Unnest or an
+outer aggregate composition (`aggregate_composition_not_admitted_on_target`);
+one refused with `scalar_meaning_requires_field_projection`; and one whose
+shape emission does not write, as for a JOIN whose `on` calls `coalesce`.
+Since `0.1.10` the language page and the PIE-B1003 row of the
+[diagnostics specification](spec/diagnostics.md#backend-diagnostics) have
+stated the refusal for these queries too; both now state this rule and name
+these queries.
+No PIE code or detail is added, and no SQL text, CLI JSON v1, project JSON
+v2, artifact or bundle shape changes.
+
+### MySQL project `Float` arithmetic in E4's narrow cell
+
+- `emit-sql --project` now emits a MySQL `Float` `+`, `-` or `*` of a field
+  and a literal, and the unary `-` of a field, in one cell (MC.04): one
+  operand is a nullable or non-null `DOUBLE` field of a source declared in
+  the query's own module, read by name (`x` or `rows.x`), and the other, for
+  `+`, `-` and `*`, a `Float` literal under one `-` at most, in either order,
+  such as `x * 2.0`, `-2.0 * x` or `y + -0.0`. Each operand and the whole
+  operation may also be written in parentheses (`(x) * (2.0)`,
+  `y * -(2.0)`) or through a `def` call that inlines to it, a literal
+  argument included (`x * two()`, `mul(x, 2.0)`, `same(-x)`). The operation
+  is the whole value of a SELECT item of the `query` or `table` that is
+  emitted, its other SELECT items are direct reads of fields, of any type,
+  or other operations of this cell, as in the qualification's forms, and
+  the query reads its source through one WHERE at most and holds no `let`,
+  window, JOIN, GROUP BY or aggregate, HAVING, DISTINCT, ORDER BY, LIMIT or
+  header parameter. PostgreSQL emitted these statements already; its SQL
+  does not change.
+- `+` and `-` are written `(a + b)`, the sign `(-a)` and a literal
+  `CAST(2.0e0 AS DOUBLE)`. `*` is written under an underflow guard (MC.05),
+  `CASE WHEN (x * y) = 0 AND x <> 0 AND y <> 0 THEN
+  CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) ELSE (x * y) END`,
+  with `x` and `y` the two operands in their written order. The values are
+  Python's binary64 results, the sign of a zero included, as on PostgreSQL.
+  A result outside binary64 fails the statement with error 1690
+  (SQLSTATE 22003), and so does a product of two non-zero values that rounds
+  to zero, which MySQL alone would return as `0.0`; PostgreSQL fails both
+  with SQLSTATE 22003. The `Float` law of the
+  [language page](language.md#float-values) does not change.
+- The result is a `my_double` with the domain `finite_float` `binary64`, of
+  the nullability PostgreSQL gives it: unknown for `+`, `-` and `*`, the
+  field's own for the sign. Each `+`, `-` and `*` requirement carries the
+  evidence `{"overflow": "target_checked_binary64_overflow"}`, as on
+  PostgreSQL, and a sign none; the guard's tokens have the additive `syntax`
+  roles `product_guard_open`, `product_guard_zero`, `product_guard_and`,
+  `product_guard_then` and `product_guard_close`
+  ([project JSON v2](spec/project-cli-json-v2.md)).
+- Emission derives the cell from the plan, compiled replay from its records
+  and the pure boundary from its document; plain verification asks
+  emission's function where the cell is and checks its operands by its own
+  law. Compiled bundles and live templates replay the same SQL.
+- Kept refused outside [E4B's cells](language.md#mysql-float-wider-cells),
+  with the blockers they have without this note, object for object: two
+  `Float` fields (`x + y`, `x - x`), a nested operation such as
+  `(x * 2.0) + 1.0` or `-(-x)`, unary `+`, an `Int` literal, a literal under
+  `+` or under two signs, `/`, `%`, `abs` of the operation, a header
+  parameter, read or not, the operation in a `let`, a WHERE comparison, an
+  ORDER BY key or an aggregate argument, and a cell's operation in a query
+  with any clause listed above, a value `let`, a set operand, an imported
+  source, an upstream query or a relation alias, or beside any other SELECT
+  item, such as an `lpad`, `now()` or `date_of(now())` call, an `Int`
+  operation of S01's cell, a comparison, a literal or another expression:
+  such a statement keeps every blocker it has without this note, that
+  call's or operation's included. Under `bind_safe_literals`
+  a statement with a literal, a WHERE's included, stays refused, since its
+  literals are bind-safe `?`. A statement still refused reports exactly the
+  blockers it has without this note.
+- R2 `save_recoverable` and `recover` refuse a MySQL query of these forms
+  with PIE-R1004 (`detail` `PUBLIC_R2_UNQUALIFIED_FORM`) before any
+  workspace access or connection, as for the other forms that MySQL opened
+  after a native qualification (see the
+  [R2 boundary](execution.md#known-limitations)).
+- The two-database qualification of these forms is MC's E4 campaign on
+  PostgreSQL 18.6 and MySQL 8.4.12 (MC.04, MC.05, MC.06): its raw
+  primitive stage over MySQL `DOUBLE` and its emitted stage over this
+  change's SQL both matched on both databases, `*` with its guard, so no
+  operator of the cell stays refused.
+- Beyond the MySQL cadence under J12 (3): E4's wider positions open only in
+  [E4B's cells](language.md#mysql-float-wider-cells), whose own notes
+  list them, each on its own chain's qualification; every other position of
+  PostgreSQL's E4, such as two levels of nesting, `/` or an aggregate other
+  than `count`, keeps its refusal with no target (MC.04, MC.10), and so does
+  a `Float` operation in a JOIN `on` (PL.68).
+
+Changed diagnostics (programs refused in `0.2.1`; no accepted program
+changes; MySQL projects, no message text changed):
+
+| Code | Case | Before | After |
+| --- | --- | --- | --- |
+| PIE-B1003 | `r = x * 2.0`, `r = 0.1 + y` or another `+`, `-` or `*` of a `DOUBLE` field and a `Float` literal in the cell above | `float_literal_operands_required` at the operation | none: the statement emits |
+| PIE-B1003 | `r = -x` of a `DOUBLE` field in the cell above | `unary_sign_requires_int_operand` at the sign | none: the statement emits |
+
+### MySQL project `Float` arithmetic of two fields, one nesting and `count`
+
+- `emit-sql --project` now emits on MySQL, in MC E4B's chain C
+  ([E4B's cells](language.md#mysql-float-wider-cells)), a `Float` `+`,
+  `-` or `*` of two `DOUBLE` fields, such as `x + w` or `x - x`, and one
+  level of nesting, an inner such operation as an operand beside a field or
+  a `Float` literal, such as `(x * 2.0) + 1.0`, `x * (w + 1.0)` or
+  `-(-x)`. Each stands as a whole SELECT item with no WHERE, as one `let`
+  value read by the select list or by one ORDER BY key, or compared with a
+  `Float` literal in a whole WHERE with no `let`.
+- `count` of the unary `-` of a nullable field now emits on MySQL with no
+  WHERE, ungrouped or beside GROUP BY keys that are fields, such as
+  `n = count(-x)` or `group by g` with `n = count(-x)`. A `count` of a `+`,
+  `-` or `*` stays refused, and so does any `count` under a WHERE: MySQL
+  may count a row without computing an argument that it types non-nullable,
+  as over a `NOT NULL` column that a nullable declaration describes, which
+  the contract allows, while PostgreSQL computes it there and fails the
+  statement where it overflows. A sign cannot fail, so its `count` is the
+  same on both.
+- The SQL is PostgreSQL's in MySQL's spelling, each `*` under E4's
+  underflow guard with an inner operation written inside it as its own SQL;
+  `count` counts in the aggregate CTE. Values, failures (error 1690,
+  SQLSTATE 22003) of the operations MySQL computes, carriers, nullability
+  and evidence are E4's;
+  PostgreSQL's SQL does not change, and no field, role or code is added.
+- Emission, plain verification, compiled replay and the pure boundary each
+  apply E4B's operand law, the field or one-level inner operation beside a
+  field or literal, and the `count` law above by their own reading of their
+  input.
+- Kept refused, with the blockers they have without this note, object for
+  object: two fields or a nesting in two `let`s, under a WHERE over its
+  `let`, beside or under an operation item or in two ORDER BY keys; two
+  levels of nesting, two inner operations and a folded inner operation;
+  `count` of a `+`, `-` or `*`, such as `n = count(x * 2.0)` or `group by g`
+  with `n = count(x - w)`, of a nesting, of a non-null value, of a `let`
+  name, beside an aggregate other than such a `count` (`count()` or
+  `max(y)`; two such `count`s emit), ordered, composed or under any WHERE,
+  and `count_distinct` of an operation; two fields under a WHERE. Under
+  `bind_safe_literals` a statement with a literal stays refused, since that
+  literal is a bind-safe `?`.
+- R2 `save_recoverable` and `recover` refuse a MySQL query of these forms
+  with PIE-R1004 (`detail` `PUBLIC_R2_UNQUALIFIED_FORM`) before any
+  workspace access or connection, and one with an ORDER BY key with its
+  earlier PIE-R1004 `REFINEMENT_COMPARISON_DOMAIN` when they prepare it
+  (see the [R2 boundary](execution.md#known-limitations)).
+- Native evidence: E4B's chain C qualification on PostgreSQL 18.6 and
+  MySQL 8.4.12 opens these forms. Its raw stage over MySQL `DOUBLE`
+  (`e4b-c`), on the raw prepared and raw text routes, matched on both
+  databases in every group that opens a position. Its one mismatch is its
+  preregistered witness, a `count` of a non-null value, which MySQL
+  returned where PostgreSQL failed with SQLSTATE 22003: the mechanism above
+  for which a `count` of a `+`, `-` or `*` stays refused. Its emitted stage
+  over this change's SQL (`e4b-c-emitted`) matched on both databases on the
+  public, raw prepared and raw text routes.
+- The [deferred subjects](roadmap.md#deferred-subjects) give E4B's
+  chain C owner a target before the Phase82 freeze for the refused counts
+  of a `Float` `+`, `-` or `*` and for counts under a WHERE. Either MySQL
+  SQL must evaluate the argument regardless of column nullability, or
+  MySQL source admission must reject the conflicting column declaration.
+  Each route needs a chain C witness. Other forms this note keeps refused
+  and no other E4B note opens have no target under MC.10 (J12 (3)).
+
+Changed diagnostics (programs refused in `0.2.1`; no accepted program
+changes; MySQL projects, no message text changed):
+
+| Code | Case | Before | After |
+| --- | --- | --- | --- |
+| PIE-B1003 | `r = x + w`, `r = (x * 2.0) + 1.0` and the other shapes above | `float_literal_operands_required` at the operation, `let` or WHERE | none: the statement emits |
+| PIE-B1003 | `r = -(-x)`, `n = count(-x)` | `unary_sign_requires_int_operand` at the sign | none: the statement emits |
+
+### MySQL project `Float` arithmetic as a whole item on a JOIN row
+
+- `emit-sql --project` now emits on MySQL, in MC E4B's chain J
+  ([E4B's cells](language.md#mysql-float-wider-cells)), a narrow `Float`
+  operation, or with no WHERE a `+` or `*` of two `DOUBLE` fields, as a
+  whole SELECT item over the row of one INNER or LEFT JOIN of two sources of
+  the query's own module, such as `inner join f6i on f6i.id == f6o.id` with
+  `r = f6o.v * f6i.v`, or `left join f6i on f6i.v == f6o.v` with
+  `r = f6i.v + 1.0`. The JOIN is computed first and the item above it.
+- The `on` is one `==` of an `Int` field of each source or of a `Text`
+  field of each, under a WHERE with no `Float` operation and no `any` or
+  none, or with no WHERE one of the S06 `Float`-keyed JOIN forms; with each
+  item replaced by its first field of the item's nullability, the statement
+  must be one MySQL emits already. Emission, plain verification, compiled
+  replay and the pure boundary each apply that law to the JOIN's kind and
+  its `on` by their own reading, and compiled replay and the pure boundary
+  take two inputs of two different sources; that the inputs are sources of
+  the query's own module, read directly and not through an alias `let`, is
+  checked by emission and plain verification alone, as for E4's cell.
+  Emission, compiled replay and the pure boundary each derive the S06 cell
+  with that replacement, its bound below included, and admit beside such an
+  item only field reads and other such items.
+- The SQL is PostgreSQL's in MySQL's spelling, each `*` under E4's
+  underflow guard; values, failures (error 1690, SQLSTATE 22003), carriers,
+  nullability and evidence are E4's. PostgreSQL's SQL does not change, and
+  no field, role or code is added.
+- Kept refused, with the blockers they have without this note, object for
+  object: a nesting or a `-` of two fields on a JOIN row, two fields under a
+  WHERE, another SELECT item that is neither a field nor such an item
+  (`c = 2.0`), a `Float` operation in the `on` (PL.68) or in the WHERE, any
+  other `on`, such as a `Float` or `Text` ordering comparison (`on f6i.v <
+  f6o.v`), a comparison with a literal, an `or`, a second condition beside
+  an `Int` or `Text` key or a `not` over one, a WHERE beside a
+  `Float`-keyed JOIN, an `any` in the WHERE, a `let`, a header parameter,
+  a RIGHT JOIN, and GROUP BY, ORDER BY, LIMIT or DISTINCT beside such an
+  item. Under `bind_safe_literals` a statement with a literal stays
+  refused. S06's cell bounds a statement to nine expressions beyond one per
+  SELECT item, so over `not (!=)` beside a `Text` key items beyond one sign
+  of a field, such as `r = f6o.v * 2.0`, and over `==` beside a `Text` key
+  items beyond one `+`, `-` or `*` of two fields or over an unsigned
+  literal, or two signs, such as `r = f6o.v * -2.0`, keep
+  `comparison_type_pair_not_admitted`.
+- R2 `save_recoverable` and `recover` refuse a MySQL query of these forms
+  with PIE-R1004 (`detail` `PUBLIC_R2_UNQUALIFIED_FORM`) before any
+  workspace access or connection (see the
+  [R2 boundary](execution.md#known-limitations)).
+- Native evidence: E4B's chain J qualification on PostgreSQL 18.6 and
+  MySQL 8.4.12 matched on both databases: its raw stage over MySQL `DOUBLE`
+  (`e4b-join`), on the raw prepared and raw text routes, and its emitted
+  stage over this change's SQL (`e4b-join-emitted`), on the public, raw
+  prepared and raw text routes, over each S06 `Float`-keyed JOIN cell that
+  these forms open and over JOINs on `Int` and `Text` keys.
+- Beyond the MySQL cadence under J12 (3): what this note keeps refused and
+  no other E4B note opens keeps its refusal with no target (MC.10).
+
+Changed diagnostics (programs refused in `0.2.1`; no accepted program
+changes; MySQL projects, no message text changed):
+
+| Code | Case | Before | After |
+| --- | --- | --- | --- |
+| PIE-B1003 | `r = f6o.v * 2.0` or another such item within S06's bound beside an S06 `Float`-keyed JOIN (beside `not (!=)` and a `Text` key, one sign of a field, such as `r = -f6o.v`) | `comparison_type_pair_not_admitted` at the `on` | none: the statement emits |
+| PIE-B1003 | `r = f6o.v * f6i.v` or another such item beside a JOIN on an `Int` or `Text` key | `float_literal_operands_required` at the item (`unary_sign_requires_int_operand` for a sign) | none: the statement emits |
+
+### MySQL project `Float` arithmetic in a `let`, a WHERE and an ORDER BY key
+
+- `emit-sql --project` now emits on MySQL the narrow `Float` operations of
+  [E4's cell](language.md#mysql-float-arithmetic-cell), a `+`, `-` or `*`
+  of a `DOUBLE` field and a `Float` literal and the unary `-` of such a
+  field, in three more positions of MC E4B
+  ([E4B's cells](language.md#mysql-float-wider-cells)): one or two `let`
+  values read by the select list, such as `let t = x * 2.0` with `r = t`; a
+  WHERE that is one whole comparison, or its `not`, of such an operation or
+  of its one `let` with a `Float` literal, such as `where x * 2.0 > 1.0` or
+  `where t <= 0.0`; and ORDER BY keys that are `let` names, one key over one
+  `let` or two over two, such as `order by t, u desc`. Every `let` is read,
+  every one by the WHERE when there is one, and the statement reads one
+  source of its own module with no JOIN, window, GROUP BY, DISTINCT, LIMIT,
+  header parameter, upstream query or relation alias. PostgreSQL emitted
+  these statements already; its SQL does not change.
+- The SQL is PostgreSQL's in MySQL's spelling: a `let` value is computed for
+  every source row in the first CTE, a WHERE filters in its own CTE and `*`
+  stands under E4's underflow guard. Values, failures (error 1690, SQLSTATE
+  22003), the `my_double` `finite_float` result, its nullability and the
+  binary64 evidence are E4's; no field, role or code is added
+  ([project JSON v2](spec/project-cli-json-v2.md)).
+- Emission derives the cells from the plan, compiled replay from its records
+  and the pure boundary from its document; plain verification asks
+  emission's function where the cells are and checks each operation's
+  operands by its own law. A relation alias or an unread window leaves the
+  records and document of the direct read, so, as for E4's cell, emission
+  and plain verification alone refuse it.
+- Kept refused, with the blockers they have without this note, object for
+  object: a `let` nothing reads or that a WHERE beside it does not read, a
+  WHERE with another condition or comparing with a field or another
+  operation, a `let` name as an operand, a `let` or ORDER BY key beside an
+  operation item, a field key beside a `let` key, three `let`s, and these
+  positions under LIMIT, DISTINCT, a window, an aggregate, an upstream query,
+  a relation alias, an unread window or header parameter, or a JOIN. Under
+  `bind_safe_literals` a statement with a literal stays refused.
+- R2 `save_recoverable` and `recover` refuse a MySQL query of these forms
+  with PIE-R1004 (`detail` `PUBLIC_R2_UNQUALIFIED_FORM`) before any
+  workspace access or connection, and one with such an ORDER BY key with
+  its earlier PIE-R1004 `REFINEMENT_COMPARISON_DOMAIN` when they prepare it
+  (see the [R2 boundary](execution.md#known-limitations)).
+- Native evidence: E4B's chain B qualification on PostgreSQL 18.6 and
+  MySQL 8.4.12 matched on both databases: its raw stage over MySQL `DOUBLE`
+  (`e4b`), on the raw prepared and raw text routes, and its emitted stage
+  over this change's SQL (`e4b-emitted`), on the public, raw prepared and
+  raw text routes, so `+`, `-`, `*` and the sign each open in all three
+  positions and in every shape above, `*` with its guard.
+- Beyond the MySQL cadence under J12 (3): what this note keeps refused and
+  no other E4B note opens keeps its refusal with no target (MC.10).
+
+Changed diagnostics (programs refused in `0.2.1`; no accepted program
+changes; MySQL projects, no message text changed):
+
+| Code | Case | Before | After |
+| --- | --- | --- | --- |
+| PIE-B1003 | `let t = x * 2.0` read by the select list, a WHERE or an ORDER BY key, `where x * 2.0 > 1.0` and the other shapes above | `float_literal_operands_required` at the `let` or WHERE | none: the statement emits |
+| PIE-B1003 | `let t = -x` in the shapes above | `unary_sign_requires_int_operand` at the `let` | none: the statement emits |
+
+### MySQL project `Float` parameter operands and computed GROUP BY keys
+
+- `emit-sql --project` now emits on MySQL, in MC E4B's chain C
+  ([E4B's cells](language.md#mysql-float-wider-cells)), a `Float` header
+  parameter as the operand of a `+` or `-` beside a `DOUBLE` field, such as
+  `query result(p: Float | None)` with `r = p + x`, `let t = x - p` or
+  `where x + p > 1.0`, and as the inner operation of a unary `-`, such as
+  `-(x + p)`, in the shapes where two fields or a nesting stand. It is the
+  statement's one header parameter, read once as a `CAST(? AS DOUBLE)`, and
+  it appears nowhere else in the statement.
+- One or two `let` values of narrow operations now emit as GROUP BY keys in
+  an S07 form on MySQL, such as `let k = w * 2.0` with `group by k`, `k` and
+  `n = count()`, or `let a = w + 1.0` with `group by a, kn, u`, with no
+  WHERE and no other `let`. Each key stands for its operation's field, the
+  first field operand of the value's nullability: with every key replaced
+  by its field the statement must be one of the S07 forms of
+  [Float values](language.md#float-values), so the fields differ and give
+  an S07 key set. The `let` value is computed in the first CTE and grouped
+  in the next.
+- The SQL is PostgreSQL's in MySQL's spelling; values, failures (error
+  1690, SQLSTATE 22003), carriers, nullability and evidence are E4's.
+  PostgreSQL's SQL does not change, and no field, role or code is added.
+  Emission, plain verification and compiled replay each apply the law; the
+  pure boundary, whose closed schema holds no header parameter, applies it
+  to the computed keys, and S07's cell is re-derived by emission, compiled
+  replay and the pure boundary with each computed key's field.
+- Kept refused, with the blockers they have without this note, object for
+  object: a `*` beside a parameter, whose guard would render the
+  parameter's one read three times; a parameter beside an inner operation,
+  such as `(x * 2.0) + p`, or in an operation under anything but a `-`, such
+  as `(x + p) + 1.0`; a second header parameter, read or not, and a second
+  read of the one; an operation with no field, such as `p * 2.0` or
+  `(p + 2.0) + x`; a value nullable only through a nullable
+  parameter, such as `p + y`; a bare parameter read beside such an
+  operation; a parameter in two `let`s, in a computed key or in a WHERE
+  beside a `count`; and a computed key under a WHERE, beside another `let`
+  or a `count` argument, of two fields or a nesting, standing for a field
+  another key reads, after a leading `Text` key (`group by kn, k`) or
+  selected after the count.
+- R2 `save_recoverable` and `recover` refuse a MySQL query with such a
+  parameter with PIE-R1004 (`detail` `PUBLIC_R2_UNQUALIFIED_FORM`), and one
+  with an ORDER BY key or a computed key with its earlier PIE-R1004
+  `REFINEMENT_COMPARISON_DOMAIN` or `PUBLIC_R2_COMPUTED_GROUP_KEY`, before
+  any workspace access or connection (see the
+  [R2 boundary](execution.md#known-limitations)).
+- Native evidence: E4B's chain C qualification on PostgreSQL 18.6 and
+  MySQL 8.4.12 opens these forms: its raw stage over MySQL `DOUBLE`
+  (`e4b-c`) and its emitted stage over this change's SQL (`e4b-c-emitted`)
+  matched on both databases in each of these forms' groups, the emitted one
+  on the public, raw prepared and raw text routes. The parameter forms ran
+  on a harness that binds one `Float` per `?`: on each route the bound
+  values were the oracle's, and the text route's literals, `-0.0`,
+  `2^-1074` and `±DBL_MAX` among them, read back bit for bit.
+- Beyond the MySQL cadence under J12 (3): what this note keeps refused and
+  no other E4B note opens keeps its refusal with no target (MC.10), a `*`
+  beside a parameter among them (PL.76).
+
+Changed diagnostics (programs refused in `0.2.1`; no accepted program
+changes; MySQL projects, no message text changed):
+
+| Code | Case | Before | After |
+| --- | --- | --- | --- |
+| PIE-B1003 | `r = p + x`, `let t = x - p`, `let k = w * 2.0` as a GROUP BY key and the other shapes above | `float_literal_operands_required` at the operation or `let` | none: the statement emits |
+| PIE-B1003 | `let k = -w` as a GROUP BY key | `unary_sign_requires_int_operand` at the `let` | none: the statement emits |
+
+### MySQL project `sum(Int)` of an `INT` field, a non-null field and a `let`
+
+- A MySQL project now also emits, in the S02 cell that the [language
+  page](language.md#aggregates-and-grouping) states, a `sum` of a
+  non-null `BIGINT` field or of a nullable or non-null `INT` field, and a
+  `sum` whose argument is the name of a value `let` of the query whose
+  value, as written, reads one `BIGINT` or `INT` field, nullable or not
+  (`let t = n`, then `sum(t)`). Every `let` of the query must be such a
+  binding, read at least once, and only as the whole argument of a `sum`;
+  more than one is allowed. A read qualified by its source's name,
+  parentheses and an identity `def`, in the `sum`, in its `let` or around
+  the `let`'s name, count as before.
+- The `sum` is the cell's guarded `SUM` over the field, a nullable `Int`
+  (`my_signed_int`) whatever the field's width: NULL for no or only NULL
+  values, the exact sum in range, and error 1690 (SQLSTATE 22003) outside
+  signed 64 bits, never a clamped value. A `let` is read through its own
+  stage, as the PostgreSQL SQL of the same query reads it. A `min` of an
+  `INT` field beside the `sum` is the cast `my_signed_int` of the note above
+  on MySQL `min` and `max`. Each R13 requirement carries the evidence
+  `target_checked_signed64_narrowing`.
+- PostgreSQL SQL and every other public PostgreSQL output are unchanged.
+  Compiled bundles and live templates replay the same SQL. Emission derives
+  the cell from the plan and the written query, and plain verification
+  re-derives emission's refusals; compiled replay derives it from its
+  records, with the `let` stages and the `BIGINT` or `INT` carrier.
+- The two-database qualification of these forms, the G1 campaign of the
+  MySQL catch-up work package on PostgreSQL 18.6 and MySQL 8.4.12, matched
+  on both databases on the public, raw prepared and raw text routes.
+- Every other MySQL project `sum(Int)` keeps the refusal it has without
+  this note, object for object (PIE-B1004
+  `sum_int_aggregate_range_proof_missing` where that is its blocker). Among
+  them are a `sum` of a `SMALLINT` field, S02's own `SMALLINT` reads beside
+  a `sum` that this note opens (a non-null `SMALLINT` GROUP BY key, or a
+  `count` or `min` of a `SMALLINT` field, which the S02 cell takes beside
+  sums of nullable `BIGINT` fields alone, as before), a `let` chain
+  (`let u = t` over `let t = n`),
+  a `let` whose value is anything but one field read, a `let` read in a
+  WHERE, as the GROUP BY key, in a `count`, a `min` or anywhere else
+  outside a `sum` argument, a value `let` that nothing reads, a relation
+  alias other than the G4 note below opens, and shapes that the S02 cell
+  excludes, such as a header parameter and a bind-safe `?` other than the
+  G5 note below opens, an aggregate beside the `sum` other than
+  those the G2 and G7 notes below open, HAVING, ORDER BY, LIMIT and
+  DISTINCT other than the G3 note below opens, and a `sum` outside every
+  cell beside it.
+  R2 `save_recoverable` and `recover` refuse a MySQL query of these forms
+  with PIE-R1004 (`detail` `PUBLIC_R2_UNQUALIFIED_FORM`), as for the other
+  forms that MySQL opened after `0.1.11`.
+
+Changed diagnostics: a MySQL statement whose only blockers in `0.2.1` were
+PIE-B1004 `sum_int_aggregate_range_proof_missing` at sums of these forms is
+now VERIFIED with those blockers gone. A statement still refused reports
+exactly the blockers it has without this note, object for object, such a
+sum's own included: a sum of a non-null `BIGINT` field beside
+`y = sum(a + b)` keeps its PIE-B1004 and the PIE-B1002
+`arithmetic_outside_physical_range` of `a + b` that `0.2.1` reports.
+
+### MySQL project `sum(Int)` beside other aggregates and by more keys
+
+- A MySQL project now also emits, in the S02 cell that the [language
+  page](language.md#aggregates-and-grouping) states as the G1 note above
+  widens it, a query whose aggregation holds any number of `sum`s (one
+  argument summed twice included) and beside them any `count_distinct` of
+  a `BIGINT`, `INT` or `VARCHAR` field and any `max` or `avg` of a
+  `BIGINT` or `INT` field, each a direct read and the whole value of a
+  SELECT item, beside `count`, `count()` and `min` as before. It may group
+  by any number of `BIGINT`, `INT` or `VARCHAR` fields, nullable or not,
+  each selected under any names, more than once, or not at all; the S02
+  cell's own key, one non-null `Int` field of any storage beside sums,
+  counts and mins only, stays as before, and a `SMALLINT` key, or a
+  `count` or `min` of a `SMALLINT` field, which no G2 form reads, stays in
+  the S02 cell as `0.1.12` states it: no `let`, every `sum` of a nullable
+  `BIGINT` field and one key at most. A read qualified by its source's
+  name, parentheses and an identity `def` count as before.
+- Each `sum` is the cell's guarded `SUM`, a nullable `Int`
+  (`my_signed_int`): NULL for no or only NULL values, the exact sum in
+  range, and error 1690 (SQLSTATE 22003) outside signed 64 bits, which
+  fails the whole statement, never a clamped value. The keys, the other
+  aggregates, FROM, WHERE and GROUP BY are the MySQL SQL of the same query
+  with each `sum` written `max`, which MySQL already emits; a `let` is read
+  through its own stage as G1 reads it. A `min` or `max` of an `INT` field
+  beside the sums, read from the source or through a stage, is the cast
+  `my_signed_int` of the note above on MySQL `min` and `max`. Each R13
+  requirement of a `sum` carries the evidence
+  `target_checked_signed64_narrowing`.
+- PostgreSQL SQL and every other public PostgreSQL output are unchanged.
+  Compiled bundles and live templates replay the same SQL. Emission derives
+  the cell from the plan and the written query, and plain verification
+  re-derives emission's refusals; compiled replay derives it from its
+  records, each with the keys' and the other aggregates' field storages.
+- The two-database qualification of these forms, the G2 campaign of the
+  MySQL catch-up work package on PostgreSQL 18.6 and MySQL 8.4.12, matched
+  on both databases on the public, raw prepared and raw text routes.
+- Every other MySQL project `sum(Int)` keeps the refusal it has without
+  this note, object for object (PIE-B1004
+  `sum_int_aggregate_range_proof_missing` where that is its blocker). Among
+  them are another aggregate beside a `sum` (`stddev`, `variance`,
+  `pvariance`, `pstdev`, `median`, `quantile`, `string_agg`, a conditional
+  count, a conditional `sum` outside the G7 note below, `any`, `all`, a
+  `count_distinct` of two fields), a `max`,
+  `avg` or `count_distinct` of an expression (`avg(k * 2)`), of a `let`
+  name or of a field of another storage, a GROUP BY key of another storage
+  (a `Bool` included), HAVING, ORDER BY, LIMIT and DISTINCT other than
+  the G3 note below opens, a relation alias other than the G4 note below
+  opens, and a header parameter and a bind-safe `?` other than the G5
+  note below opens. R2
+  `save_recoverable` and
+  `recover` refuse a MySQL query of these forms with PIE-R1004 (`detail`
+  `PUBLIC_R2_UNQUALIFIED_FORM`), as for the other forms that MySQL opened
+  after `0.1.11`.
+
+Changed diagnostics: a MySQL statement whose only blockers in `0.2.1` were
+PIE-B1004 `sum_int_aggregate_range_proof_missing` at sums of these forms is
+now VERIFIED with those blockers gone, such as `group by k` selecting `k`,
+`sum(a)` and `avg(a)`, `group by a` selecting `a` and `sum(b)`, and
+`group by k, id`. A statement still refused reports exactly the blockers
+it has without this note, object for object: `group by tag` selecting
+`tag`, `sum(n)`, `sum(a + b)` and `avg(c)` keeps the first sum's PIE-B1004
+and the PIE-B1002 `arithmetic_outside_physical_range` of `a + b`.
+
+### MySQL project `sum(Int)` with HAVING, ORDER BY, LIMIT and DISTINCT
+
+- A MySQL project now also emits, in the S02 cell that the [language
+  page](language.md#aggregates-and-grouping) states as the G1 and G2
+  notes above widen it, a query with at least one GROUP BY key that also
+  holds HAVING, ORDER BY, LIMIT or DISTINCT. Each HAVING line is output OP
+  literal, written in that order (`x > 10`): one selected output, named
+  alone, compared with an unsigned `Int` literal (`==`, `!=`, `<`, `<=`,
+  `>`, `>=`), the lines joined by `and`; the output is a `BIGINT` or `INT`
+  key or an aggregate other than `avg`, and a line that reads a `sum` is
+  its block's only line. Each ORDER BY key is a selected output named
+  alone, ascending or `desc`: a `BIGINT`, `INT` or `VARCHAR` key or an
+  aggregate other than `avg`. A `limit n` of 1 or more follows an ORDER BY
+  whose first key is an aggregate, and `select distinct:` stands beside no
+  `avg`. `order by x desc` on one line, `asc` written out, a `table`
+  declaration, a `def` call in place of the HAVING literal it returns,
+  parentheses around the output or the literal, HAVING lines joined by
+  `and` on one line and the spellings the notes above take count as
+  before.
+- Each `sum` is the cell's guarded `SUM` inside the aggregation stage, a
+  nullable `Int` (`my_signed_int`): NULL for no or only NULL values, the
+  exact sum in range, and error 1690 (SQLSTATE 22003) outside signed 64
+  bits, which fails the whole statement, never a clamped value. HAVING,
+  ORDER BY, LIMIT and DISTINCT read the sum's column of that stage, as the
+  PostgreSQL SQL of the same query reads its checked sum; they, the keys,
+  the other aggregates, FROM, WHERE and GROUP BY are the MySQL SQL of the
+  same query with each `sum` written `max`, which MySQL already emits.
+  Observed on both databases and every route in the G3 campaign: a HAVING
+  line that reads a `sum` reads it in every group, so an out-of-range sum
+  fails the statement even where the line would drop that group, and every
+  group that HAVING keeps is computed whether or not the LIMIT returns it.
+  Each R13 requirement of a `sum` carries the evidence
+  `target_checked_signed64_narrowing`.
+- PostgreSQL SQL and every other public PostgreSQL output are unchanged.
+  Compiled bundles and live templates replay the same SQL. Emission derives
+  the clauses' law from the plan and the written query, and plain
+  verification re-derives emission's refusals; compiled replay derives it
+  from its records, following each clause's reads to the aggregate's keys
+  and values.
+- The two-database qualification of these forms, the G3 campaign of the
+  MySQL catch-up work package on PostgreSQL 18.6 and MySQL 8.4.12,
+  matched on both databases on the public, raw prepared and raw text
+  routes.
+- Every other MySQL project `sum(Int)` keeps the refusal it has without
+  this note, object for object (PIE-B1004
+  `sum_int_aggregate_range_proof_missing` where that is its blocker). Among
+  them are a HAVING line written literal first (`10 < x`), one that reads
+  a `sum` beside another line, one that compares two outputs, uses `or`,
+  reads a `Text` key, an `avg` or S02's own `SMALLINT` key, a LIMIT with no
+  ORDER BY, after an ORDER BY of keys only or of a key first, `limit 0`, an
+  ORDER BY key that is an `avg` or S02's own `SMALLINT` key, DISTINCT
+  beside an `avg`, any of these clauses with no GROUP BY key or in a query
+  grouped by S02's own `SMALLINT` key or holding a `count` or `min` of a
+  `SMALLINT` field, a relation alias other than the G4 note below opens,
+  and a header parameter and a bind-safe `?` other than the G5 note below
+  opens. R2 `save_recoverable` and `recover` refuse a MySQL query of these
+  forms with PIE-R1004 (`detail` `PUBLIC_R2_UNQUALIFIED_FORM`), as for the
+  other forms that MySQL opened after `0.1.11`.
+
+Changed diagnostics: a MySQL statement whose only blockers in `0.2.1` were
+PIE-B1004 `sum_int_aggregate_range_proof_missing` at sums of these forms is
+now VERIFIED with those blockers gone, such as `group by k` selecting `k`
+and `x = sum(a)` with `having:` `x > 1`, or with `order by:` `k`, and the
+[language page](language.md#mysql-project-sumint-forms)'s
+`query totals` with `order by customer`. A statement still refused reports
+exactly the blockers it has without this note, object for object: that
+query with `limit 2` after its ORDER BY keeps its one PIE-B1004.
+
+### MySQL project `sum(Int)` through aliases, imports and an upstream
+
+- A MySQL project now also emits a `sum` of an `Int` in the S02 cell that
+  the [language page](language.md#aggregates-and-grouping) states, as the
+  G1 to G3 notes above widen it, when its query names and reaches its rows
+  in other ways. Each `query` or `table` may declare relation aliases
+  (`let r = rows`) of the relation its FROM reads, read by `from r` or not
+  at all, and windows that nothing reads; each field read may be qualified
+  by the name under which the query reads its relation (`rows.a`, `r.a`,
+  `base.a`); the source may be declared in another module and imported,
+  under its own name or another, directly or through re-exports.
+- The query may also read, in place of the source, one upstream `query` or
+  `table`, declared in its module or imported, that reads the source so
+  through one WHERE at most and nothing else: either a plain upstream whose
+  SELECT items are field reads under any names, or an aggregating one that
+  is itself a query of the cell with at least one GROUP BY key and at least
+  one `sum`. The query reads an upstream column as a field of the column's
+  carrier: a field or key keeps its field's, a `sum` is a nullable `Int`, a
+  count a non-null `BIGINT`, a `min` or `max` keeps its field's, but one of
+  a `SMALLINT` or `INT` field is the cast `my_signed_int` of the note above
+  on MySQL `min` and `max`, and an `avg` is a `DOUBLE`. A `sum` of the query
+  may read a `sum`, count, `min`, `max`, key or field column; its keys and
+  the arguments of its `max`, `avg` and `count_distinct` keep the storages
+  of the G2 note above, which that `my_signed_int` is not, and its `min`
+  reads an upstream `min` or `max` only of a `BIGINT` field. Over an
+  aggregating upstream the query holds a `sum`, reads every `sum` of the
+  upstream as an aggregate's argument, directly or through a `let`, and has
+  no WHERE, HAVING, ORDER BY, LIMIT or DISTINCT; over a plain upstream the
+  G3 clauses stay as that note states them.
+- Each `sum`, at either level, is the cell's guarded `SUM`, a nullable `Int`
+  (`my_signed_int`): NULL for no or only NULL values, the exact sum in
+  range, and error 1690 (SQLSTATE 22003) outside signed 64 bits, which fails
+  the whole statement, never a clamped value. Everything else is the MySQL
+  SQL of the same statement with each relation alias and unread window
+  dropped, each read unqualified, each import declared in place and each
+  `sum` written `max` at both levels, which MySQL already emits. Each `sum`
+  of an aggregating upstream is a column of its aggregation stage that the
+  query reads under no filter, so an out-of-range one fails the statement
+  on both targets, as the G4 campaign observed on every route. Each R13
+  requirement of a `sum` carries the evidence
+  `target_checked_signed64_narrowing`.
+- PostgreSQL SQL and every other public PostgreSQL output are unchanged.
+  Compiled bundles and live templates replay the same SQL. Emission derives
+  the upstream's law from the plan and the written definitions, and plain
+  verification re-derives emission's refusals; compiled replay derives it
+  from its records and the pure boundary from its document, each following
+  the query's reads into the upstream. A relation alias, one of a second
+  import name of the upstream included, an unread window, an imported
+  source and an upstream declared as a relation `let` block of the query
+  leave the records and document of the plain read, its upstream a `query`
+  of its module, so emission alone refuses those outside the cell.
+- The two-database qualification of these forms, the G4 campaign of the
+  MySQL catch-up work package on PostgreSQL 18.6 and MySQL 8.4.12,
+  matched on both databases on the public, raw prepared and raw text
+  routes.
+- Every other MySQL project `sum(Int)` keeps the refusal it has without
+  this note, object for object (PIE-B1004
+  `sum_int_aggregate_range_proof_missing` where that is its blocker). Among
+  them are an alias of an alias, an unread alias of a relation that FROM
+  does not read (a second import name of FROM's upstream included), a
+  window that is read, a third level (but for the G8 note's chains and the
+  third levels of the `s03n` note below), an upstream declared as a relation
+  `let` block of the query, an upstream with a JOIN, HAVING, ORDER BY,
+  LIMIT, DISTINCT, a header parameter or a bind-safe `?` other than the G5
+  note below opens, a plain upstream with a `let` or an item that
+  computes, an aggregating upstream with no key, no `sum` or a `sum` the
+  query does not read (a mention in an unread window is no read), a WHERE
+  or a G3 clause over one, a query with no
+  `sum` over one, an upstream `sum` or `avg` as a key or as the argument of
+  `max`, `avg` or `count_distinct`, an upstream `min` or `max` of a
+  `SMALLINT` or `INT` field in either place, a `min` of an upstream `min`
+  or `max` of a field other than a `BIGINT` one (an `INT`, `Float`,
+  `Timestamp`, `Decimal` or `Date` field), a `count` or `count_distinct` of
+  an upstream `min` or `max`, a `min` or `count` of an upstream `avg`, and
+  an alias, an unread
+  window, an import or an upstream beside S02's own `SMALLINT` reads (a
+  `SMALLINT` GROUP BY key, or a `count` or `min` of a `SMALLINT` field, at
+  either level), which keep S02's own cell as the G1 note states. R2
+  `save_recoverable` and `recover` refuse a MySQL query of these forms with
+  PIE-R1004 (`detail` `PUBLIC_R2_UNQUALIFIED_FORM`), as for the other forms
+  that MySQL opened after `0.1.11`.
+
+Changed diagnostics: a MySQL statement whose only blockers in `0.2.1` were
+PIE-B1004 `sum_int_aggregate_range_proof_missing` at sums of these forms is
+now VERIFIED with those blockers gone, such as `let x = rows`, `from x`,
+`group by k` selecting `k` and `sum(a)`, or `query up` selecting `k` and
+`a` from `rows` read by `from up`, `group by k` selecting `k` and
+`sum(a)`. A statement still refused reports exactly the blockers it has
+without this note, object for object: `let y = x` after `let x = rows`,
+read by `from y`, keeps its one PIE-B1004.
+
+### MySQL project `sum(Int)` with header parameters and bind-safe literals
+
+- A MySQL project now also emits a `sum` of an `Int` in the S02 cell that
+  the [language page](language.md#aggregates-and-grouping) states, as
+  the G1 to G4 notes above widen it, when the statement holds placeholders.
+  The selected query may declare header parameters of type `Bool`, `Int`,
+  `Float` or `Text`, nullable or not (`query result(lo: Int):`), read or
+  not. A parameter is read only in the query's own WHERE, over its source
+  or a plain upstream, where every operation over the read up to the
+  WHERE's predicate has a `Bool` result (such as a comparison, `is None`,
+  `not`, `and` or `or`; a `Bool` read may also stand alone), so no check of
+  the statement waits for a bound value; or as the right side of a HAVING
+  line that reads a `sum` and is its block's only line, the parameter a
+  non-null `Int` that the line compares by `>` or `>=` (`x > lo`). Under
+  `bind-safe` a WHERE literal of the query or of a plain upstream is a
+  placeholder bound with its value, a negative literal a minus over its
+  magnitude's, where the MySQL SQL binds one; a literal it keeps inline,
+  such as a `coalesce` default, a `contains` needle, a HAVING literal or a
+  LIMIT, stays inline (`where coalesce(a, 0) > 3` binds the 3 alone).
+- Each `sum` is the cell's guarded `SUM`, a nullable `Int`
+  (`my_signed_int`): NULL for no or only NULL values, the exact sum in
+  range, and error 1690 (SQLSTATE 22003) outside signed 64 bits, which
+  fails the whole statement, never a clamped value. Everything else is the
+  MySQL SQL of the same statement under the same header and policy with
+  each `sum` written `max`, which MySQL already emits: every placeholder,
+  its cast, owner, physical type and server index, and every fixed value.
+  A parameter that nothing reads puts nothing in the SQL; `execute()`
+  still takes its value. The emission document lists no
+  `binding_obligations`. Each R13 requirement of a `sum` carries the
+  evidence `target_checked_signed64_narrowing`.
+- PostgreSQL SQL and every other public PostgreSQL output are unchanged.
+  Compiled bundles and live templates replay the same SQL, and a compiled
+  template re-derives the statement for each binding with the same bytes.
+  Emission derives the placeholders' law from the plan and the written
+  definitions, and plain verification re-derives emission's refusals;
+  compiled replay derives it from its records and the pure boundary, whose
+  schema holds no header parameter, from its document's bind-safe
+  parameters.
+- The two-database qualification of these forms, the G5 campaign of the
+  MySQL catch-up work package on PostgreSQL 18.6 and MySQL 8.4.12 over the
+  public, raw prepared and text routes, matched on both databases, and the
+  G3 note's evaluation rules held with a bound value in place of each
+  literal, under prepared execution too.
+- Every other MySQL project `sum(Int)` keeps the refusal it has without
+  this note, object for object (PIE-B1004
+  `sum_int_aggregate_range_proof_missing` where that is its blocker). Among
+  them are a `Decimal(p, s)`, `Date`, `Timestamp` or `UUID` parameter,
+  read or not, which keeps its PIE-B1003
+  `query_parameter_type_not_admitted_on_target` alone, a `Float` parameter
+  that is read, a read under a minus or `Int` arithmetic in the WHERE
+  (`id > -lo`, `id > lo + 1`, which leave a binding obligation), a
+  parameter or a placeholder beside a HAVING line that reads no `sum`, a
+  nullable parameter on a HAVING line, a bind-safe literal in an
+  aggregating upstream's WHERE, a placeholder in a statement with a
+  conditional `sum` (whose test literals the G7 note below keeps inline
+  under `bind-safe`), and a header parameter, read or not, or a
+  placeholder beside S02's own `SMALLINT` reads (a `SMALLINT` GROUP BY
+  key, or a `count` or `min` of a `SMALLINT` field), which keep S02's own
+  cell as the G1 note states. R2
+  `save_recoverable` and `recover` refuse a MySQL query of these forms with
+  PIE-R1004 (`detail` `PUBLIC_R2_UNQUALIFIED_FORM`), as for the other forms
+  that MySQL opened after `0.1.11`.
+
+Changed diagnostics: a MySQL statement whose only blockers in `0.2.1` were
+PIE-B1004 `sum_int_aggregate_range_proof_missing` at sums of these forms is
+now VERIFIED with those blockers gone, such as `query result(lo: Int):`
+with `where id > lo`, `group by k` selecting `k` and `sum(a)`, or the same
+statement with no parameter and `where id > 3` under `bind-safe`. A
+statement still refused reports exactly the blockers it has without this
+note, object for object: `where id > -lo` keeps its one PIE-B1004.
+
+### MySQL project `sum(Int)` over JOINs
+
+- A MySQL project now also emits a query in the S02 cell that the
+  [language page](language.md#aggregates-and-grouping) states, as the
+  G1 and G2 notes above widen it, that reads its rows through JOINs
+  instead of one source: the FROM reads a source of the module by its own
+  name, and one or more `inner`, `left` or `right` JOINs follow, each of a
+  `let x = S` binding of a source of the module (the FROM's included, a
+  self-join), before the query's value `let`s and WHERE. Each `on` is a
+  conjunction of `==` equalities of an `Int` field of the joined input and
+  one of an earlier input, in either order, one at least, and, in an
+  `inner` or `left` JOIN, comparisons of a non-null `Int` field of the
+  joined input by `>` or `>=` with an `Int` literal written in the `on`
+  (`left join i on i.order_id == orders.id and i.units > 0`). A sum, the
+  other aggregates and the keys read fields of any input, qualified by the
+  input's name or bare where one input has the field, under G2's law
+  (S02's own `SMALLINT` key and a `min` of a `SMALLINT` field, which S02's
+  own cell alone takes as the G1 note states, keep their refusal); a
+  source may declare fields that the query never reads. Parentheses, a
+  `table` declaration and a `group by:` block count as before, a
+  comparison chain in an `on` as its `and`s, and a relationship call there
+  as its body for its linking equalities only.
+- Each `sum` is the cell's guarded `SUM` over the JOIN stage's column, a
+  nullable `Int` (`my_signed_int`): NULL for no or only NULL values, a row
+  that an outer JOIN NULL-extends included, the exact sum in range, and
+  error 1690 (SQLSTATE 22003) outside signed 64 bits, which fails the whole
+  statement, never a clamped value; a row that a JOIN drops never reaches
+  a sum. The JOIN stage, the keys, the other aggregates, WHERE and GROUP BY
+  are the MySQL SQL of the same query with each `sum` written `max`, which
+  MySQL already emits, and S03's JOIN forms J1 to J3 keep their SQL. Each
+  R13 requirement of a `sum` carries the evidence
+  `target_checked_signed64_narrowing`.
+- PostgreSQL SQL and every other public PostgreSQL output are unchanged.
+  Compiled bundles and live templates replay the same SQL. Emission derives
+  the JOIN law from the plan and the written query, and plain verification
+  re-derives emission's refusals; compiled replay derives it from its
+  records and the pure boundary from its document, each with every JOIN's
+  kind, inputs and `on`.
+- The two-database qualification of these forms, the G6 campaign of the
+  MySQL catch-up work package on PostgreSQL 18.6 and MySQL 8.4.12,
+  matched on both databases on the public, raw prepared and raw text
+  routes.
+- Every other MySQL project `sum(Int)` over a JOIN keeps the refusal it has
+  without this note, object for object. Among them are a FULL JOIN
+  (PIE-B1003 `mysql_full_join_approved_non_support`), a CROSS JOIN, an `on`
+  with no linking equality (`on True`, an `or` at its top, a literal
+  comparison alone), an `on` with another conjunct (a `Text` equality, an
+  `is None` test, a literal comparison by another operator, of a nullable
+  field or of an earlier input, with the literal first, negative, a `def`
+  argument or in a relationship's body, or in a `right` JOIN, a `def`
+  call), a JOIN of a query or table or with no `let`, a JOIN in an upstream
+  definition, and HAVING, ORDER BY, LIMIT, DISTINCT, a relation alias, a
+  header parameter or a bind-safe `?` over JOIN rows (PIE-B1004
+  `sum_int_aggregate_range_proof_missing` where that is the blocker).
+  Project semantics still refuses a `sum` of rows that a JOIN may repeat
+  (PIE-B1003 `semantic_result_unsuccessful`) and a conditional sum over
+  JOIN rows (PIE-S2334). R2 `save_recoverable` and `recover` refuse a MySQL
+  query of these forms with PIE-R1004 (`detail`
+  `PUBLIC_R2_UNQUALIFIED_FORM`), as for the other forms that MySQL opened
+  after `0.1.11`.
+
+Changed diagnostics: a MySQL statement whose only blockers in `0.2.1` were
+PIE-B1004 `sum_int_aggregate_range_proof_missing` at sums of these forms is
+now VERIFIED with those blockers gone, such as `from orders`, `let i =
+items`, `inner join i on i.order_id == orders.id`, `group by orders.id`
+selecting `orders.id`, `sum(i.qty)` and `sum(i.units)`, or S03's JOIN
+neighbours with a LEFT JOIN of J1, J2's `on` reversed, two sums or a WHERE.
+A statement still refused reports exactly the blockers it has without this
+note, object for object: the same query with `on True` keeps both sums'
+PIE-B1004.
+
+### MySQL project conditional `sum` with compound tests, beside other aggregates
+
+- A MySQL project now also emits a conditional sum `sum(o.f for o in group
+  if TEST)` in the S02 cell that the [language
+  page](language.md#aggregates-and-grouping) states as the G1 and G2
+  notes above widen it, where it counts as a `sum`: beside any number of
+  sums, conditional sums, `count`, `count()`, `min`, `count_distinct`,
+  `max` and `avg`, under G2's keys, a WHERE and G1's `let`s. Its `f` is a
+  `BIGINT` or `INT` field, nullable or not, read through the generator's
+  variable (any name), and it is the whole value of a SELECT item. Its
+  TEST is `not`, `and`, `or` and parentheses, to any depth, over a read of
+  a `Bool` field, that read's `is None`, and a `BIGINT` or `INT` field, or a
+  GROUP BY key of one read by its own name, `>` an `Int` literal written
+  `N` or `-N`. A `def` call in TEST counts as what it inlines to, with or
+  without arguments, and a read qualified by its source's name counts as
+  before, so S03's C1 to C4 written with parentheses, a qualified key or a
+  `def` are in the cell too. Under `bind_safe_literals` a literal in TEST
+  stays in the SQL, as an aggregate argument's does, so C3 and every such
+  statement without another literal emit their `preserve_literals` SQL.
+- Each conditional sum is S03's `COALESCE(` guarded `SUM` of `CASE WHEN TEST
+  THEN x END` `, 0)`, a non-null `Int` (`my_signed_int`): 0 when no row's
+  test is True (over no rows too), the exact sum in range, and error 1690
+  (SQLSTATE 22003) outside signed 64 bits, which fails the whole statement,
+  never a clamped value. TEST is read with SQL's three-valued logic, as on
+  PostgreSQL, so a NULL test adds nothing. Every other part of the
+  statement is the MySQL spelling of the PostgreSQL SQL of the same query.
+  Each R13 requirement of a conditional sum carries the evidence
+  `target_checked_signed64_narrowing`.
+- PostgreSQL SQL and every other public PostgreSQL output are unchanged.
+  Compiled bundles and live templates replay the same SQL. Emission derives
+  the cell from the plan with every `def` call inlined, not from the
+  written spans, and plain verification re-derives emission's refusals;
+  compiled replay derives it from its records and the pure boundary from
+  its document, each with the test's operators, literals and field
+  storages.
+- The two-database qualification of these forms, the G7 campaign of the
+  MySQL catch-up work package on PostgreSQL 18.6 and MySQL 8.4.12,
+  matched on both databases on the public, raw prepared and raw text
+  routes.
+- Every other MySQL project conditional `sum` keeps the refusal it has
+  without this note, object for object (PIE-B1004
+  `sum_int_aggregate_range_proof_missing` where that is its blocker). Among
+  them are another comparison operator (`>=`, `<`, `<=`, `==`, `!=`), `is
+  None` of an `Int` field, `is not None`, two fields compared, a literal on
+  the left, a literal written `+N` or `-(-N)`, literal arithmetic, a
+  comparison with a `Bool` literal, a `SMALLINT` field compared or summed
+  or a `SMALLINT` key read in TEST, S02's own `SMALLINT` reads (its
+  `SMALLINT` key, or a `count` or `min` of a `SMALLINT` field) beside a
+  conditional sum of any supported field, an argument that
+  is an expression or a `def` call, the conditional count, a conditional
+  sum inside an
+  expression or over JOIN rows, and, in a statement with a conditional
+  sum, HAVING, ORDER BY, LIMIT, DISTINCT, a header parameter, a bind-safe
+  `?`, a relation alias, an unread window, an upstream query, an imported
+  source and a JOIN, which the G3 to G6 notes above open beside other sums
+  only, but the ORDER BY, HAVING line, relation alias, imported source and
+  plain upstream that the `s03n` note below opens over the conditional sums it
+  names. R2 `save_recoverable` and `recover` refuse a MySQL query of these
+  forms with PIE-R1004 (`detail` `PUBLIC_R2_UNQUALIFIED_FORM`), as for the
+  other forms that MySQL opened after `0.1.11`.
+
+Changed diagnostics: a MySQL statement whose only blockers in `0.2.1` were
+PIE-B1004 `sum_int_aggregate_range_proof_missing` at sums of these forms is
+now VERIFIED with those blockers gone, such as `group by customer` selecting
+`customer` and `sum(o.amount for o in group if o.flag and o.id > 3)`, or S03's
+C3 under `bind_safe_literals`. A statement still refused reports exactly the
+blockers it has without this note, object for object: C1 beside
+`n = sum(1 for o in group if o.flag)` keeps the sum's PIE-B1004 and the
+count's PIE-B1003 `conditional_count_not_admitted_on_target`.
+
+### MySQL project `sum(Int)` over several levels
+
+- A MySQL project now also emits each `sum` of an `Int` of a statement
+  whose definitions form a chain of levels, as the [language
+  page](language.md#aggregates-and-grouping) states: the selected
+  `query` or `table` reads by `from` one definition of its module by its
+  own name, which reads one in turn, down to a source of the module, three
+  levels or more, or down to the per-order level of the
+  [style page](style.md)'s two-level example, two levels or more. The
+  style page's example itself, whose `amount` is non-null, is one.
+- Each level is a plain level, which reads the level below by name under any
+  names with one WHERE at most; an aggregate level in the S02 cell as the G1
+  and G2 notes above widen it, which below the top groups by a key and holds a
+  `sum`; or, as the bottom only, the style page's per-order level over its
+  `Order` (a non-null `BIGINT` `id` with its one key `unique(id)`, a
+  non-null `INT` `customer_id` and a non-null `BIGINT` `amount`, each over
+  its storage's whole range) and `Item` (two non-null `BIGINT`s, `id` and
+  `order_id`, and no key), names and item order aside, under T1's second
+  level. The per-order keys are `id`, `customer_id`, `amount` in that order.
+  The second level groups by the customer with no WHERE. It selects any
+  of the customer, `sum(amount)` and `sum(lines)`, each at most once, with
+  at least one sum. A `sum` reads a `BIGINT` or `INT` field carried up, or a sum or
+  count of the level below, directly or through a value `let` of its level; a
+  key reads a `BIGINT`, `INT` or `VARCHAR` field; no `count` or `min` reads a
+  `SMALLINT` field, which only S02's own cell takes, as the G1 note states;
+  `min`, `max` and `avg` may
+  also read a `min` or `max` column of a `BIGINT` field, and no other `min` or
+  `max` column: one of a `SMALLINT` or `INT` field is, as in the G4 note, the
+  cast `my_signed_int` at every level above it, and no aggregate, a `min`
+  included, reads it or one of a `Float`, `Decimal`, `Date` or `Timestamp`
+  field. Every sum below the top is read by a `sum` above it or reaches the
+  result, and no level above the lowest one with a `sum` has a WHERE.
+- Each `sum`, at every level, is the cell's guarded `SUM`, a nullable `Int`
+  (`my_signed_int`): NULL for no or only NULL values, the exact sum in
+  range, and error 1690 (SQLSTATE 22003) outside signed 64 bits, at any
+  level, which fails the whole statement, never a clamped value. Every
+  level's keys, other aggregates, plain items, `let` stages, FROM, the
+  per-order JOIN, WHERE and GROUP BY are the MySQL SQL of the same
+  statement with each `sum` written `max`, which MySQL already emits.
+- PostgreSQL SQL and every other public PostgreSQL output are unchanged.
+  Compiled bundles and live templates replay the same SQL. Emission derives
+  the chain from the plan, the bound contract and the shapes as written,
+  and plain verification re-derives emission's refusals; compiled replay
+  derives it from its records and the pure boundary from its document.
+- The two-database qualification of these chains, the G8 campaign of the
+  MySQL catch-up work package on PostgreSQL 18.6 and MySQL 8.4.12,
+  matched on both databases on the public, raw prepared and raw text
+  routes.
+- Every other MySQL project `sum(Int)` over several definitions keeps the
+  refusal it has without this note, object for object, with PIE-B1004
+  `sum_int_aggregate_range_proof_missing` only at the sums of the lowest
+  definition that holds one, where that is its blocker. Among them are two
+  levels over a source outside the G4 note's upstream, a conditional sum (the
+  G7 note's, one level only) at any level, a JOIN above the bottom, a sum,
+  count or `avg` as a key or under another aggregate than `sum`, a `min` or
+  `max` as a key or summed, one of a field that is not `BIGINT` under `min`,
+  `max` or `avg`, a lower aggregate level without a key or a `sum`, a lower
+  `sum` that no `sum` above reads, a WHERE above the lowest level with a `sum`,
+  a per-order level over other sources, keys, carriers or JOIN (S03's T1 and
+  T2 under a third level among them, but those that the `s03n` note below
+  opens), and HAVING, ORDER BY, LIMIT, DISTINCT, a header parameter, a
+  bind-safe `?`, a relation alias, an unread window, an imported definition
+  and a read qualified by a definition's name. R2 `save_recoverable` and
+  `recover` refuse a MySQL query of these chains with PIE-R1004 (`detail`
+  `PUBLIC_R2_UNQUALIFIED_FORM`), as for the other forms that MySQL opened
+  after `0.1.11`.
+
+Changed diagnostics: a MySQL statement whose only blockers in `0.2.1` were
+PIE-B1004 `sum_int_aggregate_range_proof_missing` at the sums of a chain of
+these levels is now VERIFIED with those blockers gone, such as the style
+page's two-level example and a third level summing its `revenue` and
+`lines`. A
+statement still refused reports exactly the blockers it has without this
+note, object for object: a third level grouped by a lower sum (`group by k,
+s`) keeps the PIE-B1004 of the lower level's sums alone.
+
+### MySQL project `sum(Int)` beside S03's clauses, organizations and levels
+
+- A MySQL project now also emits S03's neighbours that the G7 and G8 notes
+  above leave refused, as the
+  [language page](language.md#aggregates-and-grouping) states (the `s03n`
+  list of the MySQL catch-up work package), names, a `table` declaration and
+  SELECT item order aside, each statement with exactly the items written
+  here. First, `from orders` `group by customer` selecting
+  `customer` and one conditional sum `sum(o.amount for o in group if TEST)`,
+  TEST S03's `o.flag` or G7's `o.flag and o.id > 3`, `o.flag or o.id > 3` or
+  `not o.flag`, with exactly one of these: `order by customer`, on one line or
+  as an `order by:` block, over `o.flag` and `o.flag and o.id > 3`; a relation
+  alias `let x = orders`, `from x`, over `o.flag` and `o.flag or o.id > 3`;
+  `orders` imported under its own name from the module that declares it, into
+  a module that imports nothing else but a `def`, over `o.flag` and
+  `o.flag and o.id > 3`; FROM reading a plain `query` of the same
+  module, with no WHERE and no GROUP BY, that reads `orders` and selects
+  exactly `customer`, `amount` and `flag`, each by its own name, over `o.flag`
+  and `not o.flag`; and the HAVING line `paid >= 0`, on the `having` line or
+  as a `having:` block, over `o.flag`.
+- Second, S03's T1 and T2 with exactly one of these: T1 with
+  `where lines > 0` in its second level, on one line or as a `where:` block, a
+  WHERE that reads the count column of the per-order level, under `preserve`
+  (under `bind-safe` that `0` is a bind-safe `?`, and the statement keeps its
+  refusal); the per-order level without its `id` item, still grouped by
+  `orders.id`; T2's per-order level with a `count()` that no level reads; T1
+  over an `orders` that declares one more nullable `BIGINT` field after
+  `flag`, which no level reads; and a third level with no key and no WHERE
+  that sums each sum of T2's or T1's second level exactly once. In both
+  lists, the literal `3` in TEST, the HAVING line's `0` and the `0` of T1's
+  WHERE may each also be written as a call, not in parentheses, of a `def`
+  with no parameters that returns it, such as `lines > zero()`. That `def`
+  may have any body and declared return type that return the literal
+  itself, such as `return (0)`, `return idn(0)` or `-> Int | None`, and it
+  may be declared after the query or imported, also under another name,
+  without parentheses or through a module that re-exports it.
+- These spellings, which MySQL already emits in the base statement, are
+  admitted at the same part of these statements: SELECT and GROUP BY
+  layout, spaces inside an item, comment and blank lines, an unread `def` or
+  `query` or an export beside the statement, also in the module that C-2
+  imports from, the quoting of a source's table name, comments among the
+  declarations, and at the per-order JOIN those of S03's T1 and T2, such as
+  `let i = (items)`.
+  Spaces between tokens, comments and blank lines do not count at the parts
+  this note adds either, but for the
+  line breaks and spaces at the parentheses of a `sum` or `count` call
+  named below; nor do other integer spellings of the same value, such as
+  `0_3` or `00`, definition order, the import's placement and the quoting of
+  its path, or a space inside the call of such a `def`, such as `zero( )`:
+  the literals are read by value, not by spelling. The words above also
+  admit C-2's import without parentheses or as `source orders as orders`,
+  and its source exported in parentheses; C-3's upstream items and the key
+  written `customer = customer`; the key relabelled and ordered by its
+  label, such as `c = customer` with `order by c`; and T-1's count column
+  under another label, which the WHERE reads by that label.
+- Each sum, at every level, is S02's guarded `SUM`, a nullable `Int`
+  (`my_signed_int`), NULL for no or only NULL values, and each conditional sum
+  S03's `COALESCE(` guarded `SUM` of `CASE WHEN TEST THEN x END` `, 0)`, a
+  non-null `Int` (`my_signed_int`), 0 when no row's test is True; each is the
+  exact sum in range, and error 1690 (SQLSTATE 22003) outside signed 64 bits,
+  at any level, fails the whole statement, never a clamped value.
+  Every other part of the statement, the ORDER BY, the HAVING line's WHERE over
+  the aggregation stage, T1's second-level WHERE, the upstream stage and the
+  per-order JOIN included, is the MySQL SQL of the same statement with each sum
+  written `max`, which MySQL already emits; a relation alias or an import emits
+  the SQL of the same statement read directly.
+- PostgreSQL SQL and every other public PostgreSQL output are unchanged.
+  Compiled bundles and live templates replay the same SQL. Emission derives
+  these statements from the plan, the bound contract and the shapes as written,
+  and plain verification re-derives emission's refusals; compiled replay
+  derives them from its records and the pure boundary from its document, which
+  a relation alias, an import, a `let` that FROM does not read, a second
+  `let`, an alias of an alias or of a `query`, a parenthesized relation in
+  it, a `let` in a level below the selected definition, an import beside
+  another import or a `let` or one that a level below reads, the alias or
+  the import over a statement of the G7 note that this note does not name,
+  such as `if not not o.flag`, an upstream written as a `let` block inside
+  the selected query, an explicit
+  `asc`, a parenthesized ORDER BY key, WHERE test or HAVING line, a
+  parenthesized part of TEST, sum argument or SELECT item, a call of a `def`
+  in place of TEST, a key, an item or the argument of a `sum` without TEST
+  read through the name of its source, its relation or the alias or, in the
+  per-order level, without its JOIN input's name, a line break inside a
+  `sum` or `count` call, a space around its argument or a comma after it, a
+  space inside or before the parentheses of `count()`, a parenthesized ON
+  comparison or operand of the per-order JOIN, or, at the literal `3` or `0`
+  of a test, a parenthesized call, literal or column, a call with an
+  argument, a call in place of the test or a column read through its
+  relation's name leaves as the underlying read, and which hold no name of
+  an upstream item.
+- The two-database qualification of these statements, the `s03n` campaign of
+  the MySQL catch-up work package on PostgreSQL 18.6 and MySQL 8.4.12,
+  matched on both databases on the public, raw prepared and raw text
+  routes.
+- Every other such MySQL project `sum(Int)` keeps the refusal it has without
+  this note, object for object, with PIE-B1004
+  `sum_int_aggregate_range_proof_missing` only at the sums of the lowest
+  definition that holds one, where that is its blocker. Among them are every
+  other WHERE in a level above the per-order level or in it, such as
+  `where amount > 0` in T1's second level, which reads a field column, a
+  WHERE over T2's sum or unread `count()`, another operator or literal than
+  T1's, the literal first, a parenthesized or second test, a header parameter
+  in it, or a WHERE in a third level; `order by customer desc`, `asc` written
+  out, a parenthesized key, an ORDER BY of the sum, of two keys or of a key that
+  is no `INT`, and LIMIT or DISTINCT beside a conditional sum; another HAVING
+  line, operator or literal, a header parameter in it, or a HAVING line on the
+  key; an upstream with a WHERE, a GROUP BY or another item, an item under
+  another name such as `k = customer`, or of another module; a source
+  imported under another name or through a module that re-exports it; any of
+  these parts over another TEST, another literal than `3`, S03's C3 or C4, or
+  over a subset of the items; a read of T1's extra `orders` field, an extra
+  field of another type, a second one or one declared before `flag`; a fourth
+  level, a keyed third level, or one that skips a sum of the second level or
+  selects another aggregate; a read of the unread `count()`, a `count()` in
+  T1's per-order level, the count of the ON field, an INNER JOIN, or a second
+  level without one of its sums or with another aggregate; an ORDER BY over
+  two levels; a third level over a statement that this note opens
+  otherwise; and two of these changes in one statement. R2
+  `save_recoverable` and `recover` refuse a MySQL query of these statements
+  with PIE-R1004 (`detail` `PUBLIC_R2_UNQUALIFIED_FORM`), as for the other
+  forms that MySQL opened after `0.1.11`.
+- Under J12 (3), the MySQL project `sum` of an `Int` outside the forms that
+  `0.1.12`, the G1 to G8 notes and this note open stays beyond the MySQL
+  cadence with no target: the MySQL catch-up work package closed with it
+  refused, and the Phase82 freeze rules on it (MC.10).
+
+Changed diagnostics: a MySQL statement whose only blockers in `0.2.1` were
+PIE-B1004 `sum_int_aggregate_range_proof_missing` at the sums of these
+statements is now VERIFIED with those blockers gone, such as S03's C1 with
+`order by customer` or with `having:` `paid >= 0`, S03's T2 under a third
+level summing its `qty`, and S03's T1 with `where lines > 0` in its second
+level under `preserve`, which `0.2.1` refuses with PIE-B1004
+`sum_int_aggregate_range_proof_missing` at each of that level's two sums. A
+statement still refused reports exactly the blockers it has without this note,
+object for object: C1 with `order by customer desc` keeps the conditional sum's
+PIE-B1004, T2 under a fourth level keeps the PIE-B1004 of the per-order level's
+sum alone, and T1 with `where amount > 0` in its second level, or with
+`where lines > 0` under `bind-safe`, keeps the PIE-B1004 at each of that
+level's two sums.
+
+### SQLite project mode (alpha)
+
+An explicit-module project can now compile SQLite SQL. A source is declared
+`source orders: Order = sqlite.table("orders")`, and
+`pietto emit-sql --project ... --dialect sqlite`, with or without `--all`,
+`compile_sql` and `compile_all_sql` accept the `sqlite` dialect with the
+contract target `{"family": "sqlite", "release": "3.53.1"}`, the relation
+`{"namespace": "main", "name": "orders"}` and the scan `"relation_rows"`. A
+statement reads one source with `where`, `group by`, `having`, `order by`,
+`limit` and `select` over `Int`, `Text`, `Bool` and `Float` fields and query
+parameters, with the aggregates `count`, `count_distinct` (of an `Int`,
+`Text` or `Bool` field), `min` and `max` (of an `Int` or `Float` field),
+`avg` of an `Int` field and `sum` of an `Int` field whose contract
+`int_range` lies on one side of zero. See
+[SQLite project mode](spec/sqlite-project-v1.md).
+
+- The SQL is one `SELECT` over `` `main`.`<table>` AS `s0` `` that quotes
+  every name in backticks and writes `COLLATE BINARY` at each `Text`
+  comparison, grouping, ordering and `count_distinct`, so a
+  `COLLATE NOCASE` column still compares by its bytes; project mode no
+  longer assumes the `BINARY` collation, which single files still do.
+- `avg` of an `Int` is `AVG(CAST(x AS REAL))`. SQLite sums it with
+  compensated summation, so its last bits, or more when values cancel, may
+  differ from PostgreSQL's and MySQL's.
+- `sum` of an `Int` is `SUM(x)` only where SQLite fails exactly when
+  PostgreSQL's exact sum would: over a field whose `int_range` has a `min` of
+  0 or more or a `max` of 0 or less. A sum outside signed 64 bits fails with
+  SQLite's `integer overflow` and never returns a wrong value.
+- Each result column in the document's `columns` has its export's
+  nullability, and one that `check` leaves unknown, such as a comparison or
+  a `not`, `and` or `or` of one, is `nullable: true`, which the
+  `sqlite_file` route's Arrow schema needs. PostgreSQL emission writes such
+  a column's nullability as `"unknown"`, and its route reads that as
+  nullable.
+- Single files gain `having`, `count_distinct` of an `Int`, `Text` or `Bool`
+  field and `avg` of an `Int` field; their `sum` stays refused, since a file
+  has no `int_range`.
+- Breaking: single-file SQLite SQL now writes a `Bool` literal as `1` or `0`,
+  where `0.2.1` wrote `TRUE` or `FALSE`. SQLite reads `TRUE` and `FALSE` as
+  a column of that name, in any letter case, when the table has one, and in
+  `WHERE` as an output so named, so such a statement could return wrong
+  rows. Every single-file statement with a `Bool` literal changes its SQL,
+  and its result only where such a name exists. To keep the `0.2.1` SQL,
+  pin that exact version, for example `pip install "pietto==0.2.1"`.
+- Breaking: only programs that `0.2.1` refused change their diagnostics, as
+  the compatibility table below lists: the PIE-S2306 text of a project
+  `sqlite.table` call with invalid arguments, the refusal of PostgreSQL,
+  MySQL or DuckDB emission of a statement that reads a project
+  `sqlite.table` source, the usage text of `emit-sql --project`, which now
+  names `sqlite`, and the PIE-B1000 reason of a single-file relation that
+  stays refused.
+
+Compatibility: PostgreSQL, MySQL and DuckDB SQL bytes and contracts are
+unchanged. These outputs change, for programs refused before as well:
+
+| Code or output | Case | Before | After |
+| --- | --- | --- | --- |
+| PIE-S2306 | a project `sqlite.table` call with one non-empty string literal | `Unknown source connector: sqlite.table` | none: the source checks |
+| PIE-S2306 | a project `sqlite.table` call without exactly one argument, or whose argument is not a non-empty string literal, and no argument reports an error of its own | `Unknown source connector: sqlite.table` | `Invalid source connector arguments for sqlite.table` on the call |
+| PIE-B1001 | PostgreSQL, MySQL or DuckDB emission of a statement that reads a project `sqlite.table` source | the `check` refusal above | `source_family_mismatch` beside PIE-B1006 `negative_original_target_evidence`, as for a `duckdb.arrow` source on PostgreSQL and MySQL and a `postgres.table` source on DuckDB, where it is DuckDB's rule 19 |
+| usage | `emit-sql --project ... --dialect sqlite` | a usage error naming `{postgres,mysql,duckdb}` | emits; the usage text names `{postgres,mysql,duckdb,sqlite}` |
+| SQL | a single-file `Bool` literal | `TRUE` or `FALSE` | `1` or `0` |
+| PIE-B1000 | a single-file relation whose refusal named its `having`, `count_distinct` or `avg` | the reason `SQLite single-file SQL has no having yet`, `... no aggregate count_distinct yet` or `... no aggregate avg yet` | emits, or the reason of the first form still refused in the backend's order, such as the field's type for `count_distinct` of a `Decimal`, `Date`, `Timestamp` or `UUID` field or `avg` of a `Decimal` field |
+
+New refusals of `emit-sql --project ... --dialect sqlite` (a usage error
+before): PIE-B1003 with the details `target_release_not_reviewed`,
+`literal_policy_not_admitted_on_target`, `premise_not_admitted_on_target`
+(an `identifier_case`, `session_sql_mode` or `session_time_zone` premise),
+`sqlite_relation_shape_not_admitted`, `sqlite_source_count_not_admitted`,
+`sqlite_field_type_not_admitted`, `sqlite_parameter_not_admitted`,
+`sqlite_expression_not_admitted`, `sqlite_aggregate_not_admitted`,
+`sqlite_projection_not_admitted`, `sqlite_group_key_not_admitted`,
+`sqlite_order_not_admitted` and `sqlite_limit_not_admitted`; PIE-B1001
+`source_identifier_unrepresentable` (a namespace other than `main`, or a
+table name with a dot or NUL or starting with `sqlite_` in any ASCII case),
+`sqlite_table_name_mismatch` and
+`column_identifier_unrepresentable_or_colliding` (columns equal under ASCII
+case folding); PIE-B1004 `sum_int_aggregate_range_proof_missing` (a `sum`
+over a mixed-sign `int_range`); and the existing source, premise, limit and
+artifact details, in the order of the
+[compile refusals](spec/sqlite-project-v1.md#compile-refusals). A single
+file refuses `avg` of a `Float` field and `count_distinct` of a `Float`
+field with PIE-B1000 and a reason that names the admitted types.
+
+Known limitations:
+
+- The SQL is qualified on one measured SQLite library, release `3.53.1`
+  with its source id and compile options, under CPython 3.13.13 and 3.12.13
+  on Linux x86-64; no other build or platform is qualified, and the SQL
+  text is the same whatever library later runs it.
+- Emission assumes `STRICT` tables, UTF-8, `Bool` as 0 or 1, finite `REAL`
+  values and values inside each field's domain (`row_domain_matches`).
+- JOINs, windows, arithmetic, `Float` `sum` and `avg`, other types,
+  `--literal-policy bind-safe`, query bundles, saved results, relay, jobs
+  and R2 are not available on SQLite in this version.
+
+### SQLite file execution route (alpha)
+
+`compile_query(dialect="sqlite")` now compiles a query of an
+explicit-module project that reads one `sqlite.table` source, and
+`execute(query, route="sqlite_file", access=SQLiteFileInput(path),
+premise=None)` runs it once, in process and read-only, over one SQLite file
+that your program names. It needs `pietto[arrow]` and no database driver,
+and runs only on Linux x86-64 with the measured SQLite `3.53.1` build,
+where it is qualified under CPython 3.13.13 and 3.12.13. See
+[SQLite file route](execution.md#sqlite-file-route) and
+[SQLite project mode](spec/sqlite-project-v1.md#execution).
+
+- The file's content is treated as untrusted. It is opened through its
+  percent-encoded `file:` URI with `mode=ro`, never `immutable=1`, in
+  defensive mode with trusted schema, extension loading and memory mapping
+  off, `query_only` on and an authorizer that allows only the source's
+  reads, the statement's functions and the fixed checks.
+- In one read transaction, before the statement runs, the attempt checks
+  that the file is UTF-8, that the source is one `STRICT` table with exactly
+  the contract's name and column types, with no index on an expression or
+  with a `WHERE` clause and no virtual generated column, which the
+  integrity check would compute without the authorizer or the deadline,
+  and no stored generated column either, refused with them to keep the
+  rule simple, that `PRAGMA integrity_check` of the table is `ok`, that it
+  holds at most 1,048,576 rows, and that every value lies in its field's
+  domain: no NULL in a non-null field, an `Int` within its `int_range`, a
+  `Bool` of 0 or 1, a
+  finite `Float`, and `Text` that is valid UTF-8 without NUL and within
+  `max_characters`. The file is a
+  non-empty regular file that, with its `-wal` file, holds at most 128 MiB;
+  its `-wal`, `-journal` and `-shm` files, where present, are regular files,
+  the `-shm` file with no other link; and the whole attempt runs within
+  `limits.seconds`. The cap is 128 MiB because the check of a 253 MiB
+  file of randomly keyed indexes outran the default 20 seconds.
+- The whole result is read, the transaction committed and the file closed
+  before the first batch, which carries the compiled Arrow schema. A column
+  is nullable there as in the emission's `columns`, so a comparison of a
+  nullable field, or a `not`, `and` or `or` of one, delivers its NULL.
+- An error that SQLite raises is named by its extended result code
+  (`SQLITE_ERRORCODE_<n>`), or `SQLITE_INTEGER_OVERFLOW` for a `sum` past
+  signed 64 bits, never by its message.
+- `export_bundle` refuses a SQLite query (PIE-R1004 `SQLITE_BUNDLE_ENTRY`),
+  and `save`, `save_recoverable`, `recover`, `relay_live` and the job store
+  do not take it (PIE-R1003).
+
+Compatibility: no existing route, code or text changes. These outputs
+change:
+
+| Code or output | Case | Before | After |
+| --- | --- | --- | --- |
+| PIE-R1002 | `compile_query(..., dialect="sqlite")` | `PUBLIC_COMPILE_ARGUMENT` | compiles, or the emission's `CompileRejected` |
+| PIE-R1003 | `execute(..., route="sqlite_file")` | `PUBLIC_ROUTE_UNAVAILABLE` | runs a `sqlite` query; any other query keeps the refusal |
+| exports | `pietto.execution` | | adds `SQLiteFileInput` |
+
+New details: PIE-R1002 `EXECUTION_ACCESS` for a path that is not a
+non-empty string without NUL; PIE-R1004 `SQLITE_BUNDLE_ENTRY`; PIE-R1006
+`BINDING_PARAMETER:<i>:Text` for a `Text` parameter that holds NUL;
+PIE-R2002 `SQLITE_BUILD` before any file opens; and, once the attempt
+opens, PIE-R2004 `SQLITE_FILE_TYPE`, PIE-R2006 `SQLITE_SESSION_CONTEXT`,
+PIE-R2007 `SQLITE_FILE_ENCODING`, `SQLITE_SOURCE_OBJECT`,
+`SQLITE_SOURCE_COLUMNS`, `SQLITE_SOURCE_INTEGRITY` and
+`SQLITE_SOURCE_VALUES`, PIE-R3004 `SQLITE_FILE_LIMIT` and
+`SQLITE_SOURCE_LIMIT`, PIE-R3005 `SQLITE_RESULT_CHECK`, and PIE-R2004 or
+PIE-R3003 with `SQLITE_ERRORCODE_<n>` or `SQLITE_INTEGER_OVERFLOW`.
+
+Known limitations:
+
+- No other SQLite build or platform runs the route, and the library's
+  memory safety on a malformed file is not part of Pietto's guarantee.
+- In rollback-journal mode your writers fail with `database is locked`
+  while an attempt reads the file. On a WAL file SQLite writes the `-shm`
+  file on every read: it creates missing `-wal` and `-shm` files and leaves
+  them, and rebuilds an existing `-shm` file in place when no other
+  connection has the file open. In a directory that cannot be written, a
+  WAL file whose `-wal` and `-shm` files are missing cannot be read.
+- The types and sizes of the file and the files beside it are checked
+  before it opens, so a file replaced or added between the check and the
+  open is not detected.
+- While an attempt waits for a lock that your writer holds, `cancel()`
+  takes effect only at the attempt's deadline.
+- When a sort, a grouping or `count_distinct` outgrows its memory, SQLite
+  writes temporary files to its temporary directory (`SQLITE_TMPDIR`,
+  `TMPDIR`, a system one such as `/var/tmp`, or else the working
+  directory), each deleted as it is opened.
+- On the read-only connection `PRAGMA integrity_check` checks no `CHECK`
+  constraint; the route never relies on one.
+
+### DuckDB Arrow route — filters, grouping, aggregates, `having`, `order by` and `limit`
+
+A query or table over one `duckdb.arrow` source can now group its rows and
+aggregate them on DuckDB. `group by` takes direct reads of the source's
+`Int`, `Text`, `Bool` and `Float` fields, optional or not; NULL keys form one
+group, and a `Float` key puts `-0.0` and `0.0` in one group. The selected
+values are the keys and `count()`, `count(field)`, `sum` of an `Int` field
+and `min` and `max` of an `Int` or `Float` field; an aggregate without
+`group by` gives one row. A `having` filters the groups by their selected
+outputs, as `where` filters rows (below).
+`pietto emit-sql --project ... --dialect duckdb` writes them as `GROUP BY`
+and `HAVING` over qualified capture columns, `sum` as
+`CAST(sum(...) AS BIGINT)`, and `execute(route="duckdb_arrow")` runs them. A
+`sum` outside signed 64 bits fails the statement with `PIE-R3003` instead of
+returning a wrong value. Each aggregate's column in the emission document
+names its `aggregate` and `function` and has its result's type and
+nullability, and each key's column names its `group_key`.
+
+Such a query or table can also order and limit its rows. Each `order by` key
+is a direct read of a source field, or in a grouped query a selected key or
+aggregate, ascending or descending, and the `limit` is the static one the language
+takes. `emit-sql` writes `ORDER BY` over qualified capture columns or the
+restated aggregate, each key with `ASC NULLS LAST` or `DESC NULLS FIRST`, so
+NULL sorts where PostgreSQL puts it, and the limit as `LIMIT <n>`. Rows that
+tie on every key have no promised order, nor do the rows a `limit` keeps
+among ties at its boundary or without `order by`.
+
+`where` and `having` now compare fields and selected outputs with literals
+and with query parameters of the same type, `Int`, `Text`, `Bool` or
+`Float`, and join the tests with `and` and `or`; a `where` also tests fields
+with `is None` and `is not None` and uses `not`. The language refuses those
+tests, `not` and a `-` before a number in a `having` (`PIE-S2327`), so a
+negative bound there is a parameter. A query may declare any number of
+non-null parameters of those four types and read each one in such
+comparisons, as often as it needs; `execute(parameters=...)` still checks
+each value's exact type before DuckDB sees it (`PIE-R1006`). `emit-sql`
+writes an `Int` literal as `CAST(<n> AS BIGINT)`, a `Float` literal as
+`CAST('<r>' AS DOUBLE)` with `<r>` its shortest decimal, so `-0.0` stays a
+negative zero, a `Text` literal quoted with each `'` doubled, a `Bool`
+literal as `TRUE` or `FALSE`, and each parameter read as
+`CAST($n AS <type>)`, numbered in the order of first reads; in a `where`, a
+`-` before a number literal is part of the literal. The emission
+document's `parameter_uses` has one entry per placeholder that the SQL
+writes, which is one per read outside the `Float` checks, with its
+parameter's `server_index`, and `physical_type` may now also be
+`duckdb_double`, `duckdb_varchar` or `duckdb_boolean`. See the
+[DuckDB Arrow route](spec/duckdb-arrow-route-v1.md#admission), the
+[DuckDB local path](capabilities.md#duckdb-local-path) and the route's
+[execution guide](execution.md#duckdb-arrow-route). These forms are
+qualified as the projection is, with `duckdb` `2.0.0` and `pyarrow` `26.0.1`
+on CPython 3.12 and 3.13, Linux x86-64 with glibc 2.28 or later. The example
+is a module of an explicit-module project; checked as a single file it reports
+PIE-S2346 for its header parameter.
+
+```pietto PIE-S2346
+shape Order:
+    customer: Text
+    amount: Int
+
+source orders: Order = duckdb.arrow("orders")
+
+query totals(min_total: Int):
+    from orders
+    where customer != "test" and amount > -5
+    group by customer
+    select:
+        customer
+        n = count()
+        total = sum(amount)
+    having total >= min_total
+    order by:
+        total desc
+    limit 10
+```
+
+- `avg`, `count_distinct`, `sum` of a `Float` and aggregates of computed
+  values are refused with `PIE-B1003` `duckdb_aggregate_not_admitted` at the
+  aggregate, and a computed `group by` key, which only a relation `let` can
+  make, with `PIE-B1003` `duckdb_grouping_not_admitted` at the key, after
+  the `let`'s `duckdb_relation_shape_not_admitted`. A computed `order by`
+  key, such as `order by -amount`, is refused with `PIE-B1003`
+  `duckdb_order_not_admitted` at the key. In a query without `group by`, a
+  key that names an output other than the source field of that name, such
+  as `order by label` after `label = note` or `order by more` after
+  `more = amount + 1`, leaves the plan unavailable and is refused with
+  `duckdb_relation_shape_not_admitted` at the `order by`.
+- A grouped, aggregated, ordered or limited statement that was refused as a
+  whole with `duckdb_relation_shape_not_admitted` now reports only the rules
+  it breaks, or none, and so does a filter with literals, several parameters
+  or `and`, `or` and `not` that reported `duckdb_filter_not_admitted` and
+  `duckdb_parameter_not_admitted`.
+- A comparison of two reads or of an `Int` with a `Float`, a bare `Bool`
+  field used as a test (write `flag == True`), a computed side such as
+  `-amount` or `+5`, and a parameter tested with `is None` are still refused
+  with `duckdb_filter_not_admitted`. A parameter that is optional, of
+  another type, read nowhere or read outside a `where` or `having`
+  comparison and selected arithmetic is refused with
+  `duckdb_parameter_not_admitted`, at the declaration of the first such
+  parameter or at the statement. A `Text`
+  literal that holds NUL is refused with the new detail
+  `duckdb_text_literal_nul_not_admitted` at the literal, with the suggestion
+  `remove NUL from the Text literal; DuckDB emission writes no NUL into SQL
+  text`.
+- The suggestions of five DuckDB refusals change, and scripts that match
+  their text must follow. `duckdb_relation_shape_not_admitted` now reads
+  the text that the note on several sources and their JOINs gives;
+  `duckdb_projection_not_admitted` `select source fields directly,
+  or group by keys and aggregates of fields, such as select: customer, total
+  = sum(amount), or add, subtract or multiply two Int or two Float values,
+  one at least a field or key, such as net = price - discount; other
+  computed values are not available on DuckDB`;
+  `duckdb_filter_not_admitted` `compare fields or selected outputs with
+  literals or query parameters of the same type, and join the tests with
+  and, or and not, such as where amount >= min_amount and note is not
+  None`; `duckdb_parameter_not_admitted` `declare non-null Int, Text, Bool,
+  Float, Date, Timestamp or Decimal(p, s) parameters, p at most 38, and read
+  each one in a where or having comparison or in selected arithmetic`; and
+  `duckdb_field_type_not_admitted` `DuckDB emission reads Int, Text, Bool,
+  Float, Date and Timestamp fields and Decimal(p, s) fields with p at most
+  38`. The new details have the suggestions `use count(), count(field), sum
+  of an Int field, or min or max of an Int, Float, Decimal, Date or
+  Timestamp field; other aggregates, sum or avg of a Float or a Decimal and
+  aggregates of computed values are not available on DuckDB`, `group by
+  source fields, such as group by customer; computed keys are not available on DuckDB` and `order by source
+  fields or selected outputs, such as order by total desc; computed keys are
+  not available on DuckDB`. No DuckDB text says "yet" any more, and no
+  PostgreSQL or MySQL text changes.
+- The capture limits rise from 65,536 rows and 16 MiB of the whole table to
+  1,048,576 rows and 256 MiB of the selected columns, the table fields that
+  the source's fields name, measured as the sum of their PyArrow `nbytes`; a
+  table field that no source field names no longer counts. The capture now
+  checks the rows, then the schema, then the bytes, so a table over a byte
+  limit whose schema also fails reports `DUCKDB_ARROW_SCHEMA` instead of
+  `DUCKDB_ARROW_CAPTURE_LIMIT`. DuckDB's `memory_limit` is 1 GiB in place
+  of 256 MiB, a statement beyond it still fails with `PIE-R3003`, and the
+  session also checks that `default_collation` is the empty string
+  (`PIE-R2006` `DUCKDB_SESSION_CONTEXT` otherwise). The result is read one
+  batch at a time, as the note on batch reading states.
+
+### DuckDB Arrow route — results read one batch at a time
+
+`execute(route="duckdb_arrow")` now reads a result through DuckDB's record
+batch reader, one batch of at most `ExecutionLimits.batch_rows` rows at each
+step of the iteration, where it read the whole result before the first
+batch. A
+result that would take the delivered rows or bytes past `max_rows` or
+`max_bytes` now stops at the first batch beyond them, however large the
+whole result, and the route reads no more of it; the batches delivered
+before stay delivered, as before. See
+[Session and attempt](spec/duckdb-arrow-route-v1.md#session-and-attempt).
+The batch reading is qualified with `duckdb` `2.0.0` and `pyarrow` `26.0.1`
+on CPython 3.12 and 3.13, Linux x86-64 with glibc 2.28 or later.
+
+- Each batch is charged its `nbytes` as DuckDB's reader gives it, with a
+  validity bitmap for every column, one without NULL included, where a batch
+  cut from the whole result had none for such a column. A batch can so
+  measure one more byte for every eight rows of each such column:
+  `outcome.bytes` grows by as much, and a `max_bytes` or `batch_bytes` limit
+  is reached that much earlier.
+- The reader reports its end at the step of the iteration after the last
+  batch. A refused batch (`PIE-R3004`, `PIE-R3005`), an early close and an
+  exception of the caller's code before that step leave the attempt's
+  `transaction` `UNKNOWN`, since the statement has not ended; they left
+  `COMMIT_ACK`. Closing the handle or cancelling it right after the last
+  batch, before the iteration reads the reader's end, is such a case too: it
+  now leaves `UNKNOWN`, where it left `COMMIT_ACK`. A cancellation or the
+  deadline before the reader's end also interrupts the open statement and
+  leaves `UNKNOWN`, where one observed while batches were delivered left
+  `COMMIT_ACK`, the whole result having been read; observed after the
+  reader's end, it still ends the attempt with `PIE-R3009` or `PIE-R3001`
+  and `COMMIT_ACK`.
+- An error that DuckDB raises while a batch is read is still `PIE-R3003`,
+  now with the `cause` `OSError`, the class that DuckDB `2.0.0` raises
+  there, even when no batch has been delivered yet; one raised while the
+  reader is created keeps its own class. Which of the two an error is
+  depends on DuckDB's plan: a `sum` outside signed 64 bits in a grouped
+  query is either, by where its group falls in the grouping's output.
+  A statement that fails at a later batch has delivered the batches before
+  it, where a failing statement delivered none: such a `sum` in a group of
+  a later batch was observed to fail after 408 batches.
+- A failed close of the reader is `PIE-R3006` with the step `reader`, before
+  `unregister` and `close`.
+
+### DuckDB Arrow route — `Date`, `Timestamp` and `Decimal` fields
+
+A `duckdb.arrow` source can now have `Date`, `Timestamp` and `Decimal(p, s)`
+fields with `p` at most 38, optional or not, which a DuckDB contract
+describes with the storages `arrow_date32`, `arrow_timestamp_us` and
+`arrow_decimal128` (with the field's `precision` and `scale`) and the
+domains `date`, `timestamp` and `decimal`. A query or table reads them
+directly, groups and orders by them, and takes `count`, `min` and `max` of
+them; `min` and `max` keep the field's type, and a `Decimal` column of the
+emission document has its `precision` and `scale` in its `logical_type`.
+In a `where` such a field compares with a non-null parameter of its type,
+a `Decimal` one of the same precision and scale, which `emit-sql` writes as
+`CAST($n AS DATE)`, `CAST($n AS TIMESTAMP)` or `CAST($n AS DECIMAL(p,s))`
+with the `physical_type` `duckdb_date`, `duckdb_timestamp` or
+`duckdb_decimal`. A `Date` or `Timestamp` field also compares with a `Text`
+literal that spells one value of its type as a top-level constant does,
+written as `CAST('2024-01-01' AS DATE)` or
+`CAST('2024-01-01 10:00:00.500000' AS TIMESTAMP)`, and a `Decimal` field
+with a number literal, read as the exact decimal that it writes and cast to
+its own precision and scale, such as `CAST('0.125' AS DECIMAL(3,3))`. Every
+admitted `where` form also takes `is None` and `is not None` of these
+fields. `execute(route="duckdb_arrow")` copies `date32`, `timestamp[us]`
+without a time zone and `decimal128(p, s)` columns, returns the same Arrow
+types, checks each parameter value's exact Python type and domain
+(`PIE-R1006`) and sends a `Decimal` value to DuckDB as its canonical text.
+See the [DuckDB Arrow route](spec/duckdb-arrow-route-v1.md#admission) and
+the [DuckDB local path](capabilities.md#duckdb-local-path). These forms
+are qualified with `duckdb` `2.0.0` and `pyarrow` `26.0.1` on CPython 3.12
+and 3.13, Linux x86-64 with glibc 2.28 or later. The example is
+a module of an explicit-module project; checked as a single file it reports
+PIE-S2346 for its header parameters.
+
+```pietto PIE-S2346 PIE-S2346
+shape Payment:
+    id: Int
+    day: Date | None
+    at: Timestamp
+    amount: Decimal(12, 2)
+
+source payments: Payment = duckdb.arrow("payments")
+
+query large(since: Timestamp, floor: Decimal(12, 2)):
+    from payments
+    where at >= since and amount >= floor and day != "2024-12-25"
+    group by day
+    select:
+        day
+        first = min(at)
+        top = max(amount)
+        n = count()
+    order by:
+        day desc
+```
+
+- A `Text` literal that is not the civil spelling of a value of the field's
+  type, such as `"2024-02-30"`, a year before 1000, a date beside a
+  `Timestamp`, a `T` separator or a seventh fractional digit, a number
+  literal that needs more than 38 digits beside its `Decimal` field, a
+  `Float` literal of an inlined `def` body beside a `Decimal`, a `Decimal`
+  beside an `Int` or `Float` parameter or a `Decimal` parameter of another
+  precision or scale, and a `having` that compares a `Date`, `Timestamp` or
+  `Decimal` output are refused with `PIE-B1003`
+  `duckdb_filter_not_admitted`; `sum` of a `Decimal` with
+  `duckdb_aggregate_not_admitted`. A plain `Decimal` field and a `Decimal`
+  with more than 38 digits are still refused with
+  `duckdb_field_type_not_admitted`, and a `Decimal(p, s)` parameter with `p`
+  above 38 with `duckdb_parameter_not_admitted`; a parameter must give its
+  `Decimal` a precision and scale (`PIE-S2353`).
+- The capture refuses with `PIE-R1002` `DUCKDB_ARROW_SCHEMA` a `date64`, a
+  timestamp of another unit or with a time zone, a `decimal256` or a
+  `decimal128` of another precision or scale, a `Date` outside 1000-01-01 to
+  9999-12-31, a `Timestamp` outside 1000-01-01 00:00:00 to
+  9999-12-31 23:59:59.499999, and a `Decimal` value of more digits than its
+  precision.
+
+### DuckDB Arrow route — `Int` and `Float` arithmetic in the projection
+
+A query or table over `duckdb.arrow` sources can now select `a + b`,
+`a - b` and `a * b` of two `Int` or two `Float` values, and `-a` and `+a` of
+a `Float`, where each operand is a source field (a `group by` key in a
+grouped query), a literal, a number literal with a `-` sign (`price *
+-2.0`) or a query parameter, and one at least is a field or key. The
+result is NULL when an operand is. `pietto emit-sql --project ...
+--dialect duckdb` writes them and `execute(route="duckdb_arrow")` runs
+them. In a grouped query the language refuses a parameter as an operand
+(PIE-S2355). These forms are qualified with `duckdb` `2.0.0` and `pyarrow`
+`26.0.1` on CPython 3.12 and 3.13, Linux x86-64 with glibc 2.28 or later.
+
+- `Int` arithmetic is admitted only where every result fits a signed 64-bit
+  integer, proved by interval arithmetic from the contract's `int_range` of
+  each field it reads, which the capture checks for every row, and from its
+  literals; a parameter may hold any signed 64-bit value. The column's
+  domain is the range that this proof gives, which holds every result but
+  may be wider than they are, as for `id - id`. Any other is refused with
+  `PIE-B1003` and the new detail `duckdb_arithmetic_range_not_proved` at the
+  result field, after the details of rules 7a and 7b and before
+  `duckdb_filter_not_admitted`, with the suggestion `narrow the int_range of
+  each Int field this value reads so that every result fits a signed 64-bit
+  integer; DuckDB emission proves Int arithmetic from those ranges and
+  literals, and an Int parameter may hold any signed 64-bit value`.
+- A `Float` `+`, `-` or `*` whose result is outside binary64 fails the
+  statement with `PIE-R3003` and the detail `DUCKDB_FLOAT_OVERFLOW`, since
+  DuckDB `2.0.0` returns an infinity there. A `*` of two non-zero values
+  that rounds to 0 fails with `PIE-R3003` and the detail
+  `DUCKDB_FLOAT_UNDERFLOW`, where PostgreSQL fails too. The failure's text
+  is that of any `PIE-R3003`; the diagnostics page and the route's page
+  give the hint for an underflow, to compute with `Int` or scale the
+  values. The emitted SQL writes these checks with `isinf` and `error`,
+  whose messages a caller who runs it directly reads, the underflow's with
+  the same hint.
+- The emission document marks each arithmetic column with `computed` in its
+  `correspondence`, with `field` and `source_port` null; an `Int` column's
+  domain is its proved `int_range`, a `Float` column's `finite_float`.
+  `parameter_uses` has one entry for each placeholder that the SQL writes:
+  the checks repeat a parameter operand twice in a `Float` `+` or `-` and
+  four times in a `*`, and the `parameters` limit counts each one.
+- Other computed values, nested arithmetic, a mix of `Int` and `Float`, an
+  `Int` sign, arithmetic over aggregates and arithmetic of literals and
+  parameters only, such as `-1.5`, stay refused with
+  `duckdb_projection_not_admitted`. An arithmetic output is a computed
+  `order by` key: in a grouped query, `order by r` after `r = price * 2.0`
+  is refused with `PIE-B1003` `duckdb_order_not_admitted` at the key. A statement with arithmetic needs the
+  `operator_environment` premise, as one with a `where` or `having` does.
+- `duckdb_projection_not_admitted` and `duckdb_parameter_not_admitted`
+  name arithmetic in their suggestions, as the grouping notes above quote
+  them.
+
+See the route's [arithmetic](spec/duckdb-arrow-route-v1.md#arithmetic).
+
+### DuckDB Arrow route — several sources and their JOINs
+
+A query or table can now read several `duckdb.arrow` sources on DuckDB,
+joining each to the rows so far with `inner join` or `left join` on one
+`==`, or an `and` of several, between a field of the joined source read
+and a field of an earlier one, both of one type other than `Decimal`; a `Float`
+key matches `-0.0` with `0.0`. The rest of the statement takes the forms
+that one source takes, arithmetic included, its fields from any source
+read, and a `left join` makes the fields of its joined read nullable in
+the result, and so an arithmetic value with an operand among them.
+`pietto emit-sql --project ... --dialect duckdb` writes the JOINs as
+`INNER JOIN` and `LEFT JOIN` of one registered name for each source read,
+`pietto_arrow_0`, `pietto_arrow_1` and so on, with its fields numbered across
+the source reads (`"c0"` onward); the emission document names each column's
+source and its field there. A source read twice through a row-input alias,
+such as `let parent = orders`, then `left join parent on parent.id ==
+orders.amount`, is two reads, each with its own registered name and fields.
+See [Admission](spec/duckdb-arrow-route-v1.md#admission). These forms are
+qualified with `duckdb` `2.0.0` and `pyarrow` `26.0.1` on CPython 3.12 and
+3.13, Linux x86-64 with glibc 2.28 or later.
+
+```pietto PIE-S2346
+shape Order:
+    id: Int
+    customer: Int
+    amount: Int
+
+shape Customer:
+    id: Int
+    name: Text
+    key = unique(id)
+
+source orders: Order = duckdb.arrow("orders")
+
+source customers: Customer = duckdb.arrow("customers")
+
+query totals(least: Int):
+    from orders
+    inner join customers on orders.customer == customers.id
+    group by customers.name
+    select:
+        name = customers.name
+        total = sum(orders.amount)
+    having total >= least
+```
+
+`execute(route="duckdb_arrow")` takes, as `access`, a `DuckDBArrowInput` or
+a tuple of them, one for each key that the query reads, in any order, such
+as `(DuckDBArrowInput("orders", orders), DuckDBArrowInput("customers",
+customers))`. Two sources declared with one key, or two reads of one
+source, read one input, which is checked against each read and copied
+once. See [Execute API](spec/duckdb-arrow-route-v1.md#execute-api).
+
+- A tuple whose names repeat, miss a key that the query reads or add one it
+  does not is refused with `PIE-R1002` `DUCKDB_ARROW_SCHEMA`; a tuple with
+  another element, or a list, with `PIE-R1002` `PUBLIC_ACCESS_TYPE`.
+- The capture limits count rows for each input, at most 1,048,576, and the
+  selected columns' bytes over all inputs together, at most 256 MiB.
+- When the query aggregates JOIN rows, the capture also refuses with
+  `PIE-R1002` `DUCKDB_ARROW_SCHEMA` an input in which two rows break any
+  `unique(...)` key that its shape declares, compared as Pietto's `==` does,
+  `-0.0` equal to `0.0`, and leaving out rows with a NULL in the key, since
+  the language proves that such an aggregate reads no repeated row from
+  those keys.
+- A `right`, `full` or `cross` JOIN, any other `on`, such as one between
+  an `Int` and a `Float` field, and a `Decimal` key are refused with
+  `PIE-B1003` `duckdb_relation_shape_not_admitted` at the JOIN. A field read
+  through any JOIN is now a direct read of its source's field, so such a statement
+  reports that blocker without the `duckdb_source_count_not_admitted`,
+  `duckdb_projection_not_admitted`, `duckdb_aggregate_not_admitted`,
+  `duckdb_grouping_not_admitted` or `duckdb_filter_not_admitted` that its
+  JOIN brought before, beside any blocker of another cause, such as
+  `PIE-B1006` `original_enforcement_not_fulfilled` for an unfulfilled
+  single-match obligation, or `duckdb_parameter_not_admitted` for a
+  parameter that its `on` reads: its `blockers` list is shorter.
+  `duckdb_source_count_not_admitted` now refuses only a statement that reads
+  no source.
+- An `any(...)` filter before, between or after the JOINs stays refused
+  with `duckdb_relation_shape_not_admitted`, never at an admitted JOIN:
+  before or between them at the test of its `where`, after them at the
+  `any(...)`, where `duckdb_filter_not_admitted` at its `where` refuses it
+  too. A `where any(...)` without JOINs, which `0.2.1` refused at the
+  statement, is now refused at the `any(...)` as well.
+- The suggestions of three refusals change, and scripts that match their
+  text must follow. `duckdb_relation_shape_not_admitted` now reads `DuckDB
+  emission admits duckdb.arrow source reads joined by inner or left joins
+  on equalities of fields of one type, such as inner join customers on
+  orders.customer_id == customers.id, then where, group by, having, select,
+  order by and limit; right, full and cross joins, other on conditions,
+  Decimal join keys, windows, qualify, distinct, set operations, relation
+  lets and derived sources are not available on DuckDB`;
+  `duckdb_source_count_not_admitted` `read one or more duckdb.arrow sources;
+  the DuckDB route runs one query over the Arrow tables passed to
+  execute()`; and `source_identifier_unrepresentable` `use the relation
+  namespace "arrow"; the DuckDB route reads registered Arrow tables`.
+
+### Repeated labels in `to_polars`
+
+`pietto.interop.to_polars` now refuses a batch with a repeated field label
+before it imports Polars, as `to_pandas` does, with a `ValueError` that names
+the field, the ordinal of the earlier field with that label and the fix:
+`to_polars: field 1 ('same') repeats the label of field 0; to_polars admits
+only distinct labels, so give each field its own label in the query`. Polars'
+own `polars.exceptions.DuplicateError` no longer reaches the caller for such a
+batch, so a program that caught it must catch the `ValueError` instead. See
+the [interop guide](interop.md#polars).
+
+### UUID, wide Decimal and nested fields in `to_pandas`
+
+`pietto.interop.to_pandas` now converts three kinds of field that it refused:
+
+- A `UUID` becomes a column of dtype `ArrowDtype(fixed_size_binary(16))` that
+  holds its 16 big-endian bytes unchanged, one `bytes` value per row:
+  `uuid.UUID(bytes=b)` restores it and `u.bytes` compares with it. pandas
+  compares, groups, sorts and merges such a column.
+- A `Decimal` above precision 38 keeps its exact type,
+  `ArrowDtype(decimal256(p, s))`.
+- One level of nesting, a list of non-null structs of fields that `to_pandas`
+  admits, keeps its exact type, each `UUID` child as its 16 bytes. A missing
+  container stays `<NA>`, distinct from an empty list.
+
+Deeper or other shapes stay refused. A refusal of such a field in another
+function now names the frame functions that admit it in place of "leave it
+out of the query": when `to_numpy`, `to_scipy_csr` or a plot refuses a `UUID`
+or a nested field without a `decimal256` child, its message ends with
+`to_pandas and to_polars admit it`, for example `to_numpy: column field 2
+('key_value') has Arrow type extension<arrow.uuid>; to_numpy admits only Int,
+Bool or Float fields; to_pandas and to_polars admit it`, and when one of them
+or `to_polars` refuses a `Decimal` above precision 38, alone or as a child of
+a nested field, with `to_pandas admits it`. A `to_pandas` refusal of a field
+lists `UUID` and nested fields among the kinds it admits. See the
+[interop guide](interop.md#pandas).
+
+### UUID and nested fields in `to_polars`
+
+`pietto.interop.to_polars` now admits a `UUID` field as Polars `Binary`,
+each value its 16 bytes unchanged, and one level of nesting, a list of
+non-null structs of the fields it admits, as `List(Struct(...))` with each
+child mapped like a field of its type; a missing outer-JOIN container stays
+null, distinct from `[]`. A `decimal256` field, alone or inside a nested
+field, is still refused before the call imports Polars, which cannot read
+it, and its message now names `to_pandas` as the fix in place of "leave it
+out of the query"; a `to_polars` refusal of a field lists `UUID` and nested
+fields among the kinds it admits. A call that such a `UUID` or nested field
+made fail now returns a DataFrame. See the [interop guide](interop.md#polars).
+
+### Nullable `Float` fields in `to_numpy`
+
+`pietto.interop.to_numpy` now admits a nullable `Float` field, which it
+refused even when the batch held no null. It returns float64 with NaN at each
+null and every other value bit for bit, `-0.0` included, as an owned copy
+that shares no buffer with the batch; a batch without a null gives float64
+too. A nullable `Int` or `Bool` field is still refused with the `coalesce`
+fix. See the [interop guide](interop.md#numpy).
+
+### Nullable fields in `plot_line` and `plot_scatter`
+
+`pietto.interop.plot_line` and `plot_scatter` now admit a nullable `Int` or
+`Float` field, which they refused even when the batch held no null. A null
+becomes NaN: the line breaks there and the scatter draws no point for that
+record, while the artist keeps one row per record in row order and every
+other value bit for bit. The ±2**53 check of an `Int` field skips nulls, and
+a value beyond it is still refused, naming its record. See the
+[interop guide](interop.md#matplotlib).
+
+### `Float` values in `to_scipy_csr`
+
+`pietto.interop.to_scipy_csr` now admits a non-nullable `Float` field as its
+value, which it refused with the fix to use `to_pandas` or `to_polars`. The
+array's data is then float64 and holds each record's value as given,
+explicit `0.0` and `-0.0` included, with the sign kept in `matrix.data`. The
+coordinates still take only `Int` fields and a nullable field is still
+refused. A refused value field's message now gives the value's rule as `Int
+or Float fields`, for example `to_scipy_csr: value field 2 ('flag') has Arrow
+type bool; to_scipy_csr admits only Int or Float fields; make it an Int in
+the query, for example 1 if flag else 0`. See the
+[interop guide](interop.md#scipy).
+
+### Bundles with an aggregate argument `compile_query` refuses
+
+`pietto.execution.load_bundle` now refuses with `PIE-R1004`
+(`COMPILED_AGGREGATE_ARGUMENT`) a bundle whose aggregate argument is itself
+a row operation in a form that `compile_query` refuses for that aggregate,
+or reads a query parameter, which `compile_query` refuses in every
+aggregate argument (`PIE-S2355`). `compile_query` never exports one, so
+only an edited bundle holds it: for example a `median`, `stddev`, `min` or
+`max` of `value + 1`, a `count_distinct` of anything but a `Text` field's
+`lower` and `trim` chain, a `count` of `upper(label)`, `sum(value % 2)`, or,
+with a header parameter `low`, `sum(id * low)` or
+`sum(1 for o in group if o.id > low)`.
+
+A `let:` name that is the whole argument is judged by the value it holds.
+`min` and `max` read the name as a field, whatever its value; every other
+aggregate refuses a value outside its law, such as `sum(t)` with
+`let t = value % 2` or `median(t)` with `let t = value * 2`. A value that
+reads a query parameter is read only as the whole argument of `count`,
+`avg`, `min` or `max`, so `sum(t)` with `let t = id * low` is refused too.
+A `let:` name with a computed value is refused, whatever that value, inside
+an argument that is itself an operation, a `string_agg` delimiter among
+them, as the `order by` key of `first`, `last` or `string_agg`, and
+anywhere in the test or the summed field of a conditional count or sum or
+in the test of `any` or `all` over a group, whose generator reads only
+fields of its member, where `compile_query` refuses it (`PIE-S2333`,
+`PIE-S2104`, `PIE-S2102`, `PIE-S2334`): for example `sum(d + 1)` or
+`avg(d * 2)` with `let d = value * 2`, `count_distinct(lower(d))` or
+`string_agg(label, lower(d), order by rid)` with `let d = trim(label)`,
+`first(value, order by t)` with `let t = value % 2`, or a bundle of
+`sum(1 for o in group if o.rid > 0)` whose test reads that `t` in place of
+`o.rid`. A `let:` name that is the whole delimiter is its value, as
+`compile_query` admits it. A window function whose value argument reads a
+`let:` name with a computed value, such as `sum(t)` or `lag(t)` over
+`window(order by rid)` with `let t = value % 2`, also through a GROUP BY
+key `t`, which `compile_query` refuses (`PIE-S2102`, `PIE-S2103`,
+`PIE-S2104`), is refused with `PIE-R1004` (`COMPILED_WINDOW_ARGUMENT`).
+A `let:` name that only renames a field, such
+as `let d = value`, reads as that field, so an edited bundle that reads it
+where `compile_query` refuses the name, such as `sum(d + 1)`, an `order by`
+key, the test of a conditional count or the value of a `min` or `max`
+window, still loads: it means what the field form that `compile_query`
+writes, such as `sum(value + 1)`, means, with equivalent SQL, a known
+equivalence. Bundles that `compile_query` exports load and replay as before,
+with the same SQL.
+
+Changed diagnostics (bundles `0.2.1` refused; no accepted program changes):
+
+| Code | Case | Before | After |
+| --- | --- | --- | --- |
+| PIE-R1004 | `load_bundle` of a bundle described above that `0.2.1` refused at a replay check that runs after this one, such as a `sum` of `value * 2` renamed `median`, or `min(t)` with `let t = value % 2` renamed `median` | that check's detail, such as `COMPILED_AGGREGATE_TYPE` | `COMPILED_AGGREGATE_ARGUMENT`, or `COMPILED_WINDOW_ARGUMENT` for a window |
+
+New refusals (bundles `0.2.1` loaded, which none of its emissions wrote):
+
+| Code | Case | Before | After |
+| --- | --- | --- | --- |
+| PIE-R1004 | `load_bundle` of a bundle described above | loaded | `COMPILED_AGGREGATE_ARGUMENT`, or `COMPILED_WINDOW_ARGUMENT` for a window |
+
+No PIE code or detail name is added. What `compile_query`, `export_bundle`
+and `emit-sql` produce, its SQL bytes included, is unchanged, and so are CLI
+JSON v1, project JSON v2 and the Python API shapes.
+
+### Known limitations of 0.2.2
+
+- **SQLite and DuckDB.** SQLite project mode reads one `sqlite.table`
+  source. Project JOINs, arithmetic of any kind, a sign before a number
+  included, and windows remain outside its first tier; range-proved `Int`
+  arithmetic is its second tier's. The DuckDB sections above describe the
+  available JOINs, projection arithmetic and supported types.
+- **MySQL beyond the cadence.** MySQL support trails PostgreSQL (D76.10).
+  `0.2.2` opens MySQL project `sum` of an `Int` in the forms of the MySQL
+  catch-up work package's families G1 to G8, and MySQL `Float` `+`, `-`,
+  `*` and sign in E4's narrow cell and in E4B's wider cells, each after its
+  own two-database qualification.
+  It also opens the s03n list of S03's neighbours that G7 and G8 leave
+  refused, T1's second-level WHERE over the per-order count included,
+  after its own two-database qualification.
+  These forms stay beyond the MySQL cadence under J12 (3): the MySQL
+  project `sum` of an `Int` outside the forms that `0.1.12` and `0.2.2`
+  open has no target, and the Phase82 freeze rules on it; a MySQL `count`
+  of a `Float` `+`, `-` or `*`, and any `count` under a WHERE in E4B's
+  cells, wait for one of two fixes before the Phase82 freeze; every other
+  position of PostgreSQL's E4 outside E4's and E4B's cells, `Float`
+  arithmetic in a JOIN `on` and a `*` beside a header parameter among
+  them, has no target; `stddev`, `variance`, `pvariance` and `pstdev` of
+  an `Int` have no target; nested results wait for the separate nested
+  work package; and the MySQL `UUID` query header parameter stays
+  withdrawn with no target.
+- **MySQL refusals.** Outside the forms that a two-database run matched,
+  MySQL emission refuses a form with a PIE-B code and writes no SQL. These
+  forms are refused on MySQL in `0.2.2`; the
+  [capability page](capabilities.md) and the `0.1.12` and `0.2.2`
+  subsections give the codes of most of them:
+  - in single files and projects: `median` and `quantile` (MySQL has no
+    interpolated percentile), `string_agg` (`GROUP_CONCAT` truncates
+    silently), a GROUPS frame with an offset bound, and EXCLUDE CURRENT ROW,
+    GROUP or TIES;
+  - in single files: `first` and `last`; the conditional sum
+    `sum(o.f for o in group if ...)`; `stddev`, `variance`, `pvariance` and
+    `pstdev` of an `Int`; a window key that names a computed `Text` `let`;
+    and an asof JOIN in a relation with a FULL JOIN, outside seven qualified
+    files;
+  - in projects, in every form: `stddev`, `variance`, `pvariance` and
+    `pstdev` of an `Int`; `Float /`; `count_distinct`, `sum` and `avg` of a
+    `Float`; `select distinct` over a `Float`, `Float` `union distinct`,
+    `intersect` and `except`, a `Float` window key and a `percent_rank` or
+    `cume_dist` result as a key; a `Float` literal list whose value and an
+    option both read rows, and a `Float` `in` or `not in` in a WHERE over a
+    let with `capture` lines; `UUID` query parameters; `sum` and `avg` over
+    a window; scalar calls or arithmetic around aggregate results; a direct
+    `sum` of a `Decimal`; an `in` or cast in a query that a JOIN reads or
+    that reads JOIN rows; `max(a, b)` and `min(a, b)` of two `Date` values;
+    `add_months`, `concat`, `round` with digits, `date_trunc` and `Text(x)`
+    of an `Int`; typed `values(...)` and `generate_series`; FULL JOIN,
+    which is not planned; and collected lists and nested results;
+  - in projects, outside the forms that `0.1.12`, `0.2.1` and `0.2.2`
+    opened: `Int` arithmetic not proved to fit signed 64 bits, `Int /`,
+    `Int %` and `sum` of an `Int`, also conditional, over a JOIN or over
+    several levels; `Float` `+`, `-` and `*` other than between two
+    literals, and a sign on a `Float` value; `Float %`; `stddev`,
+    `variance`, `pvariance` and `pstdev` of a `Float`; a `Float` GROUP BY
+    key; `==`, `!=` and `same_value` of two `Float` row reads, also inside
+    `any(...)` and `not any(...)`; `Decimal(p, s)`, `Date` and `Timestamp`
+    query parameters; the conditional count, `any` and `all` over a group,
+    `count`, `min` and `max` over a window and `count_distinct(a, b, ...)`;
+    `first` and `last`; `Decimal` plus or minus an `Int` or another scale,
+    `Decimal * Int` and a sign on a `Decimal`; a conditional or scalar call
+    beside a JOIN; `lag` and `lead` with a `Text` literal default; `lpad`
+    and `now()`; and `same_value` in a JOIN `on`, of a `Float` too.
+
+  FULL JOIN, a GROUPS frame with an offset bound, an EXCLUDE clause,
+  `median`, `quantile` and `string_agg` are out of scope for MySQL. R2
+  `save_recoverable` and `recover` refuse each MySQL form that `0.2.2`
+  opens with PIE-R1004 before any workspace access or connection, as for
+  the forms that `0.1.12` and `0.2.1` opened: with
+  `PUBLIC_R2_UNQUALIFIED_FORM`, unless an earlier R2 check refuses the
+  form, such as an E4B ORDER BY key (a `let` name) with
+  `REFINEMENT_COMPARISON_DOMAIN` or an E4B computed GROUP BY key with
+  `PUBLIC_R2_COMPUTED_GROUP_KEY`.
+- **Editor.** If a project root is nested in another root through a
+  symbolic link, the server publishes modules selected by both roots under
+  both spellings without an overlap diagnostic. An internal error while
+  answering a request or storing or publishing an analysis can still end
+  `pietto lsp`.
+- The known limitations of 0.2.1 that the subsections above do not change
+  still hold, the project diagnostic order, the scope of the
+  [DuckDB local path](capabilities.md#duckdb-local-path), SQLite,
+  interoperability and R2 among them.
+
 ## Maintenance public alpha release notes — 0.2.1
 
 **Status:** These notes cover `0.2.1`, the public alpha prepared from its

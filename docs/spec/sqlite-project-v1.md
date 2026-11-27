@@ -38,8 +38,8 @@ aggregates in both modes with their native cells. S11 added
 by its timing, the file cap of 128 MiB. R1 added the PostgreSQL replay,
 which passed, and S16 closed the tier; the second tier needs its own
 Gate 1 (PL.54, PL.58). Each slice edits the rows it lands.
-No published release carries a form until the owner approves
-one: `0.2.1` and earlier refuse a project `sqlite.table` with `PIE-S2306`
+`0.2.2` is the first release that carries these forms (PL.55, PL.56);
+`0.2.1` and earlier refuse a project `sqlite.table` with `PIE-S2306`
 `Unknown source connector: sqlite.table`.
 
 ## Admission

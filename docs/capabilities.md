@@ -9,12 +9,9 @@ their own ([SQLite single files](#sqlite-single-files),
 [DuckDB local path](#duckdb-local-path)), and
 [Platforms and qualification](#platforms-and-qualification) gathers what the
 other pages claim for each platform.
-It describes `0.2.1`, whose
-[release notes](release-notes.md#maintenance-public-alpha-release-notes--021)
-give each change, and the DuckDB forms
-([DuckDB local path](#duckdb-local-path)) and the MySQL project `sum(Int)`
-forms and `Float` arithmetic cell (E4) of the MySQL catch-up work package
-that no release carries yet. Each row was recorded by running one
+It describes `0.2.2`, whose
+[release notes](release-notes.md#sqlite-project-mode-duckdb-joins-and-mysql-catch-up-public-alpha-release-notes--022)
+give each change. Each row was recorded by running one
 plain example of the family through these commands, with a project emission
 contract that declares every premise
 ([project SQL emission](project-package.md#project-sql-emission)). A cell
@@ -37,7 +34,7 @@ Polars, NumPy, SciPy or Matplotlib is no `check` or `emit-sql` feature;
 | --- | --- | --- | --- | --- | --- |
 | `where`, `let` values, `select`, `order by`, `limit` | yes | yes | yes | yes; `Int` arithmetic that may leave 64 bits, such as `amount * 2` over a `bigint` column, BLOCKED PIE-B1002 `arithmetic_outside_physical_range`, except `+`, `-`, `*`, unary `-` and `abs` over nullable `BIGINT` fields as a whole SELECT item in the cell that [language](language.md) states | [0.1.7](release-notes.md#nested-results-and-project-emission-public-alpha-release-notes--017), [0.1.12](release-notes.md#mysql-project-checked-int-arithmetic-and-sumint) |
 | `Float` arithmetic and sign on a field (`price * 2.0`, `-price`) | yes | yes | yes | BLOCKED PIE-B1003 `float_literal_operands_required` (`unary_sign_requires_int_operand` for `-price`), except `+`, `-` and `*` of a `DOUBLE` field and a `Float` literal and unary `-` of such a field as a whole SELECT item in the cell that [language](language.md#mysql-float-arithmetic-cell) states, `*` under an underflow guard, and in [E4B's cells](language.md#mysql-float-wider-cells) such an operation, two fields or one nesting as a whole item, a `let` value, a WHERE comparison with a `Float` literal or an ORDER BY key, with no WHERE `count` of the `-` of a nullable field, a `Float` header parameter with no sign of its own beside a field under `+` or `-` (never `*`), a computed `let` GROUP BY key in an S07 form, and such an operation, or with no WHERE a `+` or `*` of two fields, as a whole item on an INNER or LEFT JOIN row | [0.1.11](release-notes.md#float-arithmetic-and-float-keys-in-postgresql-projects), [E4's cell](language.md#mysql-float-arithmetic-cell), [E4B's cells](language.md#mysql-float-wider-cells) |
-| `+`, `-`, `*` of two `Float` literals (`1.5 * 2.0`) | yes | yes | yes; a result outside binary64, or a product of two non-zero literals that rounds to zero, BLOCKED PIE-B1002 `float_result_not_finite` | as PostgreSQL | [Float values](language.md#float-values); the refusal of a product that rounds to zero is not in `0.2.1` |
+| `+`, `-`, `*` of two `Float` literals (`1.5 * 2.0`) | yes | yes | yes; a result outside binary64, or a product of two non-zero literals that rounds to zero, BLOCKED PIE-B1002 `float_result_not_finite` | as PostgreSQL | [Float values](language.md#float-values), [0.2.2](release-notes.md#a-float-literal-product-that-rounds-to-zero-is-refused) |
 | `group by`, `having`, `count`, `min`, `max`, `avg` | yes | yes | yes | yes; `avg` of a `Float` as below | [Aggregates](language.md#aggregates-and-grouping) |
 | Scalar calls or arithmetic over direct aggregates (`coalesce(sum(qty), 0)` with nullable `Int` qty) | yes | yes | yes, with existing carrier proofs | BLOCKED PIE-B1003 `aggregate_composition_not_admitted_on_target` | [0.1.11](release-notes.md#scalars-around-aggregate-results) |
 | A computed `let` GROUP BY key selected by the same binding | yes | yes | yes | yes | [0.1.11](release-notes.md#computed-let-keys-in-single-file-grouping) |
@@ -188,10 +185,10 @@ not), are refused, and it is qualified only with CPython 3.12 and
 at most one comparison of an `Int` field with one non-null `Int` parameter,
 over at most 65,536 rows and 16 MiB. Its second part, Phase79 B2 (PL.47),
 adds the grouping, `having`, `order by`, `limit`, the wider filters and the
-higher limits; no release carries it yet, and it enters `0.2.2` (PL.55).
+higher limits; `0.2.2` is the first release that carries it (PL.55).
 B2's second tier adds `Date`, `Timestamp` and `Decimal(p, s)` fields, the
 arithmetic, several sources with their JOINs and the batch reading of every
-result, and enters `0.2.2` too (D79.21).
+result, and `0.2.2` carries it too (D79.21).
 
 Each row was recorded by running one plain example through
 `check --project` and `emit-sql --project --dialect duckdb`, with a DuckDB

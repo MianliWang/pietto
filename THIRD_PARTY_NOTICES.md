@@ -10,8 +10,8 @@ provided for attribution; it is not legal advice.
 
 ## Wheel and sdist
 
-For the 0.2.1 release candidate, these items are intended for
-`pietto-0.2.1-py3-none-any.whl` and `pietto-0.2.1.tar.gz`. The per-channel
+For the 0.2.2 release candidate, these items are intended for
+`pietto-0.2.2-py3-none-any.whl` and `pietto-0.2.2.tar.gz`. The per-channel
 inspection record determines their actual contents before release.
 Locations are repository paths; in the wheel they appear without the leading
 `src/`.
@@ -132,7 +132,7 @@ Wheels for other platforms were not inspected for bundled native libraries.
 ## GitHub source archive
 
 The archive of a tagged release contains the whole repository tree: everything
-listed above, plus the following. GitHub's automatic `v0.2.1` source tar.gz,
+listed above, plus the following. GitHub's automatic `v0.2.2` source tar.gz,
 when the tag is published, can have the same file name as that version's sdist;
 its contents include `tools/`, `tests/` and `docs/`. The existing `v0.1.1`
 archive belongs to its published commit and remains its own historical artifact.

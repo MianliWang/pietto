@@ -109,11 +109,13 @@ column (D77.42) and `now()` in `relay_live` and R2 (D77.43, D77.49); `0.1.11` wa
 which carries the leftovers of Phase80 and earlier with the MySQL `Float`
 `same_value` in a JOIN `on` (PL.43), was published the same day (PL.45,
 PL.46). `0.2.2` carries all the work before Phase81, the MySQL catch-up
-included, and the owner has authorized its publication (PL.55, PL.56);
+included (PL.55); its release commit follows the other commits of its
+release batch, and it is published only when its tag, GitHub pre-release
+and PyPI carry the accepted files, under PL.56's gates (PL.84, PL.96).
 Phase81's commits reach `main` only after the `0.2.2` release commit
 (PL.57).
-The first tiers of SQLite B2 and DuckDB B2 and the interop relief enter
-`0.2.2` (PL.47, PL.55), and so do DuckDB B2's second tier and JF's
+The first tiers of SQLite B2 and DuckDB B2 and the interop relief are in
+`0.2.2` (PL.47, PL.55), and so are DuckDB B2's second tier and JF's
 J1, and E4B, the part of C04's E4 that MC.04 left to the owner's plan,
 whose lists had all qualified when `0.2.2`'s final assembly started (PL.85
 (2)); SQLite B2's second tier publishes after `0.2.2` (PL.61, PL.64), and
@@ -284,7 +286,7 @@ publish, which its release lists as incompatible (PL.54).
 
 The interop relief (IR) is a work package with its own ledger that widens
 D80.03's admission table (PL.47). Its slices are implemented (PL.53) and
-enter `0.2.2` (PL.55);
+are in `0.2.2` (PL.55);
 [Field admission](interop.md#field-admission) gives the widened table. `UUID`
 fields reach pandas and Polars as their 16 bytes, unchanged; `decimal256`
 reaches pandas only, and Polars keeps refusing it with a fix that names
@@ -294,9 +296,8 @@ or other shapes stay refused; `to_numpy` takes a nullable `Float` with NaN at
 each null, while a nullable `Int` or `Bool` stays refused; the plots take
 nullable `Int` and `Float` fields, where a null breaks the line and draws no
 point; and `to_scipy_csr` takes `Float` values, stored as float64 with
-`-0.0` kept, beside its `Int` coordinates. Until that release, `0.2.1`'s
-refusals stand, and the Windows claim still leaves out the extras (PL.40,
-D5).
+`-0.0` kept, beside its `Int` coordinates. The Windows claim still leaves
+out the extras (PL.40, D5).
 
 ### Phase81 scope
 
@@ -387,7 +388,7 @@ not the bare PIE-S2333, for `min` or `max` of a `Text` or `Bool` `let`,
 and accept nothing more. Each extension takes a slice of its own with a
 two-database verification, and none lands before the `0.2.2` release
 commit (PL.57); until each lands,
-`0.2.1`'s behavior and the [diagnostics reference](spec/diagnostics.md)
+`0.2.2`'s behavior and the [diagnostics reference](spec/diagnostics.md)
 stand.
 
 ### Tests and maintenance
