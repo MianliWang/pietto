@@ -15,7 +15,7 @@ from pietto._project import project_sql_plan_windows as plan_windows
 from pietto._project import project_sql_plan_expressions as row
 from pietto._project import project_sql_emission_parameters as parameters
 from pietto._project import project_sql_emission_paired as pairing
-from pietto._project.model import ProjectResolvedTypeKind
+from pietto._project.model import ProjectResolvedTypeKind, ProjectRowField
 from pietto._project.project_sql_emission_portable_schema import (
     MYSQL_PACKET_FLOOR_CHARACTERS,
 )
@@ -1598,7 +1598,8 @@ def mysql_float_arithmetic_cell(plan, expression, values) -> bool:
     (mysql_float_literal), in either order, and a unary `-` when its operand
     is a source field; the operation is the whole value of a SELECT item of
     the emitted query, and the query is mysql_checked_query's (one WHERE at
-    most, no slot). Its carriers are mysql_float_operands'."""
+    most, no slot) with mysql_float_select's items. Its carriers are
+    mysql_float_operands'."""
 
     site = getattr(expression, "site", None)
     kind = {row.ProjectSQLBinary: "binary", row.ProjectSQLUnary: "unary"}.get(
@@ -1614,6 +1615,64 @@ def mysql_float_arithmetic_cell(plan, expression, values) -> bool:
         and site.role is row.ProjectSQLExpressionRole.SELECT
         and site.occurrence.expression is expression.expression
         and mysql_checked_query(plan, aggregate=False)
+        and mysql_float_select(plan)
+    )
+
+
+@functools.lru_cache(maxsize=1)
+def mysql_float_select(plan) -> bool:
+    """MC E4 (lead ruling C13-R1): every SELECT item of a cell's query is a
+    direct read of a source field or a Float operation of the cell's form,
+    the only items E4's forms put beside it; any other item, an S12 `lpad`
+    or `now()` call or an S01 `Int` operation among them, leaves the query
+    outside the cell, so the statement keeps main's blockers (rule two).
+    Each operation's own cell is still judged on its own. Every MySQL Float
+    operation of one plan asks, so the last plan's answer is kept; the cache
+    holds that plan, so its identity is never reused."""
+
+    def node(reference):
+        return _planned(plan, reference)
+
+    def field(expression) -> bool:
+        port = getattr(expression, "port", None)
+        position = getattr(port, "position", None)
+        return (
+            type(expression) is row.ProjectSQLReference
+            and type(position) is int
+            and 0 <= position < len(plan.stage_ports)
+            and plan.stage_ports[position].ref is port
+            and type(plan.stage_ports[position].key) is ProjectRowField
+        )
+
+    def literal(expression) -> bool:
+        if (
+            type(expression) is row.ProjectSQLUnary
+            and expression.expression.operator == "-"
+        ):
+            expression = node(expression.operand)
+        return (
+            type(expression) is row.ProjectSQLLiteral
+            and value_tag(expression) == "Float"
+        )
+
+    def operation(expression) -> bool:
+        if value_tag(expression) != "Float":
+            return False
+        if type(expression) is row.ProjectSQLUnary:
+            return expression.expression.operator == "-" and field(
+                node(expression.operand)
+            )
+        if (
+            type(expression) is not row.ProjectSQLBinary
+            or expression.expression.operator not in E4_OPERATORS["binary"]
+        ):
+            return False
+        pair = (node(expression.left), node(expression.right))
+        return sum(map(field, pair)) == 1 and all(field(o) or literal(o) for o in pair)
+
+    return all(
+        field(expression) or operation(expression)
+        for expression in (node(item.expression) for item in plan.projections)
     )
 
 
@@ -1775,7 +1834,9 @@ def mysql_compiled_cells(
     terminal row that no other counted record names: a Float `+`, `-` or `*`
     of one read of a marked port whose field's physical storage is
     `my_double` and one Float literal record (or a `-` operation over one),
-    in either order, or a `-` of such a read. A slot or native use record
+    in either order, or a `-` of such a read, and every other value of the
+    row is such an operation or a read of a marked port (mysql_float_select).
+    A slot or native use record
     closes every other cell outside an aggregate, and a header parameter
     record every cell outside one. MC G5: beside an aggregate, header
     parameters, their reads and bind-safe slots keep placeholders_law, and a
@@ -2550,6 +2611,10 @@ def mysql_compiled_cells(
             and all(double(item) or float_literal(item) for item in operands)
         ):
             floats.add(value)
+    # MC E4 (C13-R1, mysql_float_select): beside field reads and E4
+    # operations only.
+    if not all(value in floats or field(value) for value in terminal.get("values")):
+        floats.clear()
     return (
         frozenset(
             value

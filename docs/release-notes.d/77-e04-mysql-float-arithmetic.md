@@ -10,10 +10,12 @@
   `y * -(2.0)`) or through a `def` call that inlines to it, a literal
   argument included (`x * two()`, `mul(x, 2.0)`, `same(-x)`). The operation
   is the whole value of a SELECT item of the `query` or `table` that is
-  emitted, and the query reads its source through one WHERE at most and
-  holds no `let`, window, JOIN, GROUP BY or aggregate, HAVING, DISTINCT,
-  ORDER BY, LIMIT or header parameter. PostgreSQL emitted these statements
-  already; its SQL does not change.
+  emitted, its other SELECT items are direct reads of fields, of any type,
+  or other operations of this cell, as in the qualification's forms, and
+  the query reads its source through one WHERE at most and holds no `let`,
+  window, JOIN, GROUP BY or aggregate, HAVING, DISTINCT, ORDER BY, LIMIT or
+  header parameter. PostgreSQL emitted these statements already; its SQL
+  does not change.
 - `+` and `-` are written `(a + b)`, the sign `(-a)` and a literal
   `CAST(2.0e0 AS DOUBLE)`. `*` is written under an underflow guard (MC.05),
   `CASE WHEN (x * y) = 0 AND x <> 0 AND y <> 0 THEN
@@ -44,7 +46,11 @@
   parameter, read or not, the operation in a `let`, a WHERE comparison, an
   ORDER BY key or an aggregate argument, and a cell's operation in a query
   with any clause listed above, a value `let`, a set operand, an imported
-  source, an upstream query or a relation alias. Under `bind_safe_literals`
+  source, an upstream query or a relation alias, or beside any other SELECT
+  item, such as an `lpad`, `now()` or `date_of(now())` call, an `Int`
+  operation of S01's cell, a comparison, a literal or another expression:
+  such a statement keeps every blocker it has without this note, that
+  call's or operation's included. Under `bind_safe_literals`
   a statement with a literal, a WHERE's included, stays refused, since its
   literals are bind-safe `?`. A statement still refused reports exactly the
   blockers it has without this note.

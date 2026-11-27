@@ -20017,9 +20017,9 @@ def s03_world(
     the contract's selectors and fields alike, and ``extra`` adds fields to
     a source, as {source: (field, ...)}, each a name, a nullable BIGINT
     after the source's own fields, or (name, kind, nullable, before), kind
-    one of _S03_FIELDS' and ``before`` None or the field it is declared
-    before. A dict ``body`` maps module paths to their text, main.pietto's
-    after the header."""
+    one of _S03_FIELDS' or "float" (a finite DOUBLE) and ``before`` None or
+    the field it is declared before. A dict ``body`` maps module paths to
+    their text, main.pietto's after the header."""
     names, extra = names or {}, extra or {}
     header = S03_HEADER
     layout = {source: list(fields) for source, fields in _S03_FIELDS.items()}
@@ -20027,7 +20027,7 @@ def s03_world(
     def line(name, kind, nullable):
         return "    %s: %s%s\n" % (
             name,
-            "Bool" if kind == "bool" else "Int",
+            {"bool": "Bool", "float": "Float"}.get(kind, "Int"),
             " | None" if nullable else "",
         )
 
@@ -20079,6 +20079,7 @@ def s03_world(
         "wide": ("pg_int8" if target == "postgres" else "my_bigint", 63),
         "narrow": ("pg_int4" if target == "postgres" else "my_int", 31),
         "bool": ("pg_bool" if target == "postgres" else "my_bool01", None),
+        "float": (FLOAT_STORAGE[target], None),
     }
     template = contract["sources"][0]
     contract["sources"] = [
@@ -20096,6 +20097,8 @@ def s03_world(
                         "nullable": nullable,
                         "domain": {"kind": "bool01"}
                         if kind == "bool"
+                        else FINITE_FLOAT
+                        if kind == "float"
                         else {
                             "kind": "int_range",
                             "min": str(-(1 << storage[kind][1])),
@@ -24261,6 +24264,303 @@ E4_REFUSAL_BLOCKERS = {
     "set_operand": [("PIE-B1003", "float_literal_operands_required", 10, 9)],
     "unread_parameter": [("PIE-B1003", "float_literal_operands_required", 10, 9)],
 }
+# Lead ruling C13-R1: E4's forms put only field reads and other E4
+# operations beside a cell's operation (mysql_float_select), so any
+# other SELECT item keeps main's blockers: an S12 `lpad`, `now()` or
+# `date_of(now())` call, a comparison, a literal, a signed or folded
+# Float literal, `abs`, `is None`, `coalesce`, a conditional, a cast or
+# `nullif`, and over grouping_world's wide source (e4_world's `wide_`
+# shapes) an S01 Int operation, an `lpad` of a field or `upper`.
+E4_NEIGHBOURS = {
+    "beside_lpad": _e4_body("query", ["r = x * 2.0", 'p = lpad("ab", 5, "0")']),
+    "sum_beside_lpad": _e4_body("query", ["r = x + 0.1", 'p = lpad("ab", 5, "0")']),
+    "beside_now": _e4_body("query", ["r = x * 2.0", "t = now()"]),
+    "where_beside_now": _e4_body("query", ["r = y - 0.1", "t = now()"], "id > 1"),
+    "table_beside_now": _e4_body("table", ["r = x * 2.0", "t = now()"], "id > 1"),
+    "sign_beside_date_of": _e4_body("query", ["r = -x", "t = date_of(now())"]),
+    "beside_comparison": _e4_body("query", ["r = x * 2.0", "b = id > 1"]),
+    "beside_int_literal": _e4_body("query", ["r = x * 2.0", "c = 1"]),
+    "beside_float_literal": _e4_body("query", ["r = x * 2.0", "f = 2.0"]),
+    "beside_negated_literal": _e4_body("query", ["r = x * 2.0", "n = -2.0"]),
+    "beside_folded_literal": _e4_body("query", ["r = x * 2.0", "k = 1.0 + 2.0"]),
+    "beside_abs": _e4_body("query", ["r = x * 2.0", "a = abs(x)"]),
+    "beside_is_none": _e4_body("query", ["r = x * 2.0", "z = x is None"]),
+    "beside_coalesce": _e4_body("query", ["r = x * 2.0", "c = coalesce(x, 0.0)"]),
+    "beside_conditional": _e4_body("query", ["r = x * 2.0", "c = 1 if id > 1 else 0"]),
+    "beside_cast": _e4_body("query", ["r = x * 2.0", "s = Float(id)"]),
+    "beside_nullif": _e4_body("query", ["r = x * 2.0", "n = nullif(id, 1)"]),
+    "wide_beside_s01_sum": _e4_body("query", ["r = fl * 2.0", "s = a + a"]),
+    "wide_sign_beside_s01_sign": _e4_body("query", ["r = -fl", "s = -a"]),
+    "wide_beside_s01_abs": _e4_body("query", ["r = fl + 0.5", "s = abs(a)"]),
+    "wide_beside_s01_product": _e4_body("query", ["r = fl * 2.0", "s = a * b"]),
+    "wide_where_beside_s01": _e4_body("query", ["r = fl * 2.0", "s = a - b"], "id > 3"),
+    "wide_sign_beside_s01_and_now": _e4_body(
+        "query", ["r = -fl", "s = a + a", "t = now()"]
+    ),
+    "wide_beside_field_lpad": _e4_body(
+        "query", ["r = fl * 2.0", 'p = lpad(tag, 5, "0")']
+    ),
+    "wide_beside_lpad_and_s01": _e4_body(
+        "query", ["r = fl * 2.0", 'p = lpad("ab", 5, "0")', "s = a + b"]
+    ),
+    "wide_beside_upper": _e4_body("query", ["r = fl * 2.0", "u = upper(tag)"]),
+}
+# The MySQL blockers main reports for each of E4_NEIGHBOURS under both literal
+# policies, as (code, detail, line, column) (observed on main at this
+# change's base).
+_E4_OPERATION = ("PIE-B1003", "float_literal_operands_required", 10, 9)
+_E4_CALL = ("PIE-B1003", "scalar_call_signature_not_admitted", 11, 9)
+E4_NEIGHBOUR_BLOCKERS = {
+    "beside_lpad": [_E4_OPERATION, _E4_CALL],
+    "sum_beside_lpad": [_E4_OPERATION, _E4_CALL],
+    "beside_now": [_E4_OPERATION, _E4_CALL],
+    "where_beside_now": [
+        ("PIE-B1003", "float_literal_operands_required", 11, 9),
+        ("PIE-B1003", "scalar_call_signature_not_admitted", 12, 9),
+    ],
+    "table_beside_now": [
+        ("PIE-B1003", "float_literal_operands_required", 11, 9),
+        ("PIE-B1003", "scalar_call_signature_not_admitted", 12, 9),
+    ],
+    "sign_beside_date_of": [
+        ("PIE-B1003", "unary_sign_requires_int_operand", 10, 9),
+        _E4_CALL,
+    ],
+    **{
+        shape: [_E4_OPERATION]
+        for shape in (
+            "beside_comparison",
+            "beside_int_literal",
+            "beside_float_literal",
+            "beside_negated_literal",
+            "beside_folded_literal",
+            "beside_abs",
+            "beside_is_none",
+            "beside_coalesce",
+            "beside_conditional",
+            "beside_cast",
+            "beside_nullif",
+        )
+    },
+    "wide_beside_s01_sum": [
+        ("PIE-B1003", "float_literal_operands_required", 19, 9),
+        ("PIE-B1002", "arithmetic_outside_physical_range", 20, 9),
+    ],
+    "wide_sign_beside_s01_sign": [
+        ("PIE-B1003", "unary_sign_requires_int_operand", 19, 9),
+        ("PIE-B1002", "unary_result_outside_physical_range", 20, 9),
+    ],
+    "wide_beside_s01_abs": [
+        ("PIE-B1003", "float_literal_operands_required", 19, 9),
+        ("PIE-B1002", "abs_result_outside_physical_range", 20, 9),
+    ],
+    "wide_beside_s01_product": [
+        ("PIE-B1003", "float_literal_operands_required", 19, 9),
+        ("PIE-B1002", "arithmetic_outside_physical_range", 20, 9),
+    ],
+    "wide_where_beside_s01": [
+        ("PIE-B1003", "float_literal_operands_required", 20, 9),
+        ("PIE-B1002", "arithmetic_outside_physical_range", 21, 9),
+    ],
+    "wide_sign_beside_s01_and_now": [
+        ("PIE-B1003", "unary_sign_requires_int_operand", 19, 9),
+        ("PIE-B1002", "arithmetic_outside_physical_range", 20, 9),
+        ("PIE-B1003", "scalar_call_signature_not_admitted", 21, 9),
+    ],
+    "wide_beside_field_lpad": [
+        ("PIE-B1003", "float_literal_operands_required", 19, 9),
+        ("PIE-B1003", "scalar_call_signature_not_admitted", 20, 9),
+    ],
+    "wide_beside_lpad_and_s01": [
+        ("PIE-B1003", "float_literal_operands_required", 19, 9),
+        ("PIE-B1003", "scalar_call_signature_not_admitted", 20, 9),
+        ("PIE-B1002", "arithmetic_outside_physical_range", 21, 9),
+    ],
+    "wide_beside_upper": [("PIE-B1003", "float_literal_operands_required", 19, 9)],
+}
+# Statements whose SELECT list holds E4 operations beside field reads alone,
+# of any type, which E4's cell composes with (C13-R1): each emits.
+E4_COMPOSED = {
+    "alone": "query result:\n    from rows\n    select:\n        r = x * 2.0\n",
+    "float_fields": _e4_body("query", ["x", "y", "r = x * 2.0"]),
+    "wide_fields": _e4_body("query", ["r = fl * 2.0", "tag", "dt", "dc", "ts", "a"]),
+    "wide_operations": _e4_body(
+        "query", ["r = fl * 2.0", "s = -fl", "t = fl + 0.5"], "id > 3"
+    ),
+}
+
+
+def e4_world(directory, target, shape, body, policy="preserve_literals"):
+    """``body`` over float_world, or, for a `wide_` shape, over
+    grouping_world's wide source, whose nullable Float `fl` stands in E4's
+    cell and whose nullable BIGINT `a` and `b` stand in S01's."""
+    if shape.startswith("wide_"):
+        return grouping_world(directory, target, body, policy, wide=True)
+    return float_world(directory, target, body, policy)
+
+
+# MySQL Float arithmetic in the positions MC E4B's preregistration names,
+# P1 a `let` read by an item, P2 a whole WHERE comparison, P3 an ORDER BY
+# key, P4 two fields (one field twice), P5 a nesting, P6 `count` of a sign,
+# P7 a header parameter operand and P8 a computed GROUP BY key, each beside
+# a sum(Int) form of MC's G1 to G8 and s03n lists, as (world, body) for
+# e4b_sum_world: each keeps main's blockers under both literal policies
+# (E4B_SUM_BLOCKERS, observed on main at this change's base), and
+# PostgreSQL emits it.
+E4B_SUM_NEIGHBOURS = {
+    "p1_g1": (
+        "wide",
+        "query result:\n    from rows\n    let t = fl * 2.0\n    let v = a\n    select:\n        s = sum(v)\n        m = max(t)\n",
+    ),
+    "p1_g8": (
+        "levels",
+        "query base:\n    from rows\n    let t = fl * 2.0\n    where id > 3\n    select:\n        k\n        a\n        r = t\nquery mid:\n    from base\n    select:\n        g = k\n        v = a\nquery result:\n    from mid\n    group by g\n    select:\n        g\n        x = sum(v)\n",
+    ),
+    "p1_s03n": (
+        "s03",
+        "query up:\n    from orders\n    let t = fl * 2.0\n    select:\n        customer\n        amount\n        flag\n        r = t\nquery result:\n    from up\n    group by customer\n    select:\n        customer\n        paid = sum(o.amount for o in group if o.flag)\n",
+    ),
+    "p2_g1": (
+        "wide",
+        "query result:\n    from rows\n    where fl * 2.0 > 1.0\n    select:\n        s = sum(n)\n",
+    ),
+    "p2_g3": (
+        "wide",
+        "query result:\n    from rows\n    where fl + 0.1 > 0.25\n    group by k\n    select:\n        k\n        s = sum(n)\n    having:\n        s > 10\n",
+    ),
+    "p2_g3_limit": (
+        "wide",
+        "query result:\n    from rows\n    where fl * 2.0 > 1.0\n    group by k\n    select:\n        k\n        x = sum(n)\n    order by:\n        x desc\n    limit 2\n",
+    ),
+    "p2_g6": (
+        "levels",
+        "query result:\n    from rows\n    let o = orders\n    inner join o on o.id == rows.id\n    where rows.fl * 2.0 > 1.0\n    group by rows.k\n    select:\n        k = rows.k\n        s = sum(rows.a)\n",
+    ),
+    "p2_g7": (
+        "flag",
+        "query result:\n    from rows\n    where fl * 2.0 > 1.0\n    select:\n        x = sum(o.a for o in group if o.f or o.id > 5)\n",
+    ),
+    "p2_s03n": (
+        "s03",
+        "query result:\n    from orders\n    where fl * 2.0 > 1.0\n    group by customer\n    select:\n        customer\n        paid = sum(o.amount for o in group if o.flag)\n    order by customer\n",
+    ),
+    "p3_g4": (
+        "wide",
+        "query base:\n    from rows\n    let t = fl + 1.0\n    select:\n        k\n        a\n        r = t\n    order by:\n        t\nquery result:\n    from base\n    group by k\n    select:\n        k\n        s = sum(a)\n",
+    ),
+    "p4_g2": (
+        "wide",
+        "query result:\n    from rows\n    where fl + fl > 1.0\n    group by tag\n    select:\n        tag\n        s = sum(a)\n        hi = max(n)\n",
+    ),
+    "p5_g4": (
+        "wide",
+        "query result:\n    let r = rows\n    from r\n    where (r.fl * 2.0) + 1.0 > 0.0\n    group by r.k\n    select:\n        k = r.k\n        x = sum(r.a)\n",
+    ),
+    "p6_g1": (
+        "wide",
+        "query result:\n    from rows\n    select:\n        c1 = count(-fl)\n        s = sum(n)\n",
+    ),
+    "p6_g2": (
+        "wide",
+        "query result:\n    from rows\n    group by k\n    select:\n        k\n        c1 = count(-fl)\n        s = sum(a)\n",
+    ),
+    "p6_g6": (
+        "levels",
+        "query result:\n    from rows\n    let o = orders\n    inner join o on o.id == rows.id\n    group by rows.k\n    select:\n        k = rows.k\n        s = sum(rows.a)\n        c1 = count(-rows.fl)\n",
+    ),
+    "p6_g8": (
+        "levels",
+        "query base:\n    from rows\n    group by k, n\n    select:\n        k\n        n\n        s = sum(a)\n        c1 = count(-fl)\nquery result:\n    from base\n    group by k\n    select:\n        k\n        x = sum(s)\n",
+    ),
+    "p6_s03n": (
+        "s03",
+        "query result:\n    from orders\n    group by customer\n    select:\n        customer\n        paid = sum(o.amount for o in group if o.flag)\n        c1 = count(-fl)\n    having:\n        paid >= 0\n",
+    ),
+    "p7_g5": (
+        "wide",
+        "query result(p: Float | None):\n    from rows\n    where p + fl > 0.0\n    select:\n        s = sum(n)\n",
+    ),
+    "p7_g5_lo": (
+        "wide",
+        "query result(p: Float | None, lo: Int):\n    from rows\n    where p + fl > 0.0 and id > lo\n    select:\n        s = sum(n)\n",
+    ),
+    "p8_g1": (
+        "wide",
+        "query result:\n    from rows\n    let g = fl * 2.0\n    group by g\n    select:\n        g\n        s = sum(a)\n",
+    ),
+    "p8_g2": (
+        "wide",
+        "query result:\n    from rows\n    let g = fl * 2.0\n    group by g, k\n    select:\n        g\n        k\n        c1 = count()\n        s = sum(n)\n",
+    ),
+    "p8_g6": (
+        "levels",
+        "query result:\n    from rows\n    let o = orders\n    inner join o on o.id == rows.id\n    let g = rows.fl * 2.0\n    group by g\n    select:\n        g\n        s = sum(rows.a)\n",
+    ),
+    "p8_g7": (
+        "flag",
+        "query result:\n    from rows\n    let g = fl * 2.0\n    group by g\n    select:\n        g\n        s = sum(o.a for o in group if o.f and o.id > 3)\n",
+    ),
+    "p8_s03n": (
+        "s03",
+        "query result:\n    from orders\n    let g = fl * 2.0\n    group by g\n    select:\n        g\n        paid = sum(o.amount for o in group if o.flag)\n    order by g\n",
+    ),
+}
+E4B_SUM_BLOCKERS = {
+    "p1_g1": [("PIE-B1003", "float_literal_operands_required", 17, 5)],
+    "p1_g8": [("PIE-B1003", "float_literal_operands_required", 27, 5)],
+    "p1_s03n": [("PIE-B1003", "float_literal_operands_required", 18, 5)],
+    "p2_g1": [("PIE-B1003", "float_literal_operands_required", 17, 5)],
+    "p2_g3": [("PIE-B1003", "float_literal_operands_required", 17, 5)],
+    "p2_g3_limit": [("PIE-B1003", "float_literal_operands_required", 17, 5)],
+    "p2_g6": [("PIE-B1003", "float_literal_operands_required", 29, 5)],
+    "p2_g7": [("PIE-B1003", "float_literal_operands_required", 18, 5)],
+    "p2_s03n": [("PIE-B1003", "float_literal_operands_required", 18, 5)],
+    "p3_g4": [("PIE-B1003", "float_literal_operands_required", 17, 5)],
+    "p4_g2": [("PIE-B1003", "float_literal_operands_required", 17, 5)],
+    "p5_g4": [("PIE-B1003", "float_literal_operands_required", 18, 5)],
+    "p6_g1": [
+        ("PIE-B1003", "unary_sign_requires_int_operand", 18, 9),
+        ("PIE-B1004", "sum_int_aggregate_range_proof_missing", 19, 9),
+    ],
+    "p6_g2": [
+        ("PIE-B1003", "unary_sign_requires_int_operand", 20, 9),
+        ("PIE-B1004", "sum_int_aggregate_range_proof_missing", 21, 9),
+    ],
+    "p6_g6": [
+        ("PIE-B1004", "sum_int_aggregate_range_proof_missing", 32, 9),
+        ("PIE-B1003", "unary_sign_requires_int_operand", 33, 9),
+    ],
+    "p6_g8": [
+        ("PIE-B1004", "sum_int_aggregate_range_proof_missing", 31, 9),
+        ("PIE-B1003", "unary_sign_requires_int_operand", 32, 9),
+    ],
+    "p6_s03n": [
+        ("PIE-B1004", "sum_int_aggregate_range_proof_missing", 21, 9),
+        ("PIE-B1003", "unary_sign_requires_int_operand", 22, 9),
+    ],
+    "p7_g5": [("PIE-B1003", "float_literal_operands_required", 17, 5)],
+    "p7_g5_lo": [("PIE-B1003", "float_literal_operands_required", 17, 5)],
+    "p8_g1": [("PIE-B1003", "float_literal_operands_required", 17, 5)],
+    "p8_g2": [("PIE-B1003", "float_literal_operands_required", 17, 5)],
+    "p8_g6": [("PIE-B1003", "float_literal_operands_required", 29, 5)],
+    "p8_g7": [("PIE-B1003", "float_literal_operands_required", 18, 5)],
+    "p8_s03n": [("PIE-B1003", "float_literal_operands_required", 18, 5)],
+}
+
+
+def e4b_sum_world(directory, target, shape, policy="preserve_literals"):
+    """E4B_SUM_NEIGHBOURS[shape] in its world: grouping_world's wide source
+    (with a nullable Bool `f` for "flag"), levels_world's wide one, or
+    s03_world's with a nullable Float `fl` in `orders`."""
+    world, body = E4B_SUM_NEIGHBOURS[shape]
+    if world == "levels":
+        return levels_world(directory, target, body, policy, wide=True)
+    if world == "s03":
+        extra = {"orders": (("fl", "float", True, None),)}
+        return s03_world(directory, target, body, policy, extra=extra)
+    return grouping_world(
+        directory, target, body, policy, flag=world == "flag", wide=True
+    )
 
 
 # D19 (PL.40 D19 A): MySQL R2's first page, measured on a real MySQL by the

@@ -8384,6 +8384,57 @@ def test_forged_mysql_float_cells_fail_every_later_reader(tmp_path, monkeypatch,
     )
 
 
+# Lead ruling C13-R1: shapes whose operation is in E4's cell by its operands
+# and its place but stands beside a SELECT item that no E4 form puts there
+# (E4_NEIGHBOURS): an S12 call, an S01 Int operation, a comparison, a
+# literal and other expressions.
+@pytest.mark.parametrize("shape", sorted(_pietto_sql_emission.E4_NEIGHBOURS))
+def test_forged_mysql_float_neighbours_fail_every_later_reader(
+    tmp_path, monkeypatch, shape
+):
+    """An artifact of an E4 operation beside such an item, emitted and
+    live-verified while every SELECT list counts as a cell's
+    (mysql_float_select), fails plain verification and the live template
+    once the rule is back, and compiled replay, its template and the pure
+    boundary, each by its own reading of its input."""
+    import _pietto_sql_emission_portable as portable
+    import _pietto_sql_emission_pure_boundary as pure
+    from pietto._project import project_sql_emission_rows as rows
+    from pietto._project import project_sql_emission_verification as verification
+    from pietto._project.project_execution_template import (
+        BindingError,
+        prepare_compiled_template,
+        prepare_live_template,
+    )
+    from pietto._project.project_compiled_lowering import emit_compiled
+
+    body = _pietto_sql_emission.E4_NEIGHBOURS[shape]
+    with monkeypatch.context() as patch:
+        patch.setattr(rows, "mysql_float_select", lambda _: True)
+        _, outcome = _pietto_sql_emission.e4_world(tmp_path, "mysql", shape, body)
+        artifact = outcome.artifact
+        assert artifact is not None, outcome.blockers
+        observed = portable.export_emission_observation(artifact, artifact.request)
+        loaded = _numeric_loaded(artifact)
+    assert not verification.verify_project_sql_emission(
+        artifact, artifact.request
+    ).verified
+    with pytest.raises(BindingError, match="^BINDING_ARTIFACT$"):
+        prepare_live_template(artifact)
+    for replay in (
+        lambda: emit_compiled(loaded, ()),
+        lambda: prepare_compiled_template(loaded),
+    ):
+        with pytest.raises(wire.CompiledError, match="^COMPILED_PHYSICAL_DOMAIN$"):
+            replay()
+    assert observed.canonical_bytes is not None
+    refused = pure.parse_emission_observation(observed.canonical_bytes)
+    assert (refused.status, refused.detail) == (
+        pure.Status.INVALID_RELATION,
+        "MySQL Float arithmetic cell",
+    )
+
+
 @pytest.mark.parametrize("shape", ("r17_imported", "row_input_alias", "unread_window"))
 def test_forged_mysql_float_aliases_fail_the_plan_readers_only(
     tmp_path, monkeypatch, shape

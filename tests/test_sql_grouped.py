@@ -3226,6 +3226,24 @@ def test_mysql_g1_neighbours_keep_main_refusal(tmp_path, shape, policy):
 
 
 @pytest.mark.parametrize("policy", ("preserve_literals", "bind_safe_literals"))
+@pytest.mark.parametrize("shape", sorted(probe.E4B_SUM_NEIGHBOURS))
+def test_mysql_float_arithmetic_beside_a_sum_int_keeps_main_refusal(
+    tmp_path, shape, policy
+):
+    """MySQL Float arithmetic in each position MC E4B names (P1 to P8: a
+    `let`, a WHERE, an ORDER BY key, two fields, a nesting, a `count` of a
+    sign, a header parameter operand, a computed key) beside a sum(Int) of
+    each of MC's G1 to G8 and s03n forms keeps main's blockers, object for
+    object, under both literal policies, whichever law opens either part;
+    PostgreSQL emits each as main does."""
+    _, outcome = probe.e4b_sum_world(tmp_path / "mysql", "mysql", shape, policy)
+    assert outcome.status == "BLOCKED" and outcome.artifact is None
+    assert _numeric_blockers(outcome) == probe.E4B_SUM_BLOCKERS[shape]
+    _, postgres = probe.e4b_sum_world(tmp_path / "postgres", "postgres", shape, policy)
+    assert postgres.status == "VERIFIED", postgres.blockers
+
+
+@pytest.mark.parametrize("policy", ("preserve_literals", "bind_safe_literals"))
 def test_mysql_smallint_reads_keep_s02_own_cell_beside_g1(tmp_path, policy):
     """MC G1 (lead ruling of 2026-11-21, S02-SMALLINT): no G1 form reads a
     SMALLINT field, so S02's own SMALLINT GROUP BY key, and a `count` or

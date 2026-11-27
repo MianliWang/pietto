@@ -3263,6 +3263,36 @@ def test_mysql_float_arithmetic_outside_its_cell_keeps_its_refusal(
     assert expected is None or _e4_blockers(postgres) == expected
 
 
+@pytest.mark.parametrize("policy", ("preserve_literals", "bind_safe_literals"))
+@pytest.mark.parametrize("shape", sorted(probe.E4_NEIGHBOURS))
+def test_a_mysql_float_cell_beside_an_unqualified_item_keeps_mains_blockers(
+    tmp_path, shape, policy
+):
+    """Lead ruling C13-R1: an E4 cell's operation beside any SELECT item but
+    a field read or another E4 operation keeps the blockers main reports,
+    object for object, under both literal policies: beside an S12 `lpad`,
+    `now()` or `date_of(now())` call, an S01 Int operation, a comparison, a
+    literal or another expression, whatever its operator. PostgreSQL emits
+    each as before."""
+    body = probe.E4_NEIGHBOURS[shape]
+    _, outcome = probe.e4_world(tmp_path / "mysql", "mysql", shape, body, policy)
+    assert outcome.status == "BLOCKED" and outcome.artifact is None
+    assert _e4_blockers(outcome) == probe.E4_NEIGHBOUR_BLOCKERS[shape]
+    _, postgres = probe.e4_world(tmp_path / "postgres", "postgres", shape, body, policy)
+    assert postgres.status == "VERIFIED"
+
+
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+@pytest.mark.parametrize("shape", sorted(probe.E4_COMPOSED))
+def test_a_mysql_float_cell_composes_with_field_reads(tmp_path, shape, target):
+    """Lead ruling C13-R1: an E4 cell's operations stand alone, beside each
+    other and beside direct reads of fields of any type, the SELECT lists
+    E4's forms qualified; such a statement emits on both targets and every
+    reader accepts it."""
+    _, outcome = probe.e4_world(tmp_path, target, shape, probe.E4_COMPOSED[shape])
+    probe.numeric_readers_accept(outcome)
+
+
 @pytest.mark.parametrize("form", sorted(E4_ALL))
 def test_a_bind_safe_literal_leaves_the_mysql_float_arithmetic_cell(tmp_path, form):
     """Under bind_safe_literals every literal of the statement, a WHERE's

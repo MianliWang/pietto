@@ -2254,8 +2254,9 @@ def _mysql_cells(
     a literal of the query's WHERE body's predicate or of a plain upstream's
     beside an aggregate (a header parameter never reaches this document). An
     E4 operation is, as an S01 one, the whole value of a column of the final
-    body, named once, over its WHERE body at most (_mysql_float_operation).
-    MC G3's HAVING body and result body over an S02 aggregate keep
+    body, named once, over its WHERE body at most (_mysql_float_operation),
+    and every other column of that body is such an operation or a read of
+    a source field (mysql_float_select). MC G3's HAVING body and result body over an S02 aggregate keep
     _mysql_sum_clauses' law. MC G4: the aggregate's chain may instead stand
     over the named use of one upstream definition's
     projection body, over its own aggregate body, WHERE body and `let`
@@ -2507,6 +2508,17 @@ def _mysql_cells(
             and named.get(value) == 1
             and _mysql_float_operation(doc, value)
         )
+        # MC E4 (C13-R1, mysql_float_select): beside field reads and E4
+        # operations only.
+        if not all(
+            column.kind == "row_value_column"
+            and (
+                doc[column]["value"] in floats
+                or _mysql_field_read(doc, doc[column]["value"])
+            )
+            for column in final["columns"]
+        ):
+            floats = frozenset()
         return (
             frozenset(operations),
             frozenset(),

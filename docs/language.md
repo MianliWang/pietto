@@ -959,7 +959,8 @@ the whole operation may also be written in parentheses (`(x) * (2.0)`,
 included (`x * two()`, `mul(x, 2.0)`, `same(-x)`); the cell is judged on
 what they inline to. The operation is the whole value of a SELECT item of
 the `query` or `table` that `emit-sql --project` emits; its other SELECT
-items may be any form the query emits otherwise. The query reads its source
+items are direct reads of fields, of any type, or other operations of this
+cell, as in the qualification's forms. The query reads its source
 through one WHERE at most and, as written, holds no `let`, window, JOIN,
 GROUP BY or aggregate, HAVING, DISTINCT, ORDER BY, LIMIT, header parameter
 (read or not), set operand or read of another relation, and no bind-safe
@@ -981,8 +982,10 @@ nested operation (`(x * 2.0) + 1.0`, `-(-x)`), unary `+`, an `Int` literal,
 a literal under `+` or two signs, `/`, `%`, `abs` of the operation, a header
 parameter, the same operation in a `let`, a WHERE, an ORDER BY key or an
 aggregate argument, and a cell's operation in a query that holds any of the
-clauses above; a statement still refused reports exactly the blockers it
-has without this cell.
+clauses above or beside any other SELECT item, such as an `lpad`, `now()` or
+`date_of(now())` call, an S01 `Int` operation, a comparison, a literal or
+another expression; a statement still refused reports exactly the blockers
+it has without this cell.
 
 ## Sources and relations
 
