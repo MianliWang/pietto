@@ -495,6 +495,24 @@ def test_calls_are_independent_and_write_nothing(tmp_path: Path) -> None:
     assert snapshot() == before
 
 
+def test_a_closed_standard_output_changes_no_document(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root, _ = project(tmp_path, "postgres")
+    values = single("postgres")
+    batch = {"dialect": "postgres", "emission_contract": "contract.json"}
+    expected = (compile_sql(root, **values), compile_all_sql(root, **batch))
+    # Python 3.14's argparse asks stdout whether it is a terminal unless one
+    # of these answers first; the calls never write or ask stdout.
+    for name in ("PYTHON_COLORS", "NO_COLOR", "FORCE_COLOR", "TERM"):
+        monkeypatch.delenv(name, raising=False)
+    closed = io.TextIOWrapper(io.BytesIO())
+    closed.close()
+    monkeypatch.setattr(sys, "stdout", closed)
+
+    assert (compile_sql(root, **values), compile_all_sql(root, **batch)) == expected
+
+
 def test_a_real_child_process_prints_the_same_bytes(tmp_path: Path) -> None:
     root, _ = project(tmp_path, "mysql")
     values = single("mysql")

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import contextlib
 import errno
 import io
@@ -28,6 +29,9 @@ _STDOUT_NO_SPACE = (
     f"No space left on device (errno {errno.ENOSPC})\n"
 )
 _STDOUT_CLOSED = "pietto: error: standard output is closed\n"
+# Python 3.14's argparse colours text when one of these asks for it, and
+# otherwise asks whether stdout is a terminal.
+_COLOUR_VARIABLES = ("PYTHON_COLORS", "NO_COLOR", "FORCE_COLOR", "TERM")
 
 
 def test_emit_sql_default_output_remains_stdout(
@@ -659,6 +663,9 @@ def test_stdout_failure_is_a_handled_cli_error_in_every_command(
         "detached-text": detached_text,
     }[failure]
     monkeypatch.setattr(sys, "stdout", stdout)
+    # No variable answers for the terminal, so nothing may ask stdout.
+    for name in _COLOUR_VARIABLES:
+        monkeypatch.delenv(name, raising=False)
     stderr = io.StringIO()
 
     with contextlib.redirect_stderr(stderr):
@@ -751,6 +758,60 @@ def test_argparse_stderr_text_never_reaches_stdout_when_stderr_is_closed(
     assert (exit_info.value.code, stdout.getvalue()) == (2, "")
     parser.print_help()  # stdout-bound text still reaches the open stdout
     assert stdout.getvalue().startswith("usage: pietto ")
+
+
+class _Terminal(io.TextIOWrapper):
+    """Stubbed terminal: a text stdout that says it is a TTY."""
+
+    def isatty(self) -> bool:
+        return True
+
+
+@pytest.mark.skipif(
+    sys.version_info < (3, 14), reason="argparse colours text only from Python 3.14"
+)
+@pytest.mark.parametrize("colour", ["FORCE_COLOR=1", "PYTHON_COLORS=1", "terminal"])
+@pytest.mark.parametrize(
+    "command",
+    [
+        [],
+        ["--help"],
+        ["check", "--help"],
+        ["emit-sql", "--help"],
+        ["fmt", "--help"],
+        ["lsp", "--help"],
+        ["emit-sql", "a.pietto", "--format", "json", "--help"],
+        ["emit-sql", "--project", ".", "--help"],
+        # Usage errors on stderr.
+        ["check", "--bogus"],
+        ["emit-sql", "a.pietto"],
+        ["fmt"],
+    ],
+)
+def test_help_usage_and_errors_are_never_coloured(
+    command: list[str], colour: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def run(terminal: bool) -> tuple[int, bytes, str, str]:
+        buffer, stderr = io.BytesIO(), io.StringIO()
+        stdout = (_Terminal if terminal else io.TextIOWrapper)(buffer, encoding="utf-8")
+        with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+            code = cli.main(command)
+            # The control: a stock parser's usage under the same request.
+            stock = argparse.ArgumentParser(prog="pietto").format_usage()
+        return code, buffer.getvalue(), stderr.getvalue(), stock
+
+    for name in _COLOUR_VARIABLES:
+        monkeypatch.delenv(name, raising=False)
+    code, out, err, plain_stock = run(terminal=False)
+    if colour != "terminal":
+        monkeypatch.setenv(*colour.split("="))
+
+    coloured_code, coloured_out, coloured_err, stock = run(colour == "terminal")
+
+    if sys.platform == "win32" and colour == "terminal" and "\x1b[" not in stock:
+        pytest.skip("this console has no virtual terminal sequences to colour with")
+    assert ("\x1b[" in plain_stock, "\x1b[" in stock) == (False, True)
+    assert (coloured_code, coloured_out, coloured_err) == (code, out, err)
 
 
 _NEEDS_DEV_FULL = pytest.mark.skipif(

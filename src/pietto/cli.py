@@ -37,6 +37,7 @@ from pietto._output_file import (
     is_read_only,
     open_replacement,
 )
+from pietto._plain_argparse import PlainArgumentParser
 from pietto._terminal_text import escape_unicode_controls
 from pietto.errors import Diagnostic, Severity
 
@@ -103,7 +104,7 @@ class _StdoutWriteError(Exception):
     """
 
 
-class _CliArgumentParser(argparse.ArgumentParser):
+class _CliArgumentParser(PlainArgumentParser):
     """Route argparse output through the CLI stream writers.
 
     Help and --version are command output on stdout, so a closed or failing

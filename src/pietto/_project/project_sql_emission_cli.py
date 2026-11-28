@@ -75,6 +75,7 @@ from pietto._project.project_sqlite_emission import (
     serialize_sqlite_emission,
 )
 from pietto._project.project_verification_scope import entry
+from pietto._plain_argparse import PlainArgumentParser
 from pietto._terminal_text import escape_unicode_controls
 from pietto.semantic.analyzer import recursion_limit_diagnostic
 
@@ -144,7 +145,7 @@ class _Help(Exception):
     """The --help text, which the CLI writes to stdout like any result."""
 
 
-class _Parser(argparse.ArgumentParser):
+class _Parser(PlainArgumentParser):
     def error(self, message: str) -> NoReturn:
         raise _UsageError(message)
 
