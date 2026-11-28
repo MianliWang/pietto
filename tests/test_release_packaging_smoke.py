@@ -8,7 +8,7 @@ import subprocess
 import sys
 import tarfile
 import zipfile
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 import pytest
 
@@ -193,8 +193,58 @@ def test_installed_cli_uses_console_executable_and_reviewed_comparisons() -> Non
     assert "postgres.stdout != expected_postgres" in source
     assert '"mysql"' in source
     assert '"json"' in source
-    assert "json.loads(mysql.stdout)" in source
-    assert "actual_mysql != expected_mysql" in source
+    assert "_check_mysql_json(mysql)" in source
+
+
+def test_mysql_json_smoke_reads_the_golden_path_as_the_platform_spells_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    golden = json.loads((REPO_ROOT / smoke.MYSQL_GOLDEN).read_bytes())
+
+    def output(
+        document: object, stderr: bytes = b""
+    ) -> subprocess.CompletedProcess[bytes]:
+        stdout = json.dumps(document).encode() + b"\n"
+        return subprocess.CompletedProcess((), 0, stdout, stderr)
+
+    smoke._check_mysql_json(output({**golden, "path": str(Path(golden["path"]))}))
+    # The CLI prints str(Path(argument)), with backslashes on Windows.
+    monkeypatch.setattr(smoke, "Path", PureWindowsPath)
+    windows = str(PureWindowsPath(golden["path"]))
+    smoke._check_mysql_json(output({**golden, "path": windows}))
+    with pytest.raises(smoke.SmokeFailure) as raised:
+        smoke._check_mysql_json(output({**golden, "ok": False}, b"note\n"))
+    assert str(raised.value).splitlines()[1:] == [
+        "  $.ok: False, expected True",
+        f"  $.path: {golden['path']!r}, expected {windows!r}",
+        "  stderr: b'note\\n'",
+    ]
+
+
+def test_installed_check_resolves_the_wheel_url_that_uv_records(
+    tmp_path: Path,
+) -> None:
+    real = tmp_path / "real"
+    real.mkdir()
+    wheel = real / "pietto-0.0.0-py3-none-any.whl"
+    wheel.write_bytes(b"wheel")
+    (real / "other.whl").write_bytes(b"other")
+    # uv records the wheel path as it was given: here through a directory
+    # link, on Windows through the temporary directory's 8.3 short name.
+    given = tmp_path / "link"
+    given.symlink_to(real, target_is_directory=True)
+    url = (given / wheel.name).as_uri()
+    assert url != wheel.resolve().as_uri()
+    assert smoke._file_url_names(url, given / wheel.name)
+    assert smoke._file_url_names(url, wheel)
+    for refused in (
+        None,
+        (real / "other.whl").as_uri(),
+        url + "#sha256=0",
+        url.replace("file:///", "file://elsewhere/"),
+        "https" + url.removeprefix("file"),
+    ):
+        assert not smoke._file_url_names(refused, wheel), refused
 
 
 def test_installed_lsp_smoke_requires_the_exact_round_trip(tmp_path: Path) -> None:

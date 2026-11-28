@@ -28,6 +28,8 @@ from decimal import Decimal
 from email import policy
 from email.parser import BytesParser
 from pathlib import Path
+from urllib.parse import urlsplit
+from urllib.request import url2pathname
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -1395,17 +1397,7 @@ def _smoke_installed_cli(
         stage="installed MySQL JSON v1",
         environment=environment,
     )
-    try:
-        actual_mysql = json.loads(mysql.stdout)
-        expected_mysql = json.loads((REPO_ROOT / MYSQL_GOLDEN).read_bytes())
-    except (UnicodeError, json.JSONDecodeError) as error:
-        raise SmokeFailure(
-            f"cannot decode MySQL JSON v1 smoke output: {error}"
-        ) from error
-    if actual_mysql != expected_mysql or mysql.stderr:
-        raise SmokeFailure(
-            "installed MySQL JSON v1 output differs structurally from reviewed golden"
-        )
+    _check_mysql_json(mysql)
 
     _smoke_project_emit_sql(cli_path, scratch_dir, environment)
 
@@ -1416,6 +1408,60 @@ def _smoke_installed_cli(
         "MySQL JSON v1 structure, project emit-sql JSON/text/atomic file and batch directory",
         flush=True,
     )
+
+
+def _check_mysql_json(mysql: subprocess.CompletedProcess[bytes]) -> None:
+    """Compare the installed MySQL JSON v1 output with the reviewed golden.
+
+    The golden's path is written with `/`; the CLI spells the input path as
+    the platform does (`str(Path(...))`), so the golden's is read that way.
+    """
+
+    try:
+        actual_mysql = json.loads(mysql.stdout)
+        golden = json.loads((REPO_ROOT / MYSQL_GOLDEN).read_bytes())
+    except (UnicodeError, json.JSONDecodeError) as error:
+        raise SmokeFailure(
+            f"cannot decode MySQL JSON v1 smoke output: {error}"
+        ) from error
+    expected_mysql = {**golden, "path": str(Path(golden["path"]))}
+    if actual_mysql != expected_mysql or mysql.stderr:
+        found = _differences(actual_mysql, expected_mysql)
+        if mysql.stderr:
+            found.append(f"stderr: {mysql.stderr!r}")
+        raise SmokeFailure(
+            "installed MySQL JSON v1 output differs structurally from reviewed golden:"
+            + "".join(f"\n  {line}" for line in found)
+        )
+
+
+def _differences(actual: object, expected: object, where: str = "$") -> list[str]:
+    """Each place where two decoded JSON values differ, with both values."""
+
+    if isinstance(actual, dict) and isinstance(expected, dict):
+        found: list[str] = []
+        for key in sorted(actual.keys() | expected.keys()):
+            place = f"{where}.{key}"
+            if key not in actual:
+                found.append(f"{place}: missing, expected {expected[key]!r}")
+            elif key not in expected:
+                found.append(f"{place}: unexpected {actual[key]!r}")
+            else:
+                found += _differences(actual[key], expected[key], place)
+        return found
+    if (
+        isinstance(actual, list)
+        and isinstance(expected, list)
+        and len(actual) == len(expected)
+    ):
+        return [
+            line
+            for index, pair in enumerate(zip(actual, expected))
+            for line in _differences(*pair, f"{where}[{index}]")
+        ]
+    if actual == expected:
+        return []
+    return [f"{where}: {actual!r}, expected {expected!r}"]
 
 
 def _smoke_project_emit_sql(
@@ -1619,6 +1665,25 @@ def _installed_path(path: Path) -> Path:
     return resolved
 
 
+def _file_url_names(url: object, path: Path) -> bool:
+    """Whether a local file URL names the file at path.
+
+    uv records the wheel path as it was given, and Windows gives the
+    temporary directory by its 8.3 short name (`RUNNER~1`), which resolve()
+    spells in full, so both sides are resolved.
+    """
+
+    if not isinstance(url, str):
+        return False
+    parts = urlsplit(url)
+    return (parts.scheme, parts.netloc, parts.query, parts.fragment) == (
+        "file",
+        "",
+        "",
+        "",
+    ) and Path(url2pathname(parts.path)).resolve() == path.resolve()
+
+
 def _installed_check(wheel: Path, extra: str) -> None:
     """Run under the clean installed interpreter, without checkout imports."""
     contract = _project_contract()
@@ -1641,8 +1706,12 @@ def _installed_check(wheel: Path, extra: str) -> None:
             contract,
         )
     direct = json.loads(distribution.read_text("direct_url.json") or "null")
-    if not isinstance(direct, dict) or direct.get("url") != wheel.resolve().as_uri():
-        raise SmokeFailure("installed candidate wheel location differs")
+    url = direct.get("url") if isinstance(direct, dict) else None
+    if not _file_url_names(url, wheel):
+        raise SmokeFailure(
+            f"installed candidate wheel location differs: {url!r} does not "
+            f"name {wheel.resolve()}"
+        )
     importlib.import_module("pietto")
     cli = importlib.import_module("pietto.cli")
     importlib.import_module("pietto.execution")
