@@ -25,7 +25,9 @@ It uses JSON-RPC 2.0 over standard input and standard output with LSP
 only framed JSON-RPC messages. A malformed header or truncated frame writes
 `pietto lsp: invalid message header; stopping` to standard error and exits
 with status 1. Invalid JSON produces JSON-RPC `-32700` and does not by itself
-end a valid session. Batch requests are rejected with `-32600`. An error
+end a valid session; so does a body whose arrays and objects nest more than
+1000 deep, on every supported Python. Batch requests are rejected with
+`-32600`. An error
 inside Pietto does not end the session either: the server writes
 `pietto lsp: internal error; continuing` and the traceback to standard
 error. If the error stops the analysis of a document or root, or the storing

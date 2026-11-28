@@ -13,6 +13,7 @@ import sys
 import threading
 import traceback
 from dataclasses import dataclass
+from itertools import accumulate
 from pathlib import Path, PurePath, PurePosixPath, PureWindowsPath
 from types import MappingProxyType
 from typing import BinaryIO, Mapping, Protocol
@@ -42,6 +43,14 @@ _FRAMING_ERROR = object()
 _INVALID_JSON = object()
 _MAX_HEADER = 65536
 _CHUNK = 65536
+# The deepest nesting a body may have: below the lowest json limit of a
+# supported interpreter (3000 levels, the C recursion limit of CPython 3.12
+# and 3.13 on Windows), so the interpreter never decides a body within it.
+_MAX_NESTING = 1000
+# A JSON string, or an unterminated tail from its opening quote.
+_STRING = re.compile(rb'"[^"\\]*+(?:\\.[^"\\]*+)*+(?:"|\\?\Z)', re.DOTALL)
+_NESTING_STEPS = bytes.maketrans(b"[{]}", b"\x01\x01\xff\xff")
+_NOT_BRACKET = bytes(byte for byte in range(256) if byte not in b"[]{}")
 _LINE_BREAK = re.compile(r"\r\n|\r|\n")
 _LONE_SURROGATE = re.compile("[\ud800-\udfff]")
 _ASCII_LOWER = str.maketrans(string.ascii_uppercase, string.ascii_lowercase)
@@ -120,10 +129,23 @@ def _read_messages(stdin: int, inbox: queue.Queue[object]) -> None:
         body = bytes(buffer[start : start + length])
         del buffer[: start + length]
         try:
-            message = json.loads(body.decode("utf-8"))
+            message = (
+                json.loads(body.decode("utf-8")) if _shallow(body) else _INVALID_JSON
+            )
         except Exception:
             message = _INVALID_JSON
         inbox.put(message)
+
+
+def _shallow(body: bytes) -> bool:
+    """Whether no array or object of `body` nests deeper than `_MAX_NESTING`,
+    counting brackets outside strings without recursion. That is the exact
+    depth of a body json reads, and json nests no deeper in a body it
+    refuses, so the bound and not the interpreter's recursion limit refuses a
+    deep message."""
+
+    steps = _STRING.sub(b"", body).translate(_NESTING_STEPS, _NOT_BRACKET)
+    return max(accumulate(memoryview(steps).cast("b")), default=0) <= _MAX_NESTING
 
 
 @dataclass(slots=True)

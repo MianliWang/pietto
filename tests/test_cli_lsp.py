@@ -2240,6 +2240,16 @@ def test_protocol_errors_over_a_process(
 ) -> None:
     hover = {"jsonrpc": "2.0", "id": 1, "method": "textDocument/hover"}
     deep = b"[" * 100_000 + b"]" * 100_000
+
+    def nested(number: int, text: bytes, depth: int) -> bytes:
+        # A hover request `depth` levels deep, its arrays after a string.
+        arrays = b"[" * (depth - 2) + b"]" * (depth - 2)
+        body = (
+            b'{"jsonrpc": "2.0", "id": %d, "method": "textDocument/hover", '
+            b'"params": {"text": %b, "deep": %b}}' % (number, text, arrays)
+        )
+        return b"Content-Length: %d\r\n\r\n%b" % (len(body), body)
+
     data = (
         frame(hover)
         + b"Content-Length: 1\r\n\r\n{"
@@ -2247,6 +2257,10 @@ def test_protocol_errors_over_a_process(
         + frame([hover])
         + frame(INIT)
         + frame({"jsonrpc": "2.0", "id": 3, "method": "textDocument/hover"})
+        # 1000 levels are read and 1001 are a parse error on every
+        # interpreter; brackets in a string never count.
+        + nested(7, rb'"\"[[\""', 1000)
+        + nested(8, b'"]]"', 1001)
         + frame(notify("pietto/unknown"))
         + frame(notify("$/cancelRequest", id=3))
         + frame({**INIT, "id": 4})
@@ -2262,6 +2276,8 @@ def test_protocol_errors_over_a_process(
         (None, -32600),
         (0, None),
         (3, -32602),
+        (7, -32602),
+        (None, -32700),
         (4, -32600),
         (99, None),
         (6, -32600),
